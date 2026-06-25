@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --plpass-green-light: 120 58% 80%;
+    --plpass-green-bright: 102 78% 53%;
+    --plpass-green-primary: 120 66% 41%;
+    --plpass-green-deep: 120 100% 25%;
+    --plpass-green-dark: 120 72% 26%;
+
+    --background: 210 20% 98%;
+    --foreground: 220 18% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 18% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 18% 12%;
+
+    --primary: var(--plpass-green-primary);
+    --primary-hover: var(--plpass-green-deep);
+    --primary-active: var(--plpass-green-dark);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 17% 95%;
+    --secondary-hover: 210 16% 91%;
+    --secondary-foreground: 220 18% 18%;
+    --muted: 210 16% 94%;
+    --muted-foreground: 220 9% 42%;
+    --accent: var(--plpass-green-bright);
+    --accent-foreground: 220 18% 12%;
+    --highlight: var(--plpass-green-light);
+    --highlight-foreground: 220 18% 12%;
+
+    --destructive: 0 72% 45%;
+    --destructive-hover: 0 74% 38%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 14% 88%;
+    --input: 220 14% 88%;
+    --ring: var(--plpass-green-primary);
+
+    --surface: 0 0% 100%;
+    --surface-muted: 210 20% 96%;
+    --surface-strong: 220 14% 91%;
+    --sidebar: var(--plpass-green-dark);
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-active: var(--plpass-green-deep);
+    --sidebar-active-foreground: 0 0% 100%;
+
+    --success: 166 72% 28%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 166 42% 90%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 220 18% 12%;
+    --warning-muted: 42 90% 92%;
+    --danger: 0 72% 45%;
+    --danger-foreground: 0 0% 100%;
+    --danger-muted: 0 84% 94%;
+    --info: 208 76% 42%;
+    --info-foreground: 0 0% 100%;
+    --info-muted: 210 78% 94%;
+
+    --chart-1: var(--plpass-green-primary);
+    --chart-2: var(--plpass-green-bright);
+    --chart-3: 208 76% 42%;
+    --chart-4: 38 92% 45%;
+    --chart-5: 166 72% 28%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 220 18% 9%;
+    --foreground: 210 40% 98%;
+    --card: 220 16% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 220 16% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: var(--plpass-green-primary);
+    --primary-hover: var(--plpass-green-deep);
+    --primary-active: var(--plpass-green-dark);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-hover: 217.2 32.6% 22%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: var(--plpass-green-bright);
+    --accent-foreground: 220 18% 12%;
+    --highlight: var(--plpass-green-light);
+    --highlight-foreground: 220 18% 12%;
+    --destructive: 0 62.8% 38%;
+    --destructive-hover: 0 72% 32%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: var(--plpass-green-primary);
+    --surface: 220 16% 12%;
+    --surface-muted: 217.2 32.6% 17.5%;
+    --surface-strong: 217.2 32.6% 22%;
+    --sidebar: var(--plpass-green-dark);
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-active: var(--plpass-green-deep);
+    --sidebar-active-foreground: 0 0% 100%;
+    --success: 166 72% 36%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 166 30% 18%;
+    --warning: 38 92% 55%;
+    --warning-foreground: 220 18% 12%;
+    --warning-muted: 38 42% 18%;
+    --danger: 0 72% 48%;
+    --danger-foreground: 0 0% 100%;
+    --danger-muted: 0 38% 18%;
+    --info: 208 76% 58%;
+    --info-foreground: 220 18% 12%;
+    --info-muted: 208 42% 18%;
+    --chart-1: var(--plpass-green-primary);
+    --chart-2: var(--plpass-green-bright);
+    --chart-3: 208 76% 58%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 166 72% 36%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .plpass-sidebar {
+    @apply bg-sidebar text-sidebar-foreground;
+  }
+
+  .plpass-sidebar-active {
+    @apply bg-sidebar-active text-sidebar-active-foreground;
+  }
+
+  .plpass-top-nav {
+    @apply border-b bg-surface text-foreground;
+  }
+
+  .plpass-nav-active {
+    @apply bg-accent text-accent-foreground;
+  }
+
+  .plpass-field {
+    @apply border-input bg-surface text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring;
+  }
+
+  .plpass-table-surface {
+    @apply border-border bg-surface text-foreground;
+  }
+
+  .plpass-table-row-selected {
+    @apply bg-highlight text-highlight-foreground;
+  }
+
+  .plpass-filter-selected {
+    @apply bg-accent text-accent-foreground;
+  }
+
+  .plpass-card-highlight {
+    @apply border-primary/30 bg-highlight text-highlight-foreground;
+  }
+
+  .plpass-modal-surface {
+    @apply border-border bg-popover text-popover-foreground;
+  }
+
+  .plpass-loading-state,
+  .plpass-empty-state {
+    @apply border-border bg-surface-muted text-muted-foreground;
+  }
+
+  .plpass-error-state {
+    @apply border-danger/30 bg-danger-muted text-foreground;
+  }
+
+  .plpass-status-success {
+    @apply bg-success-muted text-foreground;
+  }
+
+  .plpass-status-warning {
+    @apply bg-warning-muted text-warning-foreground;
+  }
+
+  .plpass-status-danger {
+    @apply bg-danger-muted text-foreground;
+  }
+
+  .plpass-status-info {
+    @apply bg-info-muted text-foreground;
+  }
+}
