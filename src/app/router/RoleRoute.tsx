@@ -10,7 +10,7 @@ type RoleRouteProps = {
 export function RoleRoute({ allowedRoles }: RoleRouteProps) {
   const { session } = useDevelopmentSession();
 
-  if (!allowedRoles.includes(session.role)) {
+  if (!session || !allowedRoles.includes(session.role)) {
     return <Navigate to={APP_ROUTES.accessDenied} replace />;
   }
 

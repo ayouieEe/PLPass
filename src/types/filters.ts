@@ -1,6 +1,8 @@
 import type {
   AttendanceStatus,
   NfcCredentialStatus,
+  NotificationStatus,
+  NotificationType,
   SessionStatus,
   SortDirection
 } from "@/types/enums";
@@ -39,6 +41,11 @@ export type AttendanceFilter = {
   credentialStatus?: NfcCredentialStatus;
 };
 
+export type NotificationFilter = {
+  notificationStatus?: NotificationStatus;
+  notificationType?: NotificationType;
+};
+
 export type SortQuery = {
   sortBy?: string;
   sortDirection?: SortDirection;
@@ -50,6 +57,7 @@ export type ListQuery = PaginationQuery &
   AcademicFilter &
   EntityFilter &
   AttendanceFilter &
+  NotificationFilter &
   SortQuery;
 
 export type PaginatedResult<T> = {

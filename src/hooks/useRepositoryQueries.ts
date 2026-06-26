@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { repositories } from "@/services/repositories";
 import type { CreateCorrectionRequestInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
@@ -20,11 +20,26 @@ export function useAuthSession(context?: RepositoryContext) {
   });
 }
 
+export function useDevelopmentAccounts() {
+  return useQuery({
+    queryKey: ["developmentAccounts"],
+    queryFn: () => repositories.authentication.listDevelopmentAccounts()
+  });
+}
+
 export function useUsers(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["users", listQuery, context],
     queryFn: () => repositories.userManagement.listUsers(listQuery, context)
+  });
+}
+
+export function useUser(userId: string | undefined, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["user", userId, context],
+    queryFn: () => repositories.userManagement.getUserById(userId ?? "", context),
+    enabled: Boolean(userId)
   });
 }
 
@@ -134,6 +149,14 @@ export function useNfcCredentials(query?: Partial<ListQuery>, context?: Reposito
   });
 }
 
+export function useNfcCredentialForStudent(studentId: string | undefined, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["nfcCredentialForStudent", studentId, context],
+    queryFn: () => repositories.nfcCredentials.getCredentialForStudent(studentId ?? "", context),
+    enabled: Boolean(studentId)
+  });
+}
+
 export function useNfcReaders(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
@@ -173,6 +196,78 @@ export function useReports(query?: Partial<ListQuery>, context?: RepositoryConte
 }
 
 export function useNotifications(query?: Partial<ListQuery>, context?: RepositoryContext) {
+  const listQuery = queryWithDefaults(query);
+  const queryClient = useQueryClient();
+  const queryKey = ["notifications", listQuery, context] as const;
+  const listQueryResult = useQuery({
+    queryKey,
+    queryFn: () => repositories.notifications.listNotifications(listQuery, context)
+  });
+  const markReadMutation = useMutation({
+    mutationFn: (notificationId: string) => repositories.notifications.markNotificationRead(notificationId, context),
+    onMutate: async (notificationId) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (current: typeof listQueryResult.data) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((notification) =>
+                notification.id === notificationId ? { ...notification, status: "read" as const } : notification
+              )
+            }
+          : current
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, mutationContext) => {
+      if (mutationContext?.previous) {
+        queryClient.setQueryData(queryKey, mutationContext.previous);
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
+  const markAllReadMutation = useMutation({
+    mutationFn: () => repositories.notifications.markAllNotificationsRead(context),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (current: typeof listQueryResult.data) =>
+        current
+          ? {
+              ...current,
+              items: current.items.map((notification) => ({ ...notification, status: "read" as const }))
+            }
+          : current
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, mutationContext) => {
+      if (mutationContext?.previous) {
+        queryClient.setQueryData(queryKey, mutationContext.previous);
+      }
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
+
+  return { ...listQueryResult, markReadMutation, markAllReadMutation };
+}
+
+export function useNotificationUnreadCount(context?: RepositoryContext) {
+  const listQuery = queryWithDefaults({ notificationStatus: "unread", pageSize: 100 });
+  return useQuery({
+    queryKey: ["notifications", "unreadCount", context],
+    queryFn: () => repositories.notifications.listNotifications(listQuery, context),
+    enabled: Boolean(context),
+    select: (result) => result.total
+  });
+}
+
+export function useNotificationsQuery(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["notifications", listQuery, context],

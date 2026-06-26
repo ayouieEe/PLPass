@@ -28,6 +28,9 @@ export type ReportStatus = (typeof REPORT_STATUSES)[number];
 export const NOTIFICATION_STATUSES = ["unread", "read", "archived"] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 
+export const NOTIFICATION_TYPES = ["attendance", "correction", "system", "report"] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
 export const VERIFICATION_METHODS = ["nfc", "qr", "manual", "online"] as const;
 export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
 

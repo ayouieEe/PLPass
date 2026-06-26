@@ -8,6 +8,7 @@ import type {
   MlPredictionType,
   NfcCredentialStatus,
   NotificationStatus,
+  NotificationType,
   ReportStatus,
   RiskLevel,
   SessionStatus,
@@ -53,13 +54,18 @@ export type FacultyProfile = {
 export type OrganizerProfile = {
   id: ID;
   userId: ID;
+  employeeNumber: string;
   organizationName: string;
   departmentId?: ID;
+  position: string;
+  employmentStatus: FacultyEmploymentStatus;
 };
 
 export type AdminProfile = {
   id: ID;
   userId: ID;
+  employeeNumber: string;
+  departmentId: ID;
   officeName: string;
 };
 
@@ -203,6 +209,7 @@ export type Report = {
 export type Notification = {
   id: ID;
   userId: ID;
+  type: NotificationType;
   title: string;
   body: string;
   status: NotificationStatus;
@@ -237,4 +244,11 @@ export type AuthSession = {
   role: UserRole;
   displayName: string;
   isAuthenticated: boolean;
+};
+
+export type DevelopmentAccount = {
+  userId: ID;
+  role: UserRole;
+  displayName: string;
+  email: string;
 };

@@ -21,7 +21,8 @@ import type {
   Report,
   Semester,
   Student,
-  User
+  User,
+  DevelopmentAccount
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
@@ -32,6 +33,7 @@ export type CreateCorrectionRequestInput = Pick<
 >;
 
 export interface AuthenticationRepository {
+  listDevelopmentAccounts(context?: RepositoryContext): Promise<DevelopmentAccount[]>;
   getSession(context?: RepositoryContext): Promise<AuthSession>;
 }
 
@@ -94,6 +96,8 @@ export interface ReportRepository {
 
 export interface NotificationRepository {
   listNotifications(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Notification>>;
+  markNotificationRead(notificationId: string, context?: RepositoryContext): Promise<Notification>;
+  markAllNotificationsRead(context?: RepositoryContext): Promise<Notification[]>;
 }
 
 export interface AuditLogRepository {
