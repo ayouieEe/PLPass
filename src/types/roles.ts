@@ -1,1 +1,1 @@
-export type UserRole = "admin" | "faculty" | "organizer" | "student";
+export type { UserRole } from "@/types/enums";

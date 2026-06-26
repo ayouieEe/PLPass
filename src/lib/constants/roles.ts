@@ -1,3 +1,3 @@
-import type { UserRole } from "@/types/roles";
+import { USER_ROLES as DOMAIN_USER_ROLES } from "@/types/enums";
 
-export const USER_ROLES = ["admin", "faculty", "organizer", "student"] as const satisfies readonly UserRole[];
+export const USER_ROLES = DOMAIN_USER_ROLES;
