@@ -49,7 +49,7 @@ export function DataTable<TData, TValue>({
           </thead>
           <tbody className="divide-y bg-surface">
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="transition-colors hover:bg-highlight">
+              <tr key={row.id} className="transition-colors hover:bg-surface-muted">
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className="px-4 py-3">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

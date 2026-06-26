@@ -13,7 +13,7 @@ export function ActiveSessionHeader({ title, venue, startedAt, statusLabel }: Ac
     <section className="rounded-lg border bg-surface p-4">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-medium text-primary">
+          <div className="flex items-center gap-2 text-sm font-medium text-brand-green-primary">
             <Nfc className="h-4 w-4" aria-hidden="true" />
             Active NFC session
           </div>

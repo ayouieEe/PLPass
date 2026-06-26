@@ -11,7 +11,7 @@ export function ReportPreviewCard({ title, description, metrics }: ReportPreview
   return (
     <article className="rounded-lg border bg-surface p-4">
       <div className="flex items-start gap-3">
-        <FileText className="mt-1 h-5 w-5 text-primary" aria-hidden="true" />
+        <FileText className="mt-1 h-5 w-5 text-brand-green-primary" aria-hidden="true" />
         <div>
           <h2 className="font-semibold">{title}</h2>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>

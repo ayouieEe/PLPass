@@ -28,12 +28,12 @@ export function StatCard({ title, value, description, trend, icon: Icon, tone = 
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           <p className="text-2xl font-semibold tracking-normal text-foreground">{value}</p>
         </div>
-        {Icon ? <Icon className="h-5 w-5 text-primary" aria-hidden="true" /> : null}
+        {Icon ? <Icon className="h-5 w-5 text-brand-green-primary" aria-hidden="true" /> : null}
       </div>
       {description || trend ? (
         <div className="mt-3 space-y-1 text-sm">
           {description ? <p className="text-muted-foreground">{description}</p> : null}
-          {trend ? <p className="font-medium text-primary">{trend}</p> : null}
+          {trend ? <p className="font-medium text-brand-green-primary">{trend}</p> : null}
         </div>
       ) : null}
     </article>

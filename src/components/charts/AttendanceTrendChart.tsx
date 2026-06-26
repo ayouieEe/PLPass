@@ -15,9 +15,9 @@ export function AttendanceTrendChart({ data }: AttendanceTrendChartProps) {
           <XAxis dataKey="label" />
           <YAxis />
           <Tooltip />
-          <Area type="monotone" dataKey="present" stackId="1" fill="hsl(var(--chart-1))" stroke="hsl(var(--chart-1))" />
-          <Area type="monotone" dataKey="late" stackId="1" fill="hsl(var(--chart-4))" stroke="hsl(var(--chart-4))" />
-          <Area type="monotone" dataKey="absent" stackId="1" fill="hsl(var(--danger))" stroke="hsl(var(--danger))" />
+          <Area type="monotone" dataKey="present" stackId="1" fill="hsl(var(--chart-present))" stroke="hsl(var(--chart-present))" />
+          <Area type="monotone" dataKey="late" stackId="1" fill="hsl(var(--chart-late))" stroke="hsl(var(--chart-late))" />
+          <Area type="monotone" dataKey="absent" stackId="1" fill="hsl(var(--chart-absent))" stroke="hsl(var(--chart-absent))" />
         </AreaChart>
       </ResponsiveContainer>
     </ChartFrame>

@@ -10,45 +10,46 @@
     --plpass-green-deep: 120 100% 25%;
     --plpass-green-dark: 120 72% 26%;
 
-    --background: 210 20% 98%;
-    --foreground: 220 18% 12%;
+    --background: 120 23% 97%;
+    --foreground: 122 35% 14%;
     --card: 0 0% 100%;
-    --card-foreground: 220 18% 12%;
+    --card-foreground: 122 35% 14%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 18% 12%;
+    --popover-foreground: 122 35% 14%;
 
-    --primary: var(--plpass-green-primary);
+    --primary: var(--plpass-green-dark);
     --primary-hover: var(--plpass-green-deep);
     --primary-active: var(--plpass-green-dark);
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 17% 95%;
-    --secondary-hover: 210 16% 91%;
-    --secondary-foreground: 220 18% 18%;
-    --muted: 210 16% 94%;
-    --muted-foreground: 220 9% 42%;
+    --secondary: 120 17% 94%;
+    --secondary-hover: 120 17% 90%;
+    --secondary-foreground: 122 35% 14%;
+    --muted: 120 17% 94%;
+    --muted-foreground: 221 13% 46%;
     --accent: var(--plpass-green-bright);
-    --accent-foreground: 220 18% 12%;
+    --accent-foreground: 122 35% 14%;
     --highlight: var(--plpass-green-light);
-    --highlight-foreground: 220 18% 12%;
+    --highlight-foreground: 122 35% 14%;
 
     --destructive: 0 72% 45%;
     --destructive-hover: 0 74% 38%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 88%;
-    --input: 220 14% 88%;
-    --ring: var(--plpass-green-primary);
+    --border: 120 17% 88%;
+    --input: 120 17% 88%;
+    --ring: var(--plpass-green-bright);
 
     --surface: 0 0% 100%;
-    --surface-muted: 210 20% 96%;
-    --surface-strong: 220 14% 91%;
+    --surface-muted: 120 17% 94%;
+    --surface-strong: 120 17% 88%;
+    --disabled: 120 17% 94%;
     --sidebar: var(--plpass-green-dark);
     --sidebar-foreground: 0 0% 100%;
-    --sidebar-active: var(--plpass-green-deep);
+    --sidebar-active: var(--plpass-green-dark);
     --sidebar-active-foreground: 0 0% 100%;
 
-    --success: 166 72% 28%;
+    --success: 145 63% 31%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 166 42% 90%;
+    --success-muted: var(--plpass-green-light);
     --warning: 38 92% 45%;
     --warning-foreground: 220 18% 12%;
     --warning-muted: 42 90% 92%;
@@ -59,11 +60,17 @@
     --info-foreground: 0 0% 100%;
     --info-muted: 210 78% 94%;
 
-    --chart-1: var(--plpass-green-primary);
+    --chart-present: 145 63% 31%;
+    --chart-late: var(--warning);
+    --chart-absent: var(--danger);
+    --chart-neutral: 220 9% 58%;
+    --chart-trend: var(--plpass-green-dark);
+    --chart-selected: var(--plpass-green-bright);
+    --chart-1: var(--chart-present);
     --chart-2: var(--plpass-green-bright);
-    --chart-3: 208 76% 42%;
-    --chart-4: 38 92% 45%;
-    --chart-5: 166 72% 28%;
+    --chart-3: var(--chart-neutral);
+    --chart-4: var(--chart-late);
+    --chart-5: var(--chart-trend);
     --radius: 0.5rem;
   }
 
@@ -96,6 +103,7 @@
     --surface: 220 16% 12%;
     --surface-muted: 217.2 32.6% 17.5%;
     --surface-strong: 217.2 32.6% 22%;
+    --disabled: 217.2 32.6% 17.5%;
     --sidebar: var(--plpass-green-dark);
     --sidebar-foreground: 0 0% 100%;
     --sidebar-active: var(--plpass-green-deep);
@@ -112,11 +120,17 @@
     --info: 208 76% 58%;
     --info-foreground: 220 18% 12%;
     --info-muted: 208 42% 18%;
-    --chart-1: var(--plpass-green-primary);
+    --chart-present: 145 63% 42%;
+    --chart-late: var(--warning);
+    --chart-absent: var(--danger);
+    --chart-neutral: 215 20.2% 65.1%;
+    --chart-trend: var(--plpass-green-dark);
+    --chart-selected: var(--plpass-green-bright);
+    --chart-1: var(--chart-present);
     --chart-2: var(--plpass-green-bright);
-    --chart-3: 208 76% 58%;
-    --chart-4: 38 92% 55%;
-    --chart-5: 166 72% 36%;
+    --chart-3: var(--chart-neutral);
+    --chart-4: var(--chart-late);
+    --chart-5: var(--chart-trend);
   }
 
   * {
@@ -135,7 +149,7 @@
   }
 
   .plpass-sidebar-active {
-    @apply bg-sidebar-active text-sidebar-active-foreground;
+    @apply bg-sidebar-active text-sidebar-active-foreground ring-1 ring-white/20;
   }
 
   .plpass-top-nav {
@@ -143,11 +157,11 @@
   }
 
   .plpass-nav-active {
-    @apply bg-accent text-accent-foreground;
+    @apply bg-primary text-primary-foreground;
   }
 
   .plpass-field {
-    @apply border-input bg-surface text-foreground placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring;
+    @apply border-input bg-surface text-foreground placeholder:text-muted-foreground disabled:bg-disabled focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
   }
 
   .plpass-table-surface {
@@ -159,7 +173,7 @@
   }
 
   .plpass-filter-selected {
-    @apply bg-accent text-accent-foreground;
+    @apply bg-primary text-primary-foreground;
   }
 
   .plpass-card-highlight {

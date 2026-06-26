@@ -12,7 +12,7 @@ export function QRFallbackPanel({ enabled, onToggle }: QRFallbackPanelProps) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 font-semibold">
-            <QrCode className="h-4 w-4 text-primary" aria-hidden="true" />
+            <QrCode className="h-4 w-4 text-brand-green-primary" aria-hidden="true" />
             QR fallback
           </div>
           <p className="mt-1 text-sm text-muted-foreground">Secondary attendance option when NFC cannot be used.</p>

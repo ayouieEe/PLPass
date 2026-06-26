@@ -15,8 +15,8 @@ export function RiskSummaryChart({ data }: RiskSummaryChartProps) {
           <XAxis dataKey="label" />
           <YAxis />
           <Tooltip />
-          <Bar dataKey="watchlist" stackId="risk" fill="hsl(var(--chart-4))" radius={[6, 6, 0, 0]} />
-          <Bar dataKey="atRisk" stackId="risk" fill="hsl(var(--danger))" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="watchlist" stackId="risk" fill="hsl(var(--chart-late))" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="atRisk" stackId="risk" fill="hsl(var(--chart-absent))" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </ChartFrame>

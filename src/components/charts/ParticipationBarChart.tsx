@@ -15,7 +15,7 @@ export function ParticipationBarChart({ data }: ParticipationBarChartProps) {
           <XAxis dataKey="label" />
           <YAxis />
           <Tooltip />
-          <Bar dataKey="participation" fill="hsl(var(--chart-2))" radius={[6, 6, 0, 0]} />
+          <Bar dataKey="participation" fill="hsl(var(--chart-trend))" radius={[6, 6, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </ChartFrame>

@@ -21,7 +21,7 @@ export function DevelopmentHomePage() {
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
       <section className="space-y-6">
         <div className="space-y-3">
-          <p className="text-sm font-medium text-primary">Frontend foundation</p>
+          <p className="text-sm font-medium text-brand-green-primary">Frontend foundation</p>
           <h1 className="max-w-3xl text-4xl font-bold tracking-normal">PLPass is ready for Phase 0 development.</h1>
           <p className="max-w-2xl text-base leading-7 text-muted-foreground">
             This page confirms the frontend shell is running with providers, routing, theme handling, and placeholder access
@@ -39,7 +39,7 @@ export function DevelopmentHomePage() {
         <div className="grid gap-3 sm:grid-cols-2">
           {foundationItems.map((item) => (
             <div key={item} className="flex items-center gap-3 rounded-lg border bg-surface p-4">
-              <BadgeCheck className="h-5 w-5 text-primary" aria-hidden="true" />
+              <BadgeCheck className="h-5 w-5 text-brand-green-primary" aria-hidden="true" />
               <span className="text-sm font-medium">{item}</span>
             </div>
           ))}

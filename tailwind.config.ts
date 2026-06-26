@@ -60,6 +60,7 @@ const config = {
           muted: "hsl(var(--surface-muted))",
           strong: "hsl(var(--surface-strong))"
         },
+        disabled: "hsl(var(--disabled))",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -98,7 +99,13 @@ const config = {
           2: "hsl(var(--chart-2))",
           3: "hsl(var(--chart-3))",
           4: "hsl(var(--chart-4))",
-          5: "hsl(var(--chart-5))"
+          5: "hsl(var(--chart-5))",
+          present: "hsl(var(--chart-present))",
+          late: "hsl(var(--chart-late))",
+          absent: "hsl(var(--chart-absent))",
+          neutral: "hsl(var(--chart-neutral))",
+          trend: "hsl(var(--chart-trend))",
+          selected: "hsl(var(--chart-selected))"
         }
       },
       borderRadius: {

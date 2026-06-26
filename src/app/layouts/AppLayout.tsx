@@ -21,7 +21,7 @@ export function AppLayout() {
       <header className="plpass-top-nav">
         <div className="container flex min-h-16 items-center justify-between gap-4">
           <NavLink to="/" className="flex items-center gap-2 font-semibold">
-            <Activity className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Activity className="h-5 w-5 text-brand-green-primary" aria-hidden="true" />
             <span>PLPass</span>
           </NavLink>
           <nav aria-label="Main navigation" className="flex items-center gap-1">
@@ -31,7 +31,7 @@ export function AppLayout() {
                 to={item.href}
                 className={({ isActive }) =>
                   cn(
-                    "rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-highlight hover:text-highlight-foreground",
+                    "rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-primary-hover hover:text-primary-foreground",
                     isActive && "plpass-nav-active"
                   )
                 }
