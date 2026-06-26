@@ -84,12 +84,12 @@ export const facultyProfileFixtures: FacultyProfile[] = [
 ];
 
 export const organizerProfileFixtures: OrganizerProfile[] = [
-  { id: "organizer-1", userId: "user-organizer-1", organizationName: "Student Affairs", departmentId: "dept-ccs" },
-  { id: "organizer-2", userId: "user-organizer-2", organizationName: "Academic Events", departmentId: "dept-cba" }
+  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "Student Affairs", departmentId: "dept-ccs", position: "Events Coordinator", employmentStatus: "active" },
+  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "Academic Events", departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
 ];
 
 export const adminProfileFixtures: AdminProfile[] = [
-  { id: "admin-1", userId: "user-admin-1", officeName: "Dean's Office" }
+  { id: "admin-1", userId: "user-admin-1", employeeNumber: "A-0001", departmentId: "dept-ccs", officeName: "Dean's Office" }
 ];
 
 export const classFixtures: Class[] = [
@@ -172,8 +172,11 @@ export const reportFixtures: Report[] = [
 ];
 
 export const notificationFixtures: Notification[] = [
-  { id: "notification-1", userId: "user-student-1", title: "Attendance recorded", body: "Your NFC tap was accepted.", status: "unread", createdAt: now },
-  { id: "notification-2", userId: "user-faculty-1", title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now }
+  { id: "notification-1", userId: "user-student-1", type: "attendance", title: "Attendance recorded", body: "Your NFC tap was accepted.", status: "unread", createdAt: now },
+  { id: "notification-2", userId: "user-faculty-1", type: "correction", title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now },
+  { id: "notification-3", userId: "user-admin-1", type: "system", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
+  { id: "notification-4", userId: "user-organizer-1", type: "report", title: "Report ready", body: "Event participation report is ready.", status: "unread", createdAt: now },
+  { id: "notification-5", userId: "user-student-1", type: "system", title: "Development reminder", body: "Review your latest attendance record.", status: "unread", createdAt: now }
 ];
 
 export const auditLogFixtures: AuditLog[] = [

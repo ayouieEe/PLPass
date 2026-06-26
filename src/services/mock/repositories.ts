@@ -56,6 +56,7 @@ import type {
   CorrectionRequest,
   Event,
   NfcCredential,
+  Notification,
   Student,
   User
 } from "@/types/domain";
@@ -143,7 +144,22 @@ function filterAttendanceRecords(query?: ListQuery): AttendanceRecord[] {
   });
 }
 
+let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
+
+export function resetMockRepositoryState() {
+  notificationState = notificationFixtures.map((notification) => ({ ...notification }));
+}
+
 export const mockAuthenticationRepository: AuthenticationRepository = {
+  async listDevelopmentAccounts() {
+    await applyMockMode("authentication");
+    return userFixtures.map((user) => ({
+      userId: user.id,
+      role: user.role,
+      displayName: user.displayName,
+      email: user.email
+    }));
+  },
   async getSession(context = defaultRepositoryContext) {
     await applyMockMode("authentication");
     const user = getOrThrow(userFixtures, context.actorUserId, "User");
@@ -170,36 +186,51 @@ export const mockUserManagementRepository: UserManagementRepository = {
     return getOrThrow(userFixtures, userId, "User");
   },
   async listStudents(query, context) {
-    await beforeRead("userManagement", context, ["admin", "faculty", "organizer"]);
-    return paginateOrThrowEmpty(filterStudents(query), query);
+    await beforeRead("userManagement", context, ["admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const items =
+      currentContext.actorRole === "student"
+        ? filterStudents(query).filter((student) => student.userId === currentContext.actorUserId)
+        : filterStudents(query);
+    return paginateOrThrowEmpty(items, query);
   },
   async listFacultyProfiles(query, context) {
-    await beforeRead("userManagement", context, ["admin"]);
-    return paginateOrThrowEmpty(
-      facultyProfileFixtures.filter((profile) => matchesSearch([profile.employeeNumber, profile.title], query?.search)),
-      query
+    await beforeRead("userManagement", context, ["admin", "faculty"]);
+    const currentContext = contextOrDefault(context);
+    const items = facultyProfileFixtures.filter(
+      (profile) =>
+        matchesSearch([profile.employeeNumber, profile.title], query?.search) &&
+        (currentContext.actorRole === "admin" || profile.userId === currentContext.actorUserId)
     );
+    return paginateOrThrowEmpty(items, query);
   },
   async listOrganizerProfiles(query, context) {
-    await beforeRead("userManagement", context, ["admin"]);
-    return paginateOrThrowEmpty(
-      organizerProfileFixtures.filter((profile) => matchesSearch([profile.organizationName], query?.search)),
-      query
+    await beforeRead("userManagement", context, ["admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    const items = organizerProfileFixtures.filter(
+      (profile) =>
+        matchesSearch([profile.organizationName, profile.employeeNumber, profile.position], query?.search) &&
+        (currentContext.actorRole === "admin" || profile.userId === currentContext.actorUserId)
     );
+    return paginateOrThrowEmpty(items, query);
   },
   async listAdminProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin"]);
-    return paginateOrThrowEmpty(adminProfileFixtures, query);
+    const currentContext = contextOrDefault(context);
+    return paginateOrThrowEmpty(
+      adminProfileFixtures.filter((profile) => profile.userId === currentContext.actorUserId),
+      query
+    );
   }
 };
 
 export const mockAcademicManagementRepository: AcademicManagementRepository = {
   async listDepartments(query, context) {
-    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer"]);
+    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
     return paginateOrThrowEmpty(departmentFixtures.filter((department) => matchesSearch([department.code, department.name], query?.search)), query);
   },
   async listPrograms(query, context) {
-    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer"]);
+    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
     return paginateOrThrowEmpty(
       programFixtures.filter(
         (program) =>
@@ -294,7 +325,12 @@ export const mockNfcCredentialRepository: NfcCredentialRepository = {
     );
   },
   async getCredentialForStudent(studentId, context): Promise<NfcCredential | null> {
-    await beforeRead("nfcCredentials", context, ["admin", "faculty"]);
+    await beforeRead("nfcCredentials", context, ["admin", "faculty", "student"]);
+    const currentContext = contextOrDefault(context);
+    const student = studentFixtures.find((entry) => entry.id === studentId);
+    if (currentContext.actorRole === "student" && student?.userId !== currentContext.actorUserId) {
+      throw new RepositoryError("Students can only read their own NFC credential.", "PERMISSION_DENIED");
+    }
     return nfcCredentialFixtures.find((credential) => credential.studentId === studentId && credential.status === "activated") ?? null;
   }
 };
@@ -361,13 +397,38 @@ export const mockNotificationRepository: NotificationRepository = {
     await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     return paginateOrThrowEmpty(
-      notificationFixtures.filter(
+      notificationState.filter(
         (notification) =>
-          (currentContext.actorRole === "admin" || notification.userId === currentContext.actorUserId) &&
-          matchesSearch([notification.title, notification.body, notification.status], query?.search)
+          notification.userId === currentContext.actorUserId &&
+          matchesSearch([notification.title, notification.body, notification.status, notification.type], query?.search) &&
+          (!query?.notificationStatus || notification.status === query.notificationStatus) &&
+          (!query?.notificationType || notification.type === query.notificationType)
       ),
       query
     );
+  },
+  async markNotificationRead(notificationId, context) {
+    await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const notification = notificationState.find((entry) => entry.id === notificationId);
+    if (!notification) {
+      throw new RepositoryError("Notification was not found.", "NOT_FOUND");
+    }
+    if (notification.userId !== currentContext.actorUserId) {
+      throw new RepositoryError("Cannot update another user's notification.", "PERMISSION_DENIED");
+    }
+    notificationState = notificationState.map((entry) =>
+      entry.id === notificationId ? { ...entry, status: "read" } : entry
+    );
+    return getOrThrow(notificationState, notificationId, "Notification");
+  },
+  async markAllNotificationsRead(context) {
+    await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    notificationState = notificationState.map((entry) =>
+      entry.userId === currentContext.actorUserId ? { ...entry, status: "read" } : entry
+    );
+    return notificationState.filter((entry) => entry.userId === currentContext.actorUserId);
   }
 };
 

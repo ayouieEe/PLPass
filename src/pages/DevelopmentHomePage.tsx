@@ -54,11 +54,11 @@ export function DevelopmentHomePage() {
           <dl className="space-y-3 text-sm">
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted-foreground">Name</dt>
-              <dd className="font-medium">{session.displayName}</dd>
+              <dd className="font-medium">{session?.displayName ?? "Signed out"}</dd>
             </div>
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted-foreground">Role</dt>
-              <dd className="font-medium capitalize">{session.role}</dd>
+              <dd className="font-medium capitalize">{session?.role ?? "none"}</dd>
             </div>
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted-foreground">Updated</dt>
