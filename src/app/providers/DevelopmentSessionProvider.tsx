@@ -4,6 +4,7 @@ import {
   type DevelopmentSession,
   type DevelopmentSessionContextValue
 } from "@/app/providers/developmentSessionContext";
+import { queryClient } from "@/app/providers/queryClient";
 
 const storageKey = "plpass-development-session";
 
@@ -51,11 +52,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
 
   const signIn = useCallback((nextSession: DevelopmentSession) => {
     const sessionToStore = { ...nextSession, isAuthenticated: true };
+    queryClient.clear();
     window.localStorage.setItem(storageKey, JSON.stringify(sessionToStore));
     setSession(sessionToStore);
   }, []);
 
   const logout = useCallback(() => {
+    queryClient.clear();
     window.localStorage.removeItem(storageKey);
     setSession(null);
   }, []);

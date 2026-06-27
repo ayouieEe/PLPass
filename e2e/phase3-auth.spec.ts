@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 const storageKey = "plpass-development-session";
 
 const accounts = [
-  { name: "Admin One", dashboard: "Admin dashboard placeholder" },
-  { name: "Faculty One", dashboard: "Faculty dashboard placeholder" },
-  { name: "Organizer One", dashboard: "Organizer dashboard placeholder" },
-  { name: "Student 01", dashboard: "Student dashboard placeholder" }
+  { name: "Admin One", dashboard: "Admin dashboard" },
+  { name: "Faculty One", dashboard: "Faculty dashboard" },
+  { name: "Organizer One", dashboard: "Organizer dashboard" },
+  { name: "Student 01", dashboard: "Student dashboard" }
 ];
 
 async function loginAs(page: import("@playwright/test").Page, accountName: string) {

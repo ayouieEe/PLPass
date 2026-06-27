@@ -5,6 +5,7 @@ export type NavigationItem = {
   label: string;
   path: string;
   icon: LucideIcon;
+  group?: string;
   description?: string;
 };
 

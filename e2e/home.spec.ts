@@ -11,5 +11,5 @@ test("loads the component preview page", async ({ page }) => {
   await page.goto("/components");
 
   await expect(page.getByRole("heading", { name: "PLPass Component Library" })).toBeVisible();
-  await expect(page.getByText("NFC reader input")).toBeVisible();
+  await expect(page.getByText("Development Simulation NFC reader")).toBeVisible();
 });

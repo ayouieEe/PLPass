@@ -62,10 +62,10 @@ async function signIn(displayName: string) {
 
 describe("mock authentication flow", () => {
   it.each([
-    ["Admin One", "Admin dashboard placeholder"],
-    ["Faculty One", "Faculty dashboard placeholder"],
-    ["Organizer One", "Organizer dashboard placeholder"],
-    ["Student 01", "Student dashboard placeholder"]
+    ["Admin One", "Admin dashboard"],
+    ["Faculty One", "Faculty dashboard"],
+    ["Organizer One", "Organizer dashboard"],
+    ["Student 01", "Student dashboard"]
   ])("logs in as %s and redirects by role", async (displayName, expectedHeading) => {
     setRoute("/login");
     await signIn(displayName);
@@ -84,14 +84,14 @@ describe("mock authentication flow", () => {
     setRoute("/faculty/dashboard");
     await signIn("Faculty One");
 
-    await screen.findByRole("heading", { name: "Faculty dashboard placeholder" });
+    await screen.findByRole("heading", { name: "Faculty dashboard" });
   });
 
   it("redirects cross-role login attempts to the signed-in role dashboard", async () => {
     setRoute("/admin/dashboard");
     await signIn("Faculty One");
 
-    await screen.findByRole("heading", { name: "Faculty dashboard placeholder" });
+    await screen.findByRole("heading", { name: "Faculty dashboard" });
   });
 
   it("shows access denied for authenticated cross-role routes", async () => {
@@ -108,7 +108,7 @@ describe("mock authentication flow", () => {
     setRoute("/organizer/dashboard");
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Organizer dashboard placeholder" });
+    await screen.findByRole("heading", { name: "Organizer dashboard" });
   });
 
   it("logs out from the profile page", async () => {

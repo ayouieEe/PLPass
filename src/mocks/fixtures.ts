@@ -12,6 +12,7 @@ import type {
   FacultyProfile,
   MlPrediction,
   NfcCredential,
+  NfcCredentialRequest,
   NfcReader,
   NfcTapAttempt,
   Notification,
@@ -20,6 +21,7 @@ import type {
   Report,
   Semester,
   Student,
+  SystemSettings,
   User
 } from "@/types/domain";
 
@@ -93,10 +95,10 @@ export const adminProfileFixtures: AdminProfile[] = [
 ];
 
 export const classFixtures: Class[] = [
-  { id: "class-1", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 204", subjectTitle: "Event Driven Programming", section: "A", yearLevel: 2, scheduleLabel: "MWF 08:00-09:00", rosterId: "roster-class-1" },
-  { id: "class-2", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 301", subjectTitle: "Systems Integration", section: "B", yearLevel: 3, scheduleLabel: "TTh 10:00-11:30", rosterId: "roster-class-2" },
-  { id: "class-3", facultyId: "faculty-2", programId: "program-bsa", departmentId: "dept-cba", semesterId: "sem-2026-1", subjectCode: "ACC 101", subjectTitle: "Fundamentals of Accounting", section: "A", yearLevel: 1, scheduleLabel: "MWF 13:00-14:00", rosterId: "roster-class-3" },
-  { id: "class-4", facultyId: "faculty-2", programId: "program-bsed", departmentId: "dept-cte", semesterId: "sem-2026-2", subjectCode: "ED 210", subjectTitle: "Assessment of Learning", section: "B", yearLevel: 2, scheduleLabel: "TTh 14:00-15:30", rosterId: "roster-class-4" }
+  { id: "class-1", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 204", subjectTitle: "Event Driven Programming", room: "Room 302", section: "A", yearLevel: 2, scheduleLabel: "MWF 08:00-09:00", status: "active", rosterId: "roster-class-1" },
+  { id: "class-2", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 301", subjectTitle: "Systems Integration", room: "Room 305", section: "B", yearLevel: 3, scheduleLabel: "TTh 10:00-11:30", status: "active", rosterId: "roster-class-2" },
+  { id: "class-3", facultyId: "faculty-2", programId: "program-bsa", departmentId: "dept-cba", semesterId: "sem-2026-1", subjectCode: "ACC 101", subjectTitle: "Fundamentals of Accounting", room: "Room 201", section: "A", yearLevel: 1, scheduleLabel: "MWF 13:00-14:00", status: "active", rosterId: "roster-class-3" },
+  { id: "class-4", facultyId: "faculty-2", programId: "program-bsed", departmentId: "dept-cte", semesterId: "sem-2026-2", subjectCode: "ED 210", subjectTitle: "Assessment of Learning", room: "Room 110", section: "B", yearLevel: 2, scheduleLabel: "TTh 14:00-15:30", status: "archived", rosterId: "roster-class-4" }
 ];
 
 export const classRosterFixtures: ClassRoster[] = [
@@ -107,10 +109,10 @@ export const classRosterFixtures: ClassRoster[] = [
 ];
 
 export const eventFixtures: Event[] = [
-  { id: "event-1", organizerId: "organizer-1", departmentId: "dept-ccs", title: "CCS Orientation", venue: "Main Hall", startsAt: "2026-06-27T01:00:00.000Z", endsAt: "2026-06-27T04:00:00.000Z", status: "approved" },
-  { id: "event-2", organizerId: "organizer-2", departmentId: "dept-cba", title: "Business Forum", venue: "Auditorium", startsAt: "2026-07-01T02:00:00.000Z", endsAt: "2026-07-01T05:00:00.000Z", status: "pending" },
-  { id: "event-3", organizerId: "organizer-1", title: "Leadership Summit", venue: "Gymnasium", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", status: "completed" },
-  { id: "event-4", organizerId: "organizer-2", title: "Cancelled Assembly", venue: "Court", startsAt: "2026-07-10T01:00:00.000Z", endsAt: "2026-07-10T03:00:00.000Z", status: "cancelled" }
+  { id: "event-1", code: "EVT-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Orientation", title: "CCS Orientation", venue: "Main Hall", startsAt: "2026-06-27T01:00:00.000Z", endsAt: "2026-06-27T04:00:00.000Z", status: "approved" },
+  { id: "event-2", code: "EVT-002", organizerId: "organizer-2", departmentId: "dept-cba", category: "Forum", title: "Business Forum", venue: "Auditorium", startsAt: "2026-07-01T02:00:00.000Z", endsAt: "2026-07-01T05:00:00.000Z", status: "pending" },
+  { id: "event-3", code: "EVT-003", organizerId: "organizer-1", category: "Leadership", title: "Leadership Summit", venue: "Gymnasium", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", status: "completed" },
+  { id: "event-4", code: "EVT-004", organizerId: "organizer-2", category: "Assembly", title: "Cancelled Assembly", venue: "Court", startsAt: "2026-07-10T01:00:00.000Z", endsAt: "2026-07-10T03:00:00.000Z", status: "cancelled" }
 ];
 
 export const eventParticipantFixtures: EventParticipant[] = eventFixtures.flatMap((event, eventIndex) =>
@@ -123,10 +125,10 @@ export const eventParticipantFixtures: EventParticipant[] = eventFixtures.flatMa
 );
 
 export const attendanceSessionFixtures: AttendanceSession[] = [
-  { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-faculty-1" },
-  { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", createdByUserId: "user-faculty-1" },
-  { id: "session-3", type: "event", eventId: "event-1", title: "CCS Orientation Attendance", mode: "required", status: "draft", startsAt: "2026-06-27T01:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-4", type: "event", eventId: "event-3", title: "Leadership Summit Attendance", mode: "optional", status: "completed", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", createdByUserId: "user-organizer-1" }
+  { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", lateCutoffAt: "2026-06-24T00:15:00.000Z", attendanceWindowStartAt: "2026-06-23T23:55:00.000Z", attendanceWindowEndAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-faculty-1" },
+  { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", endsAt: "2026-06-26T01:30:00.000Z", lateCutoffAt: "2026-06-26T00:15:00.000Z", attendanceWindowStartAt: "2026-06-25T23:55:00.000Z", attendanceWindowEndAt: "2026-06-26T01:30:00.000Z", createdByUserId: "user-faculty-1" },
+  { id: "session-3", type: "event", eventId: "event-1", title: "CCS Orientation Attendance", mode: "required", status: "draft", startsAt: "2026-06-27T01:00:00.000Z", endsAt: "2026-06-27T04:00:00.000Z", lateCutoffAt: "2026-06-27T01:15:00.000Z", attendanceWindowStartAt: "2026-06-27T00:55:00.000Z", attendanceWindowEndAt: "2026-06-27T04:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-4", type: "event", eventId: "event-3", title: "Leadership Summit Attendance", mode: "optional", status: "completed", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", lateCutoffAt: "2026-07-05T01:15:00.000Z", attendanceWindowStartAt: "2026-07-05T00:55:00.000Z", attendanceWindowEndAt: "2026-07-05T06:00:00.000Z", createdByUserId: "user-organizer-1" }
 ];
 
 export const attendanceRecordFixtures: AttendanceRecord[] = [
@@ -135,28 +137,36 @@ export const attendanceRecordFixtures: AttendanceRecord[] = [
   { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No tap received" },
   { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "excused", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
   { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "nfc", recordedAt: "2026-06-26T00:02:00.000Z" },
-  { id: "record-6", sessionId: "session-4", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-07-05T01:04:00.000Z" }
+  { id: "record-6", sessionId: "session-4", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-07-05T01:04:00.000Z" },
+  { id: "record-7", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-06-27T01:04:00.000Z" }
 ];
 
 export const nfcCredentialFixtures: NfcCredential[] = [
-  { id: "nfc-1", studentId: "student-1", nfcUid: "NFC-001", status: "activated", issuedAt: now },
-  { id: "nfc-2", studentId: "student-2", nfcUid: "NFC-002", status: "blocked", issuedAt: now },
-  { id: "nfc-3", studentId: "student-3", nfcUid: "NFC-003", status: "damaged", issuedAt: now },
-  { id: "nfc-4", studentId: "student-4", nfcUid: "NFC-004", status: "replaced", issuedAt: now, replacedByCredentialId: "nfc-5" },
-  { id: "nfc-5", studentId: "student-4", nfcUid: "NFC-005", status: "activated", issuedAt: now },
-  { id: "nfc-6", studentId: "student-5", nfcUid: "NFC-006", status: "inactive", issuedAt: now }
+  { id: "nfc-1", studentId: "student-1", nfcUid: "PLPASS-DEMO-1001", status: "activated", issuedAt: now },
+  { id: "nfc-2", studentId: "student-2", nfcUid: "PLPASS-DEMO-BLOCKED", status: "blocked", issuedAt: now },
+  { id: "nfc-3", studentId: "student-3", nfcUid: "PLPASS-DEMO-DAMAGED", status: "damaged", issuedAt: now },
+  { id: "nfc-4", studentId: "student-4", nfcUid: "PLPASS-DEMO-OLD", status: "replaced", issuedAt: now, replacedByCredentialId: "nfc-5" },
+  { id: "nfc-5", studentId: "student-4", nfcUid: "PLPASS-DEMO-1004", status: "activated", issuedAt: now },
+  { id: "nfc-6", studentId: "student-5", nfcUid: "PLPASS-DEMO-INACTIVE", status: "inactive", issuedAt: now },
+  { id: "nfc-7", studentId: "student-6", nfcUid: "PLPASS-DEMO-1002", status: "activated", issuedAt: now },
+  { id: "nfc-8", studentId: "student-7", nfcUid: "PLPASS-DEMO-2001", status: "activated", issuedAt: now }
+];
+
+export const nfcCredentialRequestFixtures: NfcCredentialRequest[] = [
+  { id: "nfc-request-1", studentId: "student-1", credentialId: "nfc-1", type: "replacement", status: "completed", reason: "Sticker corners were peeling.", requestedAt: now, reviewedByUserId: "user-admin-1", reviewedAt: now },
+  { id: "nfc-request-2", studentId: "student-2", credentialId: "nfc-2", type: "damaged", status: "pending", reason: "Sticker stopped responding at the reader.", requestedAt: now }
 ];
 
 export const nfcReaderFixtures: NfcReader[] = [
-  { id: "reader-1", label: "Dean Laptop Reader", serialNumber: "USB-NFC-001", assignedToUserId: "user-admin-1", lastSeenAt: now, isTrusted: true },
-  { id: "reader-2", label: "Faculty Reader A", serialNumber: "USB-NFC-002", assignedToUserId: "user-faculty-1", lastSeenAt: now, isTrusted: true },
-  { id: "reader-3", label: "Organizer Backup Reader", serialNumber: "USB-NFC-003", assignedToUserId: "user-organizer-1", isTrusted: false }
+  { id: "reader-1", label: "Dean Laptop Reader", serialNumber: "USB-NFC-001", location: "Dean Office", departmentId: "dept-ccs", status: "active", assignedToUserId: "user-admin-1", lastSeenAt: now, isTrusted: true },
+  { id: "reader-2", label: "Faculty Reader A", serialNumber: "USB-NFC-002", location: "Room 302", departmentId: "dept-ccs", status: "active", assignedToUserId: "user-faculty-1", lastSeenAt: now, isTrusted: true },
+  { id: "reader-3", label: "Organizer Backup Reader", serialNumber: "USB-NFC-003", location: "Events Desk", departmentId: "dept-cba", status: "maintenance", assignedToUserId: "user-organizer-1", isTrusted: false }
 ];
 
 export const nfcTapAttemptFixtures: NfcTapAttempt[] = [
-  { id: "tap-1", sessionId: "session-2", readerId: "reader-2", nfcUid: "NFC-001", studentId: "student-1", accepted: true, attemptedAt: now, message: "Tap accepted" },
-  { id: "tap-2", sessionId: "session-2", readerId: "reader-2", nfcUid: "NFC-002", studentId: "student-2", accepted: false, attemptedAt: now, message: "Credential blocked" },
-  { id: "tap-3", sessionId: "session-2", readerId: "reader-2", nfcUid: "NFC-999", accepted: false, attemptedAt: now, message: "Unknown NFC credential" }
+  { id: "tap-1", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", studentId: "student-1", accepted: false, attemptedAt: now, message: "Student not enrolled" },
+  { id: "tap-2", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", studentId: "student-2", accepted: false, attemptedAt: now, message: "Credential blocked" },
+  { id: "tap-3", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", accepted: false, attemptedAt: now, message: "Invalid credential" }
 ];
 
 export const correctionRequestFixtures: CorrectionRequest[] = [
@@ -168,7 +178,8 @@ export const correctionRequestFixtures: CorrectionRequest[] = [
 export const reportFixtures: Report[] = [
   { id: "report-1", title: "Weekly Attendance", scope: "class-1", status: "ready", requestedByUserId: "user-faculty-1", generatedAt: now },
   { id: "report-2", title: "Event Participation", scope: "event-1", status: "processing", requestedByUserId: "user-organizer-1" },
-  { id: "report-3", title: "Dean Summary", scope: "dept-ccs", status: "failed", requestedByUserId: "user-admin-1" }
+  { id: "report-3", title: "Dean Summary", scope: "dept-ccs", status: "failed", requestedByUserId: "user-admin-1" },
+  { id: "report-4", title: "Student Attendance History", scope: "student-1", status: "ready", requestedByUserId: "user-student-1", generatedAt: now }
 ];
 
 export const notificationFixtures: Notification[] = [
@@ -191,6 +202,19 @@ export const mlPredictionFixtures: MlPrediction[] = [
   { id: "ml-3", type: "k_means_cluster", riskLevel: "low", eventId: "event-1", patternLabel: "High participation cluster", score: 0.22, generatedAt: now, explanation: "K-Means participation cluster for event attendance behavior." }
 ];
 
+export const systemSettingsFixture: SystemSettings = {
+  id: "settings-1",
+  institutionName: "PLPass Development College",
+  currentSchoolYear: "2026-2027",
+  currentSemesterId: "sem-2026-1",
+  attendanceLateCutoffMinutes: 15,
+  defaultSessionDurationMinutes: 90,
+  readerPolicy: "Trusted USB keyboard-mode readers only",
+  credentialStatusPolicy: "Blocked and lost credentials require admin review",
+  notificationPreferencePlaceholder: "Development-only notification preferences",
+  updatedAt: now
+};
+
 export const plpassFixtures = {
   users: userFixtures,
   students: studentFixtures,
@@ -207,11 +231,13 @@ export const plpassFixtures = {
   attendanceSessions: attendanceSessionFixtures,
   attendanceRecords: attendanceRecordFixtures,
   nfcCredentials: nfcCredentialFixtures,
+  nfcCredentialRequests: nfcCredentialRequestFixtures,
   nfcReaders: nfcReaderFixtures,
   nfcTapAttempts: nfcTapAttemptFixtures,
   correctionRequests: correctionRequestFixtures,
   reports: reportFixtures,
   notifications: notificationFixtures,
   auditLogs: auditLogFixtures,
-  mlPredictions: mlPredictionFixtures
+  mlPredictions: mlPredictionFixtures,
+  systemSettings: systemSettingsFixture
 };

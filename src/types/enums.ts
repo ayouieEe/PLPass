@@ -19,6 +19,12 @@ export type EventStatus = (typeof EVENT_STATUSES)[number];
 export const NFC_CREDENTIAL_STATUSES = ["activated", "inactive", "lost", "damaged", "replaced", "blocked"] as const;
 export type NfcCredentialStatus = (typeof NFC_CREDENTIAL_STATUSES)[number];
 
+export const NFC_CREDENTIAL_REQUEST_TYPES = ["lost", "damaged", "replacement"] as const;
+export type NfcCredentialRequestType = (typeof NFC_CREDENTIAL_REQUEST_TYPES)[number];
+
+export const NFC_CREDENTIAL_REQUEST_STATUSES = ["pending", "approved", "rejected", "completed"] as const;
+export type NfcCredentialRequestStatus = (typeof NFC_CREDENTIAL_REQUEST_STATUSES)[number];
+
 export const CORRECTION_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type CorrectionRequestStatus = (typeof CORRECTION_REQUEST_STATUSES)[number];
 
@@ -48,3 +54,6 @@ export type RiskLevel = (typeof RISK_LEVELS)[number];
 
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
+
+export const NFC_READER_STATUSES = ["active", "inactive", "maintenance"] as const;
+export type NfcReaderStatus = (typeof NFC_READER_STATUSES)[number];

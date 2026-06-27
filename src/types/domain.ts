@@ -6,9 +6,12 @@ import type {
   EventStatus,
   FacultyEmploymentStatus,
   MlPredictionType,
+  NfcCredentialRequestStatus,
+  NfcCredentialRequestType,
   NfcCredentialStatus,
   NotificationStatus,
   NotificationType,
+  NfcReaderStatus,
   ReportStatus,
   RiskLevel,
   SessionStatus,
@@ -99,9 +102,11 @@ export type Class = {
   semesterId: ID;
   subjectCode: string;
   subjectTitle: string;
+  room: string;
   section: string;
   yearLevel: number;
   scheduleLabel: string;
+  status: "active" | "archived";
   rosterId: ID;
 };
 
@@ -114,8 +119,10 @@ export type ClassRoster = {
 
 export type Event = {
   id: ID;
+  code: string;
   organizerId: ID;
   departmentId?: ID;
+  category: string;
   title: string;
   venue: string;
   startsAt: ISODateString;
@@ -140,6 +147,9 @@ export type AttendanceSession = {
   status: SessionStatus;
   startsAt: ISODateString;
   endsAt?: ISODateString;
+  lateCutoffAt?: ISODateString;
+  attendanceWindowStartAt?: ISODateString;
+  attendanceWindowEndAt?: ISODateString;
   createdByUserId: ID;
 };
 
@@ -163,10 +173,25 @@ export type NfcCredential = {
   replacedByCredentialId?: ID;
 };
 
+export type NfcCredentialRequest = {
+  id: ID;
+  studentId: ID;
+  credentialId?: ID;
+  type: NfcCredentialRequestType;
+  status: NfcCredentialRequestStatus;
+  reason: string;
+  requestedAt: ISODateString;
+  reviewedByUserId?: ID;
+  reviewedAt?: ISODateString;
+};
+
 export type NfcReader = {
   id: ID;
   label: string;
   serialNumber: string;
+  location: string;
+  departmentId: ID;
+  status: NfcReaderStatus;
   assignedToUserId?: ID;
   lastSeenAt?: ISODateString;
   isTrusted: boolean;
@@ -237,6 +262,19 @@ export type MlPrediction = {
   score: number;
   generatedAt: ISODateString;
   explanation: string;
+};
+
+export type SystemSettings = {
+  id: ID;
+  institutionName: string;
+  currentSchoolYear: string;
+  currentSemesterId: ID;
+  attendanceLateCutoffMinutes: number;
+  defaultSessionDurationMinutes: number;
+  readerPolicy: string;
+  credentialStatusPolicy: string;
+  notificationPreferencePlaceholder: string;
+  updatedAt: ISODateString;
 };
 
 export type AuthSession = {

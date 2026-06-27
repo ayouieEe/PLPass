@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { CalendarCheck, FileText, Users } from "lucide-react";
+import { Bell, CalendarCheck, FileText, Menu, Moon, UserCircle, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { AttendanceLineChart } from "@/components/charts/AttendanceLineChart";
@@ -109,7 +109,6 @@ export function ComponentPreviewPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [nfcValue, setNfcValue] = useState("");
-  const [manualQuery, setManualQuery] = useState("");
   const [reportQuery, setReportQuery] = useState("");
   const [period, setPeriod] = useState("week");
   const [qrEnabled, setQrEnabled] = useState(true);
@@ -146,11 +145,11 @@ export function ComponentPreviewPage() {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="container space-y-8 py-8">
       <PageHeader
-        eyebrow="Internal preview"
+        eyebrow="Development only"
         title="PLPass Component Library"
-        description="Reusable Phase 1 components using typed temporary data only."
+        description="Internal component preview only. This page is not part of the final PLPass system shell or any real role portal."
         actions={
           <>
             <Button type="button" variant="outline" onClick={() => setConfirmOpen(true)}>
@@ -169,11 +168,101 @@ export function ComponentPreviewPage() {
         <StatCard title="Reports ready" value="12" icon={FileText} tone="info" />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        <div className="overflow-hidden rounded-lg">
-          <RoleBasedSidebar role="faculty" userLabel="Faculty Preview" />
+      <section className="space-y-4 rounded-2xl border bg-surface p-4 shadow-sm">
+        <div>
+          <h2 className="text-lg font-semibold">Application shell previews</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Development-only layout states for desktop, tablet, mobile, and future role navigation.
+          </p>
         </div>
-        <div className="space-y-4">
+        <div className="grid gap-4 xl:grid-cols-[280px_112px_minmax(0,1fr)]">
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Expanded desktop sidebar</p>
+            <div className="overflow-hidden rounded-2xl border shadow-sm">
+              <RoleBasedSidebar role="admin" userLabel="Admin Preview" className="h-[620px]" />
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collapsed state</p>
+            <div className="overflow-visible rounded-2xl border shadow-sm">
+              <RoleBasedSidebar role="admin" userLabel="Admin Preview" collapsed className="h-[620px]" />
+            </div>
+          </div>
+          <div className="grid content-start gap-4">
+            <div className="rounded-2xl border bg-background p-4 shadow-sm">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Desktop header</p>
+              <div className="rounded-2xl border bg-surface p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">PLPass / admin portal / dashboard</p>
+                    <h3 className="mt-1 text-lg font-semibold">Admin dashboard</h3>
+                    <p className="text-sm text-muted-foreground">Compact header with actions aligned to the content area.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="outline" size="icon" aria-label="Preview notifications">
+                      <Bell className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <Button type="button" variant="outline" size="icon" aria-label="Preview theme toggle">
+                      <Moon className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <Button type="button" variant="outline" size="icon" aria-label="Preview profile shortcut">
+                      <UserCircle className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border bg-background p-4">
+                <h3 className="font-semibold">Tablet drawer behavior</h3>
+                <p className="mt-2 text-sm text-muted-foreground">Below 1024px, the menu button opens a left drawer with overlay, Escape close, and focus containment.</p>
+                <div className="mt-4 rounded-xl border bg-surface p-3">
+                  <Button type="button" variant="outline" size="icon" aria-label="Preview tablet navigation drawer">
+                    <Menu className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-2xl border bg-background p-4">
+                <h3 className="font-semibold">Mobile drawer behavior</h3>
+                <p className="mt-2 text-sm text-muted-foreground">The drawer uses the same role navigation and closes after link selection or overlay click.</p>
+                <div className="mt-4 h-36 overflow-hidden rounded-xl border bg-foreground/10 p-3">
+                  <div className="h-full w-44 rounded-xl bg-sidebar p-3 text-sidebar-foreground shadow-lg">
+                    <div className="mb-3 h-8 w-8 rounded-xl bg-white/10" />
+                    <div className="space-y-2">
+                      <div className="h-7 rounded-lg bg-white/[0.14]" />
+                      <div className="h-7 rounded-lg bg-white/[0.06]" />
+                      <div className="h-7 rounded-lg bg-white/[0.06]" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border bg-background p-4 md:col-span-2">
+                <h3 className="font-semibold">Long sidebar menu scrolling</h3>
+                <p className="mt-2 text-sm text-muted-foreground">Branding and profile stay fixed while grouped navigation scrolls independently when needed.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {(["admin", "faculty", "organizer", "student"] as const).map((role) => (
+            <div key={role} className="rounded-2xl border bg-background p-4">
+              <h3 className="font-semibold capitalize">{role} navigation preview</h3>
+              <p className="mt-2 text-sm text-muted-foreground">Typed route entries are ready for the shared shell without creating future role page content.</p>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-2xl border border-dashed bg-highlight/45 p-4">
+          <h3 className="font-semibold text-foreground">Active and hover states</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Active navigation uses a subtle dark-green sidebar surface with a thin border; hover states stay compact and avoid large bright-green fills.
+          </p>
+        </div>
+      </section>
+
+      <section className="rounded-lg border bg-surface p-4">
+        <h2 className="text-lg font-semibold">Table and utility previews</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Temporary sample data for component testing only.</p>
+        <div className="mt-4 space-y-4">
           <FilterBar
             search={search}
             selectedFilter={filter}
@@ -230,15 +319,26 @@ export function ComponentPreviewPage() {
           <LatestTapResultCard
             result={{
               studentName: "Alyssa Reyes",
-              nfcValue: "NFC-PLP-0001",
+              studentNumber: "2026-0001",
               status: "present",
               message: "Tap accepted for the active session.",
-              timestamp: "08:01 AM"
+              timestamp: "08:01 AM",
+              resultLabel: "Present",
+              method: "nfc"
             }}
           />
           <LiveAttendanceList records={liveRecords} />
           <div className="space-y-4">
-            <ManualLookupPanel query={manualQuery} onQueryChange={setManualQuery} onMarkPresent={() => undefined} />
+            <ManualLookupPanel
+              studentId=""
+              reason=""
+              remarks=""
+              students={[{ id: "student-preview-1", label: "Alyssa Reyes (2026-0001)" }]}
+              onStudentChange={() => undefined}
+              onReasonChange={() => undefined}
+              onRemarksChange={() => undefined}
+              onSubmit={() => undefined}
+            />
             <QRFallbackPanel enabled={qrEnabled} onToggle={() => setQrEnabled((current) => !current)} />
           </div>
         </div>

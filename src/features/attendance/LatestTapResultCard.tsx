@@ -16,14 +16,16 @@ export function LatestTapResultCard({ result }: LatestTapResultCardProps) {
   }
 
   return (
-    <article className="rounded-lg border bg-surface p-4">
+    <article className="rounded-lg border bg-surface p-4" aria-live="polite" aria-label="Latest scan result">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-semibold">{result.studentName}</h2>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Development Simulation result</p>
+          <h2 className="mt-1 font-semibold">{result.studentName ?? result.resultLabel ?? "Scan result"}</h2>
+          {result.studentNumber ? <p className="mt-1 text-xs text-muted-foreground">{result.studentNumber}</p> : null}
           <p className="mt-1 text-sm text-muted-foreground">{result.message}</p>
-          <p className="mt-2 text-xs text-muted-foreground">{result.nfcValue}</p>
+          {result.method ? <p className="mt-2 text-xs text-muted-foreground">Method: {result.method}</p> : null}
         </div>
-        <StatusBadge label={result.status} tone={result.status === "present" ? "success" : "warning"} />
+        <StatusBadge label={result.resultLabel ?? result.status} tone={result.status === "present" ? "success" : result.status === "absent" ? "danger" : "warning"} />
       </div>
       <p className="mt-3 text-xs text-muted-foreground">{result.timestamp}</p>
     </article>

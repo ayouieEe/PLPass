@@ -12,6 +12,31 @@ export const studentTestContext: RepositoryContext = {
   actorRole: "student"
 };
 
+export const studentTwoTestContext: RepositoryContext = {
+  actorUserId: "user-student-2",
+  actorRole: "student"
+};
+
+export const facultyTestContext: RepositoryContext = {
+  actorUserId: "user-faculty-1",
+  actorRole: "faculty"
+};
+
+export const facultyTwoTestContext: RepositoryContext = {
+  actorUserId: "user-faculty-2",
+  actorRole: "faculty"
+};
+
+export const organizerTestContext: RepositoryContext = {
+  actorUserId: "user-organizer-1",
+  actorRole: "organizer"
+};
+
+export const organizerTwoTestContext: RepositoryContext = {
+  actorUserId: "user-organizer-2",
+  actorRole: "organizer"
+};
+
 export function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {

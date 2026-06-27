@@ -1,4 +1,5 @@
 export type AttendanceStatus = "present" | "late" | "absent" | "manual";
+export type ReaderState = "ready" | "processing" | "success" | "error" | "disconnected";
 
 export type LiveAttendanceRecord = {
   id: string;
@@ -9,9 +10,11 @@ export type LiveAttendanceRecord = {
 };
 
 export type TapResult = {
-  studentName: string;
-  nfcValue: string;
+  studentName?: string;
+  studentNumber?: string;
   status: AttendanceStatus;
   message: string;
   timestamp: string;
+  resultLabel?: string;
+  method?: string;
 };

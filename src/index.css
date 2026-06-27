@@ -149,7 +149,7 @@
   }
 
   .plpass-sidebar-active {
-    @apply bg-sidebar-active text-sidebar-active-foreground ring-1 ring-white/20;
+    @apply border-white/20 bg-white/[0.14] text-sidebar-active-foreground shadow-sm ring-1 ring-black/10;
   }
 
   .plpass-top-nav {
