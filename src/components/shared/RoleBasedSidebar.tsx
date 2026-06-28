@@ -47,7 +47,7 @@ export function RoleBasedSidebar({
   return (
     <aside
       className={cn(
-        "plpass-sidebar flex h-dvh min-h-0 flex-col overflow-hidden border-r border-white/10 shadow-2xl shadow-black/10 transition-[width] duration-200 motion-reduce:transition-none",
+        "plpass-sidebar flex h-dvh min-h-0 flex-col border-r border-white/10 shadow-2xl shadow-black/10 transition-[width] duration-200 motion-reduce:transition-none",
         collapsed ? "w-[76px]" : "w-[260px]",
         className
       )}
@@ -68,7 +68,7 @@ export function RoleBasedSidebar({
         </div>
       </div>
 
-      <nav aria-label={`${role} navigation`} className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <nav aria-label={`${role} navigation`} className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 py-4">
         {Object.entries(groups).map(([group, items]) => (
           <div key={group} className={cn("mb-5 last:mb-0", collapsed && "mb-3")}>
             {!collapsed ? <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-white/45">{group}</p> : null}
@@ -106,7 +106,7 @@ export function RoleBasedSidebar({
         ))}
       </nav>
 
-      <div className={cn("shrink-0 border-t border-white/10 p-3", collapsed && "px-2")}>
+      <div className={cn("mt-auto shrink-0 border-t border-white/10 p-3", collapsed && "px-2")}>
         <NavLink
           to={APP_ROUTES.profile}
           title={collapsed ? `${userLabel} profile` : undefined}

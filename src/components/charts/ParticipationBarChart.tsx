@@ -7,8 +7,10 @@ type ParticipationBarChartProps = {
 };
 
 export function ParticipationBarChart({ data }: ParticipationBarChartProps) {
+  const hasData = data.some((point) => point.participation > 0);
+
   return (
-    <ChartFrame title="Participation" description="Participation rate by class or event.">
+    <ChartFrame title="Participation" description="Participation rate by class or event." empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />

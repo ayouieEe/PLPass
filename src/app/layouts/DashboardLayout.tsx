@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Bell, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserCircle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { PageContainer } from "@/components/layout/PageContainer";
 import { RoleBasedSidebar } from "@/components/shared/RoleBasedSidebar";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -167,9 +168,9 @@ export function DashboardLayout({
         </div>
       ) : null}
 
-      <div className={cn("min-h-screen transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "lg:pl-[76px]" : "lg:pl-[260px]")}>
+      <div className={cn("flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "lg:pl-[76px]" : "lg:pl-[260px]")}>
         <header className="sticky top-0 z-20 border-b bg-surface/95 backdrop-blur">
-          <div className="mx-auto flex min-h-16 w-full max-w-[1500px] items-center justify-between gap-3 px-4 md:px-6 lg:px-8">
+          <PageContainer className="flex min-h-16 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <Button type="button" variant="outline" size="icon" className="lg:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
@@ -230,15 +231,17 @@ export function DashboardLayout({
                 </div>
               </details>
             </div>
-          </div>
-          {filters ? <div className="border-t"><div className="mx-auto w-full max-w-[1500px] px-4 py-3 md:px-6 lg:px-8">{filters}</div></div> : null}
+          </PageContainer>
+          {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        <main className="mx-auto grid w-full max-w-[1500px] gap-6 p-4 md:p-6 lg:p-8">
+        <main className="w-full min-w-0 flex-1 py-4 md:py-6 lg:py-8">
+          <PageContainer className="grid gap-6">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section className="min-w-0">{children}</section>
             {secondaryContent ? <aside className="min-w-0">{secondaryContent}</aside> : null}
           </div>
+          </PageContainer>
         </main>
       </div>
     </div>

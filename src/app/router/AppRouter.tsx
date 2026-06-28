@@ -14,50 +14,53 @@ import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
 import {
-  AdminAcademicPage,
-  AdminAnalyticsPage,
-  AdminAttendancePage,
-  AdminAuditLogsPage,
   AdminDashboardPage,
-  AdminNfcCredentialsPage,
-  AdminNfcReadersPage,
-  AdminReportsPage,
   AdminRootPage,
-  AdminSettingsPage,
-  AdminUsersPage
-} from "@/features/admin/AdminPages";
+  AcademicManagementPage,
+  AnalyticsPage as AdminAnalyticsPage,
+  AttendanceMonitoringPage,
+  AuditLogsPage,
+  NfcCredentialsPage,
+  NfcReadersPage,
+  ReportsPage as AdminReportsPage,
+  SettingsPage,
+  UserManagementPage
+} from "@/features/admin/pages";
 import {
-  FacultyActiveSessionPage,
+  ActiveSessionPage as FacultyActiveSessionPage,
   FacultyAnalyticsPage,
-  FacultyAttendancePage,
-  FacultyClassDetailsPage,
-  FacultyClassesPage,
-  FacultyCorrectionsPage,
+  ClassAttendancePage,
+  ClassDetailsPage,
+  CorrectionRequestsPage as FacultyCorrectionRequestsPage,
   FacultyDashboardPage,
+  FacultyProfilePage,
   FacultyReportsPage,
   FacultyRootPage,
-  FacultyStartSessionPage
-} from "@/features/faculty/FacultyPages";
+  MyClassesPage,
+  StartSessionPage
+} from "@/features/faculty/pages";
 import {
-  OrganizerActiveSessionPage,
+  CreateEventPage,
+  EventAttendancePage,
+  EventDetailsPage,
+  EventManagementPage,
+  EventRecordsPage,
+  EventReportsPage,
   OrganizerAnalyticsPage,
-  OrganizerCreateEventPage,
   OrganizerDashboardPage,
-  OrganizerEventDetailsPage,
-  OrganizerEventsPage,
-  OrganizerRecordsPage,
-  OrganizerReportsPage,
+  OrganizerProfilePage,
   OrganizerRootPage
-} from "@/features/organizer/OrganizerPages";
+} from "@/features/organizer/pages";
 import {
-  StudentAttendancePage,
-  StudentCorrectionsPage,
+  CorrectionRequestsPage as StudentCorrectionRequestsPage,
+  MyAttendancePage,
+  MySchedulePage,
+  NFCProfilePage,
   StudentDashboardPage,
-  StudentNfcCredentialPage,
+  StudentProfilePage,
   StudentReportsPage,
-  StudentRootPage,
-  StudentSchedulePage
-} from "@/features/student/StudentPages";
+  StudentRootPage
+} from "@/features/student/pages";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
 const ComponentPreviewPage = lazy(() =>
@@ -92,50 +95,50 @@ export function AppRouter() {
             <Route element={<RoleRoute allowedRoles={["admin"]} />}>
               <Route path={APP_ROUTES.admin} element={<AdminRootPage />} />
               <Route path={APP_ROUTES.adminDashboard} element={<AdminDashboardPage />} />
-              <Route path={APP_ROUTES.adminUsers} element={<AdminUsersPage />} />
-              <Route path={APP_ROUTES.adminAcademic} element={<AdminAcademicPage />} />
-              <Route path={APP_ROUTES.adminAttendance} element={<AdminAttendancePage />} />
-              <Route path={APP_ROUTES.adminNfcCredentials} element={<AdminNfcCredentialsPage />} />
-              <Route path={APP_ROUTES.adminNfcReaders} element={<AdminNfcReadersPage />} />
+              <Route path={APP_ROUTES.adminUsers} element={<UserManagementPage />} />
+              <Route path={APP_ROUTES.adminAcademic} element={<AcademicManagementPage />} />
+              <Route path={APP_ROUTES.adminAttendance} element={<AttendanceMonitoringPage />} />
+              <Route path={APP_ROUTES.adminNfcCredentials} element={<NfcCredentialsPage />} />
+              <Route path={APP_ROUTES.adminNfcReaders} element={<NfcReadersPage />} />
               <Route path={APP_ROUTES.adminReports} element={<AdminReportsPage />} />
               <Route path={APP_ROUTES.adminAnalytics} element={<AdminAnalyticsPage />} />
-              <Route path={APP_ROUTES.adminAuditLogs} element={<AdminAuditLogsPage />} />
-              <Route path={APP_ROUTES.adminSettings} element={<AdminSettingsPage />} />
+              <Route path={APP_ROUTES.adminAuditLogs} element={<AuditLogsPage />} />
+              <Route path={APP_ROUTES.adminSettings} element={<SettingsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["faculty"]} />}>
               <Route path={APP_ROUTES.faculty} element={<FacultyRootPage />} />
               <Route path={APP_ROUTES.facultyDashboard} element={<FacultyDashboardPage />} />
-              <Route path={APP_ROUTES.facultyClasses} element={<FacultyClassesPage />} />
-              <Route path="/faculty/classes/:classId" element={<FacultyClassDetailsPage />} />
-              <Route path={APP_ROUTES.facultyStartSession} element={<FacultyStartSessionPage />} />
+              <Route path={APP_ROUTES.facultyClasses} element={<MyClassesPage />} />
+              <Route path="/faculty/classes/:classId" element={<ClassDetailsPage />} />
+              <Route path={APP_ROUTES.facultyStartSession} element={<StartSessionPage />} />
               <Route path="/faculty/sessions/:sessionId" element={<FacultyActiveSessionPage />} />
-              <Route path={APP_ROUTES.facultyAttendance} element={<FacultyAttendancePage />} />
-              <Route path={APP_ROUTES.facultyCorrections} element={<FacultyCorrectionsPage />} />
+              <Route path={APP_ROUTES.facultyAttendance} element={<ClassAttendancePage />} />
+              <Route path={APP_ROUTES.facultyCorrections} element={<FacultyCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.facultyReports} element={<FacultyReportsPage />} />
               <Route path={APP_ROUTES.facultyAnalytics} element={<FacultyAnalyticsPage />} />
-              <Route path={APP_ROUTES.facultyProfile} element={<ProfilePage />} />
+              <Route path={APP_ROUTES.facultyProfile} element={<FacultyProfilePage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} />}>
               <Route path={APP_ROUTES.organizer} element={<OrganizerRootPage />} />
               <Route path={APP_ROUTES.organizerDashboard} element={<OrganizerDashboardPage />} />
-              <Route path={APP_ROUTES.organizerEvents} element={<OrganizerEventsPage />} />
-              <Route path={APP_ROUTES.organizerCreateEvent} element={<OrganizerCreateEventPage />} />
-              <Route path="/organizer/events/:eventId" element={<OrganizerEventDetailsPage />} />
-              <Route path="/organizer/sessions/:sessionId" element={<OrganizerActiveSessionPage />} />
-              <Route path={APP_ROUTES.organizerRecords} element={<OrganizerRecordsPage />} />
-              <Route path={APP_ROUTES.organizerReports} element={<OrganizerReportsPage />} />
+              <Route path={APP_ROUTES.organizerEvents} element={<EventManagementPage />} />
+              <Route path={APP_ROUTES.organizerCreateEvent} element={<CreateEventPage />} />
+              <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
+              <Route path="/organizer/sessions/:sessionId" element={<EventAttendancePage />} />
+              <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
+              <Route path={APP_ROUTES.organizerReports} element={<EventReportsPage />} />
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
-              <Route path={APP_ROUTES.organizerProfile} element={<ProfilePage />} />
+              <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />
               <Route path={APP_ROUTES.studentDashboard} element={<StudentDashboardPage />} />
-              <Route path={APP_ROUTES.studentAttendance} element={<StudentAttendancePage />} />
-              <Route path={APP_ROUTES.studentSchedule} element={<StudentSchedulePage />} />
-              <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionsPage />} />
-              <Route path={APP_ROUTES.studentNfcCredential} element={<StudentNfcCredentialPage />} />
+              <Route path={APP_ROUTES.studentAttendance} element={<MyAttendancePage />} />
+              <Route path={APP_ROUTES.studentSchedule} element={<MySchedulePage />} />
+              <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionRequestsPage />} />
+              <Route path={APP_ROUTES.studentNfcCredential} element={<NFCProfilePage />} />
               <Route path={APP_ROUTES.studentReports} element={<StudentReportsPage />} />
-              <Route path={APP_ROUTES.studentProfile} element={<ProfilePage />} />
+              <Route path={APP_ROUTES.studentProfile} element={<StudentProfilePage />} />
             </Route>
           </Route>
         </Route>

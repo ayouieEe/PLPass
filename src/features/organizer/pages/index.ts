@@ -1,0 +1,10 @@
+export { OrganizerRootPage } from "./OrganizerRootPage";
+export { OrganizerDashboardPage } from "./OrganizerDashboardPage";
+export { EventManagementPage } from "./EventManagementPage";
+export { CreateEventPage } from "./CreateEventPage";
+export { EventDetailsPage } from "./EventDetailsPage";
+export { EventAttendancePage } from "./EventAttendancePage";
+export { EventRecordsPage } from "./EventRecordsPage";
+export { EventReportsPage } from "./EventReportsPage";
+export { OrganizerAnalyticsPage } from "./OrganizerAnalyticsPage";
+export { OrganizerProfilePage } from "./OrganizerProfilePage";

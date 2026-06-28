@@ -1,0 +1,11 @@
+export { FacultyRootPage } from "./FacultyRootPage";
+export { FacultyDashboardPage } from "./FacultyDashboardPage";
+export { MyClassesPage } from "./MyClassesPage";
+export { ClassDetailsPage } from "./ClassDetailsPage";
+export { StartSessionPage } from "./StartSessionPage";
+export { ActiveSessionPage } from "./ActiveSessionPage";
+export { ClassAttendancePage } from "./ClassAttendancePage";
+export { CorrectionRequestsPage } from "./CorrectionRequestsPage";
+export { FacultyReportsPage } from "./FacultyReportsPage";
+export { FacultyAnalyticsPage } from "./FacultyAnalyticsPage";
+export { FacultyProfilePage } from "./FacultyProfilePage";

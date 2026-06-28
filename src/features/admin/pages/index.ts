@@ -1,0 +1,11 @@
+export { AdminRootPage } from "./AdminRootPage";
+export { AdminDashboardPage } from "./AdminDashboardPage";
+export { UserManagementPage } from "./UserManagementPage";
+export { AcademicManagementPage } from "./AcademicManagementPage";
+export { AttendanceMonitoringPage } from "./AttendanceMonitoringPage";
+export { NfcCredentialsPage } from "./NfcCredentialsPage";
+export { NfcReadersPage } from "./NfcReadersPage";
+export { ReportsPage } from "./ReportsPage";
+export { AnalyticsPage } from "./AnalyticsPage";
+export { AuditLogsPage } from "./AuditLogsPage";
+export { SettingsPage } from "./SettingsPage";

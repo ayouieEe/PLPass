@@ -7,8 +7,10 @@ type AttendanceLineChartProps = {
 };
 
 export function AttendanceLineChart({ data }: AttendanceLineChartProps) {
+  const hasData = data.some((point) => point.present > 0 || point.late > 0 || point.absent > 0);
+
   return (
-    <ChartFrame title="Attendance Line" description="Present, late, and absent counts over time.">
+    <ChartFrame title="Attendance Line" description="Present, late, and absent counts over time." empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
