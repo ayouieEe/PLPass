@@ -128,6 +128,16 @@ function mapSessionMode(value: string): AttendanceMode {
   return "required";
 }
 
+function mapCredentialRequestStatus(value: string): NfcCredentialRequest["status"] {
+  if (value === "resolved") {
+    return "completed";
+  }
+  if (value === "approved" || value === "rejected" || value === "pending" || value === "completed") {
+    return value;
+  }
+  return "pending";
+}
+
 export function maskCredentialIdentifier(value: string | undefined) {
   if (!value) {
     return "masked";
@@ -318,8 +328,8 @@ export function mapNfcCredentialRequest(row: Row): NfcCredentialRequest {
     studentId: stringValue(row, ["student_id"]),
     credentialId: optionalString(row, ["credential_id"]),
     type: stringValue(row, ["request_type", "type"], "replacement") as NfcCredentialRequest["type"],
-    status: stringValue(row, ["request_status", "status"], "pending") as NfcCredentialRequest["status"],
-    reason: stringValue(row, ["reason", "explanation"]),
+    status: mapCredentialRequestStatus(stringValue(row, ["request_status", "status"], "pending")),
+    reason: stringValue(row, ["reason", "explanation", "review_remarks"]),
     requestedAt: stringValue(row, ["created_at", "requested_at"], new Date().toISOString()),
     reviewedByUserId: optionalString(row, ["reviewed_by"]),
     reviewedAt: optionalString(row, ["reviewed_at"])

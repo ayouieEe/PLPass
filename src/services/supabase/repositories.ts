@@ -60,7 +60,7 @@ type TableName = keyof Database["public"]["Tables"];
 const defaultPageSize = 20;
 const classReadSelect = "*, subjects(subject_code, subject_name), rooms(room_code), sections(section_name, year_level, program_id, programs(department_id))";
 const eventReadSelect = "*, event_categories(category_name)";
-const nfcCredentialReadSelect = "id, student_id, nfc_status";
+const nfcCredentialReadSelect = "id, student_id, nfc_status, issued_at, last_successful_check_in_at";
 
 function deferredLiveMutation(message = "This Supabase mutation needs a reviewed live schema workflow before it is enabled."): never {
   throw new RepositoryError(message, "VALIDATION_ERROR");
@@ -304,8 +304,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
   async endAttendanceSession(input: EndAttendanceSessionInput) {
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
     const table = session.type === "class" ? "class_sessions" : "event_sessions";
-    void input.reason;
-    return mapAttendanceSession(await updateRow(table, input.sessionId, { session_status: "completed", actual_end: new Date().toISOString() }), session.type);
+    return mapAttendanceSession(await updateRow(table, input.sessionId, { session_status: "completed", actual_end: new Date().toISOString(), ended_reason: input.reason }), session.type);
   }
 };
 
@@ -405,12 +404,12 @@ export const supabaseNotificationRepository: NotificationRepository = {
     return pageResult(rows.items.map(mapNotification), rows.total, query);
   },
   async markNotificationRead(notificationId) {
-    return mapNotification(await updateRow("notifications", notificationId, { notification_status: "read" }));
+    return mapNotification(await updateRow("notifications", notificationId, { notification_status: "read", read_at: new Date().toISOString() }));
   },
   async markAllNotificationsRead() {
     const client = getSupabaseBrowserClient();
     const profile = await currentProfile();
-    const { data, error } = await client.from("notifications").update({ notification_status: "read" }).eq("recipient_id", String(profile.id)).select("*");
+    const { data, error } = await client.from("notifications").update({ notification_status: "read", read_at: new Date().toISOString() }).eq("recipient_id", String(profile.id)).select("*");
     throwIfSupabaseError(error);
     return ((data ?? []) as Row[]).map(mapNotification);
   }
@@ -418,8 +417,12 @@ export const supabaseNotificationRepository: NotificationRepository = {
 
 export const supabaseAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query) {
-    const rows = await selectRows("session_audit_logs", query);
-    return pageResult(rows.items.map(mapAuditLog), rows.total, query);
+    const [auditRows, sessionRows] = await Promise.all([
+      selectRows("audit_logs", query).catch(() => emptyPage<Row>(query)),
+      selectRows("session_audit_logs", query).catch(() => emptyPage<Row>(query))
+    ]);
+    const items = [...auditRows.items, ...sessionRows.items].map(mapAuditLog);
+    return pageResult(items, auditRows.total + sessionRows.total, query);
   }
 };
 
