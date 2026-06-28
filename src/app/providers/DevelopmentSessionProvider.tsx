@@ -5,9 +5,16 @@ import {
   type DevelopmentSessionContextValue
 } from "@/app/providers/developmentSessionContext";
 import { queryClient } from "@/app/providers/queryClient";
+import {
+  authFailure,
+  createSupabaseSessionReader,
+  missingAuthSessionFailure,
+  resolveSupabaseSessionUser,
+  shouldSignOutAfterAuthFailure,
+  toSafeAuthErrorMessage
+} from "@/app/providers/supabaseSessionResolver";
 import { getDataSource, isSupabaseDataSource } from "@/lib/config/dataSource";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { mapProfileToUser } from "@/lib/supabase/mappers";
 
 const storageKey = "plpass-development-session";
 
@@ -59,8 +66,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         return;
       }
 
+      let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
-        const supabase = getSupabaseBrowserClient();
+        supabase = getSupabaseBrowserClient();
         const { data, error } = await supabase.auth.getUser();
         if (error || !data.user) {
           if (isMounted) {
@@ -69,29 +77,18 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           }
           return;
         }
-        const { data: profile, error: profileError } = await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle();
-        if (profileError || !profile) {
-          throw profileError ?? new Error("Supabase profile was not found.");
-        }
-        const mappedUser = mapProfileToUser({ ...(profile as Record<string, unknown>), email: data.user.email ?? "" });
-        const accountStatus = typeof (profile as Record<string, unknown>).account_status === "string" ? String((profile as Record<string, unknown>).account_status) : "active";
-        if (accountStatus === "inactive" || accountStatus === "suspended") {
-          throw new Error(`Your PLPass account is ${accountStatus}. Contact an administrator for access.`);
-        }
+        const nextSession = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id: data.user.id, email: data.user.email ?? "" });
         if (isMounted) {
-          setSession({
-            userId: mappedUser.id,
-            role: mappedUser.role,
-            displayName: mappedUser.displayName,
-            email: mappedUser.email,
-            isAuthenticated: true,
-            accountStatus: "active"
-          });
+          setSession(nextSession);
           setIsSessionRestored(true);
         }
       } catch (error) {
         if (isMounted) {
-          setAuthError(error instanceof Error ? error.message : "Unable to restore Supabase session.");
+          queryClient.clear();
+          if (shouldSignOutAfterAuthFailure(error) && supabase) {
+            void supabase.auth.signOut();
+          }
+          setAuthError(toSafeAuthErrorMessage(error));
           setSession(null);
           setIsSessionRestored(true);
         }
@@ -117,38 +114,28 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setAuthError(undefined);
     queryClient.clear();
+    let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
     try {
-      const supabase = getSupabaseBrowserClient();
+      supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        throw error;
+        throw authFailure(error.message);
       }
-      if (!data.user) {
-        throw new Error("Supabase did not return an authenticated user.");
+      if (!data.session?.user) {
+        throw missingAuthSessionFailure();
       }
-      const { data: profile, error: profileError } = await supabase.from("profiles").select("*").eq("id", data.user.id).maybeSingle();
-      if (profileError || !profile) {
-        throw profileError ?? new Error("Supabase profile was not found.");
-      }
-      const profileRow = profile as Record<string, unknown>;
-      const accountStatus = typeof profileRow.account_status === "string" ? profileRow.account_status : "active";
-      if (accountStatus === "inactive" || accountStatus === "suspended") {
-        await supabase.auth.signOut();
-        throw new Error(`Your PLPass account is ${accountStatus}. Contact an administrator for access.`);
-      }
-      const mappedUser = mapProfileToUser({ ...profileRow, email: data.user.email ?? "" });
-      const nextSession: DevelopmentSession = {
-        userId: mappedUser.id,
-        role: mappedUser.role,
-        displayName: mappedUser.displayName,
-        email: mappedUser.email,
-        isAuthenticated: true,
-        accountStatus: "active"
-      };
+      const nextSession = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
+        id: data.session.user.id,
+        email: data.session.user.email ?? ""
+      });
       setSession(nextSession);
       return nextSession;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Supabase sign in failed.";
+      const message = toSafeAuthErrorMessage(error);
+      queryClient.clear();
+      if (shouldSignOutAfterAuthFailure(error) && supabase) {
+        void supabase.auth.signOut();
+      }
       setAuthError(message);
       setSession(null);
       return null;
