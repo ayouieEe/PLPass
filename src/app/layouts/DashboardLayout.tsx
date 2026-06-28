@@ -237,10 +237,10 @@ export function DashboardLayout({
 
         <main className="w-full min-w-0 flex-1 py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <section className="min-w-0">{children}</section>
-            {secondaryContent ? <aside className="min-w-0">{secondaryContent}</aside> : null}
-          </div>
+            <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
+              <section className="min-w-0">{children}</section>
+              {secondaryContent ? <aside className="min-w-0">{secondaryContent}</aside> : null}
+            </div>
           </PageContainer>
         </main>
       </div>
