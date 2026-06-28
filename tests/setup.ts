@@ -1,4 +1,11 @@
 import "@testing-library/jest-dom/vitest";
+import { beforeEach, vi } from "vitest";
+
+vi.stubEnv("VITE_DATA_SOURCE", "mock");
+
+beforeEach(() => {
+  vi.stubEnv("VITE_DATA_SOURCE", "mock");
+});
 
 Object.defineProperty(window, "matchMedia", {
   writable: true,

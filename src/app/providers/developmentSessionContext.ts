@@ -7,12 +7,16 @@ export type DevelopmentSession = {
   role: UserRole;
   displayName: string;
   email: string;
+  accountStatus?: "active" | "inactive" | "suspended";
 };
 
 export type DevelopmentSessionContextValue = {
   session: DevelopmentSession | null;
   isSessionRestored: boolean;
+  isSupabaseMode: boolean;
+  authError?: string;
   signIn: (session: DevelopmentSession) => void;
+  signInWithPassword: (email: string, password: string) => Promise<DevelopmentSession | null>;
   logout: () => void;
 };
 

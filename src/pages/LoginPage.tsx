@@ -26,10 +26,13 @@ const roleLabels: Record<UserRole, string> = {
 
 export function LoginPage() {
   const accounts = useDevelopmentAccounts();
-  const { session, signIn, isSessionRestored } = useDevelopmentSession();
+  const { session, signIn, signInWithPassword, isSessionRestored, isSupabaseMode, authError } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedAccount, setSelectedAccount] = useState<DevelopmentAccount | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const locationState = location.state as LocationState | null;
 
   const groupedAccounts = useMemo(() => {
@@ -49,6 +52,15 @@ export function LoginPage() {
     return <Navigate to={getAuthorizedHomePath(session.role)} replace />;
   }
 
+  function redirectAfterSignIn(role: UserRole) {
+    const requestedPath = locationState?.from?.pathname;
+    const destination =
+      requestedPath && isPathAllowedForRole(requestedPath, role)
+        ? requestedPath
+        : getAuthorizedHomePath(role);
+    navigate(destination, { replace: true });
+  }
+
   function handleSignIn() {
     if (!selectedAccount) {
       return;
@@ -62,12 +74,48 @@ export function LoginPage() {
       isAuthenticated: true
     });
 
-    const requestedPath = locationState?.from?.pathname;
-    const destination =
-      requestedPath && isPathAllowedForRole(requestedPath, selectedAccount.role)
-        ? requestedPath
-        : getAuthorizedHomePath(selectedAccount.role);
-    navigate(destination, { replace: true });
+    redirectAfterSignIn(selectedAccount.role);
+  }
+
+  async function handleSupabaseSignIn() {
+    setIsSubmitting(true);
+    const nextSession = await signInWithPassword(email, password);
+    setIsSubmitting(false);
+    if (nextSession) {
+      redirectAfterSignIn(nextSession.role);
+    }
+  }
+
+  if (isSupabaseMode) {
+    return (
+      <AuthLayout title="Sign in to PLPass" description="Use your PLPass email and password.">
+        <div className="mb-4 rounded-md border border-primary/20 bg-highlight-soft p-3 text-sm text-foreground">
+          <div className="flex gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4" aria-hidden="true" />
+            <p>Supabase authentication is active. Your role is loaded from the database profile after sign-in.</p>
+          </div>
+        </div>
+        {authError ? <div className="mb-4 rounded-md border border-danger/30 bg-danger-muted p-3 text-sm text-danger">{authError}</div> : null}
+        <div className="space-y-4">
+          <label className="block text-sm font-medium">
+            Email
+            <input className="plpass-field mt-1 h-11 w-full rounded-md border px-3 text-sm" type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
+          </label>
+          <label className="block text-sm font-medium">
+            Password
+            <input className="plpass-field mt-1 h-11 w-full rounded-md border px-3 text-sm" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+          </label>
+        </div>
+        <div className="mt-5 flex flex-col gap-2">
+          <Button type="button" disabled={!email || !password || isSubmitting} onClick={handleSupabaseSignIn}>
+            {isSubmitting ? "Signing in..." : "Sign in"}
+          </Button>
+          <Button type="button" variant="link" asChild>
+            <a href={APP_ROUTES.forgotPassword}>Forgot password?</a>
+          </Button>
+        </div>
+      </AuthLayout>
+    );
   }
 
   return (
