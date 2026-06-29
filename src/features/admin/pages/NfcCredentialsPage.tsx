@@ -1,221 +1,88 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import {
-  CalendarCheck,
-  ClipboardList,
-  Nfc,
-  Users
-} from "lucide-react";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
-import { PresentLateAbsentPieChart } from "@/components/charts/PresentLateAbsentPieChart";
-import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { ErrorState } from "@/components/feedback/ErrorState";
-import { LoadingState } from "@/components/feedback/LoadingState";
+import { CreditCard, QrCode, ScanFace, ShieldCheck } from "lucide-react";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { SearchInput } from "@/components/shared/SearchInput";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatCard } from "@/components/shared/StatCard";
-import { FilterBar } from "@/components/tables/FilterBar";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSessions,
-  useAuditLogs,
-  useClasses,
-  useEventStatusMutation,
-  useEvents,
-  useFacultyProfiles,
-  useMlPredictions,
-  useNfcCredentialStatusMutation,
-  useNfcCredentials,
-  useNfcReaders,
-  useNfcReaderStatusMutation,
-  useOrganizerProfiles,
-  useReports,
-  useRosterMutations,
-  useStudents,
-  useSystemSettings,
-  useUsers
-} from "@/hooks/useRepositoryQueries";
-import type {
-  AttendanceRecord,
-  AttendanceSession,
-  AuditLog,
-  Class,
-  Event,
-  FacultyProfile,
-  MlPrediction,
-  NfcCredential,
-  NfcReader,
-  OrganizerProfile,
-  Report,
-  Student
-} from "@/types/domain";
-import type { NfcCredentialStatus, NfcReaderStatus } from "@/types/enums";
+  AdminContextBar,
+  AdminFrame,
+  AdminPageHeader,
+  AdminTabs,
+  AdminToolbar,
+  UnavailablePanel,
+  compactProgram,
+  formatDate,
+  formatStatus,
+  maskIdentifier,
+  statusTone,
+  useAdminScope,
+  userName
+} from "@/features/admin/components/AdminPage";
+import { useNfcCredentialRequests, useNfcCredentials, useStudents, useUsers } from "@/hooks/useRepositoryQueries";
+import type { NfcCredential, Student } from "@/types/domain";
 
-type BadgeTone = "success" | "warning" | "danger" | "info" | "muted";
-type AdminContext = { actorUserId: string; actorRole: "admin" };
+type AuthTab = "nfc" | "qr" | "face";
 
-function useAdminContext(): { context?: AdminContext; userLabel?: string } {
-  const { session } = useDevelopmentSession();
-  return {
-    context: session?.role === "admin" ? { actorUserId: session.userId, actorRole: "admin" } : undefined,
-    userLabel: session?.displayName
-  };
-}
-
-function AdminFrame({ children }: { children: ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function statusTone(status: string): BadgeTone {
-  if (["present", "success", "approved", "active", "activated", "ready", "low"].includes(status)) {
-    return "success";
-  }
-  if (["late", "warning", "pending", "processing", "queued", "medium", "maintenance"].includes(status)) {
-    return "warning";
-  }
-  if (["absent", "error", "rejected", "failed", "blocked", "lost", "damaged", "critical", "high"].includes(status)) {
-    return "danger";
-  }
-  if (["draft", "info", "inactive", "read"].includes(status)) {
-    return "info";
-  }
-  return "muted";
-}
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, " ");
-}
-
-function isQueryLoading(queries: Array<{ isLoading: boolean }>) {
-  return queries.some((query) => query.isLoading);
-}
-
-function hasQueryError(queries: Array<{ isError: boolean }>) {
-  return queries.some((query) => query.isError);
-}
-
-function ErrorPanel() {
-  return <ErrorState title="Admin data unavailable" message="The mock repository returned an error state for this view." />;
-}
-
-function isEmptyResult(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "EMPTY_RESULT";
-}
-
-type TabOption<T extends string> = {
-  label: string;
-  value: T;
+type PlaceholderCredentialRow = Student & {
+  credentialStatus: string;
 };
 
-function TabBar<T extends string>({
-  label,
-  tabs,
-  selected,
-  onSelect
-}: {
-  label: string;
-  tabs: TabOption<T>[];
-  selected: T;
-  onSelect: (value: T) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-2" role="tablist" aria-label={label}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.value}
-          type="button"
-          role="tab"
-          aria-selected={selected === tab.value}
-          className={`rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-            selected === tab.value
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-primary-hover hover:text-primary-foreground"
-          }`}
-          onClick={() => onSelect(tab.value)}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function DeferredFeaturePanel({ title, message }: { title: string; message: string }) {
-  return (
-    <section className="rounded-lg border bg-surface-muted p-6 text-foreground" aria-disabled="true">
-      <StatusBadge label="Disabled" tone="muted" />
-      <h2 className="mt-3 text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{message}</p>
-    </section>
-  );
-}
-
-function maskIdentifier(identifier: string) {
-  if (identifier.length <= 4) {
-    return "****";
-  }
-  return `${identifier.slice(0, 3)}-${"*".repeat(Math.max(identifier.length - 6, 4))}-${identifier.slice(-3)}`;
-}
-
-function countRecordsForSession(records: AttendanceRecord[], sessionId: string, status: string) {
-  return records.filter((record) => record.sessionId === sessionId && record.status === status).length;
-}
-
-const settingsSchema = z.object({
-  institutionName: z.string().min(2),
-  currentSchoolYear: z.string().min(4),
-  attendanceLateCutoffMinutes: z.coerce.number().min(0).max(120),
-  defaultSessionDurationMinutes: z.coerce.number().min(15).max(480),
-  readerPolicy: z.string().min(2),
-  credentialStatusPolicy: z.string().min(2),
-  notificationPreferencePlaceholder: z.string().min(2)
-});
-
-type SettingsFormValues = z.infer<typeof settingsSchema>;
-
 export function NfcCredentialsPage() {
-  const { context } = useAdminContext();
-  const [tab, setTab] = useState<"nfc" | "qr" | "face">("nfc");
+  const scope = useAdminScope();
+  const [tab, setTab] = useState<AuthTab>("nfc");
   const [search, setSearch] = useState("");
-  const credentials = useNfcCredentials({ pageSize: 100 }, context);
-  const updateStatus = useNfcCredentialStatusMutation(context);
-  const setStatus = useCallback(
-    (credentialId: string, status: NfcCredentialStatus) => updateStatus.mutate({ credentialId, status }),
-    [updateStatus]
-  );
-  const columns = useMemo<ColumnDef<NfcCredential>[]>(() => [
-    { header: "Masked credential", cell: ({ row }) => maskIdentifier(row.original.nfcUid) },
-    { header: "Student", accessorKey: "studentId" },
-    { header: "Status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    {
-      header: "Actions",
-      cell: ({ row }) => (
-        <div className="flex gap-2">
-          <Button size="sm" type="button" onClick={() => setStatus(row.original.id, "activated")}>Activate</Button>
-          <Button size="sm" variant="outline" type="button" onClick={() => setStatus(row.original.id, "blocked")}>Block</Button>
-        </div>
-      )
-    }
-  ], [setStatus]);
-  const filteredCredentials = (credentials.data?.items ?? []).filter((credential) =>
-    [credential.studentId, credential.status, credential.nfcUid].some((value) => value.toLowerCase().includes(search.toLowerCase()))
-  );
+  const [status, setStatus] = useState("all");
+  const users = useUsers({ pageSize: 100 }, scope.context);
+  const students = useStudents({ pageSize: 100, departmentId: scope.department?.id }, scope.context);
+  const credentials = useNfcCredentials({ pageSize: 100, credentialStatus: status === "all" ? undefined : status as NfcCredential["status"] }, scope.context);
+  const requests = useNfcCredentialRequests({ pageSize: 100 }, scope.context);
+
+  const visibleCredentials = (credentials.data?.items ?? []).filter((credential) => {
+    const student = students.data?.items.find((item) => item.id === credential.studentId);
+    const haystack = [credential.status, credential.id, student?.studentNumber, userName(users.data?.items ?? [], student?.userId)].join(" ").toLowerCase();
+    return haystack.includes(search.toLowerCase());
+  });
+
+  const nfcColumns = useMemo<ColumnDef<NfcCredential>[]>(() => [
+    { header: "Student Name", cell: ({ row }) => userName(users.data?.items ?? [], students.data?.items.find((student) => student.id === row.original.studentId)?.userId) },
+    { header: "Student ID", cell: ({ row }) => students.data?.items.find((student) => student.id === row.original.studentId)?.studentNumber ?? row.original.studentId },
+    { header: "Program", cell: ({ row }) => compactProgram(scope.programs, students.data?.items.find((student) => student.id === row.original.studentId)?.programId) },
+    { header: "Section", cell: ({ row }) => students.data?.items.find((student) => student.id === row.original.studentId)?.section ?? "Section" },
+    { header: "Credential Reference", cell: ({ row }) => maskIdentifier(row.original.nfcUid) },
+    { header: "Date Issued", cell: ({ row }) => formatDate(row.original.issuedAt) },
+    { header: "Status", cell: ({ row }) => <StatusBadge label={formatStatus(row.original.status)} tone={statusTone(row.original.status)} /> },
+    { header: "Replacement Request Status", cell: ({ row }) => requests.data?.items.find((request) => request.credentialId === row.original.id)?.status ?? "None" },
+    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
+  ], [requests.data?.items, scope.programs, students.data?.items, users.data?.items]);
+
+  const placeholderColumns = useMemo<ColumnDef<PlaceholderCredentialRow>[]>(() => [
+    { header: "Student Name", cell: ({ row }) => userName(users.data?.items ?? [], row.original.userId) },
+    { header: "Student ID", accessorKey: "studentNumber" },
+    { header: "Program", cell: ({ row }) => compactProgram(scope.programs, row.original.programId) },
+    { header: "Section", accessorKey: "section" },
+    { header: "Credential Reference", cell: () => "Not issued by current backend" },
+    { header: "Date Created", cell: () => "Unavailable" },
+    { header: "Status", cell: ({ row }) => <StatusBadge label={row.original.credentialStatus} tone="muted" /> },
+    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline" disabled>View</Button> }
+  ], [scope.programs, users.data?.items]);
+
+  const activeNfcCount = (credentials.data?.items ?? []).filter((credential) => credential.status === "activated").length;
+  const pendingRequests = (requests.data?.items ?? []).filter((request) => request.status === "pending").length;
 
   return (
     <AdminFrame>
-      <PageHeader title="Authentication methods" description="Admin review area for MVP NFC credentials and future fallback methods." />
-      <TabBar
+      <AdminPageHeader title="Authentication Methods" accessibleTitle="Authentication methods" description="Dean-scoped credential status review without exposing token secrets or biometric data." />
+      <AdminContextBar department={scope.department} semester={scope.activeSemester} />
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard title="Students with active NFC credentials" value={String(activeNfcCount)} icon={ShieldCheck} />
+        <StatCard title="Students with QR credentials" value="0" icon={QrCode} description="No QR credential repository is available yet." />
+        <StatCard title="Students with facial enrollment" value="0" icon={ScanFace} description="No biometric repository is available." />
+        <StatCard title="Pending replacements" value={String(pendingRequests)} icon={CreditCard} />
+      </section>
+      <AdminTabs
         label="Authentication methods tabs"
         selected={tab}
         onSelect={setTab}
@@ -225,28 +92,35 @@ export function NfcCredentialsPage() {
           { label: "Facial Recognition", value: "face" }
         ]}
       />
-      {tab === "nfc" ? (
+      <AdminToolbar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search credential records"
+        selectedFilter={status}
+        filters={[
+          { label: "All", value: "all" },
+          { label: "Active", value: "activated" },
+          { label: "Damaged", value: "damaged" },
+          { label: "Blocked", value: "blocked" },
+          { label: "Inactive", value: "inactive" }
+        ]}
+        onFilterChange={setStatus}
+      />
+      {scope.isLoading || credentials.isLoading || students.isLoading || users.isLoading ? <LoadingState label="Loading authentication methods" /> : null}
+      {tab === "nfc" ? <PLPassDataGrid label="NFC credentials" data={visibleCredentials} columns={nfcColumns} emptyTitle="No NFC credentials found" emptyDescription="No NFC credential records match the selected filters." /> : null}
+      {tab === "qr" ? (
         <>
-          <FilterBar
-            search={search}
-            selectedFilter="nfc"
-            filters={[{ label: "NFC Credentials", value: "nfc" }]}
-            onSearchChange={setSearch}
-            onFilterChange={() => undefined}
-          />
-          {credentials.isLoading ? <LoadingState label="Loading NFC credentials" /> : null}
-          {credentials.isError ? <ErrorPanel /> : null}
-          {credentials.data ? <PLPassDataGrid label="NFC credentials" data={filteredCredentials} columns={columns} emptyTitle="No NFC credentials found" /> : null}
+          <UnavailablePanel title="QR Credentials" message="QR attendance fallback will be implemented in Phase 11. QR credential storage and generation are not supported by the current repository. No QR token secrets are displayed or generated in the browser." />
+          <p className="text-sm text-muted-foreground">QR attendance fallback will be implemented in Phase 11.</p>
+          <PLPassDataGrid label="QR credentials" data={[]} columns={placeholderColumns} emptyTitle="No QR credentials available" emptyDescription="QR credentials require backend support before records can appear." />
         </>
       ) : null}
-      {tab === "qr" ? (
-        <DeferredFeaturePanel title="QR Credentials" message="QR attendance fallback will be implemented in Phase 11." />
-      ) : null}
       {tab === "face" ? (
-        <DeferredFeaturePanel
-          title="Facial Recognition"
-          message="Facial Recognition is outside the PLPass MVP and will not be implemented in the current version."
-        />
+        <>
+          <UnavailablePanel title="Facial Enrollment" message="Facial Recognition is outside the PLPass MVP and will not be implemented in the current version. Facial biometric storage is not part of the current backend. No templates, embeddings, or private media are stored or displayed." />
+          <p className="text-sm text-muted-foreground">Facial Recognition is outside the PLPass MVP and will not be implemented in the current version.</p>
+          <PLPassDataGrid label="Facial enrollment" data={[]} columns={placeholderColumns} emptyTitle="No facial enrollment records" emptyDescription="Facial enrollment requires an approved secure backend before records can appear." />
+        </>
       ) : null}
     </AdminFrame>
   );
