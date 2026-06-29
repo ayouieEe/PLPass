@@ -1,257 +1,151 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
-import {
-  CalendarCheck,
-  ClipboardList,
-  Nfc,
-  Users
-} from "lucide-react";
+import { AlertTriangle, CalendarCheck, ClipboardList, Users } from "lucide-react";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { PresentLateAbsentPieChart } from "@/components/charts/PresentLateAbsentPieChart";
-import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { FilterBar } from "@/components/tables/FilterBar";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSessions,
-  useAuditLogs,
-  useClasses,
-  useEventStatusMutation,
-  useEvents,
-  useFacultyProfiles,
-  useMlPredictions,
-  useNfcCredentialStatusMutation,
-  useNfcCredentials,
-  useNfcReaders,
-  useNfcReaderStatusMutation,
-  useOrganizerProfiles,
-  useReports,
-  useRosterMutations,
-  useStudents,
-  useSystemSettings,
-  useUsers
-} from "@/hooks/useRepositoryQueries";
-import type {
-  AttendanceRecord,
-  AttendanceSession,
-  AuditLog,
-  Class,
-  Event,
-  FacultyProfile,
-  MlPrediction,
-  NfcCredential,
-  NfcReader,
-  OrganizerProfile,
-  Report,
-  Student
-} from "@/types/domain";
-import type { NfcCredentialStatus, NfcReaderStatus } from "@/types/enums";
+  AdminContextBar,
+  AdminFrame,
+  AdminPageHeader,
+  AdminToolbar,
+  formatDateTime,
+  statusTone,
+  useAdminScope,
+  userName
+} from "@/features/admin/components/AdminPage";
+import { useAttendanceRecords, useAttendanceSessions, useEvents, useFacultyProfiles, useMlPredictions, useStudents, useUsers } from "@/hooks/useRepositoryQueries";
+import type { AttendanceSession } from "@/types/domain";
 
-type BadgeTone = "success" | "warning" | "danger" | "info" | "muted";
-type AdminContext = { actorUserId: string; actorRole: "admin" };
+type ActivityFilter = "all" | "class" | "event";
 
-function useAdminContext(): { context?: AdminContext; userLabel?: string } {
-  const { session } = useDevelopmentSession();
-  return {
-    context: session?.role === "admin" ? { actorUserId: session.userId, actorRole: "admin" } : undefined,
-    userLabel: session?.displayName
-  };
+function countSessionRecords(records: Array<{ sessionId: string; status: string }>, sessionId: string, status?: string) {
+  return records.filter((record) => record.sessionId === sessionId && (!status || record.status === status)).length;
 }
-
-function AdminFrame({ children }: { children: ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function statusTone(status: string): BadgeTone {
-  if (["present", "success", "approved", "active", "activated", "ready", "low"].includes(status)) {
-    return "success";
-  }
-  if (["late", "warning", "pending", "processing", "queued", "medium", "maintenance"].includes(status)) {
-    return "warning";
-  }
-  if (["absent", "error", "rejected", "failed", "blocked", "lost", "damaged", "critical", "high"].includes(status)) {
-    return "danger";
-  }
-  if (["draft", "info", "inactive", "read"].includes(status)) {
-    return "info";
-  }
-  return "muted";
-}
-
-function formatStatus(status: string) {
-  return status.replace(/_/g, " ");
-}
-
-function isQueryLoading(queries: Array<{ isLoading: boolean }>) {
-  return queries.some((query) => query.isLoading);
-}
-
-function hasQueryError(queries: Array<{ isError: boolean }>) {
-  return queries.some((query) => query.isError);
-}
-
-function ErrorPanel() {
-  return <ErrorState title="Admin data unavailable" message="The mock repository returned an error state for this view." />;
-}
-
-function isEmptyResult(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "EMPTY_RESULT";
-}
-
-type TabOption<T extends string> = {
-  label: string;
-  value: T;
-};
-
-function TabBar<T extends string>({
-  label,
-  tabs,
-  selected,
-  onSelect
-}: {
-  label: string;
-  tabs: TabOption<T>[];
-  selected: T;
-  onSelect: (value: T) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-2" role="tablist" aria-label={label}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.value}
-          type="button"
-          role="tab"
-          aria-selected={selected === tab.value}
-          className={`rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-            selected === tab.value
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-primary-hover hover:text-primary-foreground"
-          }`}
-          onClick={() => onSelect(tab.value)}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function DeferredFeaturePanel({ title, message }: { title: string; message: string }) {
-  return (
-    <section className="rounded-lg border bg-surface-muted p-6 text-foreground" aria-disabled="true">
-      <StatusBadge label="Disabled" tone="muted" />
-      <h2 className="mt-3 text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{message}</p>
-    </section>
-  );
-}
-
-function maskIdentifier(identifier: string) {
-  if (identifier.length <= 4) {
-    return "****";
-  }
-  return `${identifier.slice(0, 3)}-${"*".repeat(Math.max(identifier.length - 6, 4))}-${identifier.slice(-3)}`;
-}
-
-function countRecordsForSession(records: AttendanceRecord[], sessionId: string, status: string) {
-  return records.filter((record) => record.sessionId === sessionId && record.status === status).length;
-}
-
-const settingsSchema = z.object({
-  institutionName: z.string().min(2),
-  currentSchoolYear: z.string().min(4),
-  attendanceLateCutoffMinutes: z.coerce.number().min(0).max(120),
-  defaultSessionDurationMinutes: z.coerce.number().min(15).max(480),
-  readerPolicy: z.string().min(2),
-  credentialStatusPolicy: z.string().min(2),
-  notificationPreferencePlaceholder: z.string().min(2)
-});
-
-type SettingsFormValues = z.infer<typeof settingsSchema>;
 
 export function AdminDashboardPage() {
-  const { context } = useAdminContext();
-  const users = useUsers({ pageSize: 100 }, context);
-  const students = useStudents({ pageSize: 100 }, context);
-  const classes = useClasses({ pageSize: 100 }, context);
-  const sessions = useAttendanceSessions({ pageSize: 100 }, context);
-  const records = useAttendanceRecords({ pageSize: 100 }, context);
-  const credentials = useNfcCredentials({ pageSize: 100 }, context);
-  const predictions = useMlPredictions({ pageSize: 100 }, context);
-  const queries = [users, students, classes, sessions, records, credentials, predictions];
+  const scope = useAdminScope();
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>("all");
+  const users = useUsers({ pageSize: 100 }, scope.context);
+  const students = useStudents({ pageSize: 100 }, scope.context);
+  const faculty = useFacultyProfiles({ pageSize: 100 }, scope.context);
+  const sessions = useAttendanceSessions({ pageSize: 100, semesterId: scope.activeSemester?.id }, scope.context);
+  const records = useAttendanceRecords({ pageSize: 100 }, scope.context);
+  const events = useEvents({ pageSize: 100 }, scope.context);
+  const predictions = useMlPredictions({ pageSize: 100 }, scope.context);
 
-  const attendanceSlices = useMemo(() => {
-    const source = records.data?.items ?? [];
-    return ["present", "late", "absent"].map((status) => ({
-      name: formatStatus(status),
-      value: source.filter((record) => record.status === status).length
-    }));
-  }, [records.data?.items]);
+  const isLoading = scope.isLoading || users.isLoading || students.isLoading || faculty.isLoading || sessions.isLoading || records.isLoading || events.isLoading || predictions.isLoading;
+  const isError = scope.isError || users.isError || students.isError || faculty.isError || sessions.isError || records.isError || events.isError || predictions.isError;
+
+  const sessionItems = useMemo(() => sessions.data?.items ?? [], [sessions.data?.items]);
+  const recordItems = useMemo(() => records.data?.items ?? [], [records.data?.items]);
+  const activeSessions = sessionItems.filter((session) => session.status === "active");
+  const now = new Date();
+  const eventsThisMonth = (events.data?.items ?? []).filter((event) => {
+    const startsAt = new Date(event.startsAt);
+    return event.status === "approved" && startsAt.getMonth() === now.getMonth() && startsAt.getFullYear() === now.getFullYear();
+  });
 
   const trend = useMemo(() => {
-    const source = sessions.data?.items.slice(0, 4) ?? [];
-    return source.map((session) => {
-      const sessionRecords = records.data?.items.filter((record) => record.sessionId === session.id) ?? [];
-      return {
-        label: session.title.split(" ").slice(0, 2).join(" "),
-        present: sessionRecords.filter((record) => record.status === "present").length,
-        late: sessionRecords.filter((record) => record.status === "late").length,
-        absent: sessionRecords.filter((record) => record.status === "absent").length
-      };
-    });
-  }, [records.data?.items, sessions.data?.items]);
+    const filtered = sessionItems.filter((session) => activityFilter === "all" || session.type === activityFilter);
+    return filtered.slice(0, 7).map((session) => ({
+      label: new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(session.startsAt)),
+      present: countSessionRecords(recordItems, session.id, "present"),
+      late: countSessionRecords(recordItems, session.id, "late"),
+      absent: countSessionRecords(recordItems, session.id, "absent")
+    }));
+  }, [activityFilter, recordItems, sessionItems]);
 
-  if (isQueryLoading(queries)) {
+  const riskSlices = useMemo(() => {
+    const source = predictions.data?.items ?? [];
+    return ["low", "medium", "high", "critical"].map((level) => ({
+      name: level,
+      value: source.filter((prediction) => prediction.riskLevel === level).length
+    }));
+  }, [predictions.data?.items]);
+
+  const activeColumns = useMemo<ColumnDef<AttendanceSession>[]>(() => [
+    { header: "Session Type", accessorKey: "type" },
+    { header: "Code", cell: ({ row }) => row.original.classId ?? row.original.eventId ?? row.original.id },
+    { header: "Subject or Event Name", accessorKey: "title" },
+    { header: "Faculty or Organizer", cell: ({ row }) => userName(users.data?.items ?? [], row.original.createdByUserId) },
+    { header: "Started At", cell: ({ row }) => formatDateTime(row.original.startsAt) },
+    { header: "Current Attendance Count", cell: ({ row }) => countSessionRecords(recordItems, row.original.id) },
+    { header: "Session Status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
+    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
+  ], [recordItems, users.data?.items]);
+
+  if (isLoading) {
     return <AdminFrame><LoadingState label="Loading admin dashboard" /></AdminFrame>;
   }
-  if (hasQueryError(queries)) {
-    return <AdminFrame><ErrorPanel /></AdminFrame>;
+
+  if (isError) {
+    return (
+      <AdminFrame>
+        <AdminPageHeader title="Admin Dashboard" accessibleTitle="Admin dashboard" description="Department-level attendance and academic operations overview." />
+        <EmptyState title="Admin dashboard unavailable" description="The repository could not load the Dean overview." />
+      </AdminFrame>
+    );
   }
 
   const enrolledCount = students.data?.items.filter((student) => student.status === "enrolled").length ?? 0;
-  const activeSessions = sessions.data?.items.filter((session) => session.status === "active").length ?? 0;
+  const highRiskCount = predictions.data?.items.filter((prediction) => ["high", "critical"].includes(prediction.riskLevel)).length ?? 0;
+  const pendingEvents = events.data?.items.filter((event) => event.status === "pending").length ?? 0;
+  const lastUpdated = recordItems[0]?.recordedAt ? formatDateTime(recordItems[0].recordedAt) : undefined;
 
   return (
     <AdminFrame>
-      <PageHeader
-        eyebrow="Admin portal"
-        title="Admin dashboard"
-        description="Mock-backed operating summary for PLPass users, attendance, NFC credentials, and review-only analytics."
+      <AdminPageHeader
+        title="Admin Dashboard"
+        accessibleTitle="Admin dashboard"
+        description="Department-level attendance and academic operations overview for assigned Dean scope."
       />
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Active users" value={String(users.data?.total ?? 0)} icon={Users} description="All enabled mock accounts" />
-        <StatCard title="Enrolled students" value={String(enrolledCount)} icon={ClipboardList} description="Excludes LOA, dropped, and archived students" />
-        <StatCard title="Active sessions" value={String(activeSessions)} icon={CalendarCheck} description="Class and event attendance sessions" />
-        <StatCard title="NFC credentials" value={String(credentials.data?.total ?? 0)} icon={Nfc} description="Sticker credentials in mock registry" />
+      <AdminContextBar department={scope.department} semester={scope.activeSemester} lastUpdated={lastUpdated} />
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard title="Enrolled students" value={String(enrolledCount)} icon={Users} description="Counts enrolled students only; LOA, dropped, and archived records are excluded." />
+        <StatCard title="Active classes" value={String(activeSessions.filter((session) => session.type === "class").length)} icon={ClipboardList} description="Active class sessions in the selected semester." />
+        <StatCard title="Events this month" value={String(eventsThisMonth.length)} icon={CalendarCheck} description="Approved events in the current calendar month." />
+        <StatCard title="High-risk students" value={String(highRiskCount)} icon={AlertTriangle} description={highRiskCount ? "Review-only ML support signals." : "No risk analysis available yet."} tone={highRiskCount ? "warning" : "default"} />
+        <StatCard title="Reviews and reminders" value={String(pendingEvents)} icon={ClipboardList} description="Pending event approvals from current repository data." />
       </section>
-      <section className="grid gap-4 xl:grid-cols-2">
-        <AttendanceTrendChart data={trend} />
-        <PresentLateAbsentPieChart data={attendanceSlices} />
+
+      <section className="space-y-3">
+        <AdminToolbar
+          selectedFilter={activityFilter}
+          filters={[
+            { label: "All activity", value: "all" },
+            { label: "Classes only", value: "class" },
+            { label: "Events only", value: "event" }
+          ]}
+          onFilterChange={(value) => setActivityFilter(value as ActivityFilter)}
+        />
+        {trend.some((item) => item.present || item.late || item.absent) ? <AttendanceTrendChart data={trend} /> : <EmptyState title="No attendance trend data" description="Completed attendance activity will appear after records are captured." />}
       </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <PLPassDataGrid label="Active sessions preview" data={activeSessions} columns={activeColumns} emptyTitle="No active sessions" emptyDescription="Active class or event sessions will appear here." />
+        <div className="rounded-lg border bg-surface p-4">
+          <h2 className="text-lg font-semibold">Attendance Risk Overview</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Review-only decision support from available model results.</p>
+          {riskSlices.some((slice) => slice.value) ? <PresentLateAbsentPieChart data={riskSlices} /> : <EmptyState title="No risk analysis available yet" />}
+        </div>
+      </section>
+
       <section className="rounded-lg border bg-surface p-4">
-        <h2 className="text-lg font-semibold">Review-only ML placeholders</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {(predictions.data?.items ?? []).slice(0, 3).map((prediction) => (
-            <article key={prediction.id} className="rounded-lg border bg-background p-3">
-              <StatusBadge label={prediction.riskLevel} tone={statusTone(prediction.riskLevel)} />
-              <p className="mt-3 font-medium">{prediction.patternLabel}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{prediction.explanation}</p>
-            </article>
-          ))}
+        <h2 className="text-lg font-semibold">Attention Needed</h2>
+        <div className="mt-3 space-y-2">
+          {pendingEvents ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background p-3 text-sm">
+              <span>Pending event approvals</span>
+              <StatusBadge label={`${pendingEvents} items`} tone="warning" />
+            </div>
+          ) : <EmptyState title="No review queue items" description="Pending approvals and flagged records will appear here when repository data is available." />}
         </div>
       </section>
     </AdminFrame>
