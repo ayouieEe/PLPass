@@ -208,4 +208,136 @@
   .plpass-status-info {
     @apply bg-info-muted text-foreground;
   }
+
+  /* Student Premium Theme Utilities */
+  .student-bg-gradient {
+    background: radial-gradient(circle at 80% 20%, rgba(31, 75, 44, 0.06) 0%, transparent 45%),
+                radial-gradient(circle at 20% 80%, rgba(77, 113, 23, 0.06) 0%, transparent 45%),
+                linear-gradient(135deg, #F4FFFC 0%, #F7F8F9 100%) !important;
+  }
+
+  /* High contrast text elements inside student namespace */
+  .student-bg-gradient p,
+  .student-bg-gradient td,
+  .student-bg-gradient th,
+  .student-bg-gradient label,
+  .student-bg-gradient span:not(.student-glass-sidebar *):not([class*="text-"]):not([class*="bg-"]):not([class*="badge"]):not([class*="status"]) {
+    color: #2E3332 !important; /* Darker gray body text for high readability */
+  }
+
+  .student-bg-gradient .text-muted-foreground,
+  .student-bg-gradient .text-\[\#B9C1BF\],
+  .student-bg-gradient .text-slate-500,
+  .student-bg-gradient .text-slate-400 {
+    color: #5C6361 !important; /* High contrast medium gray for captions/subtitles */
+  }
+
+  .student-glass-card {
+    background: rgba(255, 255, 255, 0.65) !important;
+    backdrop-filter: blur(16px) saturate(120%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.45) !important;
+    box-shadow: 0 10px 30px -5px rgba(31, 75, 44, 0.03), 0 1px 3px 0 rgba(31, 75, 44, 0.01) !important;
+    border-radius: 24px !important;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .student-glass-card:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 20px 40px -10px rgba(31, 75, 44, 0.15), 0 0 0 1px rgba(31, 75, 44, 0.15) !important;
+  }
+
+  /* Translucent Green Sidebar with light visible text */
+  .student-glass-sidebar {
+    background: rgba(31, 75, 44, 0.96) !important; /* Deeper forest green opacity */
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  }
+
+  /* Keep sidebar navigation links and typography high contrast and readable */
+  .student-glass-sidebar,
+  .student-glass-sidebar p,
+  .student-glass-sidebar span,
+  .student-glass-sidebar a,
+  .student-glass-sidebar div,
+  .student-glass-sidebar svg {
+    color: rgba(244, 255, 252, 0.9) !important; /* Soft white/mint text */
+  }
+
+  .student-glass-sidebar a:hover {
+    background-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .student-glass-sidebar a:hover,
+  .student-glass-sidebar a:hover span,
+  .student-glass-sidebar a:hover svg {
+    color: #ffffff !important; /* Just white on hover */
+  }
+
+  .student-glass-sidebar .text-white\/45,
+  .student-glass-sidebar .text-white\/60,
+  .student-glass-sidebar .text-white\/65 {
+    color: rgba(244, 255, 252, 0.6) !important; /* Legible sidebar subheaders */
+  }
+
+  /* Solid colored buttons and states */
+  .student-btn-primary {
+    background: #1F4B2C !important; /* Solid Deep Forest Green */
+    color: #ffffff !important; /* White Text */
+    font-weight: 600 !important;
+    border-radius: 9999px !important;
+    height: 44px !important;
+    border: none !important;
+    box-shadow: 0 4px 14px 0 rgba(31, 75, 44, 0.25) !important;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .student-btn-primary:hover {
+    background: #4D7117 !important; /* Olive Green Hover */
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 20px 0 rgba(77, 113, 23, 0.3) !important;
+  }
+
+  .student-btn-secondary {
+    background: #ffffff !important;
+    color: #1F4B2C !important; /* Deep Forest text color */
+    border: 1.5px solid #1F4B2C !important; /* Deep Forest border */
+    font-weight: 600 !important;
+    border-radius: 9999px !important;
+    height: 44px !important;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  .student-btn-secondary:hover {
+    background: rgba(31, 75, 44, 0.05) !important;
+    transform: translateY(-1px) !important;
+  }
+
+  .student-input {
+    border-radius: 16px !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    border: 1.5px solid #E8ECEB !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.01) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    color: #4F5654 !important;
+  }
+
+  .student-input:focus {
+    border-color: #1F4B2C !important; /* Deep Forest Focus */
+    box-shadow: 0 0 0 3.5px rgba(31, 75, 44, 0.15) !important;
+    background: #ffffff !important;
+    outline: none !important;
+  }
+
+  .student-sidebar-active {
+    background: rgba(255, 255, 255, 0.15) !important; /* Solid soft glass active indicator */
+    box-shadow: 0 4px 12px rgba(31, 75, 44, 0.05) !important;
+  }
+
+  .student-sidebar-active,
+  .student-sidebar-active span,
+  .student-sidebar-active svg {
+    color: #ffffff !important; /* Just white when active */
+  }
 }

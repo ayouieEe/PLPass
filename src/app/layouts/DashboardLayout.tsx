@@ -114,7 +114,10 @@ export function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background">
+    <div className={cn(
+      "min-h-screen overflow-x-hidden bg-background",
+      role === "student" && "student-bg-gradient font-sans text-[#4F5654] antialiased"
+    )}>
       <RoleBasedSidebar
         role={role}
         userLabel={userLabel}
@@ -176,13 +179,17 @@ export function DashboardLayout({
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
               <div className="min-w-0">
-                <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground sm:block">
-                  {currentBreadcrumbs.join(" / ")}
-                </nav>
+                {role !== "student" && (
+                  <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground sm:block">
+                    {currentBreadcrumbs.join(" / ")}
+                  </nav>
+                )}
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
                     <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
-                    <p className="hidden text-sm text-muted-foreground md:block">{currentDescription}</p>
+                    {role !== "student" && (
+                      <p className="hidden text-sm text-muted-foreground md:block">{currentDescription}</p>
+                    )}
                   </div>
                   {primaryAction ? <div className="hidden md:block">{primaryAction}</div> : null}
                 </div>
@@ -190,11 +197,26 @@ export function DashboardLayout({
             </div>
             <div className="flex items-center gap-2">
               {topRightActions}
-              <Button type="button" variant="outline" size="sm" asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(
+                  role === "student" && "border-brand-green-primary/30 text-brand-green-primary hover:bg-brand-green-light/20 hover:text-brand-green-deep"
+                )}
+                asChild
+              >
                 <NavLink to={APP_ROUTES.notifications}>
                   <Bell className="h-4 w-4" aria-hidden="true" />
                   <span className="hidden sm:inline">Notifications</span>
-                  {unreadCount.data ? <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">{unreadCount.data}</span> : null}
+                  {unreadCount.data ? (
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-semibold",
+                      role === "student" ? "bg-brand-green-primary text-white" : "bg-primary text-primary-foreground"
+                    )}>
+                      {unreadCount.data}
+                    </span>
+                  ) : null}
                 </NavLink>
               </Button>
               <Button

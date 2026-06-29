@@ -1,67 +1,36 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, ClipboardList, Nfc, UserCheck } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { NavLink, Navigate } from "react-router-dom";
-import { toast } from "sonner";
 import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { ErrorState } from "@/components/feedback/ErrorState";
-import { LoadingState } from "@/components/feedback/LoadingState";
-import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
-import { TextAreaField } from "@/components/forms/TextAreaField";
-import { AttachmentUploader } from "@/components/shared/AttachmentUploader";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
-import { FilterBar } from "@/components/tables/FilterBar";
-import { Button } from "@/components/ui/button";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import type { ReportHistoryRecord } from "@/features/reports/types";
+import { toast } from "sonner";
+import {
+  History,
+  FileUp,
+  Inbox,
+  CheckCircle,
+  Clock,
+  XCircle
+} from "lucide-react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSessions,
+  useStudents,
   useClasses,
-  useCorrectionRequests,
   useEvents,
-  useFacultyProfiles,
-  useNfcCredentialForStudent,
-  useNfcCredentialRequests,
-  useNfcTapAttempts,
-  useOrganizerProfiles,
-  useReports,
-  useStudents
+  useCorrectionRequests,
+  useAttendanceRecords,
+  useAttendanceSessions
 } from "@/hooks/useRepositoryQueries";
-import { APP_ROUTES } from "@/lib/constants/routes";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/forms/SelectField";
+import { TextAreaField } from "@/components/forms/TextAreaField";
+import { SubmitButton } from "@/components/forms/SubmitButton";
+import { StatusBadge } from "@/components/feedback/StatusBadge";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type {
-  AttendanceRecord,
-  AttendanceSession,
-  Class,
-  CorrectionRequest,
-  Event,
-  FacultyProfile,
-  NfcCredentialRequest,
-  OrganizerProfile,
-  Report,
-  Student
-} from "@/types/domain";
-import type {
-  AttendanceStatus,
-  CorrectionRequestStatus,
-  EventStatus,
-  NfcCredentialRequestStatus,
-  NfcCredentialStatus,
-  SessionStatus
-} from "@/types/enums";
+import type { CorrectionRequest, Student } from "@/types/domain";
 
 type StudentScope = {
   context: RepositoryContext;
@@ -71,46 +40,18 @@ type StudentScope = {
   isError: boolean;
 };
 
-type AttendanceRow = {
-  id: string;
-  kind: "class" | "event";
-  record: AttendanceRecord;
-  session?: AttendanceSession;
-  classRecord?: Class;
-  event?: Event;
-  faculty?: FacultyProfile;
-  organizer?: OrganizerProfile;
-};
+const correctionFormSchema = z.object({
+  category: z.enum(["class", "event"]),
+  code: z.string().min(1, "Please select or enter class/event code."),
+  name: z.string().min(1, "Name is required."),
+  requestType: z.enum(["excused", "present", "late", "absent"]),
+  reason: z.string().min(12, "Explanation must be at least 12 characters."),
+  recordId: z.string().optional()
+});
 
-type ScheduleRow = {
-  id: string;
-  kind: "class" | "event";
-  name: string;
-  code: string;
-  venue: string;
-  startsAt: string;
-  endsAt?: string;
-  owner: string;
-  mode: string;
-  status: string;
-};
+type CorrectionFormValues = z.infer<typeof correctionFormSchema>;
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const correctionSchema = z.object({
-  attendanceRecordId: z.string().min(1, "Select a related attendance record."),
-  requestedStatus: z.enum(["present", "late", "absent", "excused"]),
-  reason: z.string().min(12, "Explanation must be at least 12 characters.")
-});
-
-const nfcRequestSchema = z.object({
-  type: z.enum(["lost", "damaged", "replacement"]),
-  reason: z.string().min(10, "Reason must be at least 10 characters.")
-});
-
-type CorrectionFormValues = z.infer<typeof correctionSchema>;
-type NfcRequestFormValues = z.infer<typeof nfcRequestSchema>;
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -125,272 +66,364 @@ function useStudentScope(): StudentScope {
   };
 }
 
-function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
-}
+export function CorrectionRequestsPage() {
+  const scope = useStudentScope();
+  const [searchParams] = useSearchParams();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<CorrectionRequest | null>(null);
 
-function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
-}
+  const classesQuery = useClasses({ pageSize: 100 }, scope.context);
+  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
+  const recordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
+  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
 
-function statusTone(
-  status:
-    | AttendanceStatus
-    | SessionStatus
-    | CorrectionRequestStatus
-    | EventStatus
-    | NfcCredentialStatus
-    | NfcCredentialRequestStatus
-) {
-  if (["present", "completed", "approved", "activated"].includes(status)) {
-    return "success" as const;
-  }
-  if (["late", "draft", "pending", "inactive", "damaged", "replacement"].includes(status)) {
-    return "warning" as const;
-  }
-  if (["absent", "cancelled", "rejected", "blocked", "lost"].includes(status)) {
-    return "danger" as const;
-  }
-  return "muted" as const;
-}
+  const urlCategory = searchParams.get("category") === "event" ? "event" : "class";
+  const urlRecordId = searchParams.get("recordId") ?? "";
+  const urlCode = searchParams.get("code") ?? "";
+  const urlName = searchParams.get("name") ?? "";
 
-function maskCredential(value: string | undefined) {
-  if (!value) {
-    return "Not available";
-  }
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
-}
+  const form = useForm<CorrectionFormValues>({
+    resolver: zodResolver(correctionFormSchema),
+    defaultValues: {
+      category: urlCategory,
+      code: urlCode,
+      name: urlName,
+      requestType: "excused",
+      reason: "",
+      recordId: urlRecordId
+    }
+  });
 
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
-}
+  const { setValue, control, handleSubmit, reset } = form;
+  const watchedCategory = useWatch({ control, name: "category" });
+  const watchedCode = useWatch({ control, name: "code" });
 
-function ShellState({ scope }: { scope: StudentScope }) {
+  const classes = classesQuery.data?.items ?? [];
+  const events = eventsQuery.data?.items ?? [];
+
+  // Update codes dropdown options
+  const codeOptions =
+    watchedCategory === "class"
+      ? classes.map((c) => ({ label: `${c.subjectCode} - ${c.subjectTitle}`, value: c.subjectCode }))
+      : events.map((e) => ({ label: `${e.code} - ${e.title}`, value: e.code }));
+
+  // Automatically update the Name field when Code changes
+  useEffect(() => {
+    if (!watchedCode) return;
+    if (watchedCategory === "class") {
+      const match = classes.find((c) => c.subjectCode === watchedCode);
+      if (match) setValue("name", match.subjectTitle);
+    } else {
+      const match = events.find((e) => e.code === watchedCode);
+      if (match) setValue("name", match.title);
+    }
+  }, [watchedCode, watchedCategory, classes, events, setValue]);
+
+  // Handle URL redirect query parameter synchronization
+  useEffect(() => {
+    if (urlCode && urlName) {
+      setValue("category", urlCategory);
+      setValue("code", urlCode);
+      setValue("name", urlName);
+      setValue("recordId", urlRecordId);
+    }
+  }, [urlCategory, urlCode, urlName, urlRecordId, setValue]);
+
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
   }
+
   if (scope.isError || !scope.student) {
     return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
   }
-  return null;
-}
 
-function StudentFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function buildAttendanceRows(
-  records: AttendanceRecord[],
-  sessions: AttendanceSession[],
-  classes: Class[],
-  events: Event[],
-  faculty: FacultyProfile[],
-  organizers: OrganizerProfile[]
-): AttendanceRow[] {
-  return records.map((record) => {
-    const session = sessions.find((entry) => entry.id === record.sessionId);
-    const classRecord = classes.find((entry) => entry.id === session?.classId);
-    const event = events.find((entry) => entry.id === session?.eventId);
-    return {
-      id: record.id,
-      kind: session?.type ?? (classRecord ? "class" : "event"),
-      record,
-      session,
-      classRecord,
-      event,
-      faculty: faculty.find((entry) => entry.id === classRecord?.facultyId),
-      organizer: organizers.find((entry) => entry.id === event?.organizerId)
-    };
-  });
-}
-
-function buildScheduleRows(classes: Class[], events: Event[], faculty: FacultyProfile[], organizers: OrganizerProfile[]): ScheduleRow[] {
-  const classRows = classes.map((classRecord) => ({
-    id: classRecord.id,
-    kind: "class" as const,
-    name: classRecord.subjectTitle,
-    code: classRecord.subjectCode,
-    venue: classRecord.room,
-    startsAt: "2026-06-27T00:00:00.000Z",
-    endsAt: "2026-06-27T01:00:00.000Z",
-    owner: faculty.find((profile) => profile.id === classRecord.facultyId)?.title ?? "Faculty",
-    mode: "required",
-    status: classRecord.status
-  }));
-  const eventRows = events.map((event) => ({
-    id: event.id,
-    kind: "event" as const,
-    name: event.title,
-    code: event.code,
-    venue: event.venue,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    owner: organizers.find((profile) => profile.id === event.organizerId)?.organizationName ?? "Organizer",
-    mode: "required",
-    status: event.status
-  }));
-  return [...classRows, ...eventRows].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-}
-
-function attendanceColumns(onDetails: (row: AttendanceRow) => void): ColumnDef<AttendanceRow>[] {
-  return [
-    { id: "code", header: "Code", cell: ({ row }) => row.original.classRecord?.subjectCode ?? row.original.event?.code ?? "N/A" },
-    { id: "name", header: "Name", cell: ({ row }) => row.original.classRecord?.subjectTitle ?? row.original.event?.title ?? row.original.session?.title ?? "Unknown" },
-    { id: "owner", header: "Faculty or organizer", cell: ({ row }) => row.original.faculty?.title ?? row.original.organizer?.organizationName ?? "N/A" },
-    { id: "section", header: "Section or venue", cell: ({ row }) => row.original.classRecord?.section ?? row.original.event?.venue ?? "N/A" },
-    { id: "date", header: "Session date", cell: ({ row }) => formatDate(row.original.session?.startsAt) },
-    { id: "time", header: "Session time", cell: ({ row }) => `${formatTime(row.original.session?.startsAt)} - ${formatTime(row.original.session?.endsAt)}` },
-    { id: "status", header: "Attendance status", cell: ({ row }) => <StatusBadge label={row.original.record.status} tone={statusTone(row.original.record.status)} /> },
-    { accessorKey: "record.verificationMethod", header: "Verification method" },
-    { id: "action", header: "View details", cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => onDetails(row.original)}>Details</Button> }
-  ];
-}
-
-function ScheduleCard({ item }: { item: ScheduleRow }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{item.code} - {item.name}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(item.startsAt)} {formatTime(item.startsAt)} - {formatTime(item.endsAt)} - {item.venue}</p>
-        </div>
-        <StatusBadge label={item.kind} tone={item.kind === "class" ? "info" : "success"} />
-      </div>
-    </article>
-  );
-}
-
-function ActivityCard({ record, session }: { record: AttendanceRecord; session?: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session?.title ?? "Attendance session"}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(record.recordedAt)} - {record.verificationMethod}</p>
-        </div>
-        <StatusBadge label={record.status} tone={statusTone(record.status)} />
-      </div>
-    </article>
-  );
-}
-
-function CalendarList({ rows }: { rows: AttendanceRow[] }) {
-  if (!rows.length) {
-    return <EmptyState title="No calendar attendance items" />;
+  if (
+    classesQuery.isLoading ||
+    eventsQuery.isLoading ||
+    correctionsQuery.isLoading ||
+    recordsQuery.isLoading ||
+    sessionsQuery.isLoading
+  ) {
+    return <LoadingState label="Loading correction page" />;
   }
-  return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Attendance calendar items">
-      {rows.map((row) => (
-        <article key={row.id} className="rounded-lg border bg-surface p-4">
-          <p className="text-sm font-medium">{formatDate(row.session?.startsAt)}</p>
-          <h2 className="mt-2 font-semibold">{row.classRecord?.subjectCode ?? row.event?.code} - {row.classRecord?.subjectTitle ?? row.event?.title}</h2>
-          <StatusBadge label={row.record.status} tone={statusTone(row.record.status)} />
-        </article>
-      ))}
-    </section>
-  );
-}
 
-function AttendanceDetail({ row, corrections, onClose }: { row: AttendanceRow; corrections: CorrectionRequest[]; onClose: () => void }) {
-  const request = corrections.find((entry) => entry.attendanceRecordId === row.record.id);
+  async function onSubmit(values: CorrectionFormValues) {
+    try {
+      let classId: string | undefined;
+      let eventId: string | undefined;
+      let attendanceRecordId = values.recordId || undefined;
+
+      if (values.category === "class") {
+        const matchingClass = classes.find((c) => c.subjectCode === values.code);
+        classId = matchingClass?.id;
+      } else {
+        const matchingEvent = events.find((e) => e.code === values.code);
+        eventId = matchingEvent?.id;
+      }
+
+      if (!attendanceRecordId && classId) {
+        const matchSession = sessionsQuery.data?.items.find((s) => s.classId === classId);
+        if (matchSession) {
+          const matchRecord = recordsQuery.data?.items.find((r) => r.sessionId === matchSession.id);
+          attendanceRecordId = matchRecord?.id;
+        }
+      } else if (!attendanceRecordId && eventId) {
+        const matchSession = sessionsQuery.data?.items.find((s) => s.eventId === eventId);
+        if (matchSession) {
+          const matchRecord = recordsQuery.data?.items.find((r) => r.sessionId === matchSession.id);
+          attendanceRecordId = matchRecord?.id;
+        }
+      }
+
+      await correctionsQuery.createMutation.mutateAsync({
+        studentId: scope.student?.id ?? "",
+        attendanceRecordId: attendanceRecordId ?? "",
+        classId,
+        eventId,
+        requestedStatus: values.requestType,
+        reason: values.reason
+      });
+
+      toast.success("Excused/Correction request submitted successfully.");
+      reset({
+        category: "class",
+        code: "",
+        name: "",
+        requestType: "excused",
+        reason: "",
+        recordId: ""
+      });
+      setSelectedFile(null);
+    } catch {
+      toast.error("Failed to submit request. You may have a pending request already.");
+    }
+  }
+
+  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    if (event.target.files && event.target.files.length > 0) {
+      setSelectedFile(event.target.files[0]);
+      toast.info(`Attached file: ${event.target.files[0].name}`);
+    }
+  }
+
+  function getStatusTone(status: string) {
+    if (status === "approved") return "success";
+    if (status === "pending") return "warning";
+    return "danger";
+  }
+
   return (
-    <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">
-        <h2 className="text-lg font-semibold">Attendance detail</h2>
-        <dl className="mt-4 grid gap-3 md:grid-cols-2">
-          {[
-            ["Class or event", row.classRecord?.subjectTitle ?? row.event?.title ?? row.session?.title],
-            ["Attendance status", row.record.status],
-            ["Verification method", row.record.verificationMethod],
-            ["Recorded time", `${formatDate(row.record.recordedAt)} ${formatTime(row.record.recordedAt)}`],
-            ["Remarks", row.record.note ?? "No remarks"],
-            ["Correction request status", request?.status ?? "No request"]
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-md border bg-surface p-3">
-              <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-              <dd className="mt-1 text-sm font-semibold">{value}</dd>
+    <div className="space-y-8 p-1">
+      <PageHeader
+        eyebrow="Absences & Edits"
+        title="Excused & Correction Requests"
+        description="File formal absence excuse notices or request corrections for incorrect attendance check-ins."
+      />
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Left Side: Submit Form */}
+        <div className="lg:col-span-1 student-glass-card p-6 space-y-4 shadow-sm h-fit">
+          <div>
+            <h3 className="font-semibold text-[#4F5654] text-base">File New Request</h3>
+            <p className="text-xs text-[#B9C1BF] mt-0.5">Please provide supporting files for excused requests.</p>
+          </div>
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <SelectField
+              control={control}
+              name="category"
+              label="Category"
+              options={[
+                { label: "Class Attendance", value: "class" },
+                { label: "Campus Event", value: "event" }
+              ]}
+            />
+
+            <SelectField
+              control={control}
+              name="code"
+              label="Subject/Event Code"
+              options={[{ label: "-- Select Code --", value: "" }, ...codeOptions]}
+            />
+
+            <div>
+              <label className="block text-xs font-semibold text-[#4F5654] mb-1.5">Class/Event Name</label>
+              <input
+                type="text"
+                readOnly
+                {...form.register("name")}
+                className="student-input h-10 w-full bg-slate-100/50 px-3 py-2 text-sm font-medium focus:outline-none cursor-not-allowed text-muted-foreground"
+              />
             </div>
-          ))}
-        </dl>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Close</Button>
-          <Button asChild><NavLink to={APP_ROUTES.studentCorrections}>Available correction request action</NavLink></Button>
+
+            <SelectField
+              control={control}
+              name="requestType"
+              label="Request Type"
+              options={[
+                { label: "Excused Absence (Absent -> Excused)", value: "excused" },
+                { label: "Attendance Correction (Absent -> Present)", value: "present" },
+                { label: "Recorded Time Correction (Late -> Present)", value: "late" }
+              ]}
+            />
+
+            <TextAreaField
+              control={control}
+              name="reason"
+              label="Reason & Explanation"
+              placeholder="State clearly why you missed the session or why correction is requested..."
+            />
+
+            {/* File Attachment Uploader */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-[#4F5654]">Attach Supporting File</label>
+              <div className="relative border border-dashed border-[#B9C1BF] hover:border-primary/50 transition-colors rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-white/40">
+                <input
+                  type="file"
+                  onChange={handleFileChange}
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <FileUp className="h-6 w-6 text-[#B9C1BF] mb-1" />
+                <span className="text-xs font-semibold text-[#4F5654]">
+                  {selectedFile ? selectedFile.name : "Choose PDF or Image"}
+                </span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Max size: 5MB</span>
+              </div>
+            </div>
+
+            <SubmitButton isSubmitting={correctionsQuery.createMutation.isPending} className="student-btn-primary w-full mt-2">
+              Submit Request
+            </SubmitButton>
+          </form>
+        </div>
+
+        {/* Right Side: History logs list */}
+        <div className="lg:col-span-2 student-glass-card p-6 space-y-4 shadow-sm h-fit">
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-[#4D7117]" />
+            <h3 className="font-semibold text-[#4F5654] text-base">My Report History</h3>
+          </div>
+
+          <div className="overflow-x-auto border-none">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-[#E8ECEB] text-[#B9C1BF] font-medium">
+                  <th className="py-2.5 pb-4">Submitted Date</th>
+                  <th className="py-2.5 pb-4">Subject/Event ID</th>
+                  <th className="py-2.5 pb-4">Type</th>
+                  <th className="py-2.5 pb-4">Status</th>
+                  <th className="py-2.5 pb-4 text-right">Details</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E8ECEB] text-[#4F5654]">
+                {(correctionsQuery.data?.items ?? []).length > 0 ? (
+                  (correctionsQuery.data?.items ?? []).map((req) => (
+                    <tr key={req.id} className="hover:bg-white/40 transition-colors">
+                      <td className="py-3.5">
+                        {dateFormatter.format(new Date(req.requestedAt))}
+                      </td>
+                      <td className="py-3.5 font-mono text-xs">{req.classId ?? req.eventId ?? "Session Record"}</td>
+                      <td className="py-3.5 text-xs capitalize text-slate-500">
+                        {req.requestedStatus === "excused" ? "Excused Absence" : "Correction"}
+                      </td>
+                      <td className="py-3.5">
+                        <StatusBadge label={req.status} tone={getStatusTone(req.status)} />
+                      </td>
+                      <td className="py-3.5 text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedRequest(req)}
+                          className="text-xs text-[#4D7117] font-semibold hover:bg-emerald-50/50"
+                        >
+                          View Details
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-[#B9C1BF]">
+                      <div className="flex flex-col items-center justify-center space-y-1">
+                        <Inbox className="h-6 w-6 text-slate-400" />
+                        <span>No correction request reports recorded.</span>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </section>
-  );
 
-}
+      {/* DETAILED REQUEST VIEW DIALOG */}
+      {selectedRequest && (
+        <section
+          className="fixed inset-0 z-50 grid place-items-center bg-[#1F4B2C]/25 p-4 backdrop-blur-md animate-in fade-in-30"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-lg rounded-[28px] border border-white/50 bg-white/70 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
+            <div className="flex justify-between items-start border-b border-[#E8ECEB] pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-[#4F5654]">Correction Request Detail</h3>
+                <p className="text-xs text-[#B9C1BF] mt-0.5">
+                  Submitted on {dateFormatter.format(new Date(selectedRequest.requestedAt))}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="text-[#4F5654] hover:bg-slate-100">
+                ✕
+              </Button>
+            </div>
 
-export function CorrectionRequestsPage() {
-  const scope = useStudentScope();
-  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
-  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
-  const [selected, setSelected] = useState<CorrectionRequest | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const form = useForm<CorrectionFormValues>({
-    resolver: zodResolver(correctionSchema),
-    defaultValues: { attendanceRecordId: "", requestedStatus: "present", reason: "" }
-  });
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.student) {
-    return shellState;
-  }
-  if (recordsQuery.isLoading || correctionsQuery.isLoading || sessionsQuery.isLoading) {
-    return <LoadingState label="Loading correction requests" />;
-  }
-  async function submit(values: CorrectionFormValues) {
-    const record = recordsQuery.data?.items.find((entry) => entry.id === values.attendanceRecordId);
-    await correctionsQuery.createMutation.mutateAsync({
-      studentId: scope.student?.id ?? "",
-      attendanceRecordId: values.attendanceRecordId,
-      classId: sessionsQuery.data?.items.find((session) => session.id === record?.sessionId)?.classId,
-      eventId: sessionsQuery.data?.items.find((session) => session.id === record?.sessionId)?.eventId,
-      requestedStatus: values.requestedStatus,
-      reason: values.reason
-    });
-    toast.success("Correction request submitted.");
-    form.reset({ attendanceRecordId: "", requestedStatus: "present", reason: "" });
-  }
-  const columns: ColumnDef<CorrectionRequest>[] = [
-    { id: "record", header: "Class or event", cell: ({ row }) => row.original.classId ?? row.original.eventId ?? "Attendance record" },
-    { id: "date", header: "Submitted date", cell: ({ row }) => formatDate(row.original.requestedAt) },
-    { accessorKey: "requestedStatus", header: "Request type" },
-    { accessorKey: "status", header: "Status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    { id: "reviewed", header: "Reviewed by", cell: ({ row }) => row.original.reviewedByUserId ?? "Pending" },
-    { id: "reviewDate", header: "Review date", cell: ({ row }) => formatDate(row.original.reviewedAt) },
-    { id: "action", header: "View details", cell: ({ row }) => <Button variant="outline" size="sm" onClick={() => setSelected(row.original)}>Details</Button> }
-  ];
-  return (
-    <StudentFrame>
-      <PageHeader eyebrow="Student" title="Correction Requests" description="Submit and review your own attendance correction request history." />
-      <form className="space-y-4 rounded-lg border bg-surface p-5" onSubmit={form.handleSubmit(submit)}>
-        <h2 className="font-semibold">Create Request</h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          <SelectField control={form.control} name="attendanceRecordId" label="Category, class or event" options={(recordsQuery.data?.items ?? []).map((record) => ({ label: `${record.id} - ${record.status}`, value: record.id }))} />
-          <SelectField control={form.control} name="requestedStatus" label="Request type" options={[{ label: "Excused absence", value: "excused" }, { label: "Attendance status correction", value: "present" }, { label: "Recorded time correction", value: "late" }, { label: "System issue", value: "absent" }]} />
-          <AttachmentUploader label={`Attachment placeholder (${files.length} selected)`} onFilesSelected={setFiles} />
-        </div>
-        <TextAreaField control={form.control} name="reason" label="Explanation" />
-        {correctionsQuery.createMutation.isError ? <p className="text-sm text-danger">Unable to submit. Check for duplicate pending requests and required fields.</p> : null}
-        <SubmitButton isSubmitting={correctionsQuery.createMutation.isPending}>Submit correction request</SubmitButton>
-      </form>
-      <DataTable data={correctionsQuery.data?.items ?? []} columns={columns} emptyTitle="No correction requests" />
-      {selected ? (
-        <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">
-            <h2 className="text-lg font-semibold">Correction request details</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{selected.reason}</p>
-            <div className="mt-4 rounded-lg border bg-surface p-3 text-sm">Original attendance record, attachment placeholder, staff decision, rejection reason, and safe audit timeline are represented by mock data.</div>
-            <div className="mt-5 flex justify-end"><Button variant="outline" onClick={() => setSelected(null)}>Close</Button></div>
+            <div className="space-y-3.5 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/40 p-3 rounded-xl border border-[#E8ECEB]">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">Record ID</span>
+                  <p className="font-semibold text-[#4F5654] mt-0.5 truncate">{selectedRequest.attendanceRecordId || "N/A"}</p>
+                </div>
+                <div className="bg-white/40 p-3 rounded-xl border border-[#E8ECEB]">
+                  <span className="text-[10px] uppercase font-bold text-slate-500">Request Type</span>
+                  <p className="font-semibold text-[#4F5654] mt-0.5 capitalize">{selectedRequest.requestedStatus}</p>
+                </div>
+              </div>
+
+              <div className="bg-white/40 p-4 rounded-xl border border-[#E8ECEB] space-y-2">
+                <span className="text-[10px] uppercase font-bold text-slate-500">Explanation / Reason</span>
+                <p className="text-xs leading-relaxed text-[#4F5654]">{selectedRequest.reason}</p>
+              </div>
+
+              <div className="bg-white/40 p-4 rounded-xl border border-[#E8ECEB] space-y-2">
+                <span className="text-[10px] uppercase font-bold text-slate-500">Admin Review Decision</span>
+                <div className="flex items-center gap-2 mt-1">
+                  {selectedRequest.status === "approved" ? (
+                    <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                  ) : selectedRequest.status === "rejected" ? (
+                    <XCircle className="h-5 w-5 text-danger shrink-0" />
+                  ) : (
+                    <Clock className="h-5 w-5 text-warning shrink-0" />
+                  )}
+                  <span className="font-semibold text-xs uppercase text-[#4F5654]">
+                    {selectedRequest.status === "pending" ? "Awaiting review" : `Reviewed: ${selectedRequest.status}`}
+                  </span>
+                </div>
+                {selectedRequest.reviewedAt && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Review Date: {dateFormatter.format(new Date(selectedRequest.reviewedAt))}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-[#E8ECEB]">
+              <Button onClick={() => setSelectedRequest(null)} className="student-btn-primary px-6">Close</Button>
+            </div>
           </div>
         </section>
-      ) : null}
-    </StudentFrame>
+      )}
+    </div>
   );
 }

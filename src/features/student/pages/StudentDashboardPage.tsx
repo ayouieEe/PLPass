@@ -1,44 +1,22 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, ClipboardList, Nfc, UserCheck } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { NavLink, Navigate } from "react-router-dom";
-import { toast } from "sonner";
-import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
+import { useState, useEffect } from "react";
+import { AlertTriangle, CalendarCheck, ClipboardList, Nfc, UserCheck, AlertCircle, Calendar } from "lucide-react";
+import { NavLink, useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
-import { TextAreaField } from "@/components/forms/TextAreaField";
-import { AttachmentUploader } from "@/components/shared/AttachmentUploader";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
-import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
   useAttendanceSessions,
   useClasses,
-  useCorrectionRequests,
   useEvents,
-  useFacultyProfiles,
-  useNfcCredentialForStudent,
-  useNfcCredentialRequests,
-  useNfcTapAttempts,
-  useOrganizerProfiles,
-  useReports,
-  useStudents
+  useStudents,
+  useNfcCredentialForStudent
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
@@ -46,22 +24,10 @@ import type {
   AttendanceRecord,
   AttendanceSession,
   Class,
-  CorrectionRequest,
   Event,
-  FacultyProfile,
-  NfcCredentialRequest,
-  OrganizerProfile,
-  Report,
   Student
 } from "@/types/domain";
-import type {
-  AttendanceStatus,
-  CorrectionRequestStatus,
-  EventStatus,
-  NfcCredentialRequestStatus,
-  NfcCredentialStatus,
-  SessionStatus
-} from "@/types/enums";
+import type { AttendanceStatus } from "@/types/enums";
 
 type StudentScope = {
   context: RepositoryContext;
@@ -69,17 +35,6 @@ type StudentScope = {
   studentName: string;
   isLoading: boolean;
   isError: boolean;
-};
-
-type AttendanceRow = {
-  id: string;
-  kind: "class" | "event";
-  record: AttendanceRecord;
-  session?: AttendanceSession;
-  classRecord?: Class;
-  event?: Event;
-  faculty?: FacultyProfile;
-  organizer?: OrganizerProfile;
 };
 
 type ScheduleRow = {
@@ -91,26 +46,10 @@ type ScheduleRow = {
   startsAt: string;
   endsAt?: string;
   owner: string;
-  mode: string;
-  status: string;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const correctionSchema = z.object({
-  attendanceRecordId: z.string().min(1, "Select a related attendance record."),
-  requestedStatus: z.enum(["present", "late", "absent", "excused"]),
-  reason: z.string().min(12, "Explanation must be at least 12 characters.")
-});
-
-const nfcRequestSchema = z.object({
-  type: z.enum(["lost", "damaged", "replacement"]),
-  reason: z.string().min(10, "Reason must be at least 10 characters.")
-});
-
-type CorrectionFormValues = z.infer<typeof correctionSchema>;
-type NfcRequestFormValues = z.infer<typeof nfcRequestSchema>;
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -133,275 +72,364 @@ function formatTime(value: string | undefined) {
   return value ? timeFormatter.format(new Date(value)) : "Not set";
 }
 
-function statusTone(
-  status:
-    | AttendanceStatus
-    | SessionStatus
-    | CorrectionRequestStatus
-    | EventStatus
-    | NfcCredentialStatus
-    | NfcCredentialRequestStatus
-) {
-  if (["present", "completed", "approved", "activated"].includes(status)) {
-    return "success" as const;
-  }
-  if (["late", "draft", "pending", "inactive", "damaged", "replacement"].includes(status)) {
-    return "warning" as const;
-  }
-  if (["absent", "cancelled", "rejected", "blocked", "lost"].includes(status)) {
-    return "danger" as const;
-  }
-  return "muted" as const;
-}
-
-function maskCredential(value: string | undefined) {
-  if (!value) {
-    return "Not available";
-  }
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
+function statusTone(status: AttendanceStatus) {
+  if (status === "present") return "success";
+  if (status === "late") return "warning";
+  if (status === "absent") return "danger";
+  return "muted";
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
+  if (records.length === 0) return 0;
+  const attended = records.filter((r) => r.status === "present" || r.status === "late").length;
   return Math.round((attended / records.length) * 100);
-}
-
-function ShellState({ scope }: { scope: StudentScope }) {
-  if (scope.isLoading) {
-    return <LoadingState label="Loading student workspace" />;
-  }
-  if (scope.isError || !scope.student) {
-    return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
-  }
-  return null;
-}
-
-function StudentFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function buildAttendanceRows(
-  records: AttendanceRecord[],
-  sessions: AttendanceSession[],
-  classes: Class[],
-  events: Event[],
-  faculty: FacultyProfile[],
-  organizers: OrganizerProfile[]
-): AttendanceRow[] {
-  return records.map((record) => {
-    const session = sessions.find((entry) => entry.id === record.sessionId);
-    const classRecord = classes.find((entry) => entry.id === session?.classId);
-    const event = events.find((entry) => entry.id === session?.eventId);
-    return {
-      id: record.id,
-      kind: session?.type ?? (classRecord ? "class" : "event"),
-      record,
-      session,
-      classRecord,
-      event,
-      faculty: faculty.find((entry) => entry.id === classRecord?.facultyId),
-      organizer: organizers.find((entry) => entry.id === event?.organizerId)
-    };
-  });
-}
-
-function buildScheduleRows(classes: Class[], events: Event[], faculty: FacultyProfile[], organizers: OrganizerProfile[]): ScheduleRow[] {
-  const classRows = classes.map((classRecord) => ({
-    id: classRecord.id,
-    kind: "class" as const,
-    name: classRecord.subjectTitle,
-    code: classRecord.subjectCode,
-    venue: classRecord.room,
-    startsAt: "2026-06-27T00:00:00.000Z",
-    endsAt: "2026-06-27T01:00:00.000Z",
-    owner: faculty.find((profile) => profile.id === classRecord.facultyId)?.title ?? "Faculty",
-    mode: "required",
-    status: classRecord.status
-  }));
-  const eventRows = events.map((event) => ({
-    id: event.id,
-    kind: "event" as const,
-    name: event.title,
-    code: event.code,
-    venue: event.venue,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    owner: organizers.find((profile) => profile.id === event.organizerId)?.organizationName ?? "Organizer",
-    mode: "required",
-    status: event.status
-  }));
-  return [...classRows, ...eventRows].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-}
-
-function attendanceColumns(onDetails: (row: AttendanceRow) => void): ColumnDef<AttendanceRow>[] {
-  return [
-    { id: "code", header: "Code", cell: ({ row }) => row.original.classRecord?.subjectCode ?? row.original.event?.code ?? "N/A" },
-    { id: "name", header: "Name", cell: ({ row }) => row.original.classRecord?.subjectTitle ?? row.original.event?.title ?? row.original.session?.title ?? "Unknown" },
-    { id: "owner", header: "Faculty or organizer", cell: ({ row }) => row.original.faculty?.title ?? row.original.organizer?.organizationName ?? "N/A" },
-    { id: "section", header: "Section or venue", cell: ({ row }) => row.original.classRecord?.section ?? row.original.event?.venue ?? "N/A" },
-    { id: "date", header: "Session date", cell: ({ row }) => formatDate(row.original.session?.startsAt) },
-    { id: "time", header: "Session time", cell: ({ row }) => `${formatTime(row.original.session?.startsAt)} - ${formatTime(row.original.session?.endsAt)}` },
-    { id: "status", header: "Attendance status", cell: ({ row }) => <StatusBadge label={row.original.record.status} tone={statusTone(row.original.record.status)} /> },
-    { accessorKey: "record.verificationMethod", header: "Verification method" },
-    { id: "action", header: "View details", cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => onDetails(row.original)}>Details</Button> }
-  ];
-}
-
-function ScheduleCard({ item }: { item: ScheduleRow }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{item.code} - {item.name}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(item.startsAt)} {formatTime(item.startsAt)} - {formatTime(item.endsAt)} - {item.venue}</p>
-        </div>
-        <StatusBadge label={item.kind} tone={item.kind === "class" ? "info" : "success"} />
-      </div>
-    </article>
-  );
-}
-
-function ActivityCard({ record, session }: { record: AttendanceRecord; session?: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session?.title ?? "Attendance session"}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(record.recordedAt)} - {record.verificationMethod}</p>
-        </div>
-        <StatusBadge label={record.status} tone={statusTone(record.status)} />
-      </div>
-    </article>
-  );
-}
-
-function CalendarList({ rows }: { rows: AttendanceRow[] }) {
-  if (!rows.length) {
-    return <EmptyState title="No calendar attendance items" />;
-  }
-  return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Attendance calendar items">
-      {rows.map((row) => (
-        <article key={row.id} className="rounded-lg border bg-surface p-4">
-          <p className="text-sm font-medium">{formatDate(row.session?.startsAt)}</p>
-          <h2 className="mt-2 font-semibold">{row.classRecord?.subjectCode ?? row.event?.code} - {row.classRecord?.subjectTitle ?? row.event?.title}</h2>
-          <StatusBadge label={row.record.status} tone={statusTone(row.record.status)} />
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function AttendanceDetail({ row, corrections, onClose }: { row: AttendanceRow; corrections: CorrectionRequest[]; onClose: () => void }) {
-  const request = corrections.find((entry) => entry.attendanceRecordId === row.record.id);
-  return (
-    <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">
-        <h2 className="text-lg font-semibold">Attendance detail</h2>
-        <dl className="mt-4 grid gap-3 md:grid-cols-2">
-          {[
-            ["Class or event", row.classRecord?.subjectTitle ?? row.event?.title ?? row.session?.title],
-            ["Attendance status", row.record.status],
-            ["Verification method", row.record.verificationMethod],
-            ["Recorded time", `${formatDate(row.record.recordedAt)} ${formatTime(row.record.recordedAt)}`],
-            ["Remarks", row.record.note ?? "No remarks"],
-            ["Correction request status", request?.status ?? "No request"]
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-md border bg-surface p-3">
-              <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-              <dd className="mt-1 text-sm font-semibold">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Close</Button>
-          <Button asChild><NavLink to={APP_ROUTES.studentCorrections}>Available correction request action</NavLink></Button>
-        </div>
-      </div>
-    </section>
-  );
-
 }
 
 export function StudentDashboardPage() {
   const scope = useStudentScope();
+  const navigate = useNavigate();
   const [semesterId, setSemesterId] = useState("");
+  const [isFaceEnrolled, setIsFaceEnrolled] = useState(false);
+  const [isQrGenerated, setIsQrGenerated] = useState(false);
+
+  useEffect(() => {
+    setIsFaceEnrolled(localStorage.getItem("plpass-face-enrolled") === "true");
+    setIsQrGenerated(localStorage.getItem("plpass-qr-generated") === "true");
+  }, []);
+
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const classesQuery = useClasses({ pageSize: 100, semesterId: semesterId || undefined }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.student) {
-    return shellState;
+  const nfcCredentialQuery = useNfcCredentialForStudent(scope.student?.id, scope.context);
+
+  if (scope.isLoading) {
+    return <LoadingState label="Loading student workspace" />;
   }
-  if (classesQuery.isLoading || eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || catalog.semesters.isLoading) {
+
+  if (scope.isError || !scope.student) {
+    return (
+      <ErrorState
+        title="Student profile unavailable"
+        message="The signed-in account does not have an active student profile."
+      />
+    );
+  }
+
+  if (
+    classesQuery.isLoading ||
+    eventsQuery.isLoading ||
+    sessionsQuery.isLoading ||
+    recordsQuery.isLoading ||
+    catalog.semesters.isLoading ||
+    nfcCredentialQuery.isLoading
+  ) {
     return <LoadingState label="Loading student dashboard" />;
   }
+
   if (classesQuery.isError || eventsQuery.isError || recordsQuery.isError) {
-    return <ErrorState title="Unable to load student dashboard" message="The mock repositories could not load student-scoped dashboard data." />;
+    return (
+      <ErrorState
+        title="Unable to load dashboard data"
+        message="An error occurred while loading student record items."
+      />
+    );
   }
+
   const classes = classesQuery.data?.items ?? [];
   const events = eventsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
-  const classRecords = records.filter((record) => sessions.find((session) => session.id === record.sessionId)?.type === "class");
-  const eventRecords = records.filter((record) => sessions.find((session) => session.id === record.sessionId)?.type === "event");
-  const trendData = [
-    { label: "Classes", present: classRecords.filter((record) => record.status === "present").length, late: classRecords.filter((record) => record.status === "late").length, absent: classRecords.filter((record) => record.status === "absent").length },
-    { label: "Events", present: eventRecords.filter((record) => record.status === "present").length, late: eventRecords.filter((record) => record.status === "late").length, absent: eventRecords.filter((record) => record.status === "absent").length }
-  ];
-  const schedule = buildScheduleRows(classes, events, [], []);
+  const nfcStatus = nfcCredentialQuery.data?.status ?? "Not Issued";
+
+  // Filter records matching the active classes (which are filtered by semester)
+  const classIds = new Set(classes.map((c) => c.id));
+  const classSessions = sessions.filter((s) => s.type === "class" && s.classId && classIds.has(s.classId));
+  const classSessionIds = new Set(classSessions.map((s) => s.id));
+  const classRecords = records.filter((r) => classSessionIds.has(r.sessionId));
+
+  // Events attended
+  const eventSessions = sessions.filter((s) => s.type === "event");
+  const eventSessionIds = new Set(eventSessions.map((s) => s.id));
+  const eventRecords = records.filter(
+    (r) => eventSessionIds.has(r.sessionId) && (r.status === "present" || r.status === "late")
+  );
+
+  // Compute Today's Schedule and Upcoming Events
+  const today = new Date();
+  const scheduleRows: ScheduleRow[] = [];
+  const upcomingEvents: Event[] = [];
+
+  classes.forEach((c) => {
+    scheduleRows.push({
+      id: c.id,
+      kind: "class",
+      name: c.subjectTitle,
+      code: c.subjectCode,
+      venue: c.room || "Room TBA",
+      startsAt: new Date(today.setHours(9, 0, 0, 0)).toISOString(),
+      endsAt: new Date(today.setHours(10, 30, 0, 0)).toISOString(),
+      owner: "Professor"
+    });
+  });
+
+  events.forEach((e) => {
+    const isFuture = new Date(e.startsAt) >= new Date();
+    if (isFuture) {
+      upcomingEvents.push(e);
+    }
+    // Add to schedule if happening soon
+    scheduleRows.push({
+      id: e.id,
+      kind: "event",
+      name: e.title,
+      code: e.code,
+      venue: e.venue || "Campus Venue",
+      startsAt: e.startsAt,
+      endsAt: e.endsAt,
+      owner: e.organizerId || "Organizer"
+    });
+  });
+
+  // Sorting schedule items by start time
+  scheduleRows.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+
+  // Determine Alerts / Reminders
+  const alerts: { title: string; desc: string; type: "danger" | "warning" | "info" }[] = [];
+  const absentRecordsCount = classRecords.filter((r) => r.status === "absent").length;
+
+  if (absentRecordsCount > 0) {
+    alerts.push({
+      title: `${absentRecordsCount} Unresolved Absences Detected`,
+      desc: "Please file an Excused/Correction request to update your attendance records.",
+      type: "danger"
+    });
+  }
+
+  if (nfcStatus !== "activated") {
+    alerts.push({
+      title: "NFC Credential Issue",
+      desc: `Your physical student ID sticker status is current: ${nfcStatus}. Report lost/damaged stickers in verification methods.`,
+      type: "warning"
+    });
+  }
+
+  if (!isFaceEnrolled) {
+    alerts.push({
+      title: "Biometric Setup Required",
+      desc: "You have not enrolled your face for facial recognition attendance. Visit verification methods to register.",
+      type: "warning"
+    });
+  }
+
+  if (!isQrGenerated) {
+    alerts.push({
+      title: "QR Code Inactive",
+      desc: "Generate your secure QR verification token to enable fallback scanner check-ins.",
+      type: "info"
+    });
+  }
+
   return (
-    <StudentFrame>
+    <div className="space-y-8 p-1">
       <PageHeader
-        eyebrow="Student"
-        title="Student dashboard"
-        description="Your class attendance, event participation, schedule, and reminders."
+        eyebrow="Student Portal"
+        title={`Welcome back, ${scope.studentName}`}
+        description="Monitor your class attendance, view verification options, and verify upcoming events."
         actions={
-          <>
-            <Button asChild variant="outline"><NavLink to={APP_ROUTES.studentAttendance}>View Attendance Records</NavLink></Button>
-            <Button asChild><NavLink to={APP_ROUTES.studentCorrections}>Submit Correction Request</NavLink></Button>
-          </>
+          <Button asChild className="student-btn-primary px-6">
+            <NavLink to={APP_ROUTES.studentCorrections}>Submit Correction</NavLink>
+          </Button>
         }
       />
-      <section className="rounded-lg border bg-surface p-4">
-        <label className="block max-w-xs space-y-1.5">
-          <span className="text-sm font-medium">Semester</span>
-          <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={semesterId} onChange={(event) => setSemesterId(event.target.value)}>
-            <option value="">All semesters</option>
-            {catalog.semesters.data?.items.map((semester) => <option key={semester.id} value={semester.id}>{semester.label} {semester.schoolYear}</option>)}
-          </select>
-        </label>
-      </section>
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Class attendance total" value={String(classRecords.length)} icon={CalendarCheck} />
-        <StatCard title="Class attendance rate" value={`${attendanceRate(classRecords)}%`} icon={ClipboardList} />
-        <StatCard title="Events attended" value={String(eventRecords.filter((record) => record.status === "present" || record.status === "late").length)} icon={UserCheck} />
-        <StatCard title="Alerts and reminders" value={records.some((record) => record.status === "absent") ? "1" : "0"} icon={AlertTriangle} tone={records.some((record) => record.status === "absent") ? "warning" : "success"} />
-      </section>
-      <AttendanceTrendChart data={trendData} />
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Today's class and event schedule</h2>
-          <div className="mt-4 grid gap-3">
-            {schedule.length ? schedule.slice(0, 4).map((item) => <ScheduleCard key={`${item.kind}-${item.id}`} item={item} />) : <EmptyState title="No upcoming schedule" />}
+
+      {/* Semester Selector */}
+      <section className="student-glass-card p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#4F5654]">Select Academic Term</h3>
+            <p className="text-xs text-[#B9C1BF] mt-0.5">Filtering stats, schedules, and class attendance.</p>
           </div>
-        </div>
-        <div className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Recent attendance activity</h2>
-          <div className="mt-4 grid gap-3">
-            {records.length ? records.slice(0, 5).map((record) => <ActivityCard key={record.id} record={record} session={sessions.find((session) => session.id === record.sessionId)} />) : <EmptyState title="No recent attendance records" />}
+          <div className="w-full max-w-xs">
+            <select
+              className="student-input h-10 w-full px-3 py-2 text-sm shadow-sm focus:outline-none"
+              value={semesterId}
+              onChange={(e) => setSemesterId(e.target.value)}
+            >
+              <option value="">All Semesters</option>
+              {catalog.semesters.data?.items.map((sem) => (
+                <option key={sem.id} value={sem.id}>
+                  {sem.label} ({sem.schoolYear})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </section>
-      <section className="grid gap-4 md:grid-cols-2">
-        {events.length ? <EmptyState title="Upcoming events available" description={`${events.length} registered event schedule item(s) are visible in Schedule.`} /> : <EmptyState title="No event participation" description="You are not listed as a participant in any current mock event." />}
-        <EmptyState title="NFC reminder" description="Keep your school ID sticker attached and report lost or damaged stickers from the NFC Credential page." />
+
+      {/* Main KPI Stat Cards */}
+      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          className="student-glass-card border-none hover:shadow-lg"
+          title="Classes Attendance"
+          value={String(classRecords.length)}
+          description="Total sessions logged"
+          icon={CalendarCheck}
+        />
+        <StatCard
+          className="student-glass-card border-none hover:shadow-lg"
+          title="Attendance rate (classes)"
+          value={`${attendanceRate(classRecords)}%`}
+          description="Enrolled courses check-in rate"
+          icon={ClipboardList}
+          tone={attendanceRate(classRecords) < 80 ? "warning" : "success"}
+        />
+        <StatCard
+          className="student-glass-card border-none hover:shadow-lg"
+          title="Events Attended"
+          value={String(eventRecords.length)}
+          description="Co-curricular participation logs"
+          icon={UserCheck}
+        />
       </section>
-    </StudentFrame>
+
+      {/* Bottom Dashboard Layout: Schedule/Events on Left, Alerts on Right */}
+      <section className="grid gap-6 lg:grid-cols-3 items-stretch">
+        {/* Left Column: Today's Schedule & Upcoming Campus Events */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          {/* Today's Schedule Card */}
+          <div className="student-glass-card p-6 flex flex-col flex-1">
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-[#4D7117]" />
+                <h3 className="font-semibold text-[#4F5654]">Today's Schedule</h3>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`${APP_ROUTES.studentAttendance}?view=calendar`)}
+                className="student-btn-secondary px-4 h-9 text-xs"
+              >
+                View Calendar
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {scheduleRows.length > 0 ? (
+                <div className="space-y-3">
+                  {scheduleRows.slice(0, 4).map((item) => (
+                    <div
+                      key={`${item.kind}-${item.id}`}
+                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-[#E8ECEB]"
+                    >
+                      <div>
+                        <h4 className="font-medium text-sm text-[#4F5654]">
+                          {item.code} - {item.name}
+                        </h4>
+                        <p className="text-xs text-[#B9C1BF] mt-1">
+                          {formatTime(item.startsAt)} - {formatTime(item.endsAt)} | {item.venue}
+                        </p>
+                      </div>
+                      <StatusBadge label={item.kind} tone={item.kind === "class" ? "info" : "success"} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="No classes or events scheduled for today" />
+              )}
+            </div>
+          </div>
+
+          {/* Upcoming Events Card */}
+          <div className="student-glass-card p-6 flex flex-col flex-1">
+            <div className="flex items-center gap-2 mb-4 shrink-0">
+              <Nfc className="h-5 w-5 text-[#4D7117]" />
+              <h3 className="font-semibold text-[#4F5654]">Upcoming Campus Events</h3>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {upcomingEvents.length > 0 ? (
+                <div className="space-y-3">
+                  {upcomingEvents.slice(0, 4).map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-[#E8ECEB]"
+                    >
+                      <div>
+                        <h4 className="font-medium text-sm text-[#4F5654]">{event.title}</h4>
+                        <p className="text-xs text-[#B9C1BF] mt-1">
+                          {formatDate(event.startsAt)} at {formatTime(event.startsAt)} | {event.venue}
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#E8ECEB] text-[#4F5654] border border-[#B9C1BF]/20">
+                        {event.code}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState title="No upcoming co-curricular events listed" />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Alerts & Reminders */}
+        <div className="lg:col-span-1">
+          <div className="student-glass-card p-6 border-l-4 border-l-[#C3E956] h-full flex flex-col">
+            <div className="flex items-center gap-2 mb-4 shrink-0">
+              <AlertTriangle className="h-5 w-5 text-[#4D7117]" />
+              <h3 className="font-semibold text-[#4F5654]">Alerts & Reminders</h3>
+            </div>
+
+            {alerts.length > 0 ? (
+              <div className="space-y-3 flex-1 overflow-y-auto">
+                {alerts.map((alert, idx) => {
+                  let alertClass = "";
+                  if (alert.type === "danger") {
+                    alertClass = "border-danger/30 bg-danger-muted/40 text-danger";
+                  } else if (alert.type === "warning") {
+                    alertClass = "border-warning/30 bg-warning-muted/40 text-warning";
+                  } else {
+                    alertClass = "border-info/30 bg-info-muted/40 text-info";
+                  }
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex gap-3 rounded-2xl border p-4 text-sm leading-relaxed ${alertClass}`}
+                    >
+                      <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="font-semibold">{alert.title}</h4>
+                        <p className="mt-1 text-xs opacity-90">{alert.desc}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-[#B9C1BF]/30 rounded-2xl bg-white/30">
+                <div className="h-12 w-12 rounded-full bg-[#EBFCEE] flex items-center justify-center text-[#1F4B2C] mb-3 shadow-inner">
+                  <svg
+                    className="h-6 w-6 text-[#1F4B2C]"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h4 className="font-semibold text-sm text-[#4F5654]">All Caught Up</h4>
+                <p className="text-xs text-[#5C6361] mt-1 max-w-[200px]">
+                  No pending alerts or required actions at this time.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }

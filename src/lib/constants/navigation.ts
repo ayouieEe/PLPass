@@ -51,11 +51,9 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
   ],
   student: [
     { label: "Dashboard", path: APP_ROUTES.studentDashboard, icon: LayoutDashboard, group: "Overview" },
+    { label: "Attendance Methods", path: APP_ROUTES.studentMethods, icon: Nfc, group: "Verification" },
     { label: "Attendance Records", path: APP_ROUTES.studentAttendance, icon: CalendarCheck, group: "Attendance" },
-    { label: "Schedule", path: APP_ROUTES.studentSchedule, icon: ClipboardList, group: "Attendance" },
     { label: "Correction Requests", path: APP_ROUTES.studentCorrections, icon: UserCheck, group: "Attendance" },
-    { label: "NFC Credential", path: APP_ROUTES.studentNfcCredential, icon: Nfc, group: "Account" },
-    { label: "Report History", path: APP_ROUTES.studentReports, icon: FileText, group: "Insights" },
     { label: "Profile", path: APP_ROUTES.studentProfile, icon: UserCircle, group: "Account" }
   ]
 };

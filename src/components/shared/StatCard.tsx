@@ -10,6 +10,7 @@ type StatCardProps = {
   trend?: string;
   icon?: LucideIcon;
   tone?: StatCardTone;
+  className?: string;
 };
 
 const toneClass: Record<StatCardTone, string> = {
@@ -20,9 +21,9 @@ const toneClass: Record<StatCardTone, string> = {
   info: "plpass-status-info"
 };
 
-export function StatCard({ title, value, description, trend, icon: Icon, tone = "default" }: StatCardProps) {
+export function StatCard({ title, value, description, trend, icon: Icon, tone = "default", className }: StatCardProps) {
   return (
-    <article className={cn("rounded-lg border p-4 shadow-sm", toneClass[tone])}>
+    <article className={cn("rounded-lg border p-4 shadow-sm", toneClass[tone], className)}>
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
