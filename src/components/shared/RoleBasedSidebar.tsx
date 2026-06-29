@@ -47,7 +47,8 @@ export function RoleBasedSidebar({
   return (
     <aside
       className={cn(
-        "plpass-sidebar flex h-dvh min-h-0 flex-col border-r border-white/10 shadow-2xl shadow-black/10 transition-[width] duration-200 motion-reduce:transition-none",
+        role === "student" ? "student-glass-sidebar border-r border-white/10" : "plpass-sidebar",
+        "flex h-dvh min-h-0 flex-col border-white/10 shadow-2xl shadow-black/10 transition-[width] duration-200 motion-reduce:transition-none",
         collapsed ? "w-[76px]" : "w-[260px]",
         className
       )}
@@ -87,7 +88,7 @@ export function RoleBasedSidebar({
                       cn(
                         "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-white/78 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
                         collapsed && "justify-center px-0",
-                        isActive && "plpass-sidebar-active"
+                        isActive && (role === "student" ? "student-sidebar-active" : "plpass-sidebar-active")
                       )
                     }
                   >
@@ -116,7 +117,7 @@ export function RoleBasedSidebar({
             cn(
               "group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-2.5 text-left text-sm text-white/86 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
               collapsed && "justify-center rounded-xl px-2",
-              isActive && "border-white/25 bg-white/[0.14] text-white"
+              isActive && (role === "student" ? "student-sidebar-active" : "border-white/25 bg-white/[0.14] text-white")
             )
           }
         >

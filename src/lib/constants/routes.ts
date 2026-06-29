@@ -42,9 +42,7 @@ export const APP_ROUTES = {
   student: "/student",
   studentDashboard: "/student/dashboard",
   studentAttendance: "/student/attendance",
-  studentSchedule: "/student/schedule",
+  studentMethods: "/student/methods",
   studentCorrections: "/student/corrections",
-  studentNfcCredential: "/student/nfc-credential",
-  studentReports: "/student/reports",
   studentProfile: "/student/profile"
 } as const;

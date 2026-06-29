@@ -1,67 +1,45 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, ClipboardList, Nfc, UserCheck } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { NavLink, Navigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { ErrorState } from "@/components/feedback/ErrorState";
-import { LoadingState } from "@/components/feedback/LoadingState";
-import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
-import { TextAreaField } from "@/components/forms/TextAreaField";
-import { AttachmentUploader } from "@/components/shared/AttachmentUploader";
+import {
+  Calendar,
+  FileSpreadsheet,
+  FileText,
+  Search,
+  BookOpen,
+  PartyPopper,
+  Clock,
+  User,
+  ExternalLink,
+  ChevronRight,
+  Filter,
+  CheckCircle
+} from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
-import { FilterBar } from "@/components/tables/FilterBar";
+import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import type { ReportHistoryRecord } from "@/features/reports/types";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSessions,
+  useStudents,
   useClasses,
-  useCorrectionRequests,
   useEvents,
+  useAttendanceSessions,
+  useAttendanceRecords,
   useFacultyProfiles,
-  useNfcCredentialForStudent,
-  useNfcCredentialRequests,
-  useNfcTapAttempts,
-  useOrganizerProfiles,
-  useReports,
-  useStudents
+  useOrganizerProfiles
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
-  AttendanceSession,
   Class,
-  CorrectionRequest,
   Event,
-  FacultyProfile,
-  NfcCredentialRequest,
-  OrganizerProfile,
-  Report,
   Student
 } from "@/types/domain";
-import type {
-  AttendanceStatus,
-  CorrectionRequestStatus,
-  EventStatus,
-  NfcCredentialRequestStatus,
-  NfcCredentialStatus,
-  SessionStatus
-} from "@/types/enums";
+import type { AttendanceStatus } from "@/types/enums";
 
 type StudentScope = {
   context: RepositoryContext;
@@ -71,46 +49,8 @@ type StudentScope = {
   isError: boolean;
 };
 
-type AttendanceRow = {
-  id: string;
-  kind: "class" | "event";
-  record: AttendanceRecord;
-  session?: AttendanceSession;
-  classRecord?: Class;
-  event?: Event;
-  faculty?: FacultyProfile;
-  organizer?: OrganizerProfile;
-};
-
-type ScheduleRow = {
-  id: string;
-  kind: "class" | "event";
-  name: string;
-  code: string;
-  venue: string;
-  startsAt: string;
-  endsAt?: string;
-  owner: string;
-  mode: string;
-  status: string;
-};
-
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const correctionSchema = z.object({
-  attendanceRecordId: z.string().min(1, "Select a related attendance record."),
-  requestedStatus: z.enum(["present", "late", "absent", "excused"]),
-  reason: z.string().min(12, "Explanation must be at least 12 characters.")
-});
-
-const nfcRequestSchema = z.object({
-  type: z.enum(["lost", "damaged", "replacement"]),
-  reason: z.string().min(10, "Reason must be at least 10 characters.")
-});
-
-type CorrectionFormValues = z.infer<typeof correctionSchema>;
-type NfcRequestFormValues = z.infer<typeof nfcRequestSchema>;
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -126,247 +66,555 @@ function useStudentScope(): StudentScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return value ? dateFormatter.format(new Date(value)) : "N/A";
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return value ? timeFormatter.format(new Date(value)) : "N/A";
 }
 
-function statusTone(
-  status:
-    | AttendanceStatus
-    | SessionStatus
-    | CorrectionRequestStatus
-    | EventStatus
-    | NfcCredentialStatus
-    | NfcCredentialRequestStatus
-) {
-  if (["present", "completed", "approved", "activated"].includes(status)) {
-    return "success" as const;
-  }
-  if (["late", "draft", "pending", "inactive", "damaged", "replacement"].includes(status)) {
-    return "warning" as const;
-  }
-  if (["absent", "cancelled", "rejected", "blocked", "lost"].includes(status)) {
-    return "danger" as const;
-  }
-  return "muted" as const;
-}
-
-function maskCredential(value: string | undefined) {
-  if (!value) {
-    return "Not available";
-  }
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
-}
-
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
-}
-
-function ShellState({ scope }: { scope: StudentScope }) {
-  if (scope.isLoading) {
-    return <LoadingState label="Loading student workspace" />;
-  }
-  if (scope.isError || !scope.student) {
-    return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
-  }
-  return null;
-}
-
-function StudentFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function buildAttendanceRows(
-  records: AttendanceRecord[],
-  sessions: AttendanceSession[],
-  classes: Class[],
-  events: Event[],
-  faculty: FacultyProfile[],
-  organizers: OrganizerProfile[]
-): AttendanceRow[] {
-  return records.map((record) => {
-    const session = sessions.find((entry) => entry.id === record.sessionId);
-    const classRecord = classes.find((entry) => entry.id === session?.classId);
-    const event = events.find((entry) => entry.id === session?.eventId);
-    return {
-      id: record.id,
-      kind: session?.type ?? (classRecord ? "class" : "event"),
-      record,
-      session,
-      classRecord,
-      event,
-      faculty: faculty.find((entry) => entry.id === classRecord?.facultyId),
-      organizer: organizers.find((entry) => entry.id === event?.organizerId)
-    };
-  });
-}
-
-function buildScheduleRows(classes: Class[], events: Event[], faculty: FacultyProfile[], organizers: OrganizerProfile[]): ScheduleRow[] {
-  const classRows = classes.map((classRecord) => ({
-    id: classRecord.id,
-    kind: "class" as const,
-    name: classRecord.subjectTitle,
-    code: classRecord.subjectCode,
-    venue: classRecord.room,
-    startsAt: "2026-06-27T00:00:00.000Z",
-    endsAt: "2026-06-27T01:00:00.000Z",
-    owner: faculty.find((profile) => profile.id === classRecord.facultyId)?.title ?? "Faculty",
-    mode: "required",
-    status: classRecord.status
-  }));
-  const eventRows = events.map((event) => ({
-    id: event.id,
-    kind: "event" as const,
-    name: event.title,
-    code: event.code,
-    venue: event.venue,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    owner: organizers.find((profile) => profile.id === event.organizerId)?.organizationName ?? "Organizer",
-    mode: "required",
-    status: event.status
-  }));
-  return [...classRows, ...eventRows].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-}
-
-function attendanceColumns(onDetails: (row: AttendanceRow) => void): ColumnDef<AttendanceRow>[] {
-  return [
-    { id: "code", header: "Code", cell: ({ row }) => row.original.classRecord?.subjectCode ?? row.original.event?.code ?? "N/A" },
-    { id: "name", header: "Name", cell: ({ row }) => row.original.classRecord?.subjectTitle ?? row.original.event?.title ?? row.original.session?.title ?? "Unknown" },
-    { id: "owner", header: "Faculty or organizer", cell: ({ row }) => row.original.faculty?.title ?? row.original.organizer?.organizationName ?? "N/A" },
-    { id: "section", header: "Section or venue", cell: ({ row }) => row.original.classRecord?.section ?? row.original.event?.venue ?? "N/A" },
-    { id: "date", header: "Session date", cell: ({ row }) => formatDate(row.original.session?.startsAt) },
-    { id: "time", header: "Session time", cell: ({ row }) => `${formatTime(row.original.session?.startsAt)} - ${formatTime(row.original.session?.endsAt)}` },
-    { id: "status", header: "Attendance status", cell: ({ row }) => <StatusBadge label={row.original.record.status} tone={statusTone(row.original.record.status)} /> },
-    { accessorKey: "record.verificationMethod", header: "Verification method" },
-    { id: "action", header: "View details", cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => onDetails(row.original)}>Details</Button> }
-  ];
-}
-
-function ScheduleCard({ item }: { item: ScheduleRow }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{item.code} - {item.name}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(item.startsAt)} {formatTime(item.startsAt)} - {formatTime(item.endsAt)} - {item.venue}</p>
-        </div>
-        <StatusBadge label={item.kind} tone={item.kind === "class" ? "info" : "success"} />
-      </div>
-    </article>
-  );
-}
-
-function ActivityCard({ record, session }: { record: AttendanceRecord; session?: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session?.title ?? "Attendance session"}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(record.recordedAt)} - {record.verificationMethod}</p>
-        </div>
-        <StatusBadge label={record.status} tone={statusTone(record.status)} />
-      </div>
-    </article>
-  );
-}
-
-function CalendarList({ rows }: { rows: AttendanceRow[] }) {
-  if (!rows.length) {
-    return <EmptyState title="No calendar attendance items" />;
-  }
-  return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="Attendance calendar items">
-      {rows.map((row) => (
-        <article key={row.id} className="rounded-lg border bg-surface p-4">
-          <p className="text-sm font-medium">{formatDate(row.session?.startsAt)}</p>
-          <h2 className="mt-2 font-semibold">{row.classRecord?.subjectCode ?? row.event?.code} - {row.classRecord?.subjectTitle ?? row.event?.title}</h2>
-          <StatusBadge label={row.record.status} tone={statusTone(row.record.status)} />
-        </article>
-      ))}
-    </section>
-  );
-}
-
-function AttendanceDetail({ row, corrections, onClose }: { row: AttendanceRow; corrections: CorrectionRequest[]; onClose: () => void }) {
-  const request = corrections.find((entry) => entry.attendanceRecordId === row.record.id);
-  return (
-    <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
-      <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">
-        <h2 className="text-lg font-semibold">Attendance detail</h2>
-        <dl className="mt-4 grid gap-3 md:grid-cols-2">
-          {[
-            ["Class or event", row.classRecord?.subjectTitle ?? row.event?.title ?? row.session?.title],
-            ["Attendance status", row.record.status],
-            ["Verification method", row.record.verificationMethod],
-            ["Recorded time", `${formatDate(row.record.recordedAt)} ${formatTime(row.record.recordedAt)}`],
-            ["Remarks", row.record.note ?? "No remarks"],
-            ["Correction request status", request?.status ?? "No request"]
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-md border bg-surface p-3">
-              <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-              <dd className="mt-1 text-sm font-semibold">{value}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>Close</Button>
-          <Button asChild><NavLink to={APP_ROUTES.studentCorrections}>Available correction request action</NavLink></Button>
-        </div>
-      </div>
-    </section>
-  );
-
+function getStatusTone(status: AttendanceStatus) {
+  if (status === "present") return "success";
+  if (status === "late") return "warning";
+  if (status === "absent") return "danger";
+  return "muted";
 }
 
 export function MyAttendancePage() {
   const scope = useStudentScope();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"class" | "event">("class");
   const [view, setView] = useState<"list" | "calendar">("list");
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const [selected, setSelected] = useState<AttendanceRow | null>(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedItem, setSelectedItem] = useState<{
+    id: string;
+    code: string;
+    title: string;
+    kind: "class" | "event";
+    facultyName?: string;
+    organizerName?: string;
+    sched: string;
+    time: string;
+  } | null>(null);
+  const [isGenerating, setIsGenerating] = useState<"xlsx" | "pdf" | null>(null);
+
   const classesQuery = useClasses({ pageSize: 100 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const facultyQuery = useFacultyProfiles({ pageSize: 100 }, scope.context);
   const organizerQuery = useOrganizerProfiles({ pageSize: 100 }, scope.context);
-  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.student) {
-    return shellState;
+
+  if (scope.isLoading) {
+    return <LoadingState label="Loading student workspace" />;
   }
-  if (classesQuery.isLoading || eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
+
+  if (scope.isError || !scope.student) {
+    return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
+  }
+
+  if (
+    classesQuery.isLoading ||
+    eventsQuery.isLoading ||
+    sessionsQuery.isLoading ||
+    recordsQuery.isLoading ||
+    facultyQuery.isLoading ||
+    organizerQuery.isLoading
+  ) {
     return <LoadingState label="Loading attendance records" />;
   }
-  const rows = buildAttendanceRows(recordsQuery.data?.items ?? [], sessionsQuery.data?.items ?? [], classesQuery.data?.items ?? [], eventsQuery.data?.items ?? [], facultyQuery.data?.items ?? [], organizerQuery.data?.items ?? [])
-    .filter((row) => row.kind === tab)
-    .filter((row) => status === "all" || row.record.status === status)
-    .filter((row) => !search || `${row.classRecord?.subjectCode ?? ""} ${row.classRecord?.subjectTitle ?? ""} ${row.event?.code ?? ""} ${row.event?.title ?? ""}`.toLowerCase().includes(search.toLowerCase()));
+
+  const classes = classesQuery.data?.items ?? [];
+  const events = eventsQuery.data?.items ?? [];
+  const sessions = sessionsQuery.data?.items ?? [];
+  const records = recordsQuery.data?.items ?? [];
+  const faculties = facultyQuery.data?.items ?? [];
+  const organizers = organizerQuery.data?.items ?? [];
+
+  // Group classes with calculations
+  const classItems = classes.map((c) => {
+    const prof = faculties.find((f) => f.id === c.facultyId)?.title ?? "Professor";
+    const classSessions = sessions.filter((s) => s.classId === c.id);
+    const sessionIds = classSessions.map((s) => s.id);
+    const classRecords = records.filter((r) => sessionIds.includes(r.sessionId));
+
+    // Mock schedule days / times
+    const dayMap = ["MWF", "TTh", "Saturday"];
+    const schedText = dayMap[Math.abs(c.id.charCodeAt(0) ?? 0) % dayMap.length];
+    const timeText = "09:00 AM - 10:30 AM";
+
+    return {
+      id: c.id,
+      code: c.subjectCode,
+      title: c.subjectTitle,
+      sched: schedText,
+      time: timeText,
+      facultyName: prof,
+      records: classRecords,
+      sessions: classSessions
+    };
+  });
+
+  // Group events with calculations
+  const eventItems = events.map((e) => {
+    const org = organizers.find((o) => o.id === e.organizerId)?.organizationName ?? "Campus Organizer";
+    const eventSessions = sessions.filter((s) => s.eventId === e.id);
+    const sessionIds = eventSessions.map((s) => s.id);
+    const eventRecords = records.filter((r) => sessionIds.includes(r.sessionId));
+
+    return {
+      id: e.id,
+      code: e.code,
+      title: e.title,
+      sched: formatDate(e.startsAt),
+      time: `${formatTime(e.startsAt)} - ${formatTime(e.endsAt)}`,
+      organizerName: org,
+      records: eventRecords,
+      sessions: eventSessions
+    };
+  });
+
+  // Filter based on search and status filters
+  const filteredClasses = classItems.filter((item) => {
+    const matchesSearch =
+      item.code.toLowerCase().includes(search.toLowerCase()) ||
+      item.title.toLowerCase().includes(search.toLowerCase()) ||
+      item.facultyName.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" || item.records.some((r) => r.status === statusFilter);
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredEvents = eventItems.filter((item) => {
+    const matchesSearch =
+      item.code.toLowerCase().includes(search.toLowerCase()) ||
+      item.title.toLowerCase().includes(search.toLowerCase()) ||
+      item.organizerName.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" || item.records.some((r) => r.status === statusFilter);
+    return matchesSearch && matchesStatus;
+  });
+
+  // Trigger report generation simulate
+  function generateReport(type: "xlsx" | "pdf", category: "classes" | "events") {
+    setIsGenerating(type);
+    setTimeout(() => {
+      setIsGenerating(null);
+      toast.success(`${type.toUpperCase()} Attendance report for ${category} generated successfully and ready for download!`);
+    }, 1500);
+  }
+
+  // File correction route
+  function fileCorrection(record: AttendanceRecord, code: string, name: string) {
+    navigate(
+      `${APP_ROUTES.studentCorrections}?category=${tab}&recordId=${record.id}&code=${code}&name=${name}`
+    );
+  }
+
+  // Selected item sessions list for detail view
+  const selectedSessions = selectedItem
+    ? selectedItem.kind === "class"
+      ? classItems.find((c) => c.id === selectedItem.id)?.sessions ?? []
+      : eventItems.find((e) => e.id === selectedItem.id)?.sessions ?? []
+    : [];
+
+  const selectedRecords = selectedItem
+    ? selectedItem.kind === "class"
+      ? classItems.find((c) => c.id === selectedItem.id)?.records ?? []
+      : eventItems.find((e) => e.id === selectedItem.id)?.records ?? []
+    : [];
+
   return (
-    <StudentFrame>
-      <PageHeader eyebrow="Student" title="Attendance Records" description="Your class attendance and event participation records only." />
-      <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-3" role="tablist" aria-label="Attendance record type">
-        <Button type="button" role="tab" variant={tab === "class" ? "default" : "outline"} onClick={() => setTab("class")}>Classes</Button>
-        <Button type="button" role="tab" variant={tab === "event" ? "default" : "outline"} onClick={() => setTab("event")}>Events</Button>
-        <Button type="button" variant={view === "list" ? "default" : "outline"} onClick={() => setView("list")}>List view</Button>
-        <Button type="button" variant={view === "calendar" ? "default" : "outline"} onClick={() => setView("calendar")}>Calendar view</Button>
+    <div className="space-y-8 p-1">
+      <PageHeader
+        eyebrow="Records"
+        title="Attendance Records"
+        description="Verify and browse your class and event log details."
+      />
+
+      {/* Main Tabs (Classes vs Events) & Views Toggles */}
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div className="flex gap-2 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md">
+          <Button
+            variant={tab === "class" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => {
+              setTab("class");
+              setSelectedItem(null);
+            }}
+            className={`rounded-xl gap-2 font-semibold px-5 ${
+              tab === "class" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+            }`}
+          >
+            <BookOpen className="h-4 w-4" />
+            <span>Classes</span>
+          </Button>
+          <Button
+            variant={tab === "event" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => {
+              setTab("event");
+              setSelectedItem(null);
+            }}
+            className={`rounded-xl gap-2 font-semibold px-5 ${
+              tab === "event" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+            }`}
+          >
+            <PartyPopper className="h-4 w-4" />
+            <span>Events</span>
+          </Button>
+        </div>
+
+        <div className="flex gap-3 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md">
+          <Button
+            variant={view === "list" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setView("list")}
+            className={`rounded-xl px-4 ${
+              view === "list" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+            }`}
+          >
+            List View
+          </Button>
+          <Button
+            variant={view === "calendar" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setView("calendar")}
+            className={`rounded-xl px-4 ${
+              view === "calendar" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+            }`}
+          >
+            Calendar View
+          </Button>
+        </div>
       </div>
-      <FilterBar search={search} selectedFilter={status} filters={[{ label: "All", value: "all" }, { label: "Present", value: "present" }, { label: "Late", value: "late" }, { label: "Absent", value: "absent" }, { label: "Excused", value: "excused" }]} onSearchChange={setSearch} onFilterChange={setStatus} />
-      {view === "list" ? (
-        <DataTable data={rows} columns={attendanceColumns(setSelected)} emptyTitle="No attendance records" emptyDescription="No student-owned records match the selected filters." />
-      ) : (
-        <CalendarList rows={rows} />
+
+      {/* Search & Filter Bar */}
+      <section className="student-glass-card p-6 grid gap-4 md:grid-cols-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-3.5 h-4 w-4 text-[#B9C1BF]" />
+          <input
+            type="text"
+            className="student-input pl-9 h-11 w-full px-3 text-sm focus:outline-none"
+            placeholder={tab === "class" ? "Search by subject, code, professor..." : "Search event, organizer..."}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="relative flex items-center gap-2">
+          <Filter className="h-4 w-4 text-[#B9C1BF] shrink-0" />
+          <select
+            className="student-input h-11 w-full px-3 text-sm focus:outline-none"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="all">All Attendance Statuses</option>
+            <option value="present">Present</option>
+            <option value="late">Late</option>
+            <option value="absent">Absent</option>
+            <option value="excused">Excused</option>
+          </select>
+        </div>
+
+        {/* Generate Report Buttons */}
+        <div className="flex gap-3 justify-end items-center">
+          <Button
+            variant="outline"
+            disabled={isGenerating !== null}
+            onClick={() => generateReport("xlsx", tab === "class" ? "classes" : "events")}
+            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-emerald-500/20 text-emerald-700 hover:bg-emerald-50/50"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <span>Generate XLSX</span>
+          </Button>
+          <Button
+            variant="outline"
+            disabled={isGenerating !== null}
+            onClick={() => generateReport("pdf", tab === "class" ? "classes" : "events")}
+            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-rose-500/20 text-rose-700 hover:bg-rose-50/50"
+          >
+            <FileText className="h-4 w-4 text-rose-600" />
+            <span>Generate PDF</span>
+          </Button>
+        </div>
+      </section>
+
+      {/* LIST VIEW RENDER */}
+      {view === "list" && (
+        <div className="grid gap-6">
+          {tab === "class" ? (
+            filteredClasses.length > 0 ? (
+              filteredClasses.map((item) => (
+                <article
+                  key={item.id}
+                  className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
+                >
+                  <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-[#E8ECEB] pb-4">
+                    <div>
+                      <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                        {item.code}
+                      </span>
+                      <h3 className="font-semibold text-xl text-[#4F5654] mt-1">{item.title}</h3>
+                    </div>
+                    <div className="text-right sm:text-right text-left">
+                      <p className="text-xs text-[#4F5654] flex items-center gap-1.5 sm:justify-end">
+                        <Clock className="h-3.5 w-3.5 text-[#4D7117]" />
+                        {item.sched} | {item.time}
+                      </p>
+                      <p className="text-xs text-[#B9C1BF] flex items-center gap-1.5 sm:justify-end mt-1.5">
+                        <User className="h-3.5 w-3.5" />
+                        {item.facultyName}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <span className="font-semibold text-[#4F5654]">{item.records.length} Sessions Logged:</span>
+                      <span className="bg-emerald-50/30 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200/50">
+                        {item.records.filter((r) => r.status === "present").length} Present
+                      </span>
+                      <span className="bg-amber-50/30 text-amber-700 px-2 py-0.5 rounded-lg border border-amber-200/50">
+                        {item.records.filter((r) => r.status === "late").length} Late
+                      </span>
+                      <span className="bg-rose-50/30 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200/50">
+                        {item.records.filter((r) => r.status === "absent").length} Absent
+                      </span>
+                    </div>
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setSelectedItem({
+                          id: item.id,
+                          code: item.code,
+                          title: item.title,
+                          kind: "class",
+                          facultyName: item.facultyName,
+                          sched: item.sched,
+                          time: item.time
+                        })
+                      }
+                      className="text-[#4D7117] hover:text-[#1F4B2C] hover:bg-emerald-50/30 gap-1 text-xs font-semibold"
+                    >
+                      <span>View More</span>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <EmptyState title="No classes found matching filters" />
+            )
+          ) : filteredEvents.length > 0 ? (
+            filteredEvents.map((item) => (
+              <article
+                key={item.id}
+                className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
+              >
+                <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-[#E8ECEB] pb-4">
+                  <div>
+                    <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                      {item.code}
+                    </span>
+                    <h3 className="font-semibold text-xl text-[#4F5654] mt-1">{item.title}</h3>
+                  </div>
+                  <div className="text-right sm:text-right text-left">
+                    <p className="text-xs text-[#4F5654] flex items-center gap-1.5 sm:justify-end">
+                      <Calendar className="h-3.5 w-3.5 text-[#4D7117]" />
+                      {item.sched}
+                    </p>
+                    <p className="text-xs text-[#B9C1BF] flex items-center gap-1.5 sm:justify-end mt-1.5">
+                      <User className="h-3.5 w-3.5" />
+                      Organizer: {item.organizerName}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className="font-semibold text-[#4F5654]">Status: </span>
+                    {item.records.length > 0 ? (
+                      <StatusBadge
+                        label={item.records[0].status}
+                        tone={getStatusTone(item.records[0].status)}
+                      />
+                    ) : (
+                      <span className="text-[#B9C1BF]">Not Registered</span>
+                    )}
+                  </div>
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setSelectedItem({
+                        id: item.id,
+                        code: item.code,
+                        title: item.title,
+                        kind: "event",
+                        organizerName: item.organizerName,
+                        sched: item.sched,
+                        time: item.time
+                      })
+                    }
+                    className="text-[#4D7117] hover:text-[#1F4B2C] hover:bg-emerald-50/30 gap-1 text-xs font-semibold"
+                  >
+                    <span>View More</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <EmptyState title="No events found matching filters" />
+          )}
+        </div>
       )}
-      {selected ? <AttendanceDetail row={selected} corrections={correctionsQuery.data?.items ?? []} onClose={() => setSelected(null)} /> : null}
-    </StudentFrame>
+
+      {/* CALENDAR VIEW RENDER */}
+      {view === "calendar" && (
+        <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {tab === "class"
+            ? filteredClasses.flatMap((c) =>
+                c.records.map((r) => {
+                  const sess = sessions.find((s) => s.id === r.sessionId);
+                  return (
+                    <article key={r.id} className="student-glass-card p-5 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-mono font-semibold">
+                          {c.code}
+                        </span>
+                        <StatusBadge label={r.status} tone={getStatusTone(r.status)} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-sm text-[#4F5654]">{c.title}</h4>
+                        <p className="text-[11px] text-[#B9C1BF] mt-1.5">
+                          Session Date: {formatDate(sess?.startsAt)}
+                        </p>
+                      </div>
+                    </article>
+                  );
+                })
+              )
+            : filteredEvents.flatMap((e) =>
+                e.records.map((r) => {
+                  const sess = sessions.find((s) => s.id === r.sessionId);
+                  return (
+                    <article key={r.id} className="student-glass-card p-5 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-mono font-semibold">
+                          {e.code}
+                        </span>
+                        <StatusBadge label={r.status} tone={getStatusTone(r.status)} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-sm text-[#4F5654]">{e.title}</h4>
+                        <p className="text-[11px] text-[#B9C1BF] mt-1.5">
+                          Event Date: {formatDate(sess?.startsAt)}
+                        </p>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+        </section>
+      )}
+
+      {/* VIEW MORE / DETAILS SESSIONS MODAL */}
+      {selectedItem && (
+        <section
+          className="fixed inset-0 z-50 grid place-items-center bg-[#1F4B2C]/25 p-4 backdrop-blur-md animate-in fade-in-30"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-3xl rounded-[28px] border border-white/50 bg-white/70 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
+            <div className="flex justify-between items-start border-b border-[#E8ECEB] pb-4">
+              <div>
+                <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                  {selectedItem.code}
+                </span>
+                <h2 className="text-xl font-bold text-[#4F5654] mt-1">{selectedItem.title}</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Schedule: {selectedItem.sched} | {selectedItem.time}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)} className="text-[#4F5654] hover:bg-slate-100">
+                ✕ Close
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm text-[#4F5654]">Previous Sessions and Attendance Log</h3>
+              <div className="max-h-72 overflow-y-auto border border-[#E8ECEB] rounded-2xl bg-white/30">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-[#E8ECEB] text-[#B9C1BF] bg-white/40 font-medium">
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Verification Method</th>
+                      <th className="py-3 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E8ECEB] text-[#4F5654]">
+                    {selectedSessions.length > 0 ? (
+                      selectedSessions.map((session) => {
+                        const record = selectedRecords.find((r) => r.sessionId === session.id);
+                        const status = record?.status ?? "absent";
+                        return (
+                          <tr key={session.id} className="hover:bg-white/40 transition-colors">
+                            <td className="py-3.5 px-4 text-xs font-medium">
+                              {formatDate(session.startsAt)} at {formatTime(session.startsAt)}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <StatusBadge label={status} tone={getStatusTone(status)} />
+                            </td>
+                            <td className="py-3.5 px-4 text-xs capitalize text-slate-500">
+                              {record?.verificationMethod ?? "N/A"}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              {(status === "absent" || status === "late") && record ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    fileCorrection(record, selectedItem.code, selectedItem.title)
+                                  }
+                                  className="student-btn-secondary px-4 text-xs h-9 gap-1.5 flex justify-end ml-auto"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span>File Correction</span>
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-emerald-700 font-semibold flex items-center justify-end gap-1">
+                                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                                  Verified
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="text-center py-6 text-[#B9C1BF]">
+                          No session entries recorded.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-[#E8ECEB]">
+              <Button onClick={() => setSelectedItem(null)} className="student-btn-primary px-6">Done</Button>
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
   );
 }
