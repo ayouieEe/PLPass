@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -236,7 +236,7 @@ export function NfcCredentialsPage() {
           />
           {credentials.isLoading ? <LoadingState label="Loading NFC credentials" /> : null}
           {credentials.isError ? <ErrorPanel /> : null}
-          {credentials.data ? <DataTable data={filteredCredentials} columns={columns} emptyTitle="No NFC credentials found" /> : null}
+          {credentials.data ? <PLPassDataGrid label="NFC credentials" data={filteredCredentials} columns={columns} emptyTitle="No NFC credentials found" /> : null}
         </>
       ) : null}
       {tab === "qr" ? (

@@ -1,6 +1,6 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import type { ReportHistoryRecord } from "@/features/reports/types";
 
 const columns: ColumnDef<ReportHistoryRecord>[] = [
@@ -12,7 +12,7 @@ const columns: ColumnDef<ReportHistoryRecord>[] = [
     header: "Status",
     cell: ({ row }) => {
       const status = row.original.status;
-      const tone = status === "ready" ? "success" : status === "processing" ? "warning" : "danger";
+      const tone = status === "ready" ? "success" : status === "processing" || status === "queued" ? "warning" : "danger";
       return <StatusBadge label={status} tone={tone} />;
     }
   }
@@ -23,5 +23,5 @@ type ReportHistoryTableProps = {
 };
 
 export function ReportHistoryTable({ records }: ReportHistoryTableProps) {
-  return <DataTable data={records} columns={columns} emptyTitle="No report history" />;
+  return <PLPassDataGrid label="Report history" data={records} columns={columns} emptyTitle="No report history" />;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { ColDef } from "ag-grid-community";
 import {
   Calendar,
   FileSpreadsheet,
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useStudents,
@@ -35,8 +37,6 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
-  Class,
-  Event,
   Student
 } from "@/types/domain";
 import type { AttendanceStatus } from "@/types/enums";
@@ -47,6 +47,14 @@ type StudentScope = {
   studentName: string;
   isLoading: boolean;
   isError: boolean;
+};
+
+type SessionLogRow = {
+  id: string;
+  dateTime: string;
+  status: AttendanceStatus;
+  verificationMethod: string;
+  record?: AttendanceRecord;
 };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -157,13 +165,16 @@ export function MyAttendancePage() {
   });
 
   // Group events with calculations
-  const eventItems = events.map((e) => {
+  const eventItems = events.flatMap((e) => {
     const org = organizers.find((o) => o.id === e.organizerId)?.organizationName ?? "Campus Organizer";
     const eventSessions = sessions.filter((s) => s.eventId === e.id);
     const sessionIds = eventSessions.map((s) => s.id);
     const eventRecords = records.filter((r) => sessionIds.includes(r.sessionId));
+    if (eventRecords.length === 0) {
+      return [];
+    }
 
-    return {
+    return [{
       id: e.id,
       code: e.code,
       title: e.title,
@@ -172,7 +183,7 @@ export function MyAttendancePage() {
       organizerName: org,
       records: eventRecords,
       sessions: eventSessions
-    };
+    }];
   });
 
   // Filter based on search and status filters
@@ -225,6 +236,56 @@ export function MyAttendancePage() {
       : eventItems.find((e) => e.id === selectedItem.id)?.records ?? []
     : [];
 
+  const selectedSessionRows: SessionLogRow[] = selectedSessions.map((session) => {
+    const record = selectedRecords.find((entry) => entry.sessionId === session.id);
+    return {
+      id: session.id,
+      dateTime: `${formatDate(session.startsAt)} at ${formatTime(session.startsAt)}`,
+      status: record?.status ?? "absent",
+      verificationMethod: record?.verificationMethod ?? "N/A",
+      record
+    };
+  });
+
+  const sessionLogColumns: ColDef<SessionLogRow>[] = [
+    { field: "dateTime", headerName: "Date & Time", minWidth: 190 },
+    {
+      field: "status",
+      headerName: "Status",
+      minWidth: 140,
+      cellRenderer: ({ data }: { data?: SessionLogRow }) =>
+        data ? <StatusBadge label={data.status} tone={getStatusTone(data.status)} /> : null
+    },
+    { field: "verificationMethod", headerName: "Verification Method", minWidth: 190 },
+    {
+      colId: "action",
+      headerName: "Action",
+      minWidth: 180,
+      cellRenderer: ({ data }: { data?: SessionLogRow }) => {
+        if (!data) return null;
+        if ((data.status === "absent" || data.status === "late") && data.record) {
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileCorrection(data.record as AttendanceRecord, selectedItem?.code ?? "", selectedItem?.title ?? "")}
+              className="student-btn-secondary px-4 text-xs h-9 gap-1.5"
+            >
+              <ExternalLink className="h-3 w-3" />
+              <span>File Correction</span>
+            </Button>
+          );
+        }
+        return (
+          <span className="text-xs text-success font-semibold flex items-center gap-1">
+            <CheckCircle className="h-4 w-4 text-success" />
+            Verified
+          </span>
+        );
+      }
+    }
+  ];
+
   return (
     <div className="space-y-8 p-1">
       <PageHeader
@@ -235,8 +296,10 @@ export function MyAttendancePage() {
 
       {/* Main Tabs (Classes vs Events) & Views Toggles */}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex gap-2 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md">
+        <div className="flex gap-2 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md" role="tablist" aria-label="Attendance category">
           <Button
+            role="tab"
+            aria-selected={tab === "class"}
             variant={tab === "class" ? "default" : "ghost"}
             size="sm"
             onClick={() => {
@@ -251,6 +314,8 @@ export function MyAttendancePage() {
             <span>Classes</span>
           </Button>
           <Button
+            role="tab"
+            aria-selected={tab === "event"}
             variant={tab === "event" ? "default" : "ghost"}
             size="sm"
             onClick={() => {
@@ -275,7 +340,7 @@ export function MyAttendancePage() {
               view === "list" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
             }`}
           >
-            List View
+            List view
           </Button>
           <Button
             variant={view === "calendar" ? "default" : "ghost"}
@@ -285,7 +350,7 @@ export function MyAttendancePage() {
               view === "calendar" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
             }`}
           >
-            Calendar View
+            Calendar view
           </Button>
         </div>
       </div>
@@ -476,7 +541,7 @@ export function MyAttendancePage() {
 
       {/* CALENDAR VIEW RENDER */}
       {view === "calendar" && (
-        <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <section className="grid gap-6 md:grid-cols-2 lg:grid-cols-3" aria-label="Attendance calendar items">
           {tab === "class"
             ? filteredClasses.flatMap((c) =>
                 c.records.map((r) => {
@@ -548,65 +613,15 @@ export function MyAttendancePage() {
 
             <div className="space-y-3">
               <h3 className="font-semibold text-sm text-[#4F5654]">Previous Sessions and Attendance Log</h3>
-              <div className="max-h-72 overflow-y-auto border border-[#E8ECEB] rounded-2xl bg-white/30">
-                <table className="w-full text-left text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#E8ECEB] text-[#B9C1BF] bg-white/40 font-medium">
-                      <th className="py-3 px-4">Date & Time</th>
-                      <th className="py-3 px-4">Status</th>
-                      <th className="py-3 px-4">Verification Method</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E8ECEB] text-[#4F5654]">
-                    {selectedSessions.length > 0 ? (
-                      selectedSessions.map((session) => {
-                        const record = selectedRecords.find((r) => r.sessionId === session.id);
-                        const status = record?.status ?? "absent";
-                        return (
-                          <tr key={session.id} className="hover:bg-white/40 transition-colors">
-                            <td className="py-3.5 px-4 text-xs font-medium">
-                              {formatDate(session.startsAt)} at {formatTime(session.startsAt)}
-                            </td>
-                            <td className="py-3.5 px-4">
-                              <StatusBadge label={status} tone={getStatusTone(status)} />
-                            </td>
-                            <td className="py-3.5 px-4 text-xs capitalize text-slate-500">
-                              {record?.verificationMethod ?? "N/A"}
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
-                              {(status === "absent" || status === "late") && record ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    fileCorrection(record, selectedItem.code, selectedItem.title)
-                                  }
-                                  className="student-btn-secondary px-4 text-xs h-9 gap-1.5 flex justify-end ml-auto"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span>File Correction</span>
-                                </Button>
-                              ) : (
-                                <span className="text-xs text-emerald-700 font-semibold flex items-center justify-end gap-1">
-                                  <CheckCircle className="h-4 w-4 text-emerald-500" />
-                                  Verified
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="text-center py-6 text-[#B9C1BF]">
-                          No session entries recorded.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <PLPassDataGrid
+                data={selectedSessionRows}
+                columns={sessionLogColumns}
+                label="Previous sessions and attendance log"
+                emptyTitle="No session entries recorded"
+                enableQuickFilter={false}
+                enableColumnVisibility={false}
+                height={280}
+              />
             </div>
 
             <div className="flex justify-end pt-2 border-t border-[#E8ECEB]">

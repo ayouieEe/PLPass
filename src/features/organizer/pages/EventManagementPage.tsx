@@ -24,7 +24,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -353,7 +353,7 @@ export function EventManagementPage() {
         <Button type="button" variant={view === "calendar" ? "default" : "outline"} onClick={() => setView("calendar")}>Schedule view</Button>
       </div>
       {view === "table" ? (
-        <DataTable data={rows} columns={columns} emptyTitle="No events found" emptyDescription="No organizer-owned events match the selected filters." />
+        <PLPassDataGrid label="Organizer events" data={rows} columns={columns} emptyTitle="No events found" emptyDescription="No organizer-owned events match the selected filters." />
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {events.length ? events.map((event) => <EventScheduleCard key={event.id} event={event} />) : <EmptyState title="No scheduled events" />}

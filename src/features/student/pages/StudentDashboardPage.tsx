@@ -22,12 +22,9 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
-  AttendanceSession,
-  Class,
   Event,
   Student
 } from "@/types/domain";
-import type { AttendanceStatus } from "@/types/enums";
 
 type StudentScope = {
   context: RepositoryContext;
@@ -70,13 +67,6 @@ function formatDate(value: string | undefined) {
 
 function formatTime(value: string | undefined) {
   return value ? timeFormatter.format(new Date(value)) : "Not set";
-}
-
-function statusTone(status: AttendanceStatus) {
-  if (status === "present") return "success";
-  if (status === "late") return "warning";
-  if (status === "absent") return "danger";
-  return "muted";
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
@@ -235,7 +225,7 @@ export function StudentDashboardPage() {
     <div className="space-y-8 p-1">
       <PageHeader
         eyebrow="Student Portal"
-        title={`Welcome back, ${scope.studentName}`}
+        title="Student dashboard"
         description="Monitor your class attendance, view verification options, and verify upcoming events."
         actions={
           <Button asChild className="student-btn-primary px-6">

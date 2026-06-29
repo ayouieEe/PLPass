@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -237,8 +237,8 @@ export function AttendanceMonitoringPage() {
       />
       {sessions.isLoading || records.isLoading ? <LoadingState label="Loading attendance" /> : null}
       {sessions.isError || records.isError ? <ErrorPanel /> : null}
-      {sessions.data ? <DataTable data={filteredSessions} columns={sessionColumns} emptyTitle="No sessions found" /> : null}
-      {records.data ? <DataTable data={filteredRecords} columns={recordColumns} emptyTitle="No attendance records found" /> : null}
+      {sessions.data ? <PLPassDataGrid label="Attendance sessions" data={filteredSessions} columns={sessionColumns} emptyTitle="No sessions found" /> : null}
+      {records.data ? <PLPassDataGrid label="Attendance records" data={filteredRecords} columns={recordColumns} emptyTitle="No attendance records found" /> : null}
       <section className="rounded-lg border bg-surface p-4">
         <h2 className="font-semibold">Details view</h2>
         <p className="mt-2 text-sm text-muted-foreground">

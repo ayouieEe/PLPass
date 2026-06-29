@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -249,9 +249,9 @@ export function UserManagementPage() {
       />
       {activeQuery.isLoading ? <LoadingState label="Loading user management records" /> : null}
       {activeQuery.isError && !isEmptyResult(activeQuery.error) ? <ErrorPanel /> : null}
-      {tab === "students" && students.data ? <DataTable data={students.data.items} columns={studentColumns} emptyTitle="No students found" /> : null}
-      {tab === "faculty" && faculty.data ? <DataTable data={faculty.data.items} columns={facultyColumns} emptyTitle="No faculty found" /> : null}
-      {tab === "organizers" && organizers.data ? <DataTable data={organizers.data.items} columns={organizerColumns} emptyTitle="No organizers found" /> : null}
+      {tab === "students" && students.data ? <PLPassDataGrid label="Student users" data={students.data.items} columns={studentColumns} emptyTitle="No students found" /> : null}
+      {tab === "faculty" && faculty.data ? <PLPassDataGrid label="Faculty users" data={faculty.data.items} columns={facultyColumns} emptyTitle="No faculty found" /> : null}
+      {tab === "organizers" && organizers.data ? <PLPassDataGrid label="Organizer users" data={organizers.data.items} columns={organizerColumns} emptyTitle="No organizers found" /> : null}
       {activeQuery.isError && isEmptyResult(activeQuery.error) ? <EmptyState title={`No ${tab} found`} description="Adjust the search or filters and try again." /> : null}
       <section className="rounded-lg border bg-surface p-4">
         <h2 className="font-semibold">Details view</h2>

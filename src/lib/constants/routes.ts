@@ -41,8 +41,11 @@ export const APP_ROUTES = {
   organizerSession: (sessionId: string) => `/organizer/sessions/${sessionId}`,
   student: "/student",
   studentDashboard: "/student/dashboard",
+  studentSchedule: "/student/schedule",
   studentAttendance: "/student/attendance",
   studentMethods: "/student/methods",
+  studentNfcCredential: "/student/nfc-credential",
+  studentReports: "/student/reports",
   studentCorrections: "/student/corrections",
   studentProfile: "/student/profile"
 } as const;

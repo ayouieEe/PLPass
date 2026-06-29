@@ -24,7 +24,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -333,7 +333,7 @@ export function OrganizerAnalyticsPage() {
         <ParticipationBarChart data={participationData} />
       </section>
       <RiskSummaryChart data={chartData.map((entry) => ({ label: entry.label, watchlist: entry.late, atRisk: entry.absent }))} />
-      <DataTable data={predictions} columns={columns} emptyTitle="No analytics insights" emptyDescription="No review-only predictions match this event filter." />
+      <PLPassDataGrid label="Organizer analytics insights" data={predictions} columns={columns} emptyTitle="No analytics insights" emptyDescription="No review-only predictions match this event filter." />
     </OrganizerFrame>
   );
 }

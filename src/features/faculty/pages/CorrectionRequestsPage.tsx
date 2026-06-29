@@ -30,7 +30,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -267,7 +267,7 @@ export function CorrectionRequestsPage() {
     <FacultyFrame>
       <PageHeader eyebrow="Faculty" title="Correction Requests" description="Review student-submitted requests for your assigned classes only." />
       <FilterBar search="" selectedFilter={status} filters={[{ label: "All", value: "all" }, { label: "Pending", value: "pending" }, { label: "Approved", value: "approved" }, { label: "Rejected", value: "rejected" }]} onSearchChange={() => undefined} onFilterChange={setStatus} />
-      <DataTable data={requests} columns={columns} emptyTitle="No correction requests" />
+      <PLPassDataGrid label="Faculty correction requests" data={requests} columns={columns} emptyTitle="No correction requests" />
       {selected ? (
         <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">

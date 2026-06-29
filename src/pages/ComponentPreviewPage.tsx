@@ -29,7 +29,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { RoleBasedSidebar } from "@/components/shared/RoleBasedSidebar";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
@@ -274,7 +274,7 @@ export function ComponentPreviewPage() {
             onSearchChange={setSearch}
             onFilterChange={setFilter}
           />
-          <DataTable data={tableRows} columns={columns} emptyDescription="Try clearing filters in a later phase." />
+          <PLPassDataGrid label="Component preview student table" data={tableRows} columns={columns} emptyDescription="Try clearing filters in a later phase." />
           <div className="flex flex-wrap gap-3">
             <ExportButtons onExportCsv={() => undefined} onExportPdf={() => undefined} />
             <AttachmentUploader onFilesSelected={() => undefined} />

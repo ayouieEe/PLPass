@@ -30,7 +30,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -280,7 +280,7 @@ export function MyClassesPage() {
         <Button type="button" variant={view === "schedule" ? "default" : "outline"} onClick={() => setView("schedule")}>Schedule view</Button>
       </div>
       {view === "table" ? (
-        <DataTable data={classes} columns={columns} emptyTitle="No assigned classes" />
+        <PLPassDataGrid label="Assigned classes" data={classes} columns={columns} emptyTitle="No assigned classes" />
       ) : (
         <section className="grid gap-4 md:grid-cols-2">
           {classes.map((classRecord) => <ClassScheduleCard key={classRecord.id} classRecord={classRecord} />)}

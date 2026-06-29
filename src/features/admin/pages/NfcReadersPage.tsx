@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -214,7 +214,7 @@ export function NfcReadersPage() {
       <PageHeader title="NFC readers" description="USB reader inventory and mock status monitoring." />
       {readers.isLoading ? <LoadingState label="Loading NFC readers" /> : null}
       {readers.isError ? <ErrorPanel /> : null}
-      {readers.data ? <DataTable data={readers.data.items} columns={columns} emptyTitle="No NFC readers found" /> : null}
+      {readers.data ? <PLPassDataGrid label="NFC readers" data={readers.data.items} columns={columns} emptyTitle="No NFC readers found" /> : null}
     </AdminFrame>
   );
 }

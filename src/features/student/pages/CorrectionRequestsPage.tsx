@@ -1,13 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import type { ColDef } from "ag-grid-community";
 import {
   History,
   FileUp,
-  Inbox,
   CheckCircle,
   Clock,
   XCircle
@@ -29,6 +29,7 @@ import { SelectField } from "@/components/forms/SelectField";
 import { TextAreaField } from "@/components/forms/TextAreaField";
 import { SubmitButton } from "@/components/forms/SubmitButton";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { CorrectionRequest, Student } from "@/types/domain";
 
@@ -40,13 +41,22 @@ type StudentScope = {
   isError: boolean;
 };
 
+type CorrectionHistoryRow = {
+  id: string;
+  submittedDate: string;
+  subjectOrEventId: string;
+  type: string;
+  status: CorrectionRequest["status"];
+  request: CorrectionRequest;
+};
+
 const correctionFormSchema = z.object({
   category: z.enum(["class", "event"]),
   code: z.string().min(1, "Please select or enter class/event code."),
   name: z.string().min(1, "Name is required."),
   requestType: z.enum(["excused", "present", "late", "absent"]),
   reason: z.string().min(12, "Explanation must be at least 12 characters."),
-  recordId: z.string().optional()
+  recordId: z.string().min(1, "Select a related attendance record.")
 });
 
 type CorrectionFormValues = z.infer<typeof correctionFormSchema>;
@@ -99,14 +109,31 @@ export function CorrectionRequestsPage() {
   const watchedCategory = useWatch({ control, name: "category" });
   const watchedCode = useWatch({ control, name: "code" });
 
-  const classes = classesQuery.data?.items ?? [];
-  const events = eventsQuery.data?.items ?? [];
+  const classes = useMemo(() => classesQuery.data?.items ?? [], [classesQuery.data?.items]);
+  const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
+  const records = useMemo(() => recordsQuery.data?.items ?? [], [recordsQuery.data?.items]);
+  const sessions = useMemo(() => sessionsQuery.data?.items ?? [], [sessionsQuery.data?.items]);
 
   // Update codes dropdown options
   const codeOptions =
     watchedCategory === "class"
       ? classes.map((c) => ({ label: `${c.subjectCode} - ${c.subjectTitle}`, value: c.subjectCode }))
       : events.map((e) => ({ label: `${e.code} - ${e.title}`, value: e.code }));
+
+  const attendanceRecordOptions = records.map((record) => {
+    const session = sessions.find((entry) => entry.id === record.sessionId);
+    const classRecord = classes.find((entry) => entry.id === session?.classId);
+    const event = events.find((entry) => entry.id === session?.eventId);
+    const label = classRecord
+      ? `${classRecord.subjectCode} - ${classRecord.subjectTitle}`
+      : event
+        ? `${event.code} - ${event.title}`
+        : session?.title ?? record.id;
+    return {
+      label: `${label} (${record.status})`,
+      value: record.id
+    };
+  });
 
   // Automatically update the Name field when Code changes
   useEffect(() => {
@@ -163,15 +190,15 @@ export function CorrectionRequestsPage() {
       }
 
       if (!attendanceRecordId && classId) {
-        const matchSession = sessionsQuery.data?.items.find((s) => s.classId === classId);
+        const matchSession = sessions.find((s) => s.classId === classId);
         if (matchSession) {
-          const matchRecord = recordsQuery.data?.items.find((r) => r.sessionId === matchSession.id);
+          const matchRecord = records.find((r) => r.sessionId === matchSession.id);
           attendanceRecordId = matchRecord?.id;
         }
       } else if (!attendanceRecordId && eventId) {
-        const matchSession = sessionsQuery.data?.items.find((s) => s.eventId === eventId);
+        const matchSession = sessions.find((s) => s.eventId === eventId);
         if (matchSession) {
-          const matchRecord = recordsQuery.data?.items.find((r) => r.sessionId === matchSession.id);
+          const matchRecord = records.find((r) => r.sessionId === matchSession.id);
           attendanceRecordId = matchRecord?.id;
         }
       }
@@ -213,11 +240,49 @@ export function CorrectionRequestsPage() {
     return "danger";
   }
 
+  const correctionHistoryRows: CorrectionHistoryRow[] = (correctionsQuery.data?.items ?? []).map((request) => ({
+    id: request.id,
+    submittedDate: dateFormatter.format(new Date(request.requestedAt)),
+    subjectOrEventId: request.classId ?? request.eventId ?? "Session Record",
+    type: request.requestedStatus === "excused" ? "Excused Absence" : "Correction",
+    status: request.status,
+    request
+  }));
+
+  const correctionHistoryColumns: ColDef<CorrectionHistoryRow>[] = [
+    { field: "submittedDate", headerName: "Submitted Date", minWidth: 170 },
+    { field: "subjectOrEventId", headerName: "Subject/Event ID", minWidth: 180 },
+    { field: "type", headerName: "Type", minWidth: 160 },
+    {
+      field: "status",
+      headerName: "Status",
+      minWidth: 140,
+      cellRenderer: ({ data }: { data?: CorrectionHistoryRow }) =>
+        data ? <StatusBadge label={data.status} tone={getStatusTone(data.status)} /> : null
+    },
+    {
+      colId: "details",
+      headerName: "Details",
+      minWidth: 150,
+      cellRenderer: ({ data }: { data?: CorrectionHistoryRow }) =>
+        data ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedRequest(data.request)}
+            className="text-xs text-primary font-semibold hover:bg-highlight/60"
+          >
+            View Details
+          </Button>
+        ) : null
+    }
+  ];
+
   return (
     <div className="space-y-8 p-1">
       <PageHeader
         eyebrow="Absences & Edits"
-        title="Excused & Correction Requests"
+        title="Correction Requests"
         description="File formal absence excuse notices or request corrections for incorrect attendance check-ins."
       />
 
@@ -230,6 +295,13 @@ export function CorrectionRequestsPage() {
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <SelectField
+              control={control}
+              name="recordId"
+              label="Related Attendance Record"
+              options={attendanceRecordOptions}
+            />
+
             <SelectField
               control={control}
               name="category"
@@ -293,7 +365,11 @@ export function CorrectionRequestsPage() {
               </div>
             </div>
 
-            <SubmitButton isSubmitting={correctionsQuery.createMutation.isPending} className="student-btn-primary w-full mt-2">
+            <SubmitButton
+              isSubmitting={correctionsQuery.createMutation.isPending}
+              className="student-btn-primary w-full mt-2"
+              aria-label="Submit correction request"
+            >
               Submit Request
             </SubmitButton>
           </form>
@@ -306,56 +382,14 @@ export function CorrectionRequestsPage() {
             <h3 className="font-semibold text-[#4F5654] text-base">My Report History</h3>
           </div>
 
-          <div className="overflow-x-auto border-none">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead>
-                <tr className="border-b border-[#E8ECEB] text-[#B9C1BF] font-medium">
-                  <th className="py-2.5 pb-4">Submitted Date</th>
-                  <th className="py-2.5 pb-4">Subject/Event ID</th>
-                  <th className="py-2.5 pb-4">Type</th>
-                  <th className="py-2.5 pb-4">Status</th>
-                  <th className="py-2.5 pb-4 text-right">Details</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E8ECEB] text-[#4F5654]">
-                {(correctionsQuery.data?.items ?? []).length > 0 ? (
-                  (correctionsQuery.data?.items ?? []).map((req) => (
-                    <tr key={req.id} className="hover:bg-white/40 transition-colors">
-                      <td className="py-3.5">
-                        {dateFormatter.format(new Date(req.requestedAt))}
-                      </td>
-                      <td className="py-3.5 font-mono text-xs">{req.classId ?? req.eventId ?? "Session Record"}</td>
-                      <td className="py-3.5 text-xs capitalize text-slate-500">
-                        {req.requestedStatus === "excused" ? "Excused Absence" : "Correction"}
-                      </td>
-                      <td className="py-3.5">
-                        <StatusBadge label={req.status} tone={getStatusTone(req.status)} />
-                      </td>
-                      <td className="py-3.5 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedRequest(req)}
-                          className="text-xs text-[#4D7117] font-semibold hover:bg-emerald-50/50"
-                        >
-                          View Details
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="text-center py-8 text-[#B9C1BF]">
-                      <div className="flex flex-col items-center justify-center space-y-1">
-                        <Inbox className="h-6 w-6 text-slate-400" />
-                        <span>No correction request reports recorded.</span>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <PLPassDataGrid
+            data={correctionHistoryRows}
+            columns={correctionHistoryColumns}
+            label="Correction request history"
+            emptyTitle="No correction request reports recorded"
+            enableQuickFilter={false}
+            enableColumnVisibility={false}
+          />
         </div>
       </div>
 

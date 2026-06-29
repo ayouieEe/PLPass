@@ -128,7 +128,7 @@ export function DashboardLayout({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-9 w-9 rounded-xl text-white/75 hover:bg-white/10 hover:text-white focus-visible:ring-white/50"
+            className="h-9 w-9 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-active hover:text-sidebar-foreground focus-visible:ring-ring"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             onClick={() => setCollapsed((current) => !current)}
           >
@@ -159,7 +159,7 @@ export function DashboardLayout({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="text-white hover:bg-white/10 hover:text-white"
+                  className="text-sidebar-foreground hover:bg-sidebar-active hover:text-sidebar-foreground"
                   aria-label="Close navigation menu"
                   onClick={() => setDrawerOpen(false)}
                 >

@@ -24,7 +24,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -352,19 +352,19 @@ export function EventRecordsPage() {
     <OrganizerFrame>
       <PageHeader eyebrow="Organizer" title="Event Records" description="Event sessions, attendance details, and event-based correction review." actions={<><Button disabled variant="outline">Generate PDF</Button><Button disabled variant="outline">Generate XLSX</Button></>} />
       <FilterBar search="" selectedFilter={status} filters={[{ label: "All", value: "all" }, { label: "Draft", value: "draft" }, { label: "Active", value: "active" }, { label: "Completed", value: "completed" }, { label: "Cancelled", value: "cancelled" }]} onSearchChange={() => undefined} onFilterChange={setStatus} />
-      <DataTable data={sessions} columns={sessionColumns} emptyTitle="No event sessions" />
+      <PLPassDataGrid label="Organizer event sessions" data={sessions} columns={sessionColumns} emptyTitle="No event sessions" />
       {selectedSessionId ? (
         <section className="rounded-lg border bg-surface p-4">
           <h2 className="font-semibold">Session detail panel</h2>
           <div className="mt-4">
-            <DataTable data={selectedRecords} columns={detailColumns} emptyTitle="No student attendance records" />
+            <PLPassDataGrid label="Organizer session attendance records" data={selectedRecords} columns={detailColumns} emptyTitle="No student attendance records" />
           </div>
         </section>
       ) : null}
       <section className="rounded-lg border bg-surface p-4">
         <h2 className="font-semibold">Correction Request Review</h2>
         <div className="mt-4">
-          <DataTable data={correctionsQuery.data?.items ?? []} columns={correctionColumns} emptyTitle="No event correction requests" />
+          <PLPassDataGrid label="Organizer correction requests" data={correctionsQuery.data?.items ?? []} columns={correctionColumns} emptyTitle="No event correction requests" />
         </div>
       </section>
       {selectedCorrection ? (

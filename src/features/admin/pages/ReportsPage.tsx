@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -235,7 +235,7 @@ export function ReportsPage() {
       </section>
       {reports.isLoading ? <LoadingState label="Loading reports" /> : null}
       {reports.isError ? <ErrorPanel /> : null}
-      {reports.data ? <DataTable data={filteredReports} columns={columns} emptyTitle="No report history found" /> : null}
+      {reports.data ? <PLPassDataGrid label="Admin report history" data={filteredReports} columns={columns} emptyTitle="No report history found" /> : null}
     </AdminFrame>
   );
 }

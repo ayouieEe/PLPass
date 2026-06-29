@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -295,9 +295,9 @@ export function AcademicManagementPage() {
       )}
       {classes.isLoading || events.isLoading ? <LoadingState label="Loading academic records" /> : null}
       {classes.isError || events.isError ? <ErrorPanel /> : null}
-      {tab === "classes" && classes.data ? <DataTable data={classes.data.items} columns={classColumns} emptyTitle="No classes found" /> : null}
+      {tab === "classes" && classes.data ? <PLPassDataGrid label="Academic classes" data={classes.data.items} columns={classColumns} emptyTitle="No classes found" /> : null}
       {tab === "events" && events.data ? (
-        <DataTable data={filteredEvents} columns={eventColumns} emptyTitle={`No ${eventView} events found`} />
+        <PLPassDataGrid label="Academic events" data={filteredEvents} columns={eventColumns} emptyTitle={`No ${eventView} events found`} />
       ) : null}
       <section className="rounded-lg border bg-surface p-4">
         <h2 className="font-semibold">Details view</h2>

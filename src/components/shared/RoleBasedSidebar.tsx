@@ -47,22 +47,22 @@ export function RoleBasedSidebar({
   return (
     <aside
       className={cn(
-        role === "student" ? "student-glass-sidebar border-r border-white/10" : "plpass-sidebar",
-        "flex h-dvh min-h-0 flex-col border-white/10 shadow-2xl shadow-black/10 transition-[width] duration-200 motion-reduce:transition-none",
+        "plpass-sidebar",
+        "flex h-dvh min-h-0 flex-col transition-[width] duration-200 motion-reduce:transition-none",
         collapsed ? "w-[76px]" : "w-[260px]",
         className
       )}
       aria-label={`${role} workspace sidebar`}
     >
-      <div className={cn("shrink-0 border-b border-white/10 p-4", collapsed && "px-3")}>
+      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "px-3")}>
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white ring-1 ring-white/15">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
             <Activity className="h-5 w-5" aria-hidden="true" />
           </div>
           {!collapsed ? (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold leading-5 text-white">PLPass</p>
-              <p className="mt-0.5 truncate text-xs capitalize text-white/65">{role} workspace</p>
+              <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
+              <p className="mt-0.5 truncate text-xs capitalize text-muted-foreground">{role} workspace</p>
             </div>
           ) : null}
           {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
@@ -72,7 +72,7 @@ export function RoleBasedSidebar({
       <nav aria-label={`${role} navigation`} className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 py-4">
         {Object.entries(groups).map(([group, items]) => (
           <div key={group} className={cn("mb-5 last:mb-0", collapsed && "mb-3")}>
-            {!collapsed ? <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-white/45">{group}</p> : null}
+            {!collapsed ? <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p> : null}
             <div className="space-y-1">
               {items.map((item) => {
                 const Icon = item.icon;
@@ -86,9 +86,9 @@ export function RoleBasedSidebar({
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-white/78 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+                        "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground/80 transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
                         collapsed && "justify-center px-0",
-                        isActive && (role === "student" ? "student-sidebar-active" : "plpass-sidebar-active")
+                        isActive && "plpass-sidebar-active"
                       )
                     }
                   >
@@ -107,7 +107,7 @@ export function RoleBasedSidebar({
         ))}
       </nav>
 
-      <div className={cn("mt-auto shrink-0 border-t border-white/10 p-3", collapsed && "px-2")}>
+      <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
         <NavLink
           to={APP_ROUTES.profile}
           title={collapsed ? `${userLabel} profile` : undefined}
@@ -115,22 +115,22 @@ export function RoleBasedSidebar({
           onClick={onNavigate}
           className={({ isActive }) =>
             cn(
-              "group flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.06] p-2.5 text-left text-sm text-white/86 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+              "group flex items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-active/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
               collapsed && "justify-center rounded-xl px-2",
-              isActive && (role === "student" ? "student-sidebar-active" : "border-white/25 bg-white/[0.14] text-white")
+              isActive && "plpass-sidebar-active"
             )
           }
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/12 text-xs font-semibold text-white ring-1 ring-white/15">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
             {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
           </span>
           {!collapsed ? (
             <>
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-white">{userLabel}</span>
-                <span className="block truncate text-xs capitalize text-white/60">{role}</span>
+                <span className="block truncate font-medium text-sidebar-foreground">{userLabel}</span>
+                <span className="block truncate text-xs capitalize text-muted-foreground">{role}</span>
               </span>
-              <MoreHorizontal className="h-4 w-4 shrink-0 text-white/55" aria-hidden="true" />
+              <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </>
           ) : null}
           {collapsed ? (

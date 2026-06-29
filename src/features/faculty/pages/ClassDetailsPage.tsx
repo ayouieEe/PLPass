@@ -30,7 +30,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -289,8 +289,8 @@ export function ClassDetailsPage() {
           </Button>
         ))}
       </div>
-      {tab === "roster" ? <DataTable data={roster} columns={rosterColumns} emptyTitle="No roster students" /> : null}
-      {tab === "recent sessions" ? <DataTable data={sessions} columns={sessionColumns} emptyTitle="No class sessions" /> : null}
+      {tab === "roster" ? <PLPassDataGrid label="Class roster" data={roster} columns={rosterColumns} emptyTitle="No roster students" /> : null}
+      {tab === "recent sessions" ? <PLPassDataGrid label="Class sessions" data={sessions} columns={sessionColumns} emptyTitle="No class sessions" /> : null}
       {tab === "attendance summary" ? <AttendanceTrendChart data={sessions.map((session) => ({ label: formatDate(session.startsAt), ...attendanceCounts(recordsForSession(records, session.id)) }))} /> : null}
       {tab === "class information" ? (
         <section className="rounded-lg border bg-surface p-4">

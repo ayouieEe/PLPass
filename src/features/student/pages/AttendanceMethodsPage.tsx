@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import type { ColDef } from "ag-grid-community";
 import {
   Nfc,
   UserCheck,
@@ -29,9 +30,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { TextAreaField } from "@/components/forms/TextAreaField";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { Student } from "@/types/domain";
 
@@ -41,6 +40,14 @@ type StudentScope = {
   studentName: string;
   isLoading: boolean;
   isError: boolean;
+};
+
+type NfcTapHistoryRow = {
+  id: string;
+  dateTime: string;
+  sessionTitle: string;
+  status: "Accepted" | "Rejected";
+  message: string;
 };
 
 const nfcRequestSchema = z.object({
@@ -174,7 +181,7 @@ export function AttendanceMethodsPage() {
   }
 
   // Submit facial issues report
-  function handleFacialIssueSubmit(values: IssueReportFormValues) {
+  function handleFacialIssueSubmit() {
     toast.success("Issue report submitted to admin.");
     facialIssueForm.reset();
   }
@@ -197,18 +204,41 @@ export function AttendanceMethodsPage() {
   }
 
   // Submit QR issue report
-  function handleQrIssueSubmit(values: IssueReportFormValues) {
+  function handleQrIssueSubmit() {
     toast.success("Issue report submitted to admin.");
     qrIssueForm.reset();
   }
 
   const enrolledDate = localStorage.getItem("plpass-face-enrolled-date");
+  const nfcTapRows: NfcTapHistoryRow[] = (tapsQuery.data?.items ?? []).map((tap) => {
+    const session = sessionsQuery.data?.items.find((entry) => entry.id === tap.sessionId);
+    return {
+      id: tap.id,
+      dateTime: `${dateFormatter.format(new Date(tap.attemptedAt))} ${timeFormatter.format(new Date(tap.attemptedAt))}`,
+      sessionTitle: session?.title ?? "NFC Reader Tap",
+      status: tap.accepted ? "Accepted" : "Rejected",
+      message: tap.message || "Tapped at reader"
+    };
+  });
+
+  const nfcTapColumns: ColDef<NfcTapHistoryRow>[] = [
+    { field: "dateTime", headerName: "Date & Time", minWidth: 190 },
+    { field: "sessionTitle", headerName: "Session / Class", minWidth: 210 },
+    {
+      field: "status",
+      headerName: "Status",
+      minWidth: 140,
+      cellRenderer: ({ data }: { data?: NfcTapHistoryRow }) =>
+        data ? <StatusBadge label={data.status} tone={data.status === "Accepted" ? "success" : "danger"} /> : null
+    },
+    { field: "message", headerName: "Message / Note", minWidth: 220 }
+  ];
 
   return (
     <div className="space-y-8 p-1">
       <PageHeader
         eyebrow="Verification Setup"
-        title="Attendance Verification Methods"
+        title="NFC Credential"
         description="Configure your active verification tokens, view live scan instructions, and manage credentials."
       />
 
@@ -322,7 +352,7 @@ export function AttendanceMethodsPage() {
             <div className="flex justify-between items-center pt-2">
               <span className="text-xs text-[#B9C1BF]">Requests are reviewed by admin within 24-48 hours.</span>
               <Button type="submit" disabled={requestsQuery.createMutation.isPending} className="student-btn-primary px-6">
-                {requestsQuery.createMutation.isPending ? "Submitting..." : "Submit Issue Report"}
+                {requestsQuery.createMutation.isPending ? "Submitting..." : "Submit NFC issue request"}
               </Button>
             </div>
           </form>
@@ -333,43 +363,14 @@ export function AttendanceMethodsPage() {
               <History className="h-5 w-5 text-[#4D7117]" />
               <h3 className="font-semibold text-[#4F5654]">NFC Tap History (Recent)</h3>
             </div>
-            <div className="overflow-x-auto border-none">
-              <table className="w-full text-left text-sm border-collapse">
-                <thead>
-                  <tr className="border-b text-[#B9C1BF] font-medium border-[#E8ECEB]">
-                    <th className="py-2.5 pb-4">Date & Time</th>
-                    <th className="py-2.5 pb-4">Session / Class</th>
-                    <th className="py-2.5 pb-4">Status</th>
-                    <th className="py-2.5 pb-4">Message / Note</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y text-[#4F5654] divide-[#E8ECEB]">
-                  {(tapsQuery.data?.items ?? []).length > 0 ? (
-                    tapsQuery.data?.items.map((tap) => {
-                      const session = sessionsQuery.data?.items.find((s) => s.id === tap.sessionId);
-                      return (
-                        <tr key={tap.id} className="hover:bg-white/40 transition-colors">
-                          <td className="py-3.5">
-                            {dateFormatter.format(new Date(tap.attemptedAt))} {timeFormatter.format(new Date(tap.attemptedAt))}
-                          </td>
-                          <td className="py-3.5 font-medium">{session?.title ?? "NFC Reader Tap"}</td>
-                          <td className="py-3.5">
-                            <StatusBadge label={tap.accepted ? "Accepted" : "Rejected"} tone={tap.accepted ? "success" : "danger"} />
-                          </td>
-                          <td className="py-3.5 text-slate-500">{tap.message || "Tapped at reader"}</td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="text-center py-6 text-[#B9C1BF]">
-                        No tap attempts logged on this account.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <PLPassDataGrid
+              data={nfcTapRows}
+              columns={nfcTapColumns}
+              label="NFC tap history"
+              emptyTitle="No tap attempts logged on this account"
+              enableQuickFilter={false}
+              enableColumnVisibility={false}
+            />
           </div>
 
           {/* Next Button */}

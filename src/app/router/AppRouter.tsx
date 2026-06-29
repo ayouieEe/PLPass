@@ -55,7 +55,9 @@ import {
   CorrectionRequestsPage as StudentCorrectionRequestsPage,
   MyAttendancePage,
   AttendanceMethodsPage,
+  StudentReportsPage,
   StudentDashboardPage,
+  StudentSchedulePage,
   StudentProfilePage,
   StudentRootPage
 } from "@/features/student/pages";
@@ -131,8 +133,11 @@ export function AppRouter() {
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />
               <Route path={APP_ROUTES.studentDashboard} element={<StudentDashboardPage />} />
+              <Route path={APP_ROUTES.studentSchedule} element={<StudentSchedulePage />} />
               <Route path={APP_ROUTES.studentAttendance} element={<MyAttendancePage />} />
               <Route path={APP_ROUTES.studentMethods} element={<AttendanceMethodsPage />} />
+              <Route path={APP_ROUTES.studentNfcCredential} element={<AttendanceMethodsPage />} />
+              <Route path={APP_ROUTES.studentReports} element={<StudentReportsPage />} />
               <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.studentProfile} element={<StudentProfilePage />} />
             </Route>

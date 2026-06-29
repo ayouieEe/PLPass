@@ -155,7 +155,7 @@ export function StudentProfilePage() {
     <div className="space-y-8 p-1">
       <PageHeader
         eyebrow="Account"
-        title="Student Profile"
+        title="Profile"
         description="Manage your student account settings, change password, and upload photos."
         actions={
           <Button variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">

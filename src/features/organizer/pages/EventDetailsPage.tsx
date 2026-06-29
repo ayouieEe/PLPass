@@ -24,7 +24,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -382,8 +382,8 @@ export function EventDetailsPage() {
       <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-3">
         {["participants", "sessions", "summary", "information"].map((item) => <Button key={item} type="button" variant={tab === item ? "default" : "outline"} onClick={() => setTab(item)}>{item}</Button>)}
       </div>
-      {tab === "participants" ? <DataTable data={participantList} columns={participantColumns} emptyTitle="No participants" /> : null}
-      {tab === "sessions" ? <DataTable data={sessions} columns={sessionColumns} emptyTitle="No event sessions" /> : null}
+      {tab === "participants" ? <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" /> : null}
+      {tab === "sessions" ? <PLPassDataGrid label="Event sessions" data={sessions} columns={sessionColumns} emptyTitle="No event sessions" /> : null}
       {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
       {tab === "information" ? (
         <section className="rounded-lg border bg-surface p-5">

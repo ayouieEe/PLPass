@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -202,7 +202,7 @@ export function AuditLogsPage() {
       {logs.isLoading ? <LoadingState label="Loading audit logs" /> : null}
       {logs.isError && isEmptyResult(logs.error) ? <EmptyState title="No audit logs found" /> : null}
       {logs.isError && !isEmptyResult(logs.error) ? <ErrorPanel /> : null}
-      {logs.data ? <DataTable data={logs.data.items} columns={columns} emptyTitle="No audit logs found" /> : null}
+      {logs.data ? <PLPassDataGrid label="Audit logs" data={logs.data.items} columns={columns} emptyTitle="No audit logs found" /> : null}
     </AdminFrame>
   );
 }

@@ -3,7 +3,7 @@ export type ReportHistoryRecord = {
   name: string;
   scope: string;
   generatedAt: string;
-  status: "ready" | "processing" | "failed";
+  status: "queued" | "ready" | "processing" | "failed";
 };
 
 export type ReportPreviewMetric = {

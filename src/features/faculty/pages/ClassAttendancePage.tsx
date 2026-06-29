@@ -30,7 +30,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -269,12 +269,12 @@ export function ClassAttendancePage() {
     <FacultyFrame>
       <PageHeader eyebrow="Faculty" title="Attendance Records" description="Completed and relevant sessions for your assigned classes." actions={<><Button disabled variant="outline">Generate PDF</Button><Button disabled variant="outline">Generate XLSX</Button></>} />
       <FilterBar search={search} selectedFilter="all" filters={[{ label: "All statuses", value: "all" }]} onSearchChange={setSearch} onFilterChange={() => undefined} />
-      <DataTable data={sessions} columns={columns} emptyTitle="No attendance sessions" />
+      <PLPassDataGrid label="Faculty attendance sessions" data={sessions} columns={columns} emptyTitle="No attendance sessions" />
       {selectedSessionId ? (
         <section className="rounded-lg border bg-surface p-4">
           <h2 className="font-semibold">Attendance detail panel</h2>
           <div className="mt-4">
-            <DataTable data={selectedRecords} columns={detailColumns} emptyTitle="No student attendance records" />
+            <PLPassDataGrid label="Faculty session attendance records" data={selectedRecords} columns={detailColumns} emptyTitle="No student attendance records" />
           </div>
         </section>
       ) : null}

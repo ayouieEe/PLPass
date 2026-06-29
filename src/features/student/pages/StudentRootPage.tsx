@@ -18,7 +18,6 @@ import { TextAreaField } from "@/components/forms/TextAreaField";
 import { AttachmentUploader } from "@/components/shared/AttachmentUploader";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
-import { DataTable } from "@/components/tables/DataTable";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";

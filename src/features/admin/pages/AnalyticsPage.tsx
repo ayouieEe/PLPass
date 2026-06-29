@@ -22,7 +22,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
-import { DataTable } from "@/components/tables/DataTable";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -257,7 +257,7 @@ export function AnalyticsPage() {
           );
         })}
       </section>
-      {predictions.data ? <DataTable data={predictions.data.items} columns={columns} emptyTitle="No analytics signals found" /> : null}
+      {predictions.data ? <PLPassDataGrid label="Admin analytics signals" data={predictions.data.items} columns={columns} emptyTitle="No analytics signals found" /> : null}
     </AdminFrame>
   );
 }
