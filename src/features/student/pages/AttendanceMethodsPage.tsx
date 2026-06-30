@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
+import { StudentSelect } from "@/components/forms/StudentSelect";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -243,39 +244,36 @@ export function AttendanceMethodsPage() {
       />
 
       {/* Tabs Selector Navigation */}
-      <div className="grid grid-cols-3 gap-2 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md">
+      <div className="grid grid-cols-3 gap-2 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md">
         <button
           onClick={() => setActiveTab("nfc")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${
-            activeTab === "nfc"
-              ? "bg-[#C3E956] text-[#1F4B2C] shadow-sm"
-              : "text-slate-500 hover:bg-white/40 hover:text-[#4F5654]"
-          }`}
+          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "nfc"
+              ? "bg-primary text-white shadow-sm"
+              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
+            }`}
         >
           <Nfc className="h-4 w-4" />
-          <span>NFC Sticker</span>
+          <span className="text-inherit">NFC Sticker</span>
         </button>
         <button
           onClick={() => setActiveTab("facial")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${
-            activeTab === "facial"
-              ? "bg-[#C3E956] text-[#1F4B2C] shadow-sm"
-              : "text-slate-500 hover:bg-white/40 hover:text-[#4F5654]"
-          }`}
+          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "facial"
+              ? "bg-primary text-white shadow-sm"
+              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
+            }`}
         >
           <UserCheck className="h-4 w-4" />
-          <span>Facial Reco</span>
+          <span className="text-inherit">Facial Recognition</span>
         </button>
         <button
           onClick={() => setActiveTab("qr")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${
-            activeTab === "qr"
-              ? "bg-[#C3E956] text-[#1F4B2C] shadow-sm"
-              : "text-slate-500 hover:bg-white/40 hover:text-[#4F5654]"
-          }`}
+          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "qr"
+              ? "bg-primary text-white shadow-sm"
+              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
+            }`}
         >
           <QrCode className="h-4 w-4" />
-          <span>Secure QR Code</span>
+          <span className="text-inherit">QR Code</span>
         </button>
       </div>
 
@@ -307,11 +305,11 @@ export function AttendanceMethodsPage() {
 
           {/* Instructions */}
           <div className="student-glass-card p-6 space-y-3">
-            <h3 className="font-semibold text-[#4F5654] flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-[#4D7117]" />
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
               NFC Usage Instructions
             </h3>
-            <ul className="list-decimal pl-5 text-sm space-y-2 text-slate-600 leading-relaxed">
+            <ul className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground leading-relaxed">
               <li>Keep the physical PLPass NFC sticker attached securely to the back of your school ID card.</li>
               <li>When entering classes or event venues, tap your ID against the wall-mounted NFC reader.</li>
               <li>Wait for the reader to beep once and display a solid green indicator before entering.</li>
@@ -322,23 +320,31 @@ export function AttendanceMethodsPage() {
           {/* Report Form */}
           <form onSubmit={nfcForm.handleSubmit(handleNfcSubmit)} className="student-glass-card p-6 space-y-4">
             <div>
-              <h3 className="font-semibold text-[#4F5654]">Report NFC Sticker Issues</h3>
-              <p className="text-xs text-[#B9C1BF] mt-0.5">Submit request for lost or damaged sticker replacements.</p>
+              <h3 className="font-semibold text-foreground">Report NFC Sticker Issues</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Submit request for lost or damaged sticker replacements.</p>
             </div>
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#4F5654]">Report Type</label>
-                <select
-                  {...nfcForm.register("type")}
-                  className="student-input h-10 w-full px-3 text-sm focus:outline-none"
-                >
-                  <option value="lost">Lost Sticker</option>
-                  <option value="damaged">Damaged/Scratched Sticker</option>
-                  <option value="replacement">Request General Replacement</option>
-                </select>
+                <label className="text-xs font-semibold text-foreground">Report Type</label>
+                <Controller
+                  control={nfcForm.control}
+                  name="type"
+                  render={({ field }) => (
+                    <StudentSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={[
+                        { label: "Lost Sticker", value: "lost" },
+                        { label: "Damaged/Scratched Sticker", value: "damaged" },
+                        { label: "Request General Replacement", value: "replacement" }
+                      ]}
+                      placeholder="Select Issue Type"
+                    />
+                  )}
+                />
               </div>
               <div>
-                <label className="text-xs font-semibold text-[#4F5654] mb-1.5 block">Detailed Explanation</label>
+                <label className="text-xs font-semibold text-foreground mb-1.5 block">Detailed Explanation</label>
                 <textarea
                   {...nfcForm.register("reason")}
                   placeholder="Explain what happened to your sticker (e.g. peel off, lost card)..."
@@ -350,7 +356,7 @@ export function AttendanceMethodsPage() {
               </div>
             </div>
             <div className="flex justify-between items-center pt-2">
-              <span className="text-xs text-[#B9C1BF]">Requests are reviewed by admin within 24-48 hours.</span>
+              <span className="text-xs text-muted-foreground">Requests are reviewed by admin within 24-48 hours.</span>
               <Button type="submit" disabled={requestsQuery.createMutation.isPending} className="student-btn-primary px-6">
                 {requestsQuery.createMutation.isPending ? "Submitting..." : "Submit NFC issue request"}
               </Button>
@@ -360,8 +366,8 @@ export function AttendanceMethodsPage() {
           {/* Tap History */}
           <div className="student-glass-card p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <History className="h-5 w-5 text-[#4D7117]" />
-              <h3 className="font-semibold text-[#4F5654]">NFC Tap History (Recent)</h3>
+              <History className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">NFC Tap History (Recent)</h3>
             </div>
             <PLPassDataGrid
               data={nfcTapRows}
@@ -375,9 +381,8 @@ export function AttendanceMethodsPage() {
 
           {/* Next Button */}
           <div className="flex justify-end pt-2">
-            <Button onClick={() => setActiveTab("facial")} className="student-btn-primary px-6 gap-2">
-              <span>Next: Facial Recognition Setup</span>
-              <ArrowRight className="h-4 w-4" />
+            <Button onClick={() => setActiveTab("facial")} className="student-btn-primary px-6">
+              <span className="text-white">Next</span>
             </Button>
           </div>
         </div>
@@ -390,17 +395,17 @@ export function AttendanceMethodsPage() {
             /* Enrollment View */
             <div className="grid gap-6 md:grid-cols-2">
               <div className="student-glass-card p-6 space-y-4">
-                <h3 className="font-semibold text-[#4F5654] flex items-center gap-2">
-                  <Camera className="h-5 w-5 text-[#4D7117]" />
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <Camera className="h-5 w-5 text-primary" />
                   Facial Recognition Enrollment
                 </h3>
-                <p className="text-sm text-slate-600 leading-relaxed">
+                <p className="text-sm text-muted-foreground leading-relaxed">
                   PLPass utilizes high-precision local facial biometrics for hands-free verification in supported classrooms.
                 </p>
 
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-[#4D7117]">Guidelines</h4>
-                  <ul className="list-disc pl-5 text-xs text-slate-500 space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-primary">Guidelines</h4>
+                  <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-2">
                     <li>Ensure you are in a well-lit area with neutral background light.</li>
                     <li>Look straight into the camera frame during the scanner process.</li>
                     <li>Avoid hats, hoods, or sunglasses. Normal prescription glasses are okay.</li>
@@ -416,37 +421,37 @@ export function AttendanceMethodsPage() {
               </div>
 
               {/* Live camera scan visualizer mock */}
-              <div className="rounded-[24px] border flex flex-col items-center justify-center p-6 min-h-[300px] relative overflow-hidden bg-gradient-to-br from-[#1F4B2C] via-emerald-950 to-slate-900 border-white/10 text-white shadow-xl">
+              <div className="rounded-[24px] border flex flex-col items-center justify-center p-6 min-h-[300px] relative overflow-hidden bg-gradient-to-br from-primary via-primary-hover to-background border-border text-foreground shadow-xl">
                 {isEnrollingFace ? (
                   <div className="text-center space-y-4 z-10">
                     {/* Face Wireframe pulsating */}
-                    <div className="relative h-44 w-44 rounded-full border-4 border-dashed border-[#91EAAF] animate-spin flex items-center justify-center mx-auto">
-                      <div className="absolute h-36 w-36 rounded-full border border-emerald-300 opacity-60 animate-pulse" />
-                      <UserCheck className="h-16 w-16 text-emerald-400 animate-bounce" />
+                    <div className="relative h-44 w-44 rounded-full border-4 border-dashed border-primary animate-spin flex items-center justify-center mx-auto">
+                      <div className="absolute h-36 w-36 rounded-full border border-primary/60 opacity-60 animate-pulse" />
+                      <UserCheck className="h-16 w-16 text-primary animate-bounce" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold tracking-wider text-emerald-300">Biometric Scan Active</p>
-                      <p className="text-xs text-slate-400 mt-1">Progress: {enrollProgress}%</p>
+                      <p className="text-sm font-semibold tracking-wider text-primary">Biometric Scan Active</p>
+                      <p className="text-xs text-muted-foreground mt-1">Progress: {enrollProgress}%</p>
                     </div>
                     {/* Progress bar */}
-                    <div className="w-64 bg-slate-800 rounded-full h-2.5 mx-auto">
-                      <div className="bg-emerald-500 h-2.5 rounded-full transition-all duration-200" style={{ width: `${enrollProgress}%` }} />
+                    <div className="w-64 bg-secondary rounded-full h-2.5 mx-auto">
+                      <div className="bg-primary h-2.5 rounded-full transition-all duration-200" style={{ width: `${enrollProgress}%` }} />
                     </div>
                   </div>
                 ) : (
                   <div className="text-center space-y-3 z-10">
-                    <div className="h-32 w-32 rounded-full border border-slate-700 bg-slate-900/50 flex items-center justify-center mx-auto shadow-inner">
-                      <Camera className="h-12 w-12 text-slate-500" />
+                    <div className="h-32 w-32 rounded-full border border-border bg-card flex items-center justify-center mx-auto shadow-inner">
+                      <Camera className="h-12 w-12 text-muted-foreground" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-300">Scan Module Offline</p>
-                      <p className="text-xs text-slate-500 mt-1">Start enrollment to activate camera feed simulation.</p>
+                      <p className="text-sm font-semibold text-muted-foreground">Scan Module Offline</p>
+                      <p className="text-xs text-muted-foreground mt-1">Start enrollment to activate camera feed simulation.</p>
                     </div>
                   </div>
                 )}
                 {/* scanning laser beam mock */}
                 {isEnrollingFace && (
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-[#C3E956] shadow-[0_0_15px_rgba(195,233,86,1)] animate-ping" />
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-primary shadow-[0_0_15px_rgba(var(--primary),1)] animate-ping" />
                 )}
               </div>
             </div>
@@ -456,29 +461,29 @@ export function AttendanceMethodsPage() {
               {/* Credentials / Info */}
               <div className="student-glass-card p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-[#4F5654] flex items-center gap-2">
-                    <UserCheck className="h-5 w-5 text-emerald-600" />
+                  <h3 className="font-semibold text-foreground flex items-center gap-2">
+                    <UserCheck className="h-5 w-5 text-primary" />
                     Facial Biometrics Enrolled
                   </h3>
-                  <Button variant="outline" size="sm" onClick={handleUnenrollFace} className="student-btn-secondary border-rose-300 text-rose-600 hover:bg-rose-50 px-4 h-9">
+                  <Button variant="outline" size="sm" onClick={handleUnenrollFace} className="student-btn-secondary border-destructive/30 text-destructive hover:bg-destructive/10 px-4 h-9">
                     Delete Data
                   </Button>
                 </div>
 
-                <div className="flex items-center gap-4 bg-emerald-50/20 border border-emerald-500/20 rounded-2xl p-4">
-                  <div className="h-16 w-16 rounded-full bg-emerald-500/20 flex items-center justify-center text-[#4D7117] border border-emerald-400/50">
+                <div className="flex items-center gap-4 bg-primary/10 border border-primary/20 rounded-2xl p-4">
+                  <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center text-primary border border-primary/30">
                     <Sparkles className="h-8 w-8 animate-pulse" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-sm text-[#4F5654]">Status: Enrolled & Active</h4>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <h4 className="font-semibold text-sm text-foreground">Status: Enrolled & Active</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
                       Registered Date: {enrolledDate ? dateFormatter.format(new Date(enrolledDate)) : "Today"}
                     </p>
                   </div>
                 </div>
 
-                <div className="rounded-2xl border bg-white/40 border-[#E8ECEB] p-4 space-y-2 text-xs text-slate-600">
-                  <p className="font-semibold text-[#4F5654]">Active Verification Details</p>
+                <div className="rounded-2xl border bg-card/40 border-border p-4 space-y-2 text-xs text-muted-foreground">
+                  <p className="font-semibold text-foreground">Active Verification Details</p>
                   <p>Biometric Hash: sha256-plpass-face-08ac3f91ae88b1</p>
                   <p>Devices Registered: Campus Gate Camera 03, Room 402 Gate Camera</p>
                   <p>Security Audit: Approved (Local Vault Storage encrypted with user token)</p>
@@ -488,11 +493,11 @@ export function AttendanceMethodsPage() {
               {/* Issues Form */}
               <form onSubmit={facialIssueForm.handleSubmit(handleFacialIssueSubmit)} className="student-glass-card p-6 space-y-4">
                 <div>
-                  <h3 className="font-semibold text-[#4F5654]">Report Face Recognition Issues</h3>
-                  <p className="text-xs text-[#B9C1BF] mt-0.5">Let administrators know if gates or classrooms fail to detect your face.</p>
+                  <h3 className="font-semibold text-foreground">Report Face Recognition Issues</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Let administrators know if gates or classrooms fail to detect your face.</p>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-[#4F5654] mb-1.5 block">Describe the recognition issue</label>
+                  <label className="text-xs font-semibold text-foreground mb-1.5 block">Describe the recognition issue</label>
                   <textarea
                     {...facialIssueForm.register("issueDescription")}
                     placeholder="Detail which classroom or reader failed, approximate time, and error messages shown..."
@@ -513,9 +518,8 @@ export function AttendanceMethodsPage() {
 
           {/* Next Button */}
           <div className="flex justify-end pt-2">
-            <Button onClick={() => setActiveTab("qr")} className="student-btn-primary px-6 gap-2">
-              <span>Next: Secure QR Setup</span>
-              <ArrowRight className="h-4 w-4" />
+            <Button onClick={() => setActiveTab("qr")} className="student-btn-primary px-6">
+              <span className="text-white">Next</span>
             </Button>
           </div>
         </div>
@@ -527,18 +531,18 @@ export function AttendanceMethodsPage() {
           {!isQrGenerated ? (
             /* Generate View */
             <div className="student-glass-card p-8 space-y-6 max-w-xl mx-auto text-center">
-              <div className="h-16 w-16 rounded-full bg-[#91EAAF]/20 flex items-center justify-center mx-auto text-[#4D7117]">
+              <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto text-primary">
                 <QrCode className="h-8 w-8" />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-[#4F5654]">Generate Secure Attendance QR</h3>
-                <p className="text-sm text-slate-600 mt-2 max-w-md mx-auto">
+                <h3 className="font-semibold text-lg text-foreground">Generate Secure Attendance QR</h3>
+                <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
                   A dynamic, time-limited QR code you can present to professors or scanning terminals when physical ID stickers are unavailable.
                 </p>
               </div>
 
-              <div className="bg-white/40 border border-[#E8ECEB] rounded-2xl p-4 text-xs text-slate-500 max-w-md mx-auto text-left space-y-2">
-                <p className="font-semibold text-[#4F5654]">QR Scan Notes</p>
+              <div className="bg-card/40 border border-border rounded-2xl p-4 text-xs text-muted-foreground max-w-md mx-auto text-left space-y-2">
+                <p className="font-semibold text-foreground">QR Scan Notes</p>
                 <p>• Generated QR includes encrypted student metadata matching your profile.</p>
                 <p>• The code is valid on all standard terminal webcams.</p>
                 <p>• QR regenerations immediately invalidate previous codes.</p>
@@ -546,7 +550,7 @@ export function AttendanceMethodsPage() {
 
               <div className="pt-4">
                 <Button onClick={handleGenerateQr} className="student-btn-primary px-8">
-                  Generate Secure QR Code
+                  Generate QR Code
                 </Button>
               </div>
             </div>
@@ -556,24 +560,24 @@ export function AttendanceMethodsPage() {
               {/* Credentials about QR */}
               <div className="student-glass-card p-6 text-center md:text-left flex flex-col md:flex-row gap-6 items-center">
                 {/* Mock QR Code element */}
-                <div className="shrink-0 bg-white p-4 border border-[#E8ECEB] rounded-2xl shadow-sm flex flex-col items-center">
-                  <div className="h-36 w-36 bg-slate-900 rounded-xl relative flex items-center justify-center text-white text-xs font-semibold overflow-hidden">
+                <div className="shrink-0 bg-card p-4 border border-border rounded-2xl shadow-sm flex flex-col items-center">
+                  <div className="h-36 w-36 bg-background rounded-xl relative flex items-center justify-center text-foreground text-xs font-semibold overflow-hidden">
                     {/* Diagonal grid cells to represent QR blocks */}
                     <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:10px_10px]" />
                     {/* Target boxes representing standard QR anchors */}
-                    <div className="absolute top-2 left-2 h-7 w-7 border-2 border-white rounded" />
-                    <div className="absolute top-2 right-2 h-7 w-7 border-2 border-white rounded" />
-                    <div className="absolute bottom-2 left-2 h-7 w-7 border-2 border-white rounded" />
-                    <QrCode className="h-12 w-12 text-[#91EAAF] animate-pulse" />
+                    <div className="absolute top-2 left-2 h-7 w-7 border-2 border-current rounded" />
+                    <div className="absolute top-2 right-2 h-7 w-7 border-2 border-current rounded" />
+                    <div className="absolute bottom-2 left-2 h-7 w-7 border-2 border-current rounded" />
+                    <QrCode className="h-12 w-12 text-primary animate-pulse" />
                   </div>
-                  <span className="text-[10px] text-slate-500 font-mono mt-2 tracking-widest">{qrCodeVal}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono mt-2 tracking-widest">{qrCodeVal}</span>
                 </div>
 
                 <div className="space-y-3 flex-1">
-                  <h3 className="font-semibold text-[#4F5654]">QR Verification Active</h3>
-                  <div className="space-y-2 text-xs text-slate-600">
+                  <h3 className="font-semibold text-foreground">QR Verification Active</h3>
+                  <div className="space-y-2 text-xs text-muted-foreground">
                     <p className="flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-emerald-500" />
+                      <ShieldCheck className="h-4 w-4 text-primary" />
                       Token Identity: Enrolled & Validated
                     </p>
                     <p className="flex items-center gap-1.5">
@@ -591,11 +595,11 @@ export function AttendanceMethodsPage() {
               {/* QR Issue Form */}
               <form onSubmit={qrIssueForm.handleSubmit(handleQrIssueSubmit)} className="student-glass-card p-6 space-y-4">
                 <div>
-                  <h3 className="font-semibold text-[#4F5654]">Report QR Scanning Issues</h3>
+                  <h3 className="font-semibold text-foreground">Report QR Scanning Issues</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">Report if scanner webcams fail to read your code at gate checks.</p>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-[#4F5654] mb-1.5 block">Description of issue</label>
+                  <label className="text-xs font-semibold text-foreground mb-1.5 block">Description of issue</label>
                   <textarea
                     {...qrIssueForm.register("issueDescription")}
                     placeholder="Detail reader location, date, and approximate scan time..."

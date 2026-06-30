@@ -25,7 +25,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { SelectField } from "@/components/forms/SelectField";
+import { StudentSelectField } from "@/components/forms/StudentSelectField";
 import { TextAreaField } from "@/components/forms/TextAreaField";
 import { SubmitButton } from "@/components/forms/SubmitButton";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
@@ -290,19 +290,20 @@ export function CorrectionRequestsPage() {
         {/* Left Side: Submit Form */}
         <div className="lg:col-span-1 student-glass-card p-6 space-y-4 shadow-sm h-fit">
           <div>
-            <h3 className="font-semibold text-[#4F5654] text-base">File New Request</h3>
-            <p className="text-xs text-[#B9C1BF] mt-0.5">Please provide supporting files for excused requests.</p>
+            <h3 className="font-semibold text-foreground text-base">File New Request</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Please provide supporting files for excused requests.</p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <SelectField
+            <StudentSelectField
               control={control}
               name="recordId"
               label="Related Attendance Record"
               options={attendanceRecordOptions}
+              placeholder="Select attendance record..."
             />
 
-            <SelectField
+            <StudentSelectField
               control={control}
               name="category"
               label="Category"
@@ -310,26 +311,28 @@ export function CorrectionRequestsPage() {
                 { label: "Class Attendance", value: "class" },
                 { label: "Campus Event", value: "event" }
               ]}
+              placeholder="Select category..."
             />
 
-            <SelectField
+            <StudentSelectField
               control={control}
               name="code"
               label="Subject/Event Code"
-              options={[{ label: "-- Select Code --", value: "" }, ...codeOptions]}
+              options={codeOptions}
+              placeholder="-- Select Code --"
             />
 
             <div>
-              <label className="block text-xs font-semibold text-[#4F5654] mb-1.5">Class/Event Name</label>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">Class/Event Name</label>
               <input
                 type="text"
                 readOnly
                 {...form.register("name")}
-                className="student-input h-10 w-full bg-slate-100/50 px-3 py-2 text-sm font-medium focus:outline-none cursor-not-allowed text-muted-foreground"
+                className="student-input h-10 w-full bg-secondary px-3 py-2 text-sm font-medium focus:outline-none cursor-not-allowed text-muted-foreground animate-none"
               />
             </div>
 
-            <SelectField
+            <StudentSelectField
               control={control}
               name="requestType"
               label="Request Type"
@@ -338,6 +341,7 @@ export function CorrectionRequestsPage() {
                 { label: "Attendance Correction (Absent -> Present)", value: "present" },
                 { label: "Recorded Time Correction (Late -> Present)", value: "late" }
               ]}
+              placeholder="Select request type..."
             />
 
             <TextAreaField
@@ -349,16 +353,16 @@ export function CorrectionRequestsPage() {
 
             {/* File Attachment Uploader */}
             <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-[#4F5654]">Attach Supporting File</label>
-              <div className="relative border border-dashed border-[#B9C1BF] hover:border-primary/50 transition-colors rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-white/40">
+              <label className="block text-xs font-semibold text-foreground">Attach Supporting File</label>
+              <div className="relative border border-dashed border-border hover:border-primary/50 transition-colors rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-card/40">
                 <input
                   type="file"
                   onChange={handleFileChange}
                   accept=".pdf,.png,.jpg,.jpeg"
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
-                <FileUp className="h-6 w-6 text-[#B9C1BF] mb-1" />
-                <span className="text-xs font-semibold text-[#4F5654]">
+                <FileUp className="h-6 w-6 text-muted-foreground mb-1" />
+                <span className="text-xs font-semibold text-foreground">
                   {selectedFile ? selectedFile.name : "Choose PDF or Image"}
                 </span>
                 <span className="text-[10px] text-slate-400 mt-0.5">Max size: 5MB</span>
@@ -378,8 +382,8 @@ export function CorrectionRequestsPage() {
         {/* Right Side: History logs list */}
         <div className="lg:col-span-2 student-glass-card p-6 space-y-4 shadow-sm h-fit">
           <div className="flex items-center gap-2">
-            <History className="h-5 w-5 text-[#4D7117]" />
-            <h3 className="font-semibold text-[#4F5654] text-base">My Report History</h3>
+            <History className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-foreground text-base">My Report History</h3>
           </div>
 
           <PLPassDataGrid
@@ -396,42 +400,42 @@ export function CorrectionRequestsPage() {
       {/* DETAILED REQUEST VIEW DIALOG */}
       {selectedRequest && (
         <section
-          className="fixed inset-0 z-50 grid place-items-center bg-[#1F4B2C]/25 p-4 backdrop-blur-md animate-in fade-in-30"
+          className="fixed inset-0 z-50 grid place-items-center bg-primary/25 p-4 backdrop-blur-md animate-in fade-in-30"
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-lg rounded-[28px] border border-white/50 bg-white/70 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
-            <div className="flex justify-between items-start border-b border-[#E8ECEB] pb-3">
+          <div className="w-full max-w-lg rounded-[28px] border border-border bg-card/75 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
+            <div className="flex justify-between items-start border-b border-border pb-3">
               <div>
-                <h3 className="text-lg font-bold text-[#4F5654]">Correction Request Detail</h3>
-                <p className="text-xs text-[#B9C1BF] mt-0.5">
+                <h3 className="text-lg font-bold text-foreground">Correction Request Detail</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Submitted on {dateFormatter.format(new Date(selectedRequest.requestedAt))}
                 </p>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="text-[#4F5654] hover:bg-slate-100">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="text-foreground hover:bg-secondary">
                 ✕
               </Button>
             </div>
 
             <div className="space-y-3.5 text-sm">
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-white/40 p-3 rounded-xl border border-[#E8ECEB]">
-                  <span className="text-[10px] uppercase font-bold text-slate-500">Record ID</span>
-                  <p className="font-semibold text-[#4F5654] mt-0.5 truncate">{selectedRequest.attendanceRecordId || "N/A"}</p>
+                <div className="bg-card/40 p-3 rounded-xl border border-border">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">Record ID</span>
+                  <p className="font-semibold text-foreground mt-0.5 truncate">{selectedRequest.attendanceRecordId || "N/A"}</p>
                 </div>
-                <div className="bg-white/40 p-3 rounded-xl border border-[#E8ECEB]">
-                  <span className="text-[10px] uppercase font-bold text-slate-500">Request Type</span>
-                  <p className="font-semibold text-[#4F5654] mt-0.5 capitalize">{selectedRequest.requestedStatus}</p>
+                <div className="bg-card/40 p-3 rounded-xl border border-border">
+                  <span className="text-[10px] uppercase font-bold text-muted-foreground">Request Type</span>
+                  <p className="font-semibold text-foreground mt-0.5 capitalize">{selectedRequest.requestedStatus}</p>
                 </div>
               </div>
 
-              <div className="bg-white/40 p-4 rounded-xl border border-[#E8ECEB] space-y-2">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Explanation / Reason</span>
-                <p className="text-xs leading-relaxed text-[#4F5654]">{selectedRequest.reason}</p>
+              <div className="bg-card/40 p-4 rounded-xl border border-border space-y-2">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground">Explanation / Reason</span>
+                <p className="text-xs leading-relaxed text-foreground">{selectedRequest.reason}</p>
               </div>
 
-              <div className="bg-white/40 p-4 rounded-xl border border-[#E8ECEB] space-y-2">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Admin Review Decision</span>
+              <div className="bg-card/40 p-4 rounded-xl border border-border space-y-2">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground">Admin Review Decision</span>
                 <div className="flex items-center gap-2 mt-1">
                   {selectedRequest.status === "approved" ? (
                     <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
@@ -440,7 +444,7 @@ export function CorrectionRequestsPage() {
                   ) : (
                     <Clock className="h-5 w-5 text-warning shrink-0" />
                   )}
-                  <span className="font-semibold text-xs uppercase text-[#4F5654]">
+                  <span className="font-semibold text-xs uppercase text-foreground">
                     {selectedRequest.status === "pending" ? "Awaiting review" : `Reviewed: ${selectedRequest.status}`}
                   </span>
                 </div>
@@ -452,7 +456,7 @@ export function CorrectionRequestsPage() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-[#E8ECEB]">
+            <div className="flex justify-end pt-2 border-t border-border">
               <Button onClick={() => setSelectedRequest(null)} className="student-btn-primary px-6">Close</Button>
             </div>
           </div>
