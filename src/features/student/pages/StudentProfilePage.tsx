@@ -40,13 +40,13 @@ function getNameById<T extends Program | Department>(items: T[] | undefined, id:
 
 function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-[#E8ECEB] bg-white/40 p-4 transition-all">
-      <div className="h-10 w-10 shrink-0 bg-[#91EAAF]/20 rounded-xl flex items-center justify-center text-[#4D7117]">
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-4 transition-all">
+      <div className="h-10 w-10 shrink-0 bg-primary/20 rounded-xl flex items-center justify-center text-primary">
         <Icon className="h-5 w-5" />
       </div>
       <div className="min-w-0">
-        <span className="text-[10px] uppercase font-bold text-[#B9C1BF] tracking-wider">{label}</span>
-        <p className="mt-0.5 font-semibold text-sm text-[#4F5654] truncate">{value ?? "N/A"}</p>
+        <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">{label}</span>
+        <p className="mt-0.5 font-semibold text-sm text-foreground truncate">{value ?? "N/A"}</p>
       </div>
     </div>
   );
@@ -169,14 +169,14 @@ export function StudentProfilePage() {
         {/* Left Side: Avatar / Profile Picture Upload View */}
         <div className="student-glass-card p-6 flex flex-col items-center text-center space-y-4 shadow-sm">
           <div className="relative group">
-            <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-[#91EAAF]/20 bg-slate-100 flex items-center justify-center shadow-inner">
+            <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-primary/20 bg-secondary flex items-center justify-center shadow-inner">
               <img
                 src={avatarUrl}
                 alt="Student Avatar"
                 className="h-full w-full object-cover"
               />
             </div>
-            <label className="absolute bottom-1 right-1 h-9 w-9 bg-[#C3E956] text-[#1F4B2C] rounded-full flex items-center justify-center shadow-md cursor-pointer hover:scale-105 transition-transform border-2 border-white">
+            <label className="absolute bottom-1 right-1 h-9 w-9 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md cursor-pointer hover:scale-105 transition-transform border-2 border-white">
               <Camera className="h-4.5 w-4.5" />
               <input
                 type="file"
@@ -188,12 +188,12 @@ export function StudentProfilePage() {
           </div>
 
           <div>
-            <h3 className="font-bold text-lg text-[#4F5654]">{user.displayName}</h3>
-            <p className="text-xs text-[#B9C1BF] mt-0.5">{user.email}</p>
+            <h3 className="font-bold text-lg text-foreground">{user.displayName}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{user.email}</p>
           </div>
 
-          <div className="w-full border-t border-[#E8ECEB] pt-4">
-            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-50/50 text-emerald-700 border border-emerald-200/50 capitalize">
+          <div className="w-full border-t border-border pt-4">
+            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-success/10 text-success border border-success/20 capitalize">
               Student Role
             </span>
           </div>
@@ -202,8 +202,8 @@ export function StudentProfilePage() {
         {/* Center: Student Information Details */}
         <div className="lg:col-span-2 space-y-6">
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
-            <h3 className="font-semibold text-[#4F5654] flex items-center gap-2">
-              <User className="h-5 w-5 text-[#4D7117]" />
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <User className="h-5 w-5 text-primary" />
               Student Information
             </h3>
 
@@ -221,14 +221,14 @@ export function StudentProfilePage() {
 
           {/* Change Password Form Card */}
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
-            <h3 className="font-semibold text-[#4F5654] flex items-center gap-2">
-              <Key className="h-5 w-5 text-[#4D7117]" />
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <Key className="h-5 w-5 text-primary" />
               Change Account Password
             </h3>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-md">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#4F5654]">Current Password</label>
+                <label className="text-xs font-semibold text-foreground">Current Password</label>
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
@@ -239,7 +239,7 @@ export function StudentProfilePage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#4F5654]">New Password</label>
+                <label className="text-xs font-semibold text-foreground">New Password</label>
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
@@ -250,7 +250,7 @@ export function StudentProfilePage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#4F5654]">Confirm New Password</label>
+                <label className="text-xs font-semibold text-foreground">Confirm New Password</label>
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"

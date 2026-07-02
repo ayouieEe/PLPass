@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
+import { StudentSelect } from "@/components/forms/StudentSelect";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -238,22 +239,22 @@ export function StudentDashboardPage() {
       <section className="student-glass-card p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#4F5654]">Select Academic Term</h3>
-            <p className="text-xs text-[#B9C1BF] mt-0.5">Filtering stats, schedules, and class attendance.</p>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-foreground">Select Academic Term</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Filtering stats, schedules, and class attendance.</p>
           </div>
           <div className="w-full max-w-xs">
-            <select
-              className="student-input h-10 w-full px-3 py-2 text-sm shadow-sm focus:outline-none"
+            <StudentSelect
               value={semesterId}
-              onChange={(e) => setSemesterId(e.target.value)}
-            >
-              <option value="">All Semesters</option>
-              {catalog.semesters.data?.items.map((sem) => (
-                <option key={sem.id} value={sem.id}>
-                  {sem.label} ({sem.schoolYear})
-                </option>
-              ))}
-            </select>
+              onChange={setSemesterId}
+              options={[
+                { label: "All Semesters", value: "" },
+                ...(catalog.semesters.data?.items.map((sem) => ({
+                  label: `${sem.label} (${sem.schoolYear})`,
+                  value: sem.id
+                })) ?? [])
+              ]}
+              placeholder="All Semesters"
+            />
           </div>
         </div>
       </section>
@@ -292,8 +293,8 @@ export function StudentDashboardPage() {
           <div className="student-glass-card p-6 flex flex-col flex-1">
             <div className="flex items-center justify-between mb-4 shrink-0">
               <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-[#4D7117]" />
-                <h3 className="font-semibold text-[#4F5654]">Today's Schedule</h3>
+                <Calendar className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold text-foreground">Today's Schedule</h3>
               </div>
               <Button
                 variant="outline"
@@ -311,13 +312,13 @@ export function StudentDashboardPage() {
                   {scheduleRows.slice(0, 4).map((item) => (
                     <div
                       key={`${item.kind}-${item.id}`}
-                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-[#E8ECEB]"
+                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-border"
                     >
                       <div>
-                        <h4 className="font-medium text-sm text-[#4F5654]">
+                        <h4 className="font-medium text-sm text-foreground">
                           {item.code} - {item.name}
                         </h4>
-                        <p className="text-xs text-[#B9C1BF] mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           {formatTime(item.startsAt)} - {formatTime(item.endsAt)} | {item.venue}
                         </p>
                       </div>
@@ -334,8 +335,8 @@ export function StudentDashboardPage() {
           {/* Upcoming Events Card */}
           <div className="student-glass-card p-6 flex flex-col flex-1">
             <div className="flex items-center gap-2 mb-4 shrink-0">
-              <Nfc className="h-5 w-5 text-[#4D7117]" />
-              <h3 className="font-semibold text-[#4F5654]">Upcoming Campus Events</h3>
+              <Nfc className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">Upcoming Campus Events</h3>
             </div>
 
             <div className="flex-1 overflow-y-auto">
@@ -344,15 +345,15 @@ export function StudentDashboardPage() {
                   {upcomingEvents.slice(0, 4).map((event) => (
                     <div
                       key={event.id}
-                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-[#E8ECEB]"
+                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-border"
                     >
                       <div>
-                        <h4 className="font-medium text-sm text-[#4F5654]">{event.title}</h4>
-                        <p className="text-xs text-[#B9C1BF] mt-1">
+                        <h4 className="font-medium text-sm text-foreground">{event.title}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">
                           {formatDate(event.startsAt)} at {formatTime(event.startsAt)} | {event.venue}
                         </p>
                       </div>
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#E8ECEB] text-[#4F5654] border border-[#B9C1BF]/20">
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-secondary text-secondary-foreground border border-border">
                         {event.code}
                       </span>
                     </div>
@@ -367,10 +368,10 @@ export function StudentDashboardPage() {
 
         {/* Right Column: Alerts & Reminders */}
         <div className="lg:col-span-1">
-          <div className="student-glass-card p-6 border-l-4 border-l-[#C3E956] h-full flex flex-col">
+          <div className="student-glass-card p-6 border-l-4 border-l-primary h-full flex flex-col">
             <div className="flex items-center gap-2 mb-4 shrink-0">
-              <AlertTriangle className="h-5 w-5 text-[#4D7117]" />
-              <h3 className="font-semibold text-[#4F5654]">Alerts & Reminders</h3>
+              <AlertTriangle className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">Alerts & Reminders</h3>
             </div>
 
             {alerts.length > 0 ? (
@@ -399,10 +400,10 @@ export function StudentDashboardPage() {
                 })}
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-[#B9C1BF]/30 rounded-2xl bg-white/30">
-                <div className="h-12 w-12 rounded-full bg-[#EBFCEE] flex items-center justify-center text-[#1F4B2C] mb-3 shadow-inner">
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-border rounded-2xl bg-white/30">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-3 shadow-inner">
                   <svg
-                    className="h-6 w-6 text-[#1F4B2C]"
+                    className="h-6 w-6 text-primary"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -411,8 +412,8 @@ export function StudentDashboardPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <h4 className="font-semibold text-sm text-[#4F5654]">All Caught Up</h4>
-                <p className="text-xs text-[#5C6361] mt-1 max-w-[200px]">
+                <h4 className="font-semibold text-sm text-foreground">All Caught Up</h4>
+                <p className="text-xs text-muted-foreground mt-1 max-w-[200px]">
                   No pending alerts or required actions at this time.
                 </p>
               </div>

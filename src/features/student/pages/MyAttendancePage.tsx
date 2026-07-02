@@ -19,6 +19,7 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { StudentSelect } from "@/components/forms/StudentSelect";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -296,7 +297,7 @@ export function MyAttendancePage() {
 
       {/* Main Tabs (Classes vs Events) & Views Toggles */}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex gap-2 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md" role="tablist" aria-label="Attendance category">
+        <div className="flex gap-2 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md" role="tablist" aria-label="Attendance category">
           <Button
             role="tab"
             aria-selected={tab === "class"}
@@ -307,7 +308,7 @@ export function MyAttendancePage() {
               setSelectedItem(null);
             }}
             className={`rounded-xl gap-2 font-semibold px-5 ${
-              tab === "class" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+              tab === "class" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
             }`}
           >
             <BookOpen className="h-4 w-4" />
@@ -323,7 +324,7 @@ export function MyAttendancePage() {
               setSelectedItem(null);
             }}
             className={`rounded-xl gap-2 font-semibold px-5 ${
-              tab === "event" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+              tab === "event" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
             }`}
           >
             <PartyPopper className="h-4 w-4" />
@@ -331,13 +332,13 @@ export function MyAttendancePage() {
           </Button>
         </div>
 
-        <div className="flex gap-3 rounded-[24px] border border-white/40 bg-white/50 p-2 shadow-sm backdrop-blur-md">
+        <div className="flex gap-3 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md">
           <Button
             variant={view === "list" ? "default" : "ghost"}
             size="sm"
             onClick={() => setView("list")}
             className={`rounded-xl px-4 ${
-              view === "list" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+              view === "list" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
             }`}
           >
             List view
@@ -347,7 +348,7 @@ export function MyAttendancePage() {
             size="sm"
             onClick={() => setView("calendar")}
             className={`rounded-xl px-4 ${
-              view === "calendar" ? "bg-[#1F4B2C] text-white shadow-sm hover:bg-[#1F4B2C]/90" : "text-slate-500 hover:bg-white/40"
+              view === "calendar" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
             }`}
           >
             Calendar view
@@ -358,7 +359,7 @@ export function MyAttendancePage() {
       {/* Search & Filter Bar */}
       <section className="student-glass-card p-6 grid gap-4 md:grid-cols-3">
         <div className="relative">
-          <Search className="absolute left-3 top-3.5 h-4 w-4 text-[#B9C1BF]" />
+          <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
           <input
             type="text"
             className="student-input pl-9 h-11 w-full px-3 text-sm focus:outline-none"
@@ -367,19 +368,21 @@ export function MyAttendancePage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="relative flex items-center gap-2">
-          <Filter className="h-4 w-4 text-[#B9C1BF] shrink-0" />
-          <select
-            className="student-input h-11 w-full px-3 text-sm focus:outline-none"
+        <div className="relative flex items-center gap-2 w-full">
+          <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
+          <StudentSelect
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="all">All Attendance Statuses</option>
-            <option value="present">Present</option>
-            <option value="late">Late</option>
-            <option value="absent">Absent</option>
-            <option value="excused">Excused</option>
-          </select>
+            onChange={setStatusFilter}
+            options={[
+              { label: "All Attendance Statuses", value: "all" },
+              { label: "Present", value: "present" },
+              { label: "Late", value: "late" },
+              { label: "Absent", value: "absent" },
+              { label: "Excused", value: "excused" }
+            ]}
+            placeholder="All Attendance Statuses"
+            className="w-full"
+          />
         </div>
 
         {/* Generate Report Buttons */}
@@ -388,18 +391,18 @@ export function MyAttendancePage() {
             variant="outline"
             disabled={isGenerating !== null}
             onClick={() => generateReport("xlsx", tab === "class" ? "classes" : "events")}
-            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-emerald-500/20 text-emerald-700 hover:bg-emerald-50/50"
+            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-primary/20 text-primary hover:bg-primary/5"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
             <span>Generate XLSX</span>
           </Button>
           <Button
             variant="outline"
             disabled={isGenerating !== null}
             onClick={() => generateReport("pdf", tab === "class" ? "classes" : "events")}
-            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-rose-500/20 text-rose-700 hover:bg-rose-50/50"
+            className="student-btn-secondary gap-2 text-xs flex-1 md:flex-initial border-destructive/20 text-destructive hover:bg-destructive/5"
           >
-            <FileText className="h-4 w-4 text-rose-600" />
+            <FileText className="h-4 w-4 text-destructive" />
             <span>Generate PDF</span>
           </Button>
         </div>
@@ -415,19 +418,19 @@ export function MyAttendancePage() {
                   key={item.id}
                   className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
                 >
-                  <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-[#E8ECEB] pb-4">
+                  <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-border pb-4">
                     <div>
-                      <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                      <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
                         {item.code}
                       </span>
-                      <h3 className="font-semibold text-xl text-[#4F5654] mt-1">{item.title}</h3>
+                      <h3 className="font-semibold text-xl text-foreground mt-1">{item.title}</h3>
                     </div>
                     <div className="text-right sm:text-right text-left">
-                      <p className="text-xs text-[#4F5654] flex items-center gap-1.5 sm:justify-end">
-                        <Clock className="h-3.5 w-3.5 text-[#4D7117]" />
+                      <p className="text-xs text-foreground flex items-center gap-1.5 sm:justify-end">
+                        <Clock className="h-3.5 w-3.5 text-primary" />
                         {item.sched} | {item.time}
                       </p>
-                      <p className="text-xs text-[#B9C1BF] flex items-center gap-1.5 sm:justify-end mt-1.5">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1.5 sm:justify-end mt-1.5">
                         <User className="h-3.5 w-3.5" />
                         {item.facultyName}
                       </p>
@@ -435,15 +438,15 @@ export function MyAttendancePage() {
                   </div>
 
                   <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span className="font-semibold text-[#4F5654]">{item.records.length} Sessions Logged:</span>
-                      <span className="bg-emerald-50/30 text-emerald-700 px-2 py-0.5 rounded-lg border border-emerald-200/50">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{item.records.length} Sessions Logged:</span>
+                      <span className="bg-success/10 text-success px-2 py-0.5 rounded-lg border border-success/20">
                         {item.records.filter((r) => r.status === "present").length} Present
                       </span>
-                      <span className="bg-amber-50/30 text-amber-700 px-2 py-0.5 rounded-lg border border-amber-200/50">
+                      <span className="bg-warning/10 text-warning px-2 py-0.5 rounded-lg border border-warning/20">
                         {item.records.filter((r) => r.status === "late").length} Late
                       </span>
-                      <span className="bg-rose-50/30 text-rose-700 px-2 py-0.5 rounded-lg border border-rose-200/50">
+                      <span className="bg-danger/10 text-danger px-2 py-0.5 rounded-lg border border-danger/20">
                         {item.records.filter((r) => r.status === "absent").length} Absent
                       </span>
                     </div>
@@ -462,7 +465,7 @@ export function MyAttendancePage() {
                           time: item.time
                         })
                       }
-                      className="text-[#4D7117] hover:text-[#1F4B2C] hover:bg-emerald-50/30 gap-1 text-xs font-semibold"
+                      className="text-primary hover:text-primary-hover hover:bg-primary/5 gap-1 text-xs font-semibold"
                     >
                       <span>View More</span>
                       <ChevronRight className="h-4 w-4" />
@@ -479,19 +482,19 @@ export function MyAttendancePage() {
                 key={item.id}
                 className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
               >
-                <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-[#E8ECEB] pb-4">
+                <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-border pb-4">
                   <div>
-                    <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                    <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
                       {item.code}
                     </span>
-                    <h3 className="font-semibold text-xl text-[#4F5654] mt-1">{item.title}</h3>
+                    <h3 className="font-semibold text-xl text-foreground mt-1">{item.title}</h3>
                   </div>
                   <div className="text-right sm:text-right text-left">
-                    <p className="text-xs text-[#4F5654] flex items-center gap-1.5 sm:justify-end">
-                      <Calendar className="h-3.5 w-3.5 text-[#4D7117]" />
+                    <p className="text-xs text-foreground flex items-center gap-1.5 sm:justify-end">
+                      <Calendar className="h-3.5 w-3.5 text-primary" />
                       {item.sched}
                     </p>
-                    <p className="text-xs text-[#B9C1BF] flex items-center gap-1.5 sm:justify-end mt-1.5">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 sm:justify-end mt-1.5">
                       <User className="h-3.5 w-3.5" />
                       Organizer: {item.organizerName}
                     </p>
@@ -499,15 +502,15 @@ export function MyAttendancePage() {
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <span className="font-semibold text-[#4F5654]">Status: </span>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">Status: </span>
                     {item.records.length > 0 ? (
                       <StatusBadge
                         label={item.records[0].status}
                         tone={getStatusTone(item.records[0].status)}
                       />
                     ) : (
-                      <span className="text-[#B9C1BF]">Not Registered</span>
+                      <span className="text-muted-foreground">Not Registered</span>
                     )}
                   </div>
 
@@ -525,7 +528,7 @@ export function MyAttendancePage() {
                         time: item.time
                       })
                     }
-                    className="text-[#4D7117] hover:text-[#1F4B2C] hover:bg-emerald-50/30 gap-1 text-xs font-semibold"
+                    className="text-primary hover:text-primary-hover hover:bg-primary/5 gap-1 text-xs font-semibold"
                   >
                     <span>View More</span>
                     <ChevronRight className="h-4 w-4" />
@@ -549,14 +552,14 @@ export function MyAttendancePage() {
                   return (
                     <article key={r.id} className="student-glass-card p-5 space-y-4">
                       <div className="flex justify-between items-start">
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-mono font-semibold">
+                        <span className="text-[10px] bg-secondary text-secondary-foreground px-2.5 py-1 rounded font-mono font-semibold">
                           {c.code}
                         </span>
                         <StatusBadge label={r.status} tone={getStatusTone(r.status)} />
                       </div>
                       <div>
-                        <h4 className="font-semibold text-sm text-[#4F5654]">{c.title}</h4>
-                        <p className="text-[11px] text-[#B9C1BF] mt-1.5">
+                        <h4 className="font-semibold text-sm text-foreground">{c.title}</h4>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
                           Session Date: {formatDate(sess?.startsAt)}
                         </p>
                       </div>
@@ -570,14 +573,14 @@ export function MyAttendancePage() {
                   return (
                     <article key={r.id} className="student-glass-card p-5 space-y-4">
                       <div className="flex justify-between items-start">
-                        <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-mono font-semibold">
+                        <span className="text-[10px] bg-secondary text-secondary-foreground px-2.5 py-1 rounded font-mono font-semibold">
                           {e.code}
                         </span>
                         <StatusBadge label={r.status} tone={getStatusTone(r.status)} />
                       </div>
                       <div>
-                        <h4 className="font-semibold text-sm text-[#4F5654]">{e.title}</h4>
-                        <p className="text-[11px] text-[#B9C1BF] mt-1.5">
+                        <h4 className="font-semibold text-sm text-foreground">{e.title}</h4>
+                        <p className="text-[11px] text-muted-foreground mt-1.5">
                           Event Date: {formatDate(sess?.startsAt)}
                         </p>
                       </div>
@@ -591,28 +594,28 @@ export function MyAttendancePage() {
       {/* VIEW MORE / DETAILS SESSIONS MODAL */}
       {selectedItem && (
         <section
-          className="fixed inset-0 z-50 grid place-items-center bg-[#1F4B2C]/25 p-4 backdrop-blur-md animate-in fade-in-30"
+          className="fixed inset-0 z-50 grid place-items-center bg-primary/25 p-4 backdrop-blur-md animate-in fade-in-30"
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-3xl rounded-[28px] border border-white/50 bg-white/70 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
-            <div className="flex justify-between items-start border-b border-[#E8ECEB] pb-4">
+          <div className="w-full max-w-3xl rounded-[28px] border border-border bg-card/75 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
+            <div className="flex justify-between items-start border-b border-border pb-4">
               <div>
-                <span className="text-xs font-mono font-bold uppercase text-[#4D7117] tracking-wider">
+                <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
                   {selectedItem.code}
                 </span>
-                <h2 className="text-xl font-bold text-[#4F5654] mt-1">{selectedItem.title}</h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <h2 className="text-xl font-bold text-foreground mt-1">{selectedItem.title}</h2>
+                <p className="text-xs text-muted-foreground mt-1">
                   Schedule: {selectedItem.sched} | {selectedItem.time}
                 </p>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)} className="text-[#4F5654] hover:bg-slate-100">
+              <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)} className="text-foreground hover:bg-secondary">
                 ✕ Close
               </Button>
             </div>
 
             <div className="space-y-3">
-              <h3 className="font-semibold text-sm text-[#4F5654]">Previous Sessions and Attendance Log</h3>
+              <h3 className="font-semibold text-sm text-foreground">Previous Sessions and Attendance Log</h3>
               <PLPassDataGrid
                 data={selectedSessionRows}
                 columns={sessionLogColumns}
@@ -624,7 +627,7 @@ export function MyAttendancePage() {
               />
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-[#E8ECEB]">
+            <div className="flex justify-end pt-2 border-t border-border">
               <Button onClick={() => setSelectedItem(null)} className="student-btn-primary px-6">Done</Button>
             </div>
           </div>

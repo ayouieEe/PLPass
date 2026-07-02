@@ -228,34 +228,41 @@
   }
 
   /* High contrast text elements inside student namespace */
-  .student-bg-gradient p,
+  .student-bg-gradient p:not(.plpass-sidebar *):not(.student-glass-sidebar *),
   .student-bg-gradient td,
   .student-bg-gradient th,
   .student-bg-gradient label,
-  .student-bg-gradient span:not(.student-glass-sidebar *):not([class*="text-"]):not([class*="bg-"]):not([class*="badge"]):not([class*="status"]) {
-    color: #2E3332 !important; /* Darker gray body text for high readability */
+  .student-bg-gradient span:not(.plpass-sidebar *):not(.student-glass-sidebar *):not([class*="text-"]):not([class*="bg-"]):not([class*="badge"]):not([class*="status"]) {
+    color: hsl(var(--foreground)) !important;
   }
 
-  .student-bg-gradient .text-muted-foreground,
-  .student-bg-gradient .text-\[\#B9C1BF\],
-  .student-bg-gradient .text-slate-500,
-  .student-bg-gradient .text-slate-400 {
-    color: #5C6361 !important; /* High contrast medium gray for captions/subtitles */
+  .student-bg-gradient .text-muted-foreground:not(.plpass-sidebar *):not(.student-glass-sidebar *),
+  .student-bg-gradient .text-\[\#B9C1BF\]:not(.plpass-sidebar *):not(.student-glass-sidebar *),
+  .student-bg-gradient .text-slate-500:not(.plpass-sidebar *):not(.student-glass-sidebar *),
+  .student-bg-gradient .text-slate-400:not(.plpass-sidebar *):not(.student-glass-sidebar *) {
+    color: hsl(var(--muted-foreground)) !important;
   }
 
   .student-glass-card {
-    background: rgba(255, 255, 255, 0.65) !important;
+    position: relative !important;
+    z-index: 10 !important;
+    background: hsl(var(--card) / 0.65) !important;
     backdrop-filter: blur(16px) saturate(120%) !important;
     -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
-    border: 1px solid rgba(255, 255, 255, 0.45) !important;
-    box-shadow: 0 10px 30px -5px rgba(31, 75, 44, 0.03), 0 1px 3px 0 rgba(31, 75, 44, 0.01) !important;
+    border: 1px solid hsl(var(--border) / 0.45) !important;
+    box-shadow: 0 10px 30px -5px hsl(var(--primary) / 0.03), 0 1px 3px 0 hsl(var(--primary) / 0.01) !important;
     border-radius: 24px !important;
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
+  .student-glass-card:hover,
+  .student-glass-card:focus-within {
+    z-index: 30 !important;
+  }
+
   .student-glass-card:hover {
     transform: translateY(-2px) !important;
-    box-shadow: 0 20px 40px -10px rgba(31, 75, 44, 0.15), 0 0 0 1px rgba(31, 75, 44, 0.15) !important;
+    box-shadow: 0 20px 40px -10px hsl(var(--primary) / 0.15), 0 0 0 1px hsl(var(--primary) / 0.15) !important;
   }
 
   /* Translucent Green Sidebar with light visible text */
@@ -294,26 +301,26 @@
 
   /* Solid colored buttons and states */
   .student-btn-primary {
-    background: #1F4B2C !important; /* Solid Deep Forest Green */
-    color: #ffffff !important; /* White Text */
+    background: hsl(var(--primary)) !important;
+    color: hsl(var(--primary-foreground)) !important;
     font-weight: 600 !important;
     border-radius: 9999px !important;
     height: 44px !important;
     border: none !important;
-    box-shadow: 0 4px 14px 0 rgba(31, 75, 44, 0.25) !important;
+    box-shadow: 0 4px 14px 0 hsl(var(--primary) / 0.25) !important;
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
   }
 
   .student-btn-primary:hover {
-    background: #4D7117 !important; /* Olive Green Hover */
+    background: hsl(var(--primary-hover)) !important;
     transform: translateY(-2px) !important;
-    box-shadow: 0 8px 20px 0 rgba(77, 113, 23, 0.3) !important;
+    box-shadow: 0 8px 20px 0 hsl(var(--primary-hover) / 0.3) !important;
   }
 
   .student-btn-secondary {
-    background: #ffffff !important;
-    color: #1F4B2C !important; /* Deep Forest text color */
-    border: 1.5px solid #1F4B2C !important; /* Deep Forest border */
+    background: hsl(var(--card)) !important;
+    color: hsl(var(--primary)) !important;
+    border: 1.5px solid hsl(var(--primary)) !important;
     font-weight: 600 !important;
     border-radius: 9999px !important;
     height: 44px !important;
@@ -321,24 +328,152 @@
   }
 
   .student-btn-secondary:hover {
-    background: rgba(31, 75, 44, 0.05) !important;
+    background: hsl(var(--primary) / 0.05) !important;
     transform: translateY(-1px) !important;
   }
 
   .student-input {
     border-radius: 16px !important;
-    background: rgba(255, 255, 255, 0.85) !important;
-    border: 1.5px solid #E8ECEB !important;
+    background: hsl(var(--card)) !important;
+    border: 1.5px solid hsl(var(--border)) !important;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.01) !important;
     transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
-    color: #4F5654 !important;
+    color: hsl(var(--foreground)) !important;
   }
 
   .student-input:focus {
-    border-color: #1F4B2C !important; /* Deep Forest Focus */
-    box-shadow: 0 0 0 3.5px rgba(31, 75, 44, 0.15) !important;
-    background: #ffffff !important;
+    border-color: hsl(var(--primary)) !important;
+    box-shadow: 0 0 0 3.5px hsl(var(--primary) / 0.15) !important;
+    background: hsl(var(--card)) !important;
     outline: none !important;
+  }
+
+  /* Premium Select Dropdown Styling for Student Role */
+  .student-bg-gradient select,
+  select.student-input {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%234F5654' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+    background-position: right 0.85rem center !important;
+    background-repeat: no-repeat !important;
+    background-size: 1.25rem !important;
+    padding-right: 2.5rem !important;
+    cursor: pointer !important;
+    border-radius: 16px !important;
+    background-color: hsl(var(--card)) !important;
+    border: 1.5px solid hsl(var(--border)) !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.01), 0 1px 2px rgba(0, 0, 0, 0.02) !important;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+  }
+
+  .dark .student-bg-gradient select,
+  .dark select.student-input {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23B9C1BF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+  }
+
+  .student-bg-gradient select:hover,
+  select.student-input:hover {
+    border-color: hsl(var(--primary) / 0.5) !important;
+    background-color: hsl(var(--primary) / 0.02) !important;
+    transform: translateY(-0.5px);
+  }
+
+  .student-bg-gradient select:focus,
+  select.student-input:focus {
+    border-color: hsl(var(--primary)) !important;
+    box-shadow: 0 0 0 3.5px hsl(var(--primary) / 0.15) !important;
+    background-color: hsl(var(--card)) !important;
+    transform: translateY(0);
+    outline: none !important;
+  }
+
+  .student-bg-gradient select option,
+  select.student-input option {
+    background-color: hsl(var(--card)) !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+    padding: 12px !important;
+  }
+
+  .student-select-trigger,
+  .student-select-trigger span {
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  .student-select-option {
+    color: hsl(var(--sidebar-foreground)) !important;
+  }
+
+  .student-select-option:hover {
+    color: hsl(var(--primary-hover)) !important;
+  }
+
+  /* Details/Summary Dropdown overrides for Student Role */
+  .student-bg-gradient details summary {
+    border-radius: 16px !important;
+    background-color: hsl(var(--card)) !important;
+    border: 1.5px solid hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+    cursor: pointer !important;
+    list-style: none !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+  }
+
+  /* Custom chevron for details summary (removes default triangle) */
+  .student-bg-gradient details summary::-webkit-details-marker {
+    display: none !important;
+  }
+
+  .student-bg-gradient details summary:hover {
+    border-color: hsl(var(--primary) / 0.5) !important;
+    background-color: hsl(var(--primary) / 0.01) !important;
+  }
+
+  .student-bg-gradient details[open] summary {
+    border-color: hsl(var(--primary)) !important;
+    box-shadow: 0 0 0 3.5px hsl(var(--primary) / 0.15) !important;
+  }
+
+  /* Details absolute popup menu container */
+  .student-bg-gradient details div.absolute {
+    background-color: hsl(var(--card)) !important;
+    border: 1.5px solid hsl(var(--border)) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.03) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    padding: 0.5rem !important;
+    animation: student-dropdown-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  @keyframes student-dropdown-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .student-bg-gradient details div.absolute a,
+  .student-bg-gradient details div.absolute button {
+    border-radius: 12px !important;
+    transition: all 0.15s ease !important;
+    padding: 0.6rem 0.8rem !important;
+  }
+
+  .student-bg-gradient details div.absolute a:hover,
+  .student-bg-gradient details div.absolute button:hover {
+    background-color: hsl(var(--primary) / 0.08) !important;
+    color: hsl(var(--primary)) !important;
   }
 
   .student-sidebar-active {
