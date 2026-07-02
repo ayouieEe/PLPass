@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColDef } from "ag-grid-community";
+import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   AlertTriangle,
   BarChart3,
@@ -42,7 +46,6 @@ import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
 import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
 import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
 import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -77,8 +80,26 @@ type FacultyScope = {
   isError: boolean;
 };
 
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+const gridThemeVars = {
+  "--ag-background-color": "hsl(var(--background))",
+  "--ag-foreground-color": "hsl(var(--foreground))",
+  "--ag-header-background-color": "hsl(var(--muted))",
+  "--ag-header-foreground-color": "hsl(var(--muted-foreground))",
+  "--ag-border-color": "hsl(var(--border))",
+  "--ag-row-border-color": "hsl(var(--border))",
+  "--ag-row-hover-color": "hsl(var(--muted) / 0.5)",
+  "--ag-selected-row-background-color": "hsl(var(--muted))",
+  "--ag-accent-color": "hsl(var(--primary))",
+  "--ag-font-family": "inherit",
+  "--ag-font-size": "13.5px",
+  "--ag-header-font-weight": "600",
+  "--ag-border-radius": "0.5rem",
+  "--ag-wrapper-border-radius": "0.5rem"
+} as React.CSSProperties;
 
 const sessionFormSchema = z
   .object({
@@ -237,6 +258,12 @@ export function FacultyReportsPage() {
     generatedAt: report.generatedAt ? formatDate(report.generatedAt) : "Queued",
     status: report.status === "queued" ? "processing" : report.status
   }));
+  const columns: ColDef<ReportHistoryRecord>[] = [
+    { field: "name", headerName: "Report" },
+    { field: "scope", headerName: "Scope" },
+    { field: "generatedAt", headerName: "Generated" },
+    { field: "status", headerName: "Status" }
+  ];
   return (
     <FacultyFrame>
       <PageHeader eyebrow="Faculty" title="Reports" description="Mock report previews only. Real exports are deferred." actions={<><Button disabled variant="outline">Generate PDF</Button><Button disabled variant="outline">Generate XLSX</Button></>} />
@@ -246,7 +273,19 @@ export function FacultyReportsPage() {
           <ReportPreviewCard key={title} title={title} description="Development preview generated from mock faculty-scoped data." metrics={[{ label: "Period", value: period }, { label: "Scope", value: "Assigned" }, { label: "Export", value: "Phase 12" }]} />
         ))}
       </section>
-      <ReportHistoryTable records={history} />
+      <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 320, width: "100%", ...gridThemeVars }}>
+        <AgGridReact<ReportHistoryRecord>
+          theme="legacy"
+          rowData={history}
+          columnDefs={columns}
+          defaultColDef={{ sortable: true, resizable: true, filter: true }}
+          rowHeight={52}
+          headerHeight={44}
+          pagination
+          paginationPageSize={8}
+          paginationPageSizeSelector={[8, 16, 24]}
+        />
+      </div>
       <Button type="button" onClick={() => setModalOpen(true)}>Open mock generate modal</Button>
       <GenerateReportModal open={modalOpen} reportName="Faculty report preview" onClose={() => setModalOpen(false)} onGenerate={() => setModalOpen(false)} />
     </FacultyFrame>

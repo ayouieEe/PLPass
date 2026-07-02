@@ -10,12 +10,12 @@ type QRFallbackPanelProps = {
 
 export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRFallbackPanelProps) {
   return (
-    <section className="rounded-lg border bg-surface p-4" aria-label="QR fallback simulation">
+    <section className="rounded-lg border bg-surface p-4" aria-label="QR check-in simulation">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 font-semibold">
             <QrCode className="h-4 w-4 text-brand-green-primary" aria-hidden="true" />
-            QR fallback
+            QR check-in
           </div>
           <p className="mt-1 text-sm text-muted-foreground">Development Simulation only. No real QR token or camera scanning is created.</p>
         </div>
@@ -26,10 +26,10 @@ export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRF
       {enabled ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onSimulate?.("PLPASS-DEMO-1004")}>
-            Simulate valid QR fallback
+            Simulate valid QR code
           </Button>
           <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => onSimulate?.("PLPASS-DEMO-INVALID")}>
-            Simulate invalid QR fallback
+            Simulate invalid QR code
           </Button>
         </div>
       ) : null}

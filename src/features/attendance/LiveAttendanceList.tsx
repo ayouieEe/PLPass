@@ -1,7 +1,7 @@
+import type { ICellRendererParams, ColDef } from "ag-grid-community";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import type { AttendanceStatus, LiveAttendanceRecord } from "@/features/attendance/types";
-import type { ColDef } from "ag-grid-community";
 
 type LiveAttendanceListProps = {
   records: LiveAttendanceRecord[];
@@ -16,16 +16,18 @@ const statusTone: Record<AttendanceStatus, "success" | "warning" | "danger" | "i
 
 export function LiveAttendanceList({ records }: LiveAttendanceListProps) {
   const columns: ColDef<LiveAttendanceRecord>[] = [
-    { field: "studentName", headerName: "Student", minWidth: 180 },
-    { field: "identifier", headerName: "Identifier", minWidth: 160 },
+    { field: "studentName", headerName: "Student Name", minWidth: 180, flex: 1, sortable: true, filter: true },
+    { field: "identifier", headerName: "ID Number", minWidth: 150, sortable: true, filter: true },
+    { field: "timestamp", headerName: "Time", minWidth: 130, sortable: true },
     {
       field: "status",
       headerName: "Status",
-      minWidth: 140,
-      cellRenderer: ({ data }: { data?: LiveAttendanceRecord }) =>
-        data ? <StatusBadge label={data.status} tone={statusTone[data.status]} /> : null
-    },
-    { field: "timestamp", headerName: "Time", minWidth: 150 }
+      minWidth: 130,
+      sortable: true,
+      filter: true,
+      cellRenderer: (params: ICellRendererParams<LiveAttendanceRecord>) =>
+        params.data ? <StatusBadge label={params.data.status} tone={statusTone[params.data.status]} /> : null
+    }
   ];
 
   return (

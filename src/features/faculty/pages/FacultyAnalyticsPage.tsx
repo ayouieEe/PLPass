@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   AlertTriangle,
   BarChart3,
@@ -30,7 +34,6 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -78,8 +81,26 @@ type FacultyScope = {
   isError: boolean;
 };
 
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+const gridThemeVars = {
+  "--ag-background-color": "hsl(var(--background))",
+  "--ag-foreground-color": "hsl(var(--foreground))",
+  "--ag-header-background-color": "hsl(var(--muted))",
+  "--ag-header-foreground-color": "hsl(var(--muted-foreground))",
+  "--ag-border-color": "hsl(var(--border))",
+  "--ag-row-border-color": "hsl(var(--border))",
+  "--ag-row-hover-color": "hsl(var(--muted) / 0.5)",
+  "--ag-selected-row-background-color": "hsl(var(--muted))",
+  "--ag-accent-color": "hsl(var(--primary))",
+  "--ag-font-family": "inherit",
+  "--ag-font-size": "13.5px",
+  "--ag-header-font-weight": "600",
+  "--ag-border-radius": "0.5rem",
+  "--ag-wrapper-border-radius": "0.5rem"
+} as React.CSSProperties;
 
 const sessionFormSchema = z
   .object({
@@ -244,14 +265,14 @@ export function FacultyAnalyticsPage() {
     absent: predictions.filter((prediction) => prediction.classId === classRecord.id && prediction.riskLevel === "high").length
   }));
   const participationData = (classesQuery.data?.items ?? []).map((classRecord) => ({ label: classRecord.subjectCode, participation: classRecord.status === "active" ? 88 : 72 }));
-  const columns: ColumnDef<MlPrediction>[] = [
-    { accessorKey: "patternLabel", header: "Summary" },
-    { accessorKey: "type", header: "Insight area" },
-    { accessorKey: "riskLevel", header: "Risk", cell: ({ row }) => <StatusBadge label={row.original.riskLevel} tone={statusTone(row.original.riskLevel)} /> },
-    { id: "range", header: "Data range", cell: () => "Current semester" },
-    { id: "updated", header: "Last updated", cell: ({ row }) => formatDate(row.original.generatedAt) },
-    { accessorKey: "explanation", header: "Safe explanation" },
-    { id: "action", header: "Action", cell: () => <Button variant="outline" size="sm" disabled>View details</Button> }
+  const columns: ColDef<MlPrediction>[] = [
+    { field: "patternLabel", headerName: "Summary" },
+    { field: "type", headerName: "Insight area" },
+    { field: "riskLevel", headerName: "Risk", cellRenderer: (params: ICellRendererParams<MlPrediction>) => <StatusBadge label={params.value as string} tone={statusTone(params.value as MlPrediction["riskLevel"])} /> },
+    { headerName: "Data range", valueGetter: () => "Current semester" },
+    { headerName: "Last updated", valueGetter: (params) => formatDate(params.data?.generatedAt) },
+    { field: "explanation", headerName: "Safe explanation" },
+    { headerName: "Action", cellRenderer: () => <Button variant="outline" size="sm" disabled>View details</Button> }
   ];
   return (
     <FacultyFrame>
@@ -275,7 +296,19 @@ export function FacultyAnalyticsPage() {
         <ParticipationBarChart data={participationData} />
       </section>
       <RiskSummaryChart data={chartData.map((entry) => ({ label: entry.label, watchlist: entry.late, atRisk: entry.absent }))} />
-      <PLPassDataGrid label="Faculty analytics insights" data={predictions} columns={columns} emptyTitle="No analytics insights" emptyDescription="No review-only predictions match this class filter." />
+      <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 360, width: "100%", ...gridThemeVars }}>
+        <AgGridReact<MlPrediction>
+          theme="legacy"
+          rowData={predictions}
+          columnDefs={columns}
+          defaultColDef={{ sortable: true, resizable: true, filter: true }}
+          rowHeight={52}
+          headerHeight={44}
+          pagination
+          paginationPageSize={8}
+          paginationPageSizeSelector={[8, 16, 24]}
+        />
+      </div>
     </FacultyFrame>
   );
 }
