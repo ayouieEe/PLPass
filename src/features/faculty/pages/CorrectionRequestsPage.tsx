@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   AlertTriangle,
   BarChart3,
@@ -30,7 +34,6 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -78,8 +81,26 @@ type FacultyScope = {
   isError: boolean;
 };
 
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+const gridThemeVars = {
+  "--ag-background-color": "hsl(var(--background))",
+  "--ag-foreground-color": "hsl(var(--foreground))",
+  "--ag-header-background-color": "hsl(var(--muted))",
+  "--ag-header-foreground-color": "hsl(var(--muted-foreground))",
+  "--ag-border-color": "hsl(var(--border))",
+  "--ag-row-border-color": "hsl(var(--border))",
+  "--ag-row-hover-color": "hsl(var(--muted) / 0.5)",
+  "--ag-selected-row-background-color": "hsl(var(--muted))",
+  "--ag-accent-color": "hsl(var(--primary))",
+  "--ag-font-family": "inherit",
+  "--ag-font-size": "13.5px",
+  "--ag-header-font-weight": "600",
+  "--ag-border-radius": "0.5rem",
+  "--ag-wrapper-border-radius": "0.5rem"
+} as React.CSSProperties;
 
 const sessionFormSchema = z
   .object({
@@ -240,17 +261,17 @@ export function CorrectionRequestsPage() {
     return <ErrorState title="Unable to load correction requests" message="The mock correction repository returned an error." />;
   }
   const requests = (correctionsQuery.data?.items ?? []).filter((request) => status === "all" || request.status === status);
-  const columns: ColumnDef<CorrectionRequest>[] = [
-    { id: "student", header: "Student name", cell: ({ row }) => studentName(studentsQuery.data?.items.find((student) => student.id === row.original.studentId)) },
-    { id: "number", header: "Student number", cell: ({ row }) => studentsQuery.data?.items.find((student) => student.id === row.original.studentId)?.studentNumber ?? row.original.studentId },
-    { id: "class", header: "Class", cell: ({ row }) => row.original.classId ?? "Event" },
-    { id: "date", header: "Session date", cell: ({ row }) => formatDate(recordsQuery.data?.items.find((record) => record.id === row.original.attendanceRecordId)?.recordedAt) },
-    { accessorKey: "requestedStatus", header: "Request type" },
-    { accessorKey: "reason", header: "Explanation summary" },
-    { id: "attachment", header: "Attachment", cell: () => "Placeholder" },
-    { id: "submitted", header: "Submitted date", cell: ({ row }) => formatDate(row.original.requestedAt) },
-    { accessorKey: "status", header: "Request status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    { id: "action", header: "Review", cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => setSelected(row.original)}>Review</Button> }
+  const columns: ColDef<CorrectionRequest>[] = [
+    { headerName: "Student name", valueGetter: (params) => studentName(studentsQuery.data?.items.find((student) => student.id === params.data?.studentId)) },
+    { headerName: "Student number", valueGetter: (params) => studentsQuery.data?.items.find((student) => student.id === params.data?.studentId)?.studentNumber ?? params.data?.studentId },
+    { headerName: "Class", valueGetter: (params) => params.data?.classId ?? "Event" },
+    { headerName: "Session date", valueGetter: (params) => formatDate(recordsQuery.data?.items.find((record) => record.id === params.data?.attendanceRecordId)?.recordedAt) },
+    { field: "requestedStatus", headerName: "Request type" },
+    { field: "reason", headerName: "Explanation summary" },
+    { headerName: "Attachment", valueGetter: () => "Placeholder" },
+    { headerName: "Submitted date", valueGetter: (params) => formatDate(params.data?.requestedAt) },
+    { field: "status", headerName: "Request status", cellRenderer: (params: ICellRendererParams<CorrectionRequest>) => <StatusBadge label={params.value as string} tone={statusTone(params.value as CorrectionRequest["status"])} /> },
+    { headerName: "Review", cellRenderer: (params: ICellRendererParams<CorrectionRequest>) => <Button type="button" variant="outline" size="sm" onClick={() => setSelected(params.data ?? null)}>Review</Button> }
   ];
   async function approve() {
     if (!selected) return;
@@ -267,7 +288,19 @@ export function CorrectionRequestsPage() {
     <FacultyFrame>
       <PageHeader eyebrow="Faculty" title="Correction Requests" description="Review student-submitted requests for your assigned classes only." />
       <FilterBar search="" selectedFilter={status} filters={[{ label: "All", value: "all" }, { label: "Pending", value: "pending" }, { label: "Approved", value: "approved" }, { label: "Rejected", value: "rejected" }]} onSearchChange={() => undefined} onFilterChange={setStatus} />
-      <PLPassDataGrid label="Faculty correction requests" data={requests} columns={columns} emptyTitle="No correction requests" />
+      <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 400, width: "100%", ...gridThemeVars }}>
+        <AgGridReact<CorrectionRequest>
+          theme="legacy"
+          rowData={requests}
+          columnDefs={columns}
+          defaultColDef={{ sortable: true, resizable: true, filter: true }}
+          rowHeight={52}
+          headerHeight={44}
+          pagination
+          paginationPageSize={8}
+          paginationPageSizeSelector={[8, 16, 24]}
+        />
+      </div>
       {selected ? (
         <section className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-2xl rounded-lg border bg-popover p-5 shadow-lg">

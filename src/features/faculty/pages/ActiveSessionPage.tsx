@@ -61,12 +61,13 @@ import {
   useNfcTapAttempts,
   useReports,
   useStudents,
-  useStudentsForClass
+  useStudentsForClass,
+  useUsers
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { AttendanceSimulationResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student } from "@/types/domain";
+import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student, User } from "@/types/domain";
 import type { AttendanceStatus, CorrectionRequestStatus, RiskLevel, SessionStatus, StudentStatus } from "@/types/enums";
 
 type FacultyScope = {
@@ -155,8 +156,12 @@ function attendanceRate(records: AttendanceRecord[]) {
   return Math.round((attended / records.length) * 100);
 }
 
-function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+function studentName(student: Student | undefined, users: User[]) {
+  if (!student) {
+    return "Unknown student";
+  }
+  const user = users.find((entry) => entry.id === student.userId);
+  return user?.displayName ?? student.studentNumber;
 }
 
 function ShellState({ scope }: { scope: FacultyScope }) {
@@ -170,7 +175,7 @@ function ShellState({ scope }: { scope: FacultyScope }) {
 }
 
 function FacultyFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
+  return <div className="space-y-8 leading-relaxed">{children}</div>;
 }
 
 function ClassScheduleCard({ classRecord }: { classRecord: Class }) {
@@ -220,10 +225,84 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 }
 
+/* ------------------------------------------------------------------ */
+/* Small layout primitives used to organize the active session view    */
+/* ------------------------------------------------------------------ */
+
+function SectionCard({
+  title,
+  description,
+  action,
+  children,
+  className = ""
+}: {
+  title?: string;
+  description?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`rounded-lg border bg-surface p-6 ${className}`}>
+      {title ? (
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <h2 className="text-base font-semibold leading-snug tracking-tight">{title}</h2>
+            {description ? <p className="text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
+          </div>
+          {action}
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+/** A lighter-weight divider used to separate related content within one
+ *  SectionCard, instead of spinning up a whole new bordered card. */
+function SubSection({
+  title,
+  description,
+  children,
+  first = false
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  first?: boolean;
+}) {
+  return (
+    <div className={first ? "" : "mt-6 border-t pt-6"}>
+      <div className="mb-3 space-y-0.5">
+        <h3 className="text-sm font-semibold leading-snug">{title}</h3>
+        {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MethodTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-3.5 py-2 text-sm font-medium leading-none tracking-wide transition ${
+        active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-background"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+type RecordMethod = "nfc" | "qr" | "manual";
+
 export function ActiveSessionPage() {
   const { sessionId } = useParams();
   const scope = useFacultyScope();
   const navigate = useNavigate();
+  const [recordMethod, setRecordMethod] = useState<RecordMethod>("nfc");
   const [nfcValue, setNfcValue] = useState("");
   const [readerState, setReaderState] = useState<"ready" | "processing" | "success" | "error" | "disconnected">("ready");
   const [qrEnabled, setQrEnabled] = useState(false);
@@ -242,13 +321,14 @@ export function ActiveSessionPage() {
   const recordsQuery = useAttendanceRecords({ classId: sessionQuery.data?.classId, pageSize: 500 }, scope.context);
   const tapsQuery = useNfcTapAttempts({ pageSize: 500 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  const usersQuery = useUsers({ pageSize: 500 }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   const attendanceMutations = useAttendanceSimulationMutations(scope.context);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.facultyId) {
     return shellState;
   }
-  if (sessionQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || rosterQuery.isLoading || tapsQuery.isLoading) {
+  if (sessionQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || rosterQuery.isLoading || tapsQuery.isLoading || usersQuery.isLoading) {
     return <LoadingState label="Loading active session" />;
   }
   if (sessionQuery.isError || !sessionQuery.data) {
@@ -259,6 +339,7 @@ export function ActiveSessionPage() {
   const records = (recordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
   const students = studentsQuery.data?.items ?? [];
   const rosterStudents = rosterQuery.data?.items ?? [];
+  const users = usersQuery.data?.items ?? [];
   const attempts = (tapsQuery.data?.items ?? []).filter((attempt) => attempt.sessionId === session.id);
   const filteredRecords = records.filter((record) => {
     const student = students.find((entry) => entry.id === record.studentId);
@@ -275,7 +356,7 @@ export function ActiveSessionPage() {
     const student = students.find((entry) => entry.id === record.studentId);
     return {
       id: record.id,
-      studentName: studentName(student),
+      studentName: studentName(student, users),
       identifier: student?.studentNumber ?? record.studentId,
       status: record.status === "excused" ? "manual" : record.status,
       timestamp: formatTime(record.recordedAt)
@@ -293,7 +374,7 @@ export function ActiveSessionPage() {
       }
     : records[0]
       ? {
-          studentName: studentName(students.find((student) => student.id === records[0].studentId)),
+          studentName: studentName(students.find((student) => student.id === records[0].studentId), users),
           studentNumber: students.find((student) => student.id === records[0].studentId)?.studentNumber,
           status: records[0].status === "excused" ? "manual" as const : records[0].status,
           message: "Most recent mock attendance record.",
@@ -356,52 +437,117 @@ export function ActiveSessionPage() {
       <PageHeader
         eyebrow="Active Session"
         title={session.title}
-        description="Development Simulation for keyboard-style NFC attendance, QR fallback, and manual override."
-        actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
+        description="Record attendance using NFC, QR check-in, or manual entry."
+        actions={
+          <Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>
+            End Session
+          </Button>
+        }
       />
-      <ActiveSessionHeader title={classRecord ? `${classRecord.subjectTitle} (${classRecord.subjectCode})` : session.title} venue={`${classRecord?.section ?? "Class"} · ${classRecord?.room ?? "Room"}`} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
-      <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-        <div className="space-y-4">
-          <NFCReaderInput value={nfcValue} readerState={readerState} showTestMenu onChange={setNfcValue} onSubmit={(code) => submitCredentialScan(code, "nfc")} onTestScan={(code, outcome) => submitCredentialScan(code, "nfc", outcome)} />
-          <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
-            <p className="font-semibold">Development Simulation</p>
-            <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
+
+      <ActiveSessionHeader
+        title={classRecord ? `${classRecord.subjectTitle} (${classRecord.subjectCode})` : session.title}
+        venue={`${classRecord?.section ?? "Class"} · ${classRecord?.room ?? "Room"}`}
+        startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`}
+        statusLabel={session.status}
+      />
+
+      {/* Snapshot — one card holding roster counts + tap-health stats side by side,
+          instead of a summary block plus two separate stat cards. */}
+      <SectionCard title="Session snapshot" description="Roster attendance and tap reliability at a glance.">
+        <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
+          <div className="sm:pr-6">
+            <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={rosterStudents.length} />
           </div>
-          <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
-          <ManualLookupPanel
-            studentId={manualStudentId}
-            reason={manualReason}
-            remarks={manualRemarks}
-            students={rosterStudents.map((student) => ({ id: student.id, label: `${studentName(student)} (${student.studentNumber})` }))}
-            disabled={attendanceMutations.manualAttendanceMutation.isPending}
-            onStudentChange={setManualStudentId}
-            onReasonChange={setManualReason}
-            onRemarksChange={setManualRemarks}
-            onSubmit={submitManualAttendance}
-          />
-        </div>
-        <div className="space-y-4">
-          <LatestTapResultCard result={latestTapResult} />
-          <div className="rounded-lg border bg-surface p-4">
-            <h2 className="font-semibold">Recent activity</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed Development Simulation attempts refresh through mock repositories.</p>
-          </div>
-          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={rosterStudents.length} />
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-2 gap-4 sm:pl-6">
             <StatCard title="Failed taps" value={String(failedAttempts)} tone="warning" />
             <StatCard title="Duplicate taps" value={String(duplicateAttempts)} />
           </div>
         </div>
-        <div className="space-y-4">
-          <SearchInput value={search} placeholder="Search live list" onChange={setSearch} />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+      </SectionCard>
+
+      <section className="grid gap-6 xl:grid-cols-[420px_minmax(0,1fr)]">
+        {/* Left column — a single card: capture method up top, latest result
+            below it as a sub-section rather than its own bordered card. */}
+        <SectionCard
+          title="Record attendance"
+          description={
+            recordMethod === "nfc"
+              ? "Scan an NFC credential to log a tap."
+              : recordMethod === "qr"
+                ? "Have the student scan the rotating QR code."
+                : "Look up a student to record attendance directly."
+          }
+          action={
+            <div className="flex gap-1 rounded-lg bg-background p-1">
+              <MethodTab label="NFC" active={recordMethod === "nfc"} onClick={() => setRecordMethod("nfc")} />
+              <MethodTab label="QR" active={recordMethod === "qr"} onClick={() => setRecordMethod("qr")} />
+              <MethodTab label="Manual" active={recordMethod === "manual"} onClick={() => setRecordMethod("manual")} />
+            </div>
+          }
+        >
+          {recordMethod === "nfc" ? (
+            <div className="space-y-4">
+              <NFCReaderInput
+                value={nfcValue}
+                readerState={readerState}
+                onChange={setNfcValue}
+                onSubmit={(code) => submitCredentialScan(code, "nfc")}
+              />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Late cutoff {formatTime(session.lateCutoffAt ?? session.startsAt)} · Window ends{" "}
+                {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}
+              </p>
+            </div>
+          ) : null}
+
+          {recordMethod === "qr" ? (
+            <QRFallbackPanel
+              enabled={qrEnabled}
+              disabled={attendanceMutations.credentialScanMutation.isPending}
+              onToggle={() => setQrEnabled((value) => !value)}
+              onSimulate={(code) => submitCredentialScan(code, "qr")}
+            />
+          ) : null}
+
+          {recordMethod === "manual" ? (
+            <ManualLookupPanel
+              studentId={manualStudentId}
+              reason={manualReason}
+              remarks={manualRemarks}
+              students={rosterStudents.map((student) => ({ id: student.id, label: `${studentName(student, users)} (${student.studentNumber})` }))}
+              disabled={attendanceMutations.manualAttendanceMutation.isPending}
+              onStudentChange={setManualStudentId}
+              onReasonChange={setManualReason}
+              onRemarksChange={setManualRemarks}
+              onSubmit={submitManualAttendance}
+            />
+          ) : null}
+
+          <SubSection title="Latest result" description="The most recent scan or manual entry for this session.">
+            <LatestTapResultCard result={latestTapResult} />
+          </SubSection>
+        </SectionCard>
+
+        {/* Right column — the live roster, full height, own breathing room */}
+        <SectionCard title="Live attendance list" description="Filter the roster by status, method, or student number.">
+          <div className="mb-5 grid gap-3 sm:grid-cols-[1fr_auto_auto]">
+            <SearchInput value={search} placeholder="Search live list" onChange={setSearch} />
+            <select
+              className="plpass-field h-10 rounded-md border px-3 text-sm"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
               <option value="all">All statuses</option>
               <option value="present">Present</option>
               <option value="late">Late</option>
               <option value="absent">Absent</option>
             </select>
-            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
+            <select
+              className="plpass-field h-10 rounded-md border px-3 text-sm"
+              value={methodFilter}
+              onChange={(event) => setMethodFilter(event.target.value)}
+            >
               <option value="all">All methods</option>
               <option value="nfc">NFC</option>
               <option value="qr">QR</option>
@@ -409,12 +555,25 @@ export function ActiveSessionPage() {
             </select>
           </div>
           <LiveAttendanceList records={liveRecords} />
-        </div>
+        </SectionCard>
       </section>
-      <ConfirmModal open={endOpen} title="End mock session" description="A reason is required for early or overtime ending." confirmLabel="End session" tone="danger" onCancel={() => setEndOpen(false)} onConfirm={confirmEnd}>
+
+      <ConfirmModal
+        open={endOpen}
+        title="End mock session"
+        description="A reason is required for early or overtime ending."
+        confirmLabel="End session"
+        tone="danger"
+        onCancel={() => setEndOpen(false)}
+        onConfirm={confirmEnd}
+      >
         <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={endReason} onChange={(event) => setEndReason(event.target.value)}>
           <option value="">Select reason</option>
-          {["Class ended early", "Class extended overtime", "Room issue", "Schedule adjustment", "Emergency", "Other"].map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+          {["Class ended early", "Class extended overtime", "Room issue", "Schedule adjustment", "Emergency", "Other"].map((reason) => (
+            <option key={reason} value={reason}>
+              {reason}
+            </option>
+          ))}
         </select>
         {mutations.endSessionMutation.isError ? <p className="mt-2 text-sm text-danger">A reason is required.</p> : null}
       </ConfirmModal>

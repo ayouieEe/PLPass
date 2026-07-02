@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 import {
   AlertTriangle,
   BarChart3,
@@ -30,7 +34,6 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -62,13 +65,18 @@ import {
   useNfcTapAttempts,
   useReports,
   useStudents,
-  useStudentsForClass
+  useStudentsForClass,
+  useUsers
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student } from "@/types/domain";
-import type { AttendanceStatus, CorrectionRequestStatus, RiskLevel, SessionStatus, StudentStatus } from "@/types/enums";
+import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student, User } from "@/types/domain";
+import type { AttendanceStatus, CorrectionRequestStatus, RiskLevel, SessionStatus, StudentStatus, UserRole } from "@/types/enums";
+
+type RepositoryContext = {
+  actorUserId: string;
+  actorRole: UserRole;
+};
 
 type FacultyScope = {
   context: RepositoryContext;
@@ -78,8 +86,26 @@ type FacultyScope = {
   isError: boolean;
 };
 
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+const gridThemeVars = {
+  "--ag-background-color": "hsl(var(--background))",
+  "--ag-foreground-color": "hsl(var(--foreground))",
+  "--ag-header-background-color": "hsl(var(--muted))",
+  "--ag-header-foreground-color": "hsl(var(--muted-foreground))",
+  "--ag-border-color": "hsl(var(--border))",
+  "--ag-row-border-color": "hsl(var(--border))",
+  "--ag-row-hover-color": "hsl(var(--muted) / 0.5)",
+  "--ag-selected-row-background-color": "hsl(var(--muted))",
+  "--ag-accent-color": "hsl(var(--primary))",
+  "--ag-font-family": "inherit",
+  "--ag-font-size": "13.5px",
+  "--ag-header-font-weight": "600",
+  "--ag-border-radius": "0.5rem",
+  "--ag-wrapper-border-radius": "0.5rem"
+} as React.CSSProperties;
 
 const sessionFormSchema = z
   .object({
@@ -156,8 +182,14 @@ function attendanceRate(records: AttendanceRecord[]) {
   return Math.round((attended / records.length) * 100);
 }
 
-function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+/** Resolves a student's real display name via their linked User record.
+ *  Falls back to the student number only if no matching user is found. */
+function studentName(student: Student | undefined, users: User[]) {
+  if (!student) {
+    return "Unknown student";
+  }
+  const user = users.find((entry) => entry.id === student.userId);
+  return user?.displayName ?? student.studentNumber;
 }
 
 function ShellState({ scope }: { scope: FacultyScope }) {
@@ -165,7 +197,7 @@ function ShellState({ scope }: { scope: FacultyScope }) {
     return <LoadingState label="Loading faculty workspace" />;
   }
   if (scope.isError || !scope.facultyId) {
-    return <ErrorState title="Faculty profile unavailable" message="The signed-in mock account does not have a faculty profile fixture." />;
+    return <ErrorState title="Faculty profile unavailable" message="Unable to resolve faculty profile from the signed-in user." />;
   }
   return null;
 }
@@ -225,59 +257,123 @@ export function ClassAttendancePage() {
   const scope = useFacultyScope();
   const [search, setSearch] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportFormat, setReportFormat] = useState<"PDF" | "XLSX">("PDF");
   const sessionsQuery = useAttendanceSessions({ pageSize: 100, search }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const classesQuery = useClasses({ pageSize: 100 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  const usersQuery = useUsers({ pageSize: 500 }, scope.context);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.facultyId) {
     return shellState;
   }
-  if (sessionsQuery.isLoading || recordsQuery.isLoading || classesQuery.isLoading) {
+  if (sessionsQuery.isLoading || recordsQuery.isLoading || classesQuery.isLoading || studentsQuery.isLoading || usersQuery.isLoading) {
     return <LoadingState label="Loading attendance records" />;
   }
   if (sessionsQuery.isError) {
-    return <ErrorState title="Unable to load attendance records" message="The mock attendance session repository returned an error." />;
+    return <ErrorState title="Unable to load attendance records" message="There was an error loading attendance sessions. Please verify your Supabase connection and permissions." />;
   }
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
   const classes = classesQuery.data?.items ?? [];
+  const students = studentsQuery.data?.items ?? [];
+  const users = usersQuery.data?.items ?? [];
   const selectedRecords = selectedSessionId ? records.filter((record) => record.sessionId === selectedSessionId) : [];
-  const columns: ColumnDef<AttendanceSession>[] = [
-    { id: "code", header: "Subject code", cell: ({ row }) => classes.find((entry) => entry.id === row.original.classId)?.subjectCode ?? "Class" },
-    { accessorKey: "title", header: "Subject name" },
-    { id: "section", header: "Section", cell: ({ row }) => classes.find((entry) => entry.id === row.original.classId)?.section ?? "N/A" },
-    { id: "room", header: "Room", cell: ({ row }) => classes.find((entry) => entry.id === row.original.classId)?.room ?? "N/A" },
-    { id: "date", header: "Session date", cell: ({ row }) => formatDate(row.original.startsAt) },
-    { id: "time", header: "Session time", cell: ({ row }) => `${formatTime(row.original.startsAt)} - ${formatTime(row.original.endsAt)}` },
-    { id: "present", header: "Present", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).present },
-    { id: "late", header: "Late", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).late },
-    { id: "absent", header: "Absent", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).absent },
-    { accessorKey: "status", header: "Session status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    { id: "action", header: "View", cell: ({ row }) => <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSessionId(row.original.id)}>Details</Button> }
+  const columns: ColDef<AttendanceSession>[] = [
+    { headerName: "Subject code", valueGetter: (params) => classes.find((entry) => entry.id === params.data?.classId)?.subjectCode ?? "Class" },
+    { field: "title", headerName: "Subject name" },
+    { headerName: "Section", valueGetter: (params) => classes.find((entry) => entry.id === params.data?.classId)?.section ?? "N/A" },
+    { headerName: "Room", valueGetter: (params) => classes.find((entry) => entry.id === params.data?.classId)?.room ?? "N/A" },
+    { headerName: "Session date", valueGetter: (params) => formatDate(params.data?.startsAt) },
+    { headerName: "Session time", valueGetter: (params) => `${formatTime(params.data?.startsAt)} - ${formatTime(params.data?.endsAt)}` },
+    { headerName: "Present", valueGetter: (params) => attendanceCounts(recordsForSession(records, params.data?.id ?? "")).present },
+    { headerName: "Late", valueGetter: (params) => attendanceCounts(recordsForSession(records, params.data?.id ?? "")).late },
+    { headerName: "Absent", valueGetter: (params) => attendanceCounts(recordsForSession(records, params.data?.id ?? "")).absent },
+    { field: "status", headerName: "Session status", cellRenderer: (params: ICellRendererParams<AttendanceSession>) => <StatusBadge label={params.value as string} tone={statusTone(params.value as AttendanceSession["status"])} /> },
+    { headerName: "View", cellRenderer: (params: ICellRendererParams<AttendanceSession>) => <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSessionId(params.data?.id ?? null)}>Details</Button> }
   ];
-  const detailColumns: ColumnDef<AttendanceRecord>[] = [
-    { id: "student", header: "Student name", cell: ({ row }) => studentName(studentsQuery.data?.items.find((student) => student.id === row.original.studentId)) },
-    { id: "number", header: "Student number", cell: ({ row }) => studentsQuery.data?.items.find((student) => student.id === row.original.studentId)?.studentNumber ?? row.original.studentId },
-    { accessorKey: "status", header: "Attendance status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    { accessorKey: "verificationMethod", header: "Verification method" },
-    { id: "time", header: "Time recorded", cell: ({ row }) => formatTime(row.original.recordedAt) },
-    { accessorKey: "note", header: "Remarks" },
-    { id: "correction", header: "Correction request", cell: () => "No active request" }
+  const detailColumns: ColDef<AttendanceRecord>[] = [
+    { headerName: "Student name", valueGetter: (params) => studentName(students.find((student) => student.id === params.data?.studentId), users) },
+    { headerName: "Student number", valueGetter: (params) => students.find((student) => student.id === params.data?.studentId)?.studentNumber ?? params.data?.studentId },
+    { field: "status", headerName: "Attendance status", cellRenderer: (params: ICellRendererParams<AttendanceRecord>) => <StatusBadge label={params.value as string} tone={statusTone(params.value as AttendanceRecord["status"])} /> },
+    { field: "verificationMethod", headerName: "Verification method" },
+    { headerName: "Time recorded", valueGetter: (params) => formatTime(params.data?.recordedAt) },
+    { field: "note", headerName: "Remarks" },
+    { headerName: "Correction request", valueGetter: () => "No active request" }
   ];
   return (
     <FacultyFrame>
-      <PageHeader eyebrow="Faculty" title="Attendance Records" description="Completed and relevant sessions for your assigned classes." actions={<><Button disabled variant="outline">Generate PDF</Button><Button disabled variant="outline">Generate XLSX</Button></>} />
+      <PageHeader
+        eyebrow="Faculty"
+        title="Attendance Records"
+        description="Completed and relevant sessions for your assigned classes."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReportFormat("PDF");
+                setReportOpen(true);
+              }}
+            >
+              Generate PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReportFormat("XLSX");
+                setReportOpen(true);
+              }}
+            >
+              Generate XLSX
+            </Button>
+          </>
+        }
+      />
       <FilterBar search={search} selectedFilter="all" filters={[{ label: "All statuses", value: "all" }]} onSearchChange={setSearch} onFilterChange={() => undefined} />
-      <PLPassDataGrid label="Faculty attendance sessions" data={sessions} columns={columns} emptyTitle="No attendance sessions" />
+      <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 360, width: "100%", ...gridThemeVars }}>
+        <AgGridReact<AttendanceSession>
+          theme="legacy"
+          rowData={sessions}
+          columnDefs={columns}
+          defaultColDef={{ sortable: true, resizable: true, filter: true }}
+          rowHeight={52}
+          headerHeight={44}
+          pagination
+          paginationPageSize={8}
+          paginationPageSizeSelector={[8, 16, 24]}
+        />
+      </div>
       {selectedSessionId ? (
         <section className="rounded-lg border bg-surface p-4">
           <h2 className="font-semibold">Attendance detail panel</h2>
           <div className="mt-4">
-            <PLPassDataGrid label="Faculty session attendance records" data={selectedRecords} columns={detailColumns} emptyTitle="No student attendance records" />
+            <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 280, width: "100%", ...gridThemeVars }}>
+              <AgGridReact<AttendanceRecord>
+                theme="legacy"
+                rowData={selectedRecords}
+                columnDefs={detailColumns}
+                defaultColDef={{ sortable: true, resizable: true, filter: true }}
+                rowHeight={52}
+                headerHeight={44}
+                pagination
+                paginationPageSize={6}
+                paginationPageSizeSelector={[6, 12, 24]}
+              />
+            </div>
           </div>
         </section>
       ) : null}
+      <GenerateReportModal
+        open={reportOpen}
+        reportName={`Attendance records (${reportFormat})`}
+        onClose={() => setReportOpen(false)}
+        onGenerate={() => {
+          toast.success(`Queued ${reportFormat} report for attendance records`);
+          setReportOpen(false);
+        }}
+      />
     </FacultyFrame>
   );
 }

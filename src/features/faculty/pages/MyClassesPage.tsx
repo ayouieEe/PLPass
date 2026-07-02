@@ -1,74 +1,62 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
-import {
-  AlertTriangle,
-  BarChart3,
-  CalendarCheck,
-  ClipboardList,
-  Search,
-  Users
-} from "lucide-react";
-import { useForm } from "react-hook-form";
-import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
+import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
+import { GraduationCap, LayoutGrid, MapPin, Table2, Users } from "lucide-react";
+import { NavLink } from "react-router-dom";
 import { toast } from "sonner";
-import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
-import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { DatePickerField } from "@/components/forms/DatePickerField";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
-import { TextField } from "@/components/forms/TextField";
-import { TimePickerField } from "@/components/forms/TimePickerField";
-import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
-import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
-import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
-import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
-import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
-import { NFCReaderInput } from "@/features/attendance/NFCReaderInput";
-import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
-import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
-import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
-import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSimulationMutations,
-  useAttendanceSession,
-  useAttendanceSessionMutations,
-  useAttendanceSessions,
-  useClass,
-  useClasses,
-  useCorrectionRequests,
-  useFacultyProfiles,
-  useMlPredictions,
-  useNfcTapAttempts,
-  useReports,
-  useStudents,
-  useStudentsForClass
-} from "@/hooks/useRepositoryQueries";
+import { useClasses, useFacultyProfiles, useStudentsForClass } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import type { AttendanceSimulationResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student } from "@/types/domain";
-import type { AttendanceStatus, CorrectionRequestStatus, RiskLevel, SessionStatus, StudentStatus } from "@/types/enums";
+import type { Class } from "@/types/domain";
+
+// ag-grid v31+ requires modules to be registered before any grid renders. Registering just the
+// client-side row model keeps the bundle small; swap for AllCommunityModule if you're already
+// pulling in other ag-grid features elsewhere (v33+ only).
+ModuleRegistry.registerModules([ClientSideRowModelModule]);
+
+// Local class-merge helper — avoids depending on a "@/lib/utils" that may not exist in this
+// project. Falsy/undefined entries are skipped so conditional classes stay easy to write.
+function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+/**
+ * FIX NOTES (previous version failed to compile):
+ * - `useClassEnrollments` and `useClassSchedules` do not exist in useRepositoryQueries — only
+ *   `useStudentsForClass(classId, params, context)` (per-class roster) is available. There is no
+ *   bulk enrollment-count-per-class or class_schedules endpoint exposed to the client yet.
+ * - `Class` already carries a precomputed `scheduleLabel` string (see ClassDetailsPage), so the
+ *   custom day/time formatting and schedules map were working against data that doesn't exist
+ *   on the client. Schedule now just reads `classRecord.scheduleLabel` directly.
+ * - `StatCard` takes `title` / `value` / `icon` / `tone`, not `label` — matches its usage in
+ *   ClassDetailsPage.
+ *
+ * ENROLLMENT COUNTS: since there's no bulk "enrolled count per class" hook, each class's count is
+ * fetched via `useStudentsForClass`. To stay within the Rules of Hooks (no hooks in a loop/map
+ * inside one component), each class gets its own tiny `EnrollmentProbe` component instance that
+ * calls the hook once and reports the count up via a callback. This is a stopgap — ideally the
+ * classes list endpoint returns an `enrolledCount` field directly so this extra fan-out of
+ * requests isn't needed.
+ *
+ * GRID PASS: table view now renders through ag-grid (AgGridReact) instead of the bespoke
+ * PLPassDataGrid, giving built-in sort/resize/pagination for free. Rows are pre-enriched with
+ * `enrolledCount` before being handed to the grid so column defs can stay plain field lookups
+ * instead of reaching into external state.
+ */
 
 type FacultyScope = {
   context: RepositoryContext;
@@ -78,24 +66,36 @@ type FacultyScope = {
   isError: boolean;
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+type ClassRow = Class & { enrolledCount: number | null };
 
-const sessionFormSchema = z
-  .object({
-    classId: z.string().min(1, "Select an assigned class."),
-    room: z.string().min(2, "Room is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    expectedEndTime: z.string().min(1, "Expected end time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"])
-  })
-  .refine((value) => value.expectedEndTime > value.startTime, {
-    path: ["expectedEndTime"],
-    message: "Expected end time must be after start time."
-  });
+// Shared type-scale tokens so cards, tables, and headers stay visually consistent.
+const typography = {
+  eyebrow: "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground",
+  cardTitle: "text-[15px] font-semibold leading-snug tracking-tight text-foreground",
+  metaLabel: "text-[11px] font-medium uppercase tracking-wide text-muted-foreground/80",
+  metaValue: "text-sm font-medium text-foreground",
+  numeric: "tabular-nums font-semibold text-foreground"
+};
 
-type SessionFormValues = z.infer<typeof sessionFormSchema>;
+// Maps ag-grid's theming API onto the app's existing shadcn/Tailwind CSS variables so the grid
+// doesn't look like a foreign component dropped onto the page. Assumes those HSL custom
+// properties exist globally (they do in a standard shadcn setup) — adjust if your token names differ.
+const gridThemeVars = {
+  "--ag-background-color": "hsl(var(--background))",
+  "--ag-foreground-color": "hsl(var(--foreground))",
+  "--ag-header-background-color": "hsl(var(--muted))",
+  "--ag-header-foreground-color": "hsl(var(--muted-foreground))",
+  "--ag-border-color": "hsl(var(--border))",
+  "--ag-row-border-color": "hsl(var(--border))",
+  "--ag-row-hover-color": "hsl(var(--muted) / 0.5)",
+  "--ag-selected-row-background-color": "hsl(var(--muted))",
+  "--ag-accent-color": "hsl(var(--primary))",
+  "--ag-font-family": "inherit",
+  "--ag-font-size": "13.5px",
+  "--ag-header-font-weight": "600",
+  "--ag-border-radius": "0.5rem",
+  "--ag-wrapper-border-radius": "0.5rem"
+} as React.CSSProperties;
 
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
@@ -110,182 +110,283 @@ function useFacultyScope(): FacultyScope {
   };
 }
 
-function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
-}
+/** Invisible probe: resolves one class's enrolled headcount and reports it to the parent. */
+function EnrollmentProbe({
+  classId,
+  context,
+  onCount
+}: {
+  classId: string;
+  context: RepositoryContext;
+  onCount: (classId: string, count: number) => void;
+}) {
+  const rosterQuery = useStudentsForClass(classId, { pageSize: 200 }, context);
+  const count = rosterQuery.data?.items.length;
 
-function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
-}
+  useEffect(() => {
+    if (count !== undefined) {
+      onCount(classId, count);
+    }
+  }, [classId, count, onCount]);
 
-function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel) {
-  if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
-    return "success" as const;
-  }
-  if (status === "late" || status === "draft" || status === "pending" || status === "medium") {
-    return "warning" as const;
-  }
-  if (status === "absent" || status === "cancelled" || status === "rejected" || status === "high" || status === "critical") {
-    return "danger" as const;
-  }
-  return "muted" as const;
-}
-
-function classLabel(classRecord: Class | undefined) {
-  return classRecord ? `${classRecord.subjectCode} ${classRecord.section}` : "Unknown class";
-}
-
-function recordsForSession(records: AttendanceRecord[], sessionId: string) {
-  return records.filter((record) => record.sessionId === sessionId);
-}
-
-function attendanceCounts(records: AttendanceRecord[]) {
-  return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
-  };
-}
-
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
-}
-
-function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
-}
-
-function ShellState({ scope }: { scope: FacultyScope }) {
-  if (scope.isLoading) {
-    return <LoadingState label="Loading faculty workspace" />;
-  }
-  if (scope.isError || !scope.facultyId) {
-    return <ErrorState title="Faculty profile unavailable" message="The signed-in mock account does not have a faculty profile fixture." />;
-  }
   return null;
 }
 
-function FacultyFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function ClassScheduleCard({ classRecord }: { classRecord: Class }) {
+function ClassScheduleCard({ classRecord, enrolledCount }: { classRecord: Class; enrolledCount: number | undefined }) {
   return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{classRecord.subjectCode} - {classRecord.subjectTitle}</p>
-          <p className="text-sm text-muted-foreground">{classRecord.scheduleLabel} · {classRecord.room}</p>
+    <article className="group flex flex-col overflow-hidden rounded-xl border bg-background shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+      {/* Identity band */}
+      <div className="flex items-start justify-between gap-3 px-4 pt-4">
+        <div className="min-w-0">
+          <p className={typography.eyebrow}>{classRecord.subjectCode}</p>
+          <h3 className={cn(typography.cardTitle, "mt-0.5 truncate")}>{classRecord.subjectTitle}</h3>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.facultyClass(classRecord.id)}>View</NavLink>
+        <StatusBadge label={classRecord.status} tone={classRecord.status === "active" ? "success" : "muted"} />
+      </div>
+
+      <div className="mt-3 flex items-center gap-x-3 gap-y-1 px-4 text-sm text-muted-foreground">
+        <span className="font-medium text-foreground/80">Sec {classRecord.section}</span>
+        <span aria-hidden className="text-muted-foreground/40">
+          •
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" aria-hidden />
+          {classRecord.room}
+        </span>
+      </div>
+
+      <hr className="mx-4 mt-4 border-border/70" />
+
+      {/* Metrics band */}
+      <div className="grid grid-cols-2 gap-3 px-4 py-3">
+        <div>
+          <p className={typography.metaLabel}>Schedule</p>
+          <p className={cn(typography.metaValue, "mt-0.5")}>{classRecord.scheduleLabel ?? "No schedule set"}</p>
+        </div>
+        <div className="text-right">
+          <p className={typography.metaLabel}>Students</p>
+          <p className={cn(typography.numeric, "mt-0.5 text-base")}>{enrolledCount ?? "…"}</p>
+        </div>
+      </div>
+
+      <div className="mt-auto border-t bg-muted/30 px-4 py-2.5">
+        <Button asChild variant="outline" size="sm" className="w-full">
+          <NavLink to={APP_ROUTES.facultyClass(classRecord.id)}>View class</NavLink>
         </Button>
       </div>
     </article>
   );
-}
-
-function PredictionCard({ prediction }: { prediction: MlPrediction }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{prediction.patternLabel}</p>
-          <p className="text-sm text-muted-foreground">{prediction.explanation}</p>
-        </div>
-        <StatusBadge label={prediction.riskLevel} tone={statusTone(prediction.riskLevel)} />
-      </div>
-    </article>
-  );
-}
-
-function SessionCard({ session }: { session: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session.title}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} · {formatTime(session.startsAt)}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.facultySession(session.id)}>View session</NavLink>
-        </Button>
-      </div>
-    </article>
-  );
-
 }
 
 export function MyClassesPage() {
   const scope = useFacultyScope();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const [view, setView] = useState<"table" | "schedule">("table");
+  const [view, setView] = useState<"table" | "cards">("table");
+  const [reportClass, setReportClass] = useState<Class | null>(null);
+  const [enrolledCounts, setEnrolledCounts] = useState<Record<string, number>>({});
+
   const classesQuery = useClasses({ pageSize: 100, search }, scope.context);
-  const rostersQuery = useStudents({ pageSize: 200 }, scope.context);
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.facultyId) {
-    return shellState;
+
+  const handleCount = useCallback((classId: string, count: number) => {
+    setEnrolledCounts((prev) => (prev[classId] === count ? prev : { ...prev, [classId]: count }));
+  }, []);
+
+  if (scope.isLoading) {
+    return <LoadingState label="Loading faculty workspace" />;
   }
-  if (classesQuery.isLoading || rostersQuery.isLoading) {
+  if (scope.isError || !scope.facultyId) {
+    return <ErrorState title="Faculty profile unavailable" message="The signed-in account does not have a faculty profile." />;
+  }
+  if (classesQuery.isLoading) {
     return <LoadingState label="Loading assigned classes" />;
   }
   if (classesQuery.isError) {
-    return <ErrorState title="Unable to load classes" message="The mock repository could not load assigned classes." />;
+    return <ErrorState title="Unable to load classes" message="Assigned classes could not be loaded." />;
   }
-  const classes = (classesQuery.data?.items ?? []).filter((classRecord) => status === "all" || classRecord.status === status);
-  const columns: ColumnDef<Class>[] = [
-    { accessorKey: "subjectCode", header: "Subject code" },
-    { accessorKey: "subjectTitle", header: "Subject name" },
-    { accessorKey: "section", header: "Section" },
-    { accessorKey: "room", header: "Room" },
-    { accessorKey: "scheduleLabel", header: "Schedule" },
-    {
-      id: "students",
-      header: "Enrolled",
-      cell: ({ row }) => rostersQuery.data?.items.filter((student) => student.programId === row.original.programId).length ?? 0
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status === "active" ? "completed" : "cancelled")} />
-    },
-    {
-      id: "action",
-      header: "Action",
-      cell: ({ row }) => (
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.facultyClass(row.original.id)}>View class</NavLink>
-        </Button>
-      )
-    }
+
+  const allClasses = classesQuery.data?.items ?? [];
+  const classes = allClasses.filter((c) => status === "all" || c.status === status);
+  const totalStudents = allClasses.reduce((sum, c) => sum + (enrolledCounts[c.id] ?? 0), 0);
+  const activeCount = allClasses.filter((c) => c.status === "active").length;
+
+  // Enrich rows with the async enrollment count so column defs stay simple field lookups.
+  const rowData: ClassRow[] = classes.map((c) => ({ ...c, enrolledCount: enrolledCounts[c.id] ?? null }));
+
+  // Plain array, not useMemo — this is built after the early returns above, so wrapping it in a
+  // hook would make the hook count vary between renders (Rules of Hooks violation).
+  const columnDefs: ColDef<ClassRow>[] = [
+      {
+        field: "subjectCode",
+        headerName: "Subject Code",
+        minWidth: 130,
+        cellClass: "font-medium text-foreground"
+      },
+      {
+        field: "subjectTitle",
+        headerName: "Subject Name",
+        flex: 1.6,
+        minWidth: 180
+      },
+      {
+        field: "section",
+        headerName: "Section",
+        maxWidth: 110,
+        cellClass: "text-muted-foreground"
+      },
+      {
+        field: "room",
+        headerName: "Room",
+        maxWidth: 110,
+        cellClass: "text-muted-foreground"
+      },
+      {
+        field: "scheduleLabel",
+        headerName: "Schedule",
+        flex: 1.3,
+        minWidth: 160,
+        cellClass: "text-muted-foreground",
+        valueFormatter: (params) => params.value ?? "No schedule set"
+      },
+      {
+        field: "enrolledCount",
+        headerName: "Students",
+        maxWidth: 110,
+        type: "rightAligned",
+        cellClass: "tabular-nums font-medium text-foreground",
+        valueFormatter: (params) => (params.value === null || params.value === undefined ? "…" : String(params.value))
+      },
+      {
+        field: "status",
+        headerName: "Status",
+        maxWidth: 130,
+        sortable: true,
+        filter: false,
+        cellRenderer: (params: ICellRendererParams<ClassRow>) => (
+          <StatusBadge label={params.data!.status} tone={params.data!.status === "active" ? "success" : "muted"} />
+        )
+      },
+      {
+        headerName: "",
+        field: "id",
+        minWidth: 220,
+        maxWidth: 240,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        cellRenderer: (params: ICellRendererParams<ClassRow>) => (
+          <div className="flex h-full items-center justify-end gap-2">
+            <Button asChild variant="outline" size="sm">
+              <NavLink to={APP_ROUTES.facultyClass(params.data!.id)}>View class</NavLink>
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setReportClass(params.data!)}>
+              Report
+            </Button>
+          </div>
+        )
+      }
   ];
+
+  const defaultColDef: ColDef = { sortable: true, resizable: true, filter: true };
+
   return (
-    <FacultyFrame>
-      <PageHeader eyebrow="Faculty" title="My Classes" description="Assigned class list with responsive table and schedule views." />
-      <FilterBar
-        search={search}
-        selectedFilter={status}
-        filters={[{ label: "All", value: "all" }, { label: "Active", value: "active" }, { label: "Archived", value: "archived" }]}
-        onSearchChange={setSearch}
-        onFilterChange={setStatus}
+    <div className="space-y-6">
+      {allClasses.map((c) => (
+        <EnrollmentProbe key={c.id} classId={c.id} context={scope.context} onCount={handleCount} />
+      ))}
+
+      <PageHeader
+        eyebrow="Faculty"
+        title="My Classes"
+        description="Your assigned classes for the current semester, with roster counts and schedules."
       />
-      <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-3">
-        <Button type="button" variant={view === "table" ? "default" : "outline"} onClick={() => setView("table")}>Table view</Button>
-        <Button type="button" variant={view === "schedule" ? "default" : "outline"} onClick={() => setView("schedule")}>Schedule view</Button>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatCard title="Assigned classes" value={String(allClasses.length)} icon={GraduationCap} />
+        <StatCard title="Active classes" value={String(activeCount)} icon={LayoutGrid} />
+        <StatCard title="Total enrolled students" value={String(totalStudents)} icon={Users} />
       </div>
-      {view === "table" ? (
-        <PLPassDataGrid label="Assigned classes" data={classes} columns={columns} emptyTitle="No assigned classes" />
+
+      <div className="flex flex-col gap-3 rounded-lg border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
+        <FilterBar
+          search={search}
+          selectedFilter={status}
+          filters={[
+            { label: "All", value: "all" },
+            { label: "Active", value: "active" },
+            { label: "Inactive", value: "inactive" },
+            { label: "Completed", value: "completed" }
+          ]}
+          onSearchChange={setSearch}
+          onFilterChange={setStatus}
+        />
+
+        {/* Segmented view switch */}
+        <div className="inline-flex shrink-0 items-center gap-1 self-start rounded-md border bg-background p-1 sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setView("table")}
+            aria-pressed={view === "table"}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors",
+              view === "table" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Table2 className="h-4 w-4" /> Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("cards")}
+            aria-pressed={view === "cards"}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1.5 text-sm font-medium transition-colors",
+              view === "cards" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" /> Cards
+          </button>
+        </div>
+      </div>
+
+      {classes.length === 0 ? (
+        <EmptyState title="No assigned classes" description="Classes assigned to you this semester will appear here." />
+      ) : view === "table" ? (
+        <div
+          className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm"
+          style={{ height: 480, width: "100%", ...gridThemeVars }}
+        >
+          <AgGridReact<ClassRow>
+            theme="legacy"
+            rowData={rowData}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            rowHeight={52}
+            headerHeight={44}
+            animateRows
+            pagination
+            paginationPageSize={10}
+            paginationPageSizeSelector={[10, 25, 50]}
+          />
+        </div>
       ) : (
-        <section className="grid gap-4 md:grid-cols-2">
-          {classes.map((classRecord) => <ClassScheduleCard key={classRecord.id} classRecord={classRecord} />)}
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {classes.map((classRecord) => (
+            <ClassScheduleCard key={classRecord.id} classRecord={classRecord} enrolledCount={enrolledCounts[classRecord.id]} />
+          ))}
         </section>
       )}
-    </FacultyFrame>
+
+      <GenerateReportModal
+        open={Boolean(reportClass)}
+        reportName={reportClass ? `Class attendance — ${reportClass.subjectCode}` : ""}
+        onClose={() => setReportClass(null)}
+        onGenerate={() => {
+          if (reportClass) {
+            toast.success(`Queued report for ${reportClass.subjectCode}`);
+          }
+          setReportClass(null);
+        }}
+      />
+    </div>
   );
 }

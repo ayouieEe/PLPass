@@ -16,8 +16,8 @@ const manualReasons = ["NFC sticker damaged", "NFC reader issue", "Student forgo
 
 export function ManualLookupPanel({ studentId, reason, remarks, students, disabled, onStudentChange, onReasonChange, onRemarksChange, onSubmit }: ManualLookupPanelProps) {
   return (
-    <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance override">
-      <h2 className="font-semibold">Manual fallback</h2>
+    <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
+      <h2 className="font-semibold">Manual entry</h2>
       <p className="mt-1 text-sm text-muted-foreground">Development Simulation override for approved staff use only.</p>
       <div className="mt-4 space-y-3">
         <label className="block text-sm font-medium">
