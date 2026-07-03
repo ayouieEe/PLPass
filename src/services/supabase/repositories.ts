@@ -185,8 +185,19 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
   async listFacultyProfiles(query) {
-    const rows = await selectRows("faculty", query);
-    return pageResult(rows.items.map(mapFaculty), rows.total, query);
+    const rows = await selectRows("faculty", query, "*, profiles(*)");
+    return pageResult(
+      rows.items.map((row) => {
+        const faculty = mapFaculty(row);
+        const profile = row.profiles as Row | undefined;
+        return {
+          ...faculty,
+          displayName: profile ? mapProfileToUser(profile).displayName : undefined
+        };
+      }),
+      rows.total,
+      query
+    );
   },
   async listOrganizerProfiles(query) {
     const rows = await selectRows("organizers", query);
