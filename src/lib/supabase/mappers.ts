@@ -77,6 +77,33 @@ function mapClassStatus(value: string) {
   return value === "active" ? "active" : "archived";
 }
 
+const dayLabels: Record<number, string> = { 1: "M", 2: "T", 3: "W", 4: "Th", 5: "F", 6: "Sa", 7: "Su" };
+
+function formatScheduleTime(value: string) {
+  const [hoursStr, minutesStr] = value.split(":");
+  const hours = Number(hoursStr);
+  const period = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${displayHour}:${minutesStr} ${period}`;
+}
+
+function buildScheduleLabel(row: Row): string {
+  const schedules = row["class_schedules"];
+  if (!Array.isArray(schedules) || schedules.length === 0) {
+    return "Schedule unavailable";
+  }
+  const days = schedules
+    .map((entry) => dayLabels[Number((entry as Row).day_of_week)] ?? "")
+    .join("");
+  const first = schedules[0] as Row;
+  const start = stringValue(first, ["start_time"]);
+  const end = stringValue(first, ["end_time"]);
+  if (!start || !end) {
+    return "Schedule unavailable";
+  }
+  return `${days} ${formatScheduleTime(start)} - ${formatScheduleTime(end)}`;
+}
+
 function mapEmploymentStatus(value: string): FacultyProfile["employmentStatus"] {
   if (value === "part_time" || value === "on_leave") {
     return value;
@@ -158,17 +185,25 @@ export function mapProfileToUser(row: Row): User {
 }
 
 export function mapStudent(row: Row): Student {
-  return {
+  const profile = nestedRow(row, "profiles");
+  const section = nestedRow(row, "sections");
+  const fullName = profile
+    ? [stringValue(profile, ["first_name"]), stringValue(profile, ["last_name"])].filter(Boolean).join(" ")
+    : "";
+  const base = {
     id: stringValue(row, ["id", "student_id"]),
     userId: stringValue(row, ["profile_id", "user_id", "id"]),
     studentNumber: stringValue(row, ["student_number", "student_no", "student_id", "id"]),
     status: stringValue(row, ["student_status", "status"], "enrolled") as Student["status"],
     programId: stringValue(row, ["program_id"]),
     departmentId: stringValue(row, ["department_id", "college_id"]),
-    yearLevel: numberValue(row, ["year_level"], 1),
-    section: stringValue(row, ["section_name", "section_id", "section"]),
-    createdAt: stringValue(row, ["created_at"], new Date().toISOString())
+    yearLevel: numberValue(row, ["year_level"], numberValue(section ?? {}, ["year_level"], 1)),
+    section: stringValue(row, ["section_name"], stringValue(section ?? {}, ["section_name"], stringValue(row, ["section_id"]))),
+    createdAt: stringValue(row, ["created_at"], new Date().toISOString()),
+    fullName: fullName || undefined,
+    email: profile ? optionalString(profile, ["email"]) : undefined
   };
+  return base as Student;
 }
 
 export function mapFaculty(row: Row): FacultyProfile {
@@ -210,7 +245,7 @@ export function mapClass(row: Row): Class {
     room: stringValue(row, ["room_code", "room_name"], stringValue(room ?? {}, ["room_code"], stringValue(row, ["room_id"]))),
     section: stringValue(row, ["section_name"], stringValue(section ?? {}, ["section_name"], stringValue(row, ["section_id"]))),
     yearLevel: numberValue(row, ["year_level"], numberValue(section ?? {}, ["year_level"], 1)),
-    scheduleLabel: stringValue(row, ["schedule_label"], "Schedule unavailable"),
+    scheduleLabel: buildScheduleLabel(row),
     status: mapClassStatus(stringValue(row, ["class_status", "status"], "active")),
     rosterId: stringValue(row, ["roster_id", "id"])
   };
@@ -269,7 +304,7 @@ export function mapAttendanceSession(row: Row, type: AttendanceSessionType): Att
 }
 
 export function mapAttendanceRecord(row: Row): AttendanceRecord {
-  return {
+  const base = {
     id: stringValue(row, ["id"]),
     sessionId: stringValue(row, ["class_session_id", "event_session_id", "session_id"]),
     studentId: stringValue(row, ["student_id"]),
@@ -277,8 +312,11 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     verificationMethod: stringValue(row, ["verification_method"], "nfc") as VerificationMethod,
     recordedAt: stringValue(row, ["recorded_at", "time_in", "created_at"], new Date().toISOString()),
     recordedByUserId: optionalString(row, ["recorded_by", "created_by"]),
-    note: optionalString(row, ["remarks", "note"])
+    note: optionalString(row, ["remarks", "note"]),
+    timeIn: optionalString(row, ["time_in"]),
+    timeOut: optionalString(row, ["time_out"])
   };
+  return base as AttendanceRecord;
 }
 
 export function mapNfcCredential(row: Row): NfcCredential {

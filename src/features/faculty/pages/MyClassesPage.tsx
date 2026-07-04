@@ -100,16 +100,16 @@ const gridThemeVars = {
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
+  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, context);
+  const facultyProfile = facultyQuery.data?.items.find((item) => item.userId === session?.userId);
   return {
     context: context ?? { actorUserId: "", actorRole: "faculty" },
-    facultyId: facultyQuery.data?.items[0]?.id,
+    facultyId: facultyProfile?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
     isError: facultyQuery.isError
   };
 }
-
 /** Invisible probe: resolves one class's enrolled headcount and reports it to the parent. */
 function EnrollmentProbe({
   classId,
@@ -186,7 +186,7 @@ export function MyClassesPage() {
   const [reportClass, setReportClass] = useState<Class | null>(null);
   const [enrolledCounts, setEnrolledCounts] = useState<Record<string, number>>({});
 
-  const classesQuery = useClasses({ pageSize: 100, search }, scope.context);
+  const classesQuery = useClasses({ pageSize: 100, search, facultyId: scope.facultyId }, scope.context);
 
   const handleCount = useCallback((classId: string, count: number) => {
     setEnrolledCounts((prev) => (prev[classId] === count ? prev : { ...prev, [classId]: count }));
@@ -267,24 +267,24 @@ export function MyClassesPage() {
         )
       },
       {
-        headerName: "",
-        field: "id",
-        minWidth: 220,
-        maxWidth: 240,
-        sortable: false,
-        filter: false,
-        resizable: false,
-        cellRenderer: (params: ICellRendererParams<ClassRow>) => (
-          <div className="flex h-full items-center justify-end gap-2">
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={APP_ROUTES.facultyClass(params.data!.id)}>View class</NavLink>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setReportClass(params.data!)}>
-              Report
-            </Button>
-          </div>
-        )
-      }
+  headerName: "Actions",
+  field: "id",
+  minWidth: 260,
+  maxWidth: 280,
+  sortable: false,
+  filter: false,
+  resizable: false,
+  cellRenderer: (params: ICellRendererParams<ClassRow>) => (
+    <div className="flex h-full items-center justify-end gap-2">
+      <Button asChild variant="outline" size="sm">
+        <NavLink to={APP_ROUTES.facultyClass(params.data!.id)}>View class</NavLink>
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setReportClass(params.data!)}>
+        Generate Report
+      </Button>
+    </div>
+  )
+}
   ];
 
   const defaultColDef: ColDef = { sortable: true, resizable: true, filter: true };
