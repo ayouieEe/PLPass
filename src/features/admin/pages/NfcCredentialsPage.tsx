@@ -10,9 +10,10 @@ import {
   AdminContextBar,
   AdminFrame,
   AdminPageHeader,
+  AdminStatGrid,
   AdminTabs,
+  AdminTableExportActions,
   AdminToolbar,
-  UnavailablePanel,
   compactProgram,
   formatDate,
   formatStatus,
@@ -74,14 +75,14 @@ export function NfcCredentialsPage() {
 
   return (
     <AdminFrame>
-      <AdminPageHeader title="Authentication Methods" accessibleTitle="Authentication methods" description="Dean-scoped credential status review without exposing token secrets or biometric data." />
+      <AdminPageHeader title="Authentication Methods" accessibleTitle="Authentication methods" description="Credential status review." />
       <AdminContextBar department={scope.department} semester={scope.activeSemester} />
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <AdminStatGrid>
         <StatCard title="Students with active NFC credentials" value={String(activeNfcCount)} icon={ShieldCheck} />
-        <StatCard title="Students with QR credentials" value="0" icon={QrCode} description="No QR credential repository is available yet." />
-        <StatCard title="Students with facial enrollment" value="0" icon={ScanFace} description="No biometric repository is available." />
+        <StatCard title="QR credentials" value="0" icon={QrCode} />
+        <StatCard title="Facial enrollment" value="0" icon={ScanFace} />
         <StatCard title="Pending replacements" value={String(pendingRequests)} icon={CreditCard} />
-      </section>
+      </AdminStatGrid>
       <AdminTabs
         label="Authentication methods tabs"
         selected={tab}
@@ -107,19 +108,17 @@ export function NfcCredentialsPage() {
         onFilterChange={setStatus}
       />
       {scope.isLoading || credentials.isLoading || students.isLoading || users.isLoading ? <LoadingState label="Loading authentication methods" /> : null}
-      {tab === "nfc" ? <PLPassDataGrid label="NFC credentials" data={visibleCredentials} columns={nfcColumns} emptyTitle="No NFC credentials found" emptyDescription="No NFC credential records match the selected filters." /> : null}
+      {tab === "nfc" ? <PLPassDataGrid label="NFC credentials" data={visibleCredentials} columns={nfcColumns} emptyTitle="No NFC credentials found" emptyDescription="No NFC credential records match the selected filters." toolbarActions={<AdminTableExportActions />} /> : null}
       {tab === "qr" ? (
         <>
-          <UnavailablePanel title="QR Credentials" message="QR attendance fallback will be implemented in Phase 11. QR credential storage and generation are not supported by the current repository. No QR token secrets are displayed or generated in the browser." />
-          <p className="text-sm text-muted-foreground">QR attendance fallback will be implemented in Phase 11.</p>
-          <PLPassDataGrid label="QR credentials" data={[]} columns={placeholderColumns} emptyTitle="No QR credentials available" emptyDescription="QR credentials require backend support before records can appear." />
+          <p className="sr-only">QR attendance fallback will be implemented in Phase 11.</p>
+          <PLPassDataGrid label="QR credentials" data={[]} columns={placeholderColumns} emptyTitle="No QR credentials available" emptyDescription="QR credentials require backend support before records can appear." toolbarActions={<AdminTableExportActions />} />
         </>
       ) : null}
       {tab === "face" ? (
         <>
-          <UnavailablePanel title="Facial Enrollment" message="Facial Recognition is outside the PLPass MVP and will not be implemented in the current version. Facial biometric storage is not part of the current backend. No templates, embeddings, or private media are stored or displayed." />
-          <p className="text-sm text-muted-foreground">Facial Recognition is outside the PLPass MVP and will not be implemented in the current version.</p>
-          <PLPassDataGrid label="Facial enrollment" data={[]} columns={placeholderColumns} emptyTitle="No facial enrollment records" emptyDescription="Facial enrollment requires an approved secure backend before records can appear." />
+          <p className="sr-only">Facial Recognition is outside the PLPass MVP and will not be implemented in the current version.</p>
+          <PLPassDataGrid label="Facial enrollment" data={[]} columns={placeholderColumns} emptyTitle="No facial enrollment records" emptyDescription="Facial enrollment requires an approved secure backend before records can appear." toolbarActions={<AdminTableExportActions />} />
         </>
       ) : null}
     </AdminFrame>

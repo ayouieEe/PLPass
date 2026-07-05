@@ -24,14 +24,6 @@ const studentTwoSession = JSON.stringify({
   isAuthenticated: true
 });
 
-const facultySession = JSON.stringify({
-  userId: "user-faculty-1",
-  role: "faculty",
-  displayName: "Faculty One",
-  email: "faculty.one@plpass.test",
-  isAuthenticated: true
-});
-
 function setRoute(path: string) {
   window.history.pushState({}, "", path);
 }
@@ -59,12 +51,18 @@ describe("student route access", () => {
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
-  it("denies student routes to a faculty user", async () => {
-    storeSession(facultySession);
+  it("does not restore unsupported legacy faculty sessions on student routes", async () => {
+    storeSession(JSON.stringify({
+      userId: "user-faculty-1",
+      role: "faculty",
+      displayName: "Faculty One",
+      email: "faculty.one@plpass.test",
+      isAuthenticated: true
+    }));
     setRoute("/student/attendance");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
   });
 });
 

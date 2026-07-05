@@ -13,7 +13,6 @@ This map keeps portal collaboration focused on one route-owned page file at a ti
 | Admin | `/admin/attendance` | `src/features/admin/pages/AttendanceMonitoringPage.tsx` | Admin team Member 1 | Attendance monitoring work. |
 | Admin | `/admin/nfc-credentials` | `src/features/admin/pages/NfcCredentialsPage.tsx` | Admin team Member 2 | Credential administration work. |
 | Admin | `/admin/nfc-readers` | `src/features/admin/pages/NfcReadersPage.tsx` | Admin team Member 2 | Reader inventory and status work. |
-| Admin | `/admin/reports` | `src/features/admin/pages/ReportsPage.tsx` | Admin team Member 3 | Report history and filter work. |
 | Admin | `/admin/analytics` | `src/features/admin/pages/AnalyticsPage.tsx` | Admin team Member 3 | Review-only analytics work. |
 | Admin | `/admin/audit-logs` | `src/features/admin/pages/AuditLogsPage.tsx` | Admin team Member 2 | Audit trail work. |
 | Admin | `/admin/settings` | `src/features/admin/pages/SettingsPage.tsx` | Admin team Member 3 | System setting form work. |

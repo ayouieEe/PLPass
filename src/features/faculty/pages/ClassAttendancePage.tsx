@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
@@ -66,11 +66,10 @@ import {
   useReports,
   useStudents,
   useStudentsForClass,
-  useUsers
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student, User } from "@/types/domain";
+import type { AttendanceRecord, AttendanceSession, Class, CorrectionRequest, MlPrediction, Student } from "@/types/domain";
 import type { AttendanceStatus, CorrectionRequestStatus, RiskLevel, SessionStatus, StudentStatus, UserRole } from "@/types/enums";
 
 type RepositoryContext = {
@@ -125,10 +124,13 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : { actorUserId: "", actorRole: "faculty" as const }),
+    [session]
+  );
   const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
   return {
-    context: context ?? { actorUserId: "", actorRole: "faculty" },
+    context,
     facultyId: facultyQuery.data?.items[0]?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
@@ -184,12 +186,11 @@ function attendanceRate(records: AttendanceRecord[]) {
 
 /** Resolves a student's real display name via their linked User record.
  *  Falls back to the student number only if no matching user is found. */
-function studentName(student: Student | undefined, users: User[]) {
+function studentName(student: Student | undefined) {
   if (!student) {
     return "Unknown student";
   }
-  const user = users.find((entry) => entry.id === student.userId);
-  return user?.displayName ?? student.studentNumber;
+  return student.studentNumber;
 }
 
 function ShellState({ scope }: { scope: FacultyScope }) {
@@ -263,12 +264,11 @@ export function ClassAttendancePage() {
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const classesQuery = useClasses({ pageSize: 100 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
-  const usersQuery = useUsers({ pageSize: 500 }, scope.context);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.facultyId) {
     return shellState;
   }
-  if (sessionsQuery.isLoading || recordsQuery.isLoading || classesQuery.isLoading || studentsQuery.isLoading || usersQuery.isLoading) {
+  if (sessionsQuery.isLoading || recordsQuery.isLoading || classesQuery.isLoading || studentsQuery.isLoading) {
     return <LoadingState label="Loading attendance records" />;
   }
   if (sessionsQuery.isError) {
@@ -278,7 +278,6 @@ export function ClassAttendancePage() {
   const records = recordsQuery.data?.items ?? [];
   const classes = classesQuery.data?.items ?? [];
   const students = studentsQuery.data?.items ?? [];
-  const users = usersQuery.data?.items ?? [];
   const selectedRecords = selectedSessionId ? records.filter((record) => record.sessionId === selectedSessionId) : [];
   const columns: ColDef<AttendanceSession>[] = [
     { headerName: "Subject code", valueGetter: (params) => classes.find((entry) => entry.id === params.data?.classId)?.subjectCode ?? "Class" },
@@ -294,7 +293,7 @@ export function ClassAttendancePage() {
     { headerName: "View", cellRenderer: (params: ICellRendererParams<AttendanceSession>) => <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSessionId(params.data?.id ?? null)}>Details</Button> }
   ];
   const detailColumns: ColDef<AttendanceRecord>[] = [
-    { headerName: "Student name", valueGetter: (params) => studentName(students.find((student) => student.id === params.data?.studentId), users) },
+    { headerName: "Student name", valueGetter: (params) => studentName(students.find((student) => student.id === params.data?.studentId)) },
     { headerName: "Student number", valueGetter: (params) => students.find((student) => student.id === params.data?.studentId)?.studentNumber ?? params.data?.studentId },
     { field: "status", headerName: "Attendance status", cellRenderer: (params: ICellRendererParams<AttendanceRecord>) => <StatusBadge label={params.value as string} tone={statusTone(params.value as AttendanceRecord["status"])} /> },
     { field: "verificationMethod", headerName: "Verification method" },
@@ -332,6 +331,9 @@ export function ClassAttendancePage() {
         }
       />
       <FilterBar search={search} selectedFilter="all" filters={[{ label: "All statuses", value: "all" }]} onSearchChange={setSearch} onFilterChange={() => undefined} />
+      {sessions.length === 0 ? (
+        <EmptyState title="No attendance sessions" description="Attendance sessions for your assigned classes will appear here." />
+      ) : null}
       <div className="ag-theme-quartz overflow-hidden rounded-lg border shadow-sm" style={{ height: 360, width: "100%", ...gridThemeVars }}>
         <AgGridReact<AttendanceSession>
           theme="legacy"

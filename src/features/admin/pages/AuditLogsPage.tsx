@@ -7,6 +7,7 @@ import {
   AdminContextBar,
   AdminFrame,
   AdminPageHeader,
+  AdminTableExportActions,
   AdminToolbar,
   formatDateTime,
   useAdminScope,
@@ -60,7 +61,7 @@ export function AuditLogsPage() {
         onFilterChange={setEntityType}
       />
       {scope.isLoading || logs.isLoading || users.isLoading ? <LoadingState label="Loading audit logs" /> : null}
-      <PLPassDataGrid label="Audit logs" data={visibleLogs} columns={columns} emptyTitle="No audit logs found" emptyDescription="No safe audit entries match the selected filters." />
+      <PLPassDataGrid label="Audit logs" data={visibleLogs} columns={columns} emptyTitle="No audit logs found" emptyDescription="No safe audit entries match the selected filters." toolbarActions={<AdminTableExportActions />} />
     </AdminFrame>
   );
 }

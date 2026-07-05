@@ -24,14 +24,6 @@ const studentSession = JSON.stringify({
   isAuthenticated: true
 });
 
-const facultySession = JSON.stringify({
-  userId: "user-faculty-1",
-  role: "faculty",
-  displayName: "Faculty One",
-  email: "faculty.one@plpass.test",
-  isAuthenticated: true
-});
-
 const organizerSession = JSON.stringify({
   userId: "user-organizer-1",
   role: "organizer",
@@ -111,15 +103,11 @@ describe("admin mock repository mutations", () => {
 describe("admin portal routes", () => {
   it.each([
     ["/admin/dashboard", "Admin dashboard"],
-    ["/admin/users", "Users and roles"],
-    ["/admin/academic", "Academic management"],
-    ["/admin/attendance", "Attendance monitoring"],
+    ["/admin/users", "User management"],
+    ["/admin/academic", "Event management"],
+    ["/admin/attendance", "Attendance records"],
     ["/admin/nfc-credentials", "Authentication methods"],
-    ["/admin/nfc-readers", "NFC readers"],
-    ["/admin/reports", "Reports"],
-    ["/admin/analytics", "Analytics"],
-    ["/admin/audit-logs", "Audit logs"],
-    ["/admin/settings", "System settings"]
+    ["/admin/analytics", "Analytics Insights"]
   ])("renders %s as %s", async (path, heading) => {
     storeSession(adminSession);
     setRoute(path);
@@ -146,17 +134,14 @@ describe("admin portal routes", () => {
     for (const label of [
       "Dashboard",
       "User Management",
-      "Academic Management",
+      "Event Management",
       "Attendance Records",
-      "NFC Credentials",
-      "NFC Readers",
-      "Reports",
-      "Analytics and ML",
-      "Audit Logs",
-      "System Settings"
+      "Authentication Methods",
+      "Analytics Insights"
     ]) {
       expect(screen.getAllByRole("link", { name: label }).length).toBeGreaterThan(0);
     }
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
   });
 
   it("does not expose the component preview in normal authenticated navigation", async () => {
@@ -196,7 +181,7 @@ describe("admin portal routes", () => {
     await screen.findByRole("heading", { name: "Admin dashboard" });
     const userManagementLink = screen.getAllByRole("link", { name: "User Management" })[0];
     await user.click(userManagementLink);
-    await screen.findByRole("heading", { name: "Users and roles" });
+    await screen.findByRole("heading", { name: "User management" });
     expect(window.location.pathname).toBe("/admin/users");
     expect(screen.getAllByRole("link", { name: "User Management" })[0]).toHaveAttribute("aria-current", "page");
   });
@@ -209,37 +194,32 @@ describe("admin portal routes", () => {
 
     await screen.findByRole("tab", { name: "Students" });
     expect(await screen.findByText("2026-0001")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Faculty" }));
-    expect(await screen.findByText("F-1001")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Faculty" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Organizers" }));
     expect(await screen.findByText("Student Affairs")).toBeInTheDocument();
   });
 
-  it("renders Academic Management classes and approved/pending event views", async () => {
+  it("renders Event Management approved and pending event views", async () => {
     const user = userEvent.setup();
     storeSession(adminSession);
     setRoute("/admin/academic");
     render(<App />);
 
-    await screen.findByRole("tab", { name: "Classes" });
-    expect(await screen.findByText(/Event Driven Programming/i)).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Events" }));
     expect(await screen.findByRole("tab", { name: "Approved Events" })).toBeInTheDocument();
     expect(await screen.findByText("CCS Orientation")).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Pending Events" }));
-    expect(await screen.findByText("Business Forum")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Approve" }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "No pending events found" })).toBeInTheDocument();
+    expect(screen.queryByText("Business Forum")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
   });
 
-  it("switches Attendance Records between class and event sessions", async () => {
-    const user = userEvent.setup();
+  it("renders event-only Attendance Records", async () => {
     storeSession(adminSession);
     setRoute("/admin/attendance");
     render(<App />);
 
-    await screen.findByRole("tab", { name: "Class Sessions" });
-    expect(await screen.findByText("IT 204 Week 1")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Event Sessions" }));
+    await screen.findByRole("heading", { name: "Attendance records" });
+    expect(screen.queryByRole("tab", { name: "Class Sessions" })).not.toBeInTheDocument();
     expect(await screen.findByText("CCS Orientation Attendance")).toBeInTheDocument();
   });
 
@@ -258,15 +238,16 @@ describe("admin portal routes", () => {
     expect(screen.getByText("Facial Recognition is outside the PLPass MVP and will not be implemented in the current version.")).toBeInTheDocument();
   });
 
-  it("renders required Analytics and ML Insights sections", async () => {
+  it("renders required Analytics Insights sections", async () => {
     storeSession(adminSession);
     setRoute("/admin/analytics");
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Analytics" });
-    expect(screen.getByText("Absenteeism Risk Prediction")).toBeInTheDocument();
-    expect(screen.getByText("Attendance Anomaly Detection")).toBeInTheDocument();
-    expect(screen.getByText("Participation Clustering")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Analytics Insights" });
+    expect(screen.getByRole("tab", { name: "Event Attendance Prediction" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Feedback and Objective Insights" })).toBeInTheDocument();
+    expect(screen.queryByText("Attendance Anomaly Detection")).not.toBeInTheDocument();
+    expect(screen.queryByText("Participation Clustering")).not.toBeInTheDocument();
     expect(screen.getAllByText("Review-only").length).toBeGreaterThan(0);
   });
 
@@ -280,7 +261,6 @@ describe("admin portal routes", () => {
 
   it.each([
     [studentSession, "/student/dashboard", "Student dashboard"],
-    [facultySession, "/faculty/dashboard", "Faculty dashboard"],
     [organizerSession, "/organizer/dashboard", "Organizer dashboard"]
   ])("keeps admin navigation hidden from non-admin users", async (session, path, heading) => {
     storeSession(session);
@@ -294,7 +274,6 @@ describe("admin portal routes", () => {
 
   it.each([
     [studentSession, "/student/dashboard", "student navigation", "Attendance Records"],
-    [facultySession, "/faculty/dashboard", "faculty navigation", "My Classes"],
     [organizerSession, "/organizer/dashboard", "organizer navigation", "Events"]
   ])("renders only the signed-in role navigation", async (session, path, navigationName, expectedLink) => {
     storeSession(session);
@@ -306,16 +285,15 @@ describe("admin portal routes", () => {
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
-  it("shows disabled report generation controls", async () => {
+  it("keeps table-level XLSX and PDF export controls on admin records", async () => {
     storeSession(adminSession);
-    setRoute("/admin/reports");
+    setRoute("/admin/attendance");
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Reports" });
-    expect(screen.getByRole("button", { name: "Generate report" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Generate PDF" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Generate XLSX" })).toBeDisabled();
-    expect(screen.getByText(/PDF and XLSX generation are Phase 12 functionality/i)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Attendance records" });
+    expect(screen.getByRole("button", { name: "XLSX" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "PDF" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "CSV" })).not.toBeInTheDocument();
   });
 
   it("filters audit logs with no-results state", async () => {

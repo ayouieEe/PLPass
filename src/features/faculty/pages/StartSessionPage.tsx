@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, DoorOpen, GraduationCap, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -45,10 +45,13 @@ type FacultyScope = {
 
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : { actorUserId: "", actorRole: "faculty" as const }),
+    [session]
+  );
   const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
   return {
-    context: context ?? { actorUserId: "", actorRole: "faculty" },
+    context,
     facultyId: facultyQuery.data?.items[0]?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
@@ -432,9 +435,16 @@ export function StartSessionPage() {
 
           {/* Action */}
           <div className="flex justify-end border-t bg-background/40 p-5">
-            <Button disabled={!selectedClass} onClick={() => setIsStartModalOpen(true)}>
+            <Button
+              onClick={async () => {
+                const isValid = await classPickerForm.trigger("classId");
+                if (isValid) {
+                  setIsStartModalOpen(true);
+                }
+              }}
+            >
               <DoorOpen className="mr-2 h-4 w-4" />
-              Start session
+              Create mock active session
             </Button>
           </div>
         </div>

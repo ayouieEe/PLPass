@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
@@ -90,10 +90,13 @@ const gridThemeVars = {
 
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : { actorUserId: "", actorRole: "faculty" as const }),
+    [session]
+  );
   const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
   return {
-    context: context ?? { actorUserId: "", actorRole: "faculty" },
+    context,
     facultyId: facultyQuery.data?.items[0]?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
@@ -200,22 +203,21 @@ type SessionRow = AttendanceSession & {
 
 export function ClassDetailsPage() {
   const { classId } = useParams();
+  const resolvedClassId = classId ?? "";
   const scope = useFacultyScope();
-
-  // Guard early: a malformed link (no classId in the URL) should never reach the data hooks.
-  if (!classId) {
-    return <Navigate to={APP_ROUTES.facultyClasses} replace />;
-  }
-
-  const classQuery = useClass(classId, scope.context);
-  const rosterQuery = useStudentsForClass(classId, { pageSize: 200 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ classId, pageSize: 100 }, scope.context);
-  const recordsQuery = useAttendanceRecords({ classId, pageSize: 500 }, scope.context);
+  const classQuery = useClass(resolvedClassId, scope.context);
+  const accessibleClassId = classQuery.data ? resolvedClassId : "";
+  const rosterQuery = useStudentsForClass(accessibleClassId, { pageSize: 200 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ classId: accessibleClassId, pageSize: 100 }, scope.context);
+  const recordsQuery = useAttendanceRecords({ classId: accessibleClassId, pageSize: 500 }, scope.context);
   const catalogQuery = useAcademicCatalog({}, scope.context);
-  const predictionsQuery = useMlPredictions({ classId }, scope.context);
+  const predictionsQuery = useMlPredictions({ classId: accessibleClassId }, scope.context);
   const [tab, setTab] = useState<(typeof TABS)[number]["value"]>("roster");
   const [reportOpen, setReportOpen] = useState(false);
 
+  if (!classId) {
+    return <Navigate to={APP_ROUTES.facultyClasses} replace />;
+  }
   if (scope.isLoading) {
     return <LoadingState label="Loading faculty workspace" />;
   }
@@ -270,9 +272,10 @@ export function ClassDetailsPage() {
         headerName: "Student status",
         maxWidth: 150,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<RosterRow>) => (
-          <StatusBadge label={params.data!.status} tone={statusTone(params.data!.status)} />
-        )
+        cellRenderer: (params: ICellRendererParams<RosterRow>) => {
+          const row = params.data;
+          return row ? <StatusBadge label={row.status} tone={statusTone(row.status)} /> : null;
+        }
       },
       {
         field: "rate",
@@ -287,12 +290,14 @@ export function ClassDetailsPage() {
         headerName: "Risk level",
         maxWidth: 140,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<RosterRow>) =>
-          params.data!.risk ? (
-            <StatusBadge label={params.data!.risk.riskLevel} tone={statusTone(params.data!.risk.riskLevel)} />
+        cellRenderer: (params: ICellRendererParams<RosterRow>) => {
+          const row = params.data;
+          return row?.risk ? (
+            <StatusBadge label={row.risk.riskLevel} tone={statusTone(row.risk.riskLevel)} />
           ) : (
             <span className="text-xs text-muted-foreground/70">Not scored</span>
-          )
+          );
+        }
       }
   ];
 
@@ -305,9 +310,10 @@ export function ClassDetailsPage() {
         headerName: "Status",
         maxWidth: 140,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<SessionRow>) => (
-          <StatusBadge label={params.data!.status} tone={statusTone(params.data!.status)} />
-        )
+        cellRenderer: (params: ICellRendererParams<SessionRow>) => {
+          const row = params.data;
+          return row ? <StatusBadge label={row.status} tone={statusTone(row.status)} /> : null;
+        }
       },
       {
         field: "present",
@@ -338,13 +344,16 @@ export function ClassDetailsPage() {
         sortable: false,
         filter: false,
         resizable: false,
-        cellRenderer: (params: ICellRendererParams<SessionRow>) => (
-          <div className="flex h-full items-center justify-end">
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={APP_ROUTES.facultySession(params.data!.id)}>View session</NavLink>
-            </Button>
-          </div>
-        )
+        cellRenderer: (params: ICellRendererParams<SessionRow>) => {
+          const row = params.data;
+          return row ? (
+            <div className="flex h-full items-center justify-end">
+              <Button asChild variant="outline" size="sm">
+                <NavLink to={APP_ROUTES.facultySession(row.id)}>View session</NavLink>
+              </Button>
+            </div>
+          ) : null;
+        }
       }
   ];
 

@@ -48,15 +48,15 @@ export function RoleBasedSidebar({
     <aside
       className={cn(
         "plpass-sidebar",
-        "flex h-dvh min-h-0 flex-col transition-[width] duration-200 motion-reduce:transition-none",
-        collapsed ? "w-[76px]" : "w-[260px]",
+        "flex h-dvh min-h-0 flex-col overflow-x-hidden transition-[width] duration-200 motion-reduce:transition-none",
+        collapsed ? "w-[60px]" : "w-[280px]",
         className
       )}
       aria-label={`${role} workspace sidebar`}
     >
-      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "px-3")}>
+      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "px-2.5")}>
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
             <Activity className="h-5 w-5" aria-hidden="true" />
           </div>
           {!collapsed ? (
@@ -69,7 +69,7 @@ export function RoleBasedSidebar({
         </div>
       </div>
 
-      <nav aria-label={`${role} navigation`} className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 py-4">
+      <nav aria-label={`${role} navigation`} className={cn("min-h-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto px-3 py-4", collapsed && "px-2")}>
         {Object.entries(groups).map(([group, items]) => (
           <div key={group} className={cn("mb-5 last:mb-0", collapsed && "mb-3")}>
             {!collapsed ? <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p> : null}
@@ -94,11 +94,6 @@ export function RoleBasedSidebar({
                   >
                     <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                     {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                    {collapsed ? (
-                      <span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-50 hidden -translate-y-1/2 whitespace-nowrap rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-lg group-hover:block group-focus-visible:block">
-                        {item.label}
-                      </span>
-                    ) : null}
                   </NavLink>
                 );
               })}
@@ -132,11 +127,6 @@ export function RoleBasedSidebar({
               </span>
               <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </>
-          ) : null}
-          {collapsed ? (
-            <span className="pointer-events-none absolute left-[calc(100%+10px)] z-50 hidden whitespace-nowrap rounded-lg border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-popover-foreground shadow-lg group-hover:block group-focus-visible:block">
-              Profile
-            </span>
           ) : null}
         </NavLink>
       </div>

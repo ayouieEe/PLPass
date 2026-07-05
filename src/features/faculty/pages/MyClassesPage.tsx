@@ -1,5 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
@@ -99,10 +98,13 @@ const gridThemeVars = {
 
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : { actorUserId: "", actorRole: "faculty" as const }),
+    [session]
+  );
   const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
   return {
-    context: context ?? { actorUserId: "", actorRole: "faculty" },
+    context,
     facultyId: facultyQuery.data?.items[0]?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
@@ -262,9 +264,10 @@ export function MyClassesPage() {
         maxWidth: 130,
         sortable: true,
         filter: false,
-        cellRenderer: (params: ICellRendererParams<ClassRow>) => (
-          <StatusBadge label={params.data!.status} tone={params.data!.status === "active" ? "success" : "muted"} />
-        )
+        cellRenderer: (params: ICellRendererParams<ClassRow>) => {
+          const row = params.data;
+          return row ? <StatusBadge label={row.status} tone={row.status === "active" ? "success" : "muted"} /> : null;
+        }
       },
       {
         headerName: "",
@@ -274,16 +277,19 @@ export function MyClassesPage() {
         sortable: false,
         filter: false,
         resizable: false,
-        cellRenderer: (params: ICellRendererParams<ClassRow>) => (
-          <div className="flex h-full items-center justify-end gap-2">
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={APP_ROUTES.facultyClass(params.data!.id)}>View class</NavLink>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setReportClass(params.data!)}>
-              Report
-            </Button>
-          </div>
-        )
+        cellRenderer: (params: ICellRendererParams<ClassRow>) => {
+          const row = params.data;
+          return row ? (
+            <div className="flex h-full items-center justify-end gap-2">
+              <Button asChild variant="outline" size="sm">
+                <NavLink to={APP_ROUTES.facultyClass(row.id)}>View class</NavLink>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setReportClass(row)}>
+                Report
+              </Button>
+            </div>
+          ) : null;
+        }
       }
   ];
 

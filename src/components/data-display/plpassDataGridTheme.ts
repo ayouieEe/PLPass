@@ -5,9 +5,9 @@ export const plpassDefaultColumnDef: ColDef = {
   minWidth: 140,
   resizable: true,
   sortable: true,
-  filter: false,
+  filter: true,
   wrapHeaderText: true,
   autoHeaderHeight: true
 };
 
-export const plpassDataGridClassName = "ag-theme-plpass";
+export const plpassDataGridClassName = "ag-theme-quartz ag-theme-plpass";
