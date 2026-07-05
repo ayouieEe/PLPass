@@ -580,7 +580,13 @@ export const mockUserManagementRepository: UserManagementRepository = {
         (currentContext.actorRole === "admin" ||
           profile.userId === currentContext.actorUserId ||
           Boolean(facultyIdsForStudent?.has(profile.id)))
-    );
+    ).map((profile) => {
+      const user = userFixtures.find((u) => u.id === profile.userId);
+      return {
+        ...profile,
+        displayName: user?.displayName
+      };
+    });
     return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
   },
   async listOrganizerProfiles(query, context) {

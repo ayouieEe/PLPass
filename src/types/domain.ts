@@ -52,6 +52,7 @@ export type FacultyProfile = {
   departmentId: ID;
   employmentStatus: FacultyEmploymentStatus;
   title: string;
+  displayName?: string;
 };
 
 export type OrganizerProfile = {

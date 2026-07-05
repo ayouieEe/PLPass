@@ -122,7 +122,10 @@ export function DashboardLayout({
         role={role}
         userLabel={userLabel}
         collapsed={collapsed}
-        className="fixed inset-y-0 left-0 z-30 hidden lg:flex"
+        className={cn(
+          "fixed inset-y-0 left-0 z-30 hidden lg:flex",
+          role === "student" && "student-glass-sidebar"
+        )}
         headerAction={
           <Button
             type="button"
@@ -153,6 +156,9 @@ export function DashboardLayout({
               role={role}
               userLabel={userLabel}
               onNavigate={() => setDrawerOpen(false)}
+              className={cn(
+                role === "student" && "student-glass-sidebar"
+              )}
               headerAction={
                 <Button
                   ref={closeDrawerRef}

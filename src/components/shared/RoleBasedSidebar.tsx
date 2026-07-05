@@ -54,8 +54,8 @@ export function RoleBasedSidebar({
       )}
       aria-label={`${role} workspace sidebar`}
     >
-      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "px-3")}>
-        <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
+      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "py-4 px-3")}>
+        <div className={cn("flex items-center gap-3", collapsed && "flex-col justify-center")}>
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
             <Activity className="h-5 w-5" aria-hidden="true" />
           </div>
