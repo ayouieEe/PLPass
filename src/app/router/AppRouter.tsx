@@ -3,7 +3,6 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthenticatedLayout, PublicLayout } from "@/app/layouts/AppLayout";
 import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
-import { DevelopmentHomePage } from "@/pages/DevelopmentHomePage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
@@ -22,23 +21,9 @@ import {
   AuditLogsPage,
   NfcCredentialsPage,
   NfcReadersPage,
-  ReportsPage as AdminReportsPage,
   SettingsPage,
   UserManagementPage
 } from "@/features/admin/pages";
-import {
-  ActiveSessionPage as FacultyActiveSessionPage,
-  FacultyAnalyticsPage,
-  ClassAttendancePage,
-  ClassDetailsPage,
-  CorrectionRequestsPage as FacultyCorrectionRequestsPage,
-  FacultyDashboardPage,
-  FacultyProfilePage,
-  FacultyReportsPage,
-  FacultyRootPage,
-  MyClassesPage,
-  StartSessionPage
-} from "@/features/faculty/pages";
 import {
   CreateEventPage,
   EventAttendancePage,
@@ -71,7 +56,7 @@ export function AppRouter() {
   return (
     <Routes>
       <Route element={<PublicLayout />}>
-        <Route index element={<DevelopmentHomePage />} />
+        <Route index element={<Navigate to={APP_ROUTES.login} replace />} />
         <Route path={APP_ROUTES.login} element={<LoginPage />} />
         <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
         <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
@@ -100,23 +85,9 @@ export function AppRouter() {
               <Route path={APP_ROUTES.adminAttendance} element={<AttendanceMonitoringPage />} />
               <Route path={APP_ROUTES.adminNfcCredentials} element={<NfcCredentialsPage />} />
               <Route path={APP_ROUTES.adminNfcReaders} element={<NfcReadersPage />} />
-              <Route path={APP_ROUTES.adminReports} element={<AdminReportsPage />} />
               <Route path={APP_ROUTES.adminAnalytics} element={<AdminAnalyticsPage />} />
               <Route path={APP_ROUTES.adminAuditLogs} element={<AuditLogsPage />} />
               <Route path={APP_ROUTES.adminSettings} element={<SettingsPage />} />
-            </Route>
-            <Route element={<RoleRoute allowedRoles={["faculty"]} />}>
-              <Route path={APP_ROUTES.faculty} element={<FacultyRootPage />} />
-              <Route path={APP_ROUTES.facultyDashboard} element={<FacultyDashboardPage />} />
-              <Route path={APP_ROUTES.facultyClasses} element={<MyClassesPage />} />
-              <Route path="/faculty/classes/:classId" element={<ClassDetailsPage />} />
-              <Route path={APP_ROUTES.facultyStartSession} element={<StartSessionPage />} />
-              <Route path="/faculty/sessions/:sessionId" element={<FacultyActiveSessionPage />} />
-              <Route path={APP_ROUTES.facultyAttendance} element={<ClassAttendancePage />} />
-              <Route path={APP_ROUTES.facultyCorrections} element={<FacultyCorrectionRequestsPage />} />
-              <Route path={APP_ROUTES.facultyReports} element={<FacultyReportsPage />} />
-              <Route path={APP_ROUTES.facultyAnalytics} element={<FacultyAnalyticsPage />} />
-              <Route path={APP_ROUTES.facultyProfile} element={<FacultyProfilePage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} />}>
               <Route path={APP_ROUTES.organizer} element={<OrganizerRootPage />} />

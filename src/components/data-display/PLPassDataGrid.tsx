@@ -10,7 +10,7 @@ import {
   type ModelUpdatedEvent
 } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Columns3, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Columns3, Search } from "lucide-react";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,11 @@ import { cn } from "@/lib/utils/cn";
 import { plpassDataGridClassName, plpassDefaultColumnDef } from "@/components/data-display/plpassDataGridTheme";
 import type { PLPassDataGridProps } from "@/components/data-display/plpassDataGridTypes";
 import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-quartz.css";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+const DEFAULT_PAGE_SIZE = 10;
 
 function readAccessorValue(row: unknown, accessorKey: string) {
   return accessorKey.split(".").reduce<unknown>((value, key) => {
@@ -88,6 +91,15 @@ function normalizePaginationControls(root: HTMLDivElement | null) {
   });
 }
 
+function pageNumbers(currentPage: number, totalPages: number) {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, index) => index);
+  }
+
+  const start = Math.max(0, Math.min(currentPage - 2, totalPages - 5));
+  return Array.from({ length: 5 }, (_, index) => start + index);
+}
+
 export function PLPassDataGrid<TData extends object>({
   data,
   columns,
@@ -98,17 +110,23 @@ export function PLPassDataGrid<TData extends object>({
   errorMessage = "Refresh the page or try again later.",
   isLoading = false,
   isError = false,
-  enableQuickFilter = true,
-  enableColumnVisibility = true,
+  enableQuickFilter = false,
+  enableColumnVisibility = false,
   rowSelection,
   height,
   toolbarActions
 }: PLPassDataGridProps<TData>) {
   const gridShellRef = useRef<HTMLDivElement>(null);
+  const gridApiRef = useRef<GridApi<TData> | null>(null);
   const [quickFilterText, setQuickFilterText] = useState("");
   const [hiddenColumnIds, setHiddenColumnIds] = useState<string[]>([]);
   const [displayedRowCount, setDisplayedRowCount] = useState(data.length);
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(data.length ? Math.ceil(data.length / DEFAULT_PAGE_SIZE) : 0);
   const hasRows = displayedRowCount > 0;
+  const firstRow = hasRows ? currentPage * DEFAULT_PAGE_SIZE + 1 : 0;
+  const lastRow = hasRows ? Math.min(displayedRowCount, (currentPage + 1) * DEFAULT_PAGE_SIZE) : 0;
+  const visiblePageNumbers = pageNumbers(currentPage, totalPages);
 
   const columnDefs = useMemo<ColDef<TData>[]>(() => {
     return columns.map((inputColumn, index) => {
@@ -137,7 +155,11 @@ export function PLPassDataGrid<TData extends object>({
 
   const updateDisplayedRowCount = useCallback((api: GridApi<TData>) => {
     const nextDisplayedRowCount = api.getDisplayedRowCount();
+    const nextTotalPages = nextDisplayedRowCount ? Math.max(1, api.paginationGetTotalPages()) : 0;
+    const nextCurrentPage = nextTotalPages ? Math.min(api.paginationGetCurrentPage(), nextTotalPages - 1) : 0;
     setDisplayedRowCount(nextDisplayedRowCount);
+    setTotalPages(nextTotalPages);
+    setCurrentPage(nextCurrentPage);
     if (nextDisplayedRowCount === 0) {
       api.showNoRowsOverlay();
     } else {
@@ -148,6 +170,7 @@ export function PLPassDataGrid<TData extends object>({
 
   const handleGridReady = useCallback(
     (event: GridReadyEvent<TData>) => {
+      gridApiRef.current = event.api;
       updateDisplayedRowCount(event.api);
     },
     [updateDisplayedRowCount]
@@ -161,7 +184,19 @@ export function PLPassDataGrid<TData extends object>({
   );
 
   const handlePaginationChanged = useCallback(() => {
+    const api = gridApiRef.current;
+    if (api) {
+      const nextDisplayedRowCount = api.getDisplayedRowCount();
+      const nextTotalPages = nextDisplayedRowCount ? Math.max(1, api.paginationGetTotalPages()) : 0;
+      setDisplayedRowCount(nextDisplayedRowCount);
+      setTotalPages(nextTotalPages);
+      setCurrentPage(nextTotalPages ? Math.min(api.paginationGetCurrentPage(), nextTotalPages - 1) : 0);
+    }
     window.requestAnimationFrame(() => normalizePaginationControls(gridShellRef.current));
+  }, []);
+
+  const goToPage = useCallback((page: number) => {
+    gridApiRef.current?.paginationGoToPage(page);
   }, []);
 
   if (isLoading) {
@@ -173,9 +208,19 @@ export function PLPassDataGrid<TData extends object>({
   }
 
   return (
-    <section className="plpass-data-grid-shell rounded-2xl border border-border bg-surface p-3 shadow-sm" aria-label={label}>
-      {(enableQuickFilter || enableColumnVisibility || toolbarActions) ? (
-        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <section className="plpass-data-grid-shell rounded-2xl border border-border bg-surface p-6 shadow-sm" aria-label={label}>
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
+          <span className="h-9 w-1 rounded-full bg-primary" aria-hidden="true" />
+          <p className="min-w-0 truncate text-lg font-bold text-foreground">{label}</p>
+          <span className="rounded-full border bg-surface-muted px-3.5 py-1.5 font-mono text-xs text-muted-foreground">
+            {hasRows ? `${firstRow}-${lastRow} of ${displayedRowCount}` : "0 records"}
+          </span>
+        </div>
+        {toolbarActions ? <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div> : null}
+      </div>
+      {(enableQuickFilter || enableColumnVisibility) ? (
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {enableQuickFilter ? (
             <label className="relative block min-w-0 flex-1 sm:max-w-sm">
               <span className="sr-only">Search {label}</span>
@@ -183,13 +228,12 @@ export function PLPassDataGrid<TData extends object>({
               <input
                 value={quickFilterText}
                 onChange={(event) => setQuickFilterText(event.target.value)}
-                placeholder="Search table"
-                className="plpass-field h-10 w-full rounded-xl border pl-9 pr-3 text-sm outline-none"
+                placeholder="Search records"
+                className="plpass-field h-12 w-full rounded-xl border pl-10 pr-3 text-sm outline-none"
               />
             </label>
           ) : <span />}
           <div className="flex flex-wrap items-center gap-2">
-            {toolbarActions}
             {enableColumnVisibility ? (
               <details className="relative">
                 <summary className="list-none">
@@ -200,7 +244,7 @@ export function PLPassDataGrid<TData extends object>({
                     </span>
                   </Button>
                 </summary>
-                <div className="absolute right-0 z-20 mt-2 max-h-72 w-60 overflow-auto rounded-xl border bg-popover p-2 text-popover-foreground shadow-lg">
+                <div className="absolute right-0 z-20 mt-2 max-h-72 w-60 overflow-auto rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
                   {columnDefs.map((column) => {
                     const columnId = column.colId ?? column.field;
                     if (!columnId) return null;
@@ -237,11 +281,12 @@ export function PLPassDataGrid<TData extends object>({
           defaultColDef={plpassDefaultColumnDef}
           domLayout={height ? "normal" : "autoHeight"}
           pagination={hasRows}
-          suppressPaginationPanel={!hasRows}
-          paginationPageSize={10}
-          paginationPageSizeSelector={[10, 25, 50, 100]}
+          suppressPaginationPanel
+          paginationPageSize={DEFAULT_PAGE_SIZE}
           quickFilterText={quickFilterText}
           rowSelection={rowSelection}
+          rowHeight={52}
+          headerHeight={44}
           noRowsOverlayComponent={NoRowsOverlay}
           theme="legacy"
           suppressCellFocus={false}
@@ -253,7 +298,50 @@ export function PLPassDataGrid<TData extends object>({
           onPaginationChanged={handlePaginationChanged}
         />
       </div>
-      {!hasRows ? <div className="px-1 pt-2 text-xs font-medium text-muted-foreground">0 records</div> : null}
+      {hasRows ? (
+        <div className="mt-6 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-mono text-sm text-muted-foreground">Page {currentPage + 1} of {totalPages}</p>
+          <nav className="flex items-center gap-2" aria-label={`${label} pagination`}>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-lg"
+              disabled={currentPage === 0}
+              aria-label="Previous page"
+              onClick={() => goToPage(Math.max(0, currentPage - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            {visiblePageNumbers.map((page) => (
+              <Button
+                key={page}
+                type="button"
+                variant={page === currentPage ? "default" : "outline"}
+                className="h-10 w-10 rounded-lg px-0 font-mono"
+                aria-current={page === currentPage ? "page" : undefined}
+                aria-label={`Page ${page + 1}`}
+                onClick={() => goToPage(page)}
+              >
+                {page + 1}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-10 w-10 rounded-lg"
+              disabled={currentPage >= totalPages - 1}
+              aria-label="Next page"
+              onClick={() => goToPage(Math.min(totalPages - 1, currentPage + 1))}
+            >
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </nav>
+        </div>
+      ) : (
+        <div className="mt-4 border-t border-border pt-4 font-mono text-sm text-muted-foreground">0 records</div>
+      )}
     </section>
   );
 }

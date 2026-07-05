@@ -14,7 +14,6 @@ export const APP_ROUTES = {
   adminAttendance: "/admin/attendance",
   adminNfcCredentials: "/admin/nfc-credentials",
   adminNfcReaders: "/admin/nfc-readers",
-  adminReports: "/admin/reports",
   adminAnalytics: "/admin/analytics",
   adminAuditLogs: "/admin/audit-logs",
   adminSettings: "/admin/settings",

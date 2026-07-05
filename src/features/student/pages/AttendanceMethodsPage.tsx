@@ -14,7 +14,6 @@ import {
   Camera,
   RefreshCw,
   Clock,
-  ArrowRight,
   Sparkles
 } from "lucide-react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";

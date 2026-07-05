@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
@@ -49,22 +48,22 @@ afterEach(() => {
 });
 
 describe("faculty route access", () => {
-  it("renders the faculty dashboard for a faculty user", async () => {
+  it("does not render a faculty portal route for a legacy faculty session", async () => {
     storeSession(facultySession);
     setRoute("/faculty/dashboard");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Faculty dashboard" })).toBeInTheDocument();
-    expect(screen.getByRole("navigation", { name: "faculty navigation" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "faculty navigation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
-  it("denies faculty routes to a student user", async () => {
+  it("does not expose faculty routes to a student user", async () => {
     storeSession(studentSession);
     setRoute("/faculty/classes");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
   });
 });
 
@@ -196,33 +195,29 @@ describe("faculty session and correction workflows", () => {
 });
 
 describe("faculty UI flows", () => {
-  it("starts a session through the form validation path", async () => {
+  it("does not expose the legacy start-session UI route", async () => {
     storeSession(facultySession);
     setRoute("/faculty/sessions/start");
     render(<App />);
-    const user = userEvent.setup();
 
-    expect(await screen.findByRole("heading", { name: "Start class session" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create mock active session" }));
-    expect(await screen.findByText("Select an assigned class.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
   });
 
-  it("renders Faculty Two empty states without using Faculty One data", async () => {
+  it("does not expose the legacy faculty attendance UI route", async () => {
     storeSession(facultyTwoSession);
     setRoute("/faculty/attendance");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "No attendance sessions" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     expect(screen.queryByText("IT 204")).not.toBeInTheDocument();
   });
 
-  it("shows an error state for a Faculty Two unauthorized class route", async () => {
+  it("does not expose legacy faculty class detail routes", async () => {
     storeSession(facultyTwoSession);
     setRoute("/faculty/classes/class-1");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Class unavailable" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
   });
 });
 

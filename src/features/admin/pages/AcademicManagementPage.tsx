@@ -9,86 +9,72 @@ import {
   AdminFrame,
   AdminPageHeader,
   AdminTabs,
+  AdminTableExportActions,
   AdminToolbar,
   DetailPanel,
-  UnavailablePanel,
-  compactProgram,
   formatDate,
   formatStatus,
   formatTimeRange,
   statusTone,
-  useAdminScope,
-  userName
+  useAdminScope
 } from "@/features/admin/components/AdminPage";
-import { useClasses, useEventStatusMutation, useEvents, useFacultyProfiles, useStudents, useUsers } from "@/hooks/useRepositoryQueries";
-import type { Class, Event } from "@/types/domain";
+import { useEventStatusMutation, useEvents } from "@/hooks/useRepositoryQueries";
+import type { Event } from "@/types/domain";
 
-type AcademicTab = "classes" | "events";
-type EventView = "approved" | "pending";
+type EventQueue = "approved" | "pending";
 
 export function AcademicManagementPage() {
   const scope = useAdminScope();
-  const [tab, setTab] = useState<AcademicTab>("classes");
-  const [eventView, setEventView] = useState<EventView>("approved");
+  const [queue, setQueue] = useState<EventQueue>("approved");
   const [search, setSearch] = useState("");
-  const [selectedDetail, setSelectedDetail] = useState<string | null>(null);
   const [declineReason, setDeclineReason] = useState("");
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
-  const users = useUsers({ pageSize: 100 }, scope.context);
-  const faculty = useFacultyProfiles({ pageSize: 100 }, scope.context);
-  const students = useStudents({ pageSize: 100 }, scope.context);
-  const classes = useClasses({ pageSize: 100, search }, scope.context);
-  const events = useEvents({ pageSize: 100, search }, scope.context);
+  const events = useEvents({ pageSize: 100, search, departmentId: scope.department?.id }, scope.context);
   const updateEventStatus = useEventStatusMutation(scope.context);
 
-  const visibleEvents = (events.data?.items ?? []).filter((event) => event.status === eventView);
-  const classRows = classes.data?.items ?? [];
-
-  const classColumns = useMemo<ColumnDef<Class>[]>(() => [
-    { header: "Subject Code", accessorKey: "subjectCode" },
-    { header: "Subject Name", cell: ({ row }) => `Class: ${row.original.subjectTitle}` },
-    { header: "Assigned Faculty", cell: ({ row }) => {
-      const profile = faculty.data?.items.find((item) => item.id === row.original.facultyId);
-      return userName(users.data?.items ?? [], profile?.userId);
-    } },
-    { header: "Room", accessorKey: "room" },
-    { header: "Schedule", accessorKey: "scheduleLabel" },
-    { header: "Enrolled Students", cell: ({ row }) => students.data?.items.filter((student) => student.departmentId === row.original.departmentId).length ?? 0 },
-    { header: "Class Status", cell: ({ row }) => <StatusBadge label={formatStatus(row.original.status)} tone={statusTone(row.original.status)} /> },
-    { header: "View Details", cell: ({ row }) => <Button type="button" size="sm" variant="outline" onClick={() => setSelectedDetail(row.original.id)}>View</Button> }
-  ], [faculty.data?.items, students.data?.items, users.data?.items]);
+  const eventRows = useMemo(
+    () => (events.data?.items ?? []).filter((event) => event.status === queue),
+    [events.data?.items, queue]
+  );
+  const selectedEvent = eventRows.find((event) => event.id === selectedEventId);
 
   const eventColumns = useMemo<ColumnDef<Event>[]>(() => [
     { header: "Event Code", accessorKey: "code" },
-    { header: "Event Name", cell: ({ row }) => `Event: ${row.original.title}` },
+    { header: "Event Name", cell: ({ row }) => row.original.title },
     { header: "Category", accessorKey: "category" },
     { header: "Venue", accessorKey: "venue" },
     { header: "Date", cell: ({ row }) => formatDate(row.original.startsAt) },
     { header: "Time", cell: ({ row }) => formatTimeRange(row.original.startsAt, row.original.endsAt) },
-    { header: "Participant Count", cell: () => "Repository detail" },
+    { header: "Participant Scope", cell: ({ row }) => row.original.departmentId ? "Department" : "Campus-wide" },
     { header: "Approval Status", cell: ({ row }) => <StatusBadge label={formatStatus(row.original.status)} tone={statusTone(row.original.status)} /> },
     {
-      header: "Approval Action",
+      header: "Actions",
       cell: ({ row }) => (
         <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            type="button"
-            disabled={row.original.status !== "pending"}
-            onClick={() => updateEventStatus.mutate({ eventId: row.original.id, status: "approved" })}
-          >
-            Approve
+          <Button type="button" size="sm" variant="outline" onClick={() => setSelectedEventId(row.original.id)}>
+            View
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            type="button"
-            disabled={row.original.status !== "pending" || !declineReason.trim()}
-            onClick={() => updateEventStatus.mutate({ eventId: row.original.id, status: "rejected", reason: declineReason })}
-          >
-            Decline
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setSelectedDetail(row.original.id)}>View Details</Button>
+          {row.original.status === "pending" ? (
+            <>
+              <Button
+                size="sm"
+                type="button"
+                onClick={() => updateEventStatus.mutate({ eventId: row.original.id, status: "approved" })}
+              >
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                disabled={!declineReason.trim()}
+                onClick={() => updateEventStatus.mutate({ eventId: row.original.id, status: "rejected", reason: declineReason })}
+              >
+                Decline
+              </Button>
+            </>
+          ) : null}
         </div>
       )
     }
@@ -96,58 +82,58 @@ export function AcademicManagementPage() {
 
   return (
     <AdminFrame>
-      <AdminPageHeader title="Academic Management" accessibleTitle="Academic management" description="Dean-scoped classes, rosters, and event approval queues." />
+      <AdminPageHeader title="Event Management" accessibleTitle="Event management" description="Review, approve, and monitor department event sessions." />
       <AdminContextBar department={scope.department} semester={scope.activeSemester} />
+      <AdminToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search events">
+        <StatusBadge label="List view" tone="info" />
+      </AdminToolbar>
       <AdminTabs
-        label="Academic management tabs"
-        selected={tab}
+        label="Event approval queues"
+        selected={queue}
         onSelect={(value) => {
-          setTab(value);
-          setSelectedDetail(null);
+          setQueue(value);
+          setSelectedEventId(null);
         }}
         tabs={[
-          { label: "Classes", value: "classes" },
-          { label: "Events", value: "events" }
+          { label: "Approved Events", value: "approved" },
+          { label: "Pending Events", value: "pending" }
         ]}
       />
-      <AdminToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search academic records">
-        <StatusBadge label={`Program filter: ${scope.programs.length ? "Available" : "No programs"}`} tone="muted" />
-        <StatusBadge label="Year level filter: all" tone="muted" />
-      </AdminToolbar>
-
-      {tab === "classes" ? (
-        <UnavailablePanel title="Class assignment actions" message="Class creation and roster add/remove actions depend on existing repository mutation support. Destructive roster changes should use confirmation in a supported detail workflow." />
-      ) : (
-        <div className="space-y-3">
-          <AdminTabs
-            label="Events review tabs"
-            selected={eventView}
-            onSelect={setEventView}
-            tabs={[
-              { label: "Approved Events", value: "approved" },
-              { label: "Pending Events", value: "pending" }
-            ]}
+      {queue === "pending" ? (
+        <label className="block max-w-xl space-y-2 text-sm font-medium">
+          <span>Decline reason</span>
+          <input
+            className="plpass-field h-10 w-full rounded-md border px-3"
+            value={declineReason}
+            onChange={(event) => setDeclineReason(event.target.value)}
+            placeholder="Required before declining an event"
           />
-          {eventView === "pending" ? (
-            <label className="block max-w-xl space-y-2 text-sm font-medium">
-              <span>Decline reason</span>
-              <input className="plpass-field h-10 w-full rounded-md border px-3" value={declineReason} onChange={(event) => setDeclineReason(event.target.value)} placeholder="Required before declining an event" />
-            </label>
-          ) : null}
-        </div>
-      )}
-
-      {scope.isLoading || classes.isLoading || events.isLoading || users.isLoading || faculty.isLoading ? <LoadingState label="Loading academic records" /> : null}
-      {tab === "classes" ? <PLPassDataGrid label="Academic classes" data={classRows} columns={classColumns} emptyTitle="No classes found" emptyDescription="No classes match the selected semester and Dean scope." /> : null}
-      {tab === "events" ? <PLPassDataGrid label="Academic events" data={visibleEvents} columns={eventColumns} emptyTitle={`No ${eventView} events found`} emptyDescription="No events match the selected review queue." /> : null}
-      <div className="sr-only" aria-label="Visible academic record names">
-        {tab === "classes" ? classRows.map((classRecord) => <span key={classRecord.id}>{classRecord.subjectTitle}</span>) : null}
-        {tab === "events" ? visibleEvents.map((event) => <span key={event.id}>{event.title}</span>) : null}
+        </label>
+      ) : null}
+      {scope.isLoading || events.isLoading ? <LoadingState label="Loading event records" /> : null}
+      <PLPassDataGrid
+        label={queue === "approved" ? "Approved events" : "Pending events"}
+        data={eventRows}
+        columns={eventColumns}
+        emptyTitle={`No ${queue} events found`}
+        emptyDescription="Events submitted by organizers will appear here when they match the selected Dean scope."
+        toolbarActions={<AdminTableExportActions />}
+      />
+      <div className="sr-only" aria-label="Visible event record names">
+        {eventRows.map((event) => <span key={event.id}>Event record {event.title}</span>)}
       </div>
-
-      <DetailPanel title="Academic details">
-        {selectedDetail ? `Selected academic record: ${selectedDetail}. Details should show class information, faculty assignment, roster, sessions, attendance summary, and supported report actions.` : `Selected semester includes ${classRows.length} class records across ${scope.programs.map((program) => compactProgram(scope.programs, program.id)).join(", ") || "assigned programs"}.`}
-      </DetailPanel>
+      {selectedEvent ? (
+        <DetailPanel title="Event details">
+          <div className="grid gap-2 md:grid-cols-2">
+            <p>Event: {selectedEvent.title}</p>
+            <p>Category: {selectedEvent.category}</p>
+            <p>Venue: {selectedEvent.venue}</p>
+            <p>Schedule: {formatDate(selectedEvent.startsAt)} / {formatTimeRange(selectedEvent.startsAt, selectedEvent.endsAt)}</p>
+            <p>Participant scope: {selectedEvent.departmentId ? "Department" : "Campus-wide"}</p>
+            <p>Status: {formatStatus(selectedEvent.status)}</p>
+          </div>
+        </DetailPanel>
+      ) : null}
     </AdminFrame>
   );
 }

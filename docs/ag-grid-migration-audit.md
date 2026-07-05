@@ -31,7 +31,6 @@ This audit covers `src/` after the system-wide migration to the shared `PLPassDa
 | `/admin/attendance` - Attendance sessions and records | `src/features/admin/pages/AttendanceMonitoringPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
 | `/admin/nfc-credentials` - NFC credentials | `src/features/admin/pages/NfcCredentialsPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
 | `/admin/nfc-readers` - NFC readers | `src/features/admin/pages/NfcReadersPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
-| `/admin/reports` - Admin report history | `src/features/admin/pages/ReportsPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
 | `/admin/analytics` - Admin analytics signals | `src/features/admin/pages/AnalyticsPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
 | `/admin/audit-logs` - Audit logs | `src/features/admin/pages/AuditLogsPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |
 | `/faculty/classes` - Assigned classes | `src/features/faculty/pages/MyClassesPage.tsx` | Not applicable in fixture | Yes | Yes, `.ag-root-wrapper` |

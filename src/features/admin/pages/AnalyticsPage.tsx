@@ -11,6 +11,8 @@ import {
   AdminContextBar,
   AdminFrame,
   AdminPageHeader,
+  AdminTabs,
+  AdminTableExportActions,
   AdminToolbar,
   compactProgram,
   formatDateTime,
@@ -18,106 +20,111 @@ import {
   useAdminScope,
   userName
 } from "@/features/admin/components/AdminPage";
-import { useClasses, useEvents, useMlPredictions, useStudents, useUsers } from "@/hooks/useRepositoryQueries";
-import type { MlPrediction } from "@/types/domain";
+import { useAttendanceRecords, useAttendanceSessions, useEvents, useMlPredictions, useStudents, useUsers } from "@/hooks/useRepositoryQueries";
+import type { AttendanceSession, MlPrediction } from "@/types/domain";
 
-function contextLabel(classes: ReturnType<typeof useClasses>["data"], events: ReturnType<typeof useEvents>["data"], prediction: MlPrediction) {
-  return classes?.items.find((item) => item.id === prediction.classId)?.subjectCode ?? events?.items.find((item) => item.id === prediction.eventId)?.code ?? "Department context";
+type InsightTab = "prediction" | "feedback";
+
+function eventContext(events: ReturnType<typeof useEvents>["data"], prediction: MlPrediction) {
+  return events?.items.find((item) => item.id === prediction.eventId)?.title ?? "Event attendance signal";
+}
+
+function sessionAttendance(records: Array<{ sessionId: string; status: string }>, sessionId: string) {
+  const sessionRecords = records.filter((record) => record.sessionId === sessionId);
+  const present = sessionRecords.filter((record) => record.status === "present").length;
+  const late = sessionRecords.filter((record) => record.status === "late").length;
+  return {
+    total: sessionRecords.length,
+    attended: present + late,
+    attendanceRate: sessionRecords.length ? Math.round(((present + late) / sessionRecords.length) * 100) : 0
+  };
 }
 
 export function AnalyticsPage() {
   const scope = useAdminScope();
+  const [tab, setTab] = useState<InsightTab>("prediction");
   const [search, setSearch] = useState("");
   const predictions = useMlPredictions({ pageSize: 100 }, scope.context);
   const users = useUsers({ pageSize: 100 }, scope.context);
   const students = useStudents({ pageSize: 100, departmentId: scope.department?.id }, scope.context);
-  const classes = useClasses({ pageSize: 100, departmentId: scope.department?.id }, scope.context);
   const events = useEvents({ pageSize: 100, departmentId: scope.department?.id }, scope.context);
+  const sessions = useAttendanceSessions({ pageSize: 100 }, scope.context);
+  const records = useAttendanceRecords({ pageSize: 100 }, scope.context);
 
-  const items = (predictions.data?.items ?? []).filter((prediction) =>
-    [prediction.patternLabel, prediction.explanation, prediction.riskLevel, prediction.type].join(" ").toLowerCase().includes(search.toLowerCase())
+  const predictionRows = (predictions.data?.items ?? []).filter((prediction) =>
+    prediction.type === "random_forest_risk" &&
+    [prediction.patternLabel, prediction.explanation, prediction.riskLevel].join(" ").toLowerCase().includes(search.toLowerCase())
   );
+  const eventSessions = (sessions.data?.items ?? []).filter((session) =>
+    session.type === "event" &&
+    [session.title, session.status, session.mode].join(" ").toLowerCase().includes(search.toLowerCase())
+  );
+  const recordItems = useMemo(() => records.data?.items ?? [], [records.data?.items]);
 
   const riskData = useMemo(() => ["low", "medium", "high", "critical"].map((level) => ({
     label: level,
-    watchlist: items.filter((prediction) => prediction.riskLevel === level && prediction.score < 0.8).length,
-    atRisk: items.filter((prediction) => prediction.riskLevel === level && prediction.score >= 0.8).length
-  })), [items]);
+    watchlist: predictionRows.filter((prediction) => prediction.riskLevel === level && prediction.score < 0.8).length,
+    atRisk: predictionRows.filter((prediction) => prediction.riskLevel === level && prediction.score >= 0.8).length
+  })), [predictionRows]);
 
-  const participationData = useMemo(() => items.map((prediction) => ({
+  const turnoutData = useMemo(() => predictionRows.map((prediction) => ({
     label: prediction.patternLabel.slice(0, 16),
     participation: Math.round(prediction.score * 100)
-  })), [items]);
+  })), [predictionRows]);
 
-  const riskColumns = useMemo<ColumnDef<MlPrediction>[]>(() => [
+  const predictionColumns = useMemo<ColumnDef<MlPrediction>[]>(() => [
     { header: "Student Name", cell: ({ row }) => userName(users.data?.items ?? [], students.data?.items.find((student) => student.id === row.original.studentId)?.userId) },
     { header: "Student ID", cell: ({ row }) => students.data?.items.find((student) => student.id === row.original.studentId)?.studentNumber ?? "Group signal" },
-    { header: "Class or Event Context", cell: ({ row }) => contextLabel(classes.data, events.data, row.original) },
+    { header: "Event Context", cell: ({ row }) => eventContext(events.data, row.original) },
     { header: "Risk Level", cell: ({ row }) => <StatusBadge label={row.original.riskLevel} tone={statusTone(row.original.riskLevel)} /> },
-    { header: "Supporting Attendance Indicators", accessorKey: "explanation" },
+    { header: "Predicted Turnout", cell: ({ row }) => `${Math.round(row.original.score * 100)}%` },
+    { header: "Supporting Indicators", accessorKey: "explanation" },
     { header: "Last Updated", cell: ({ row }) => formatDateTime(row.original.generatedAt) },
-    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
-  ], [classes.data, events.data, students.data?.items, users.data?.items]);
+    { header: "Actions", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
+  ], [events.data, students.data?.items, users.data?.items]);
 
-  const anomalyColumns = useMemo<ColumnDef<MlPrediction>[]>(() => [
-    { header: "Class or Event", cell: ({ row }) => contextLabel(classes.data, events.data, row.original) },
-    { header: "Anomaly Type", accessorKey: "patternLabel" },
-    { header: "Detected Date", cell: ({ row }) => formatDateTime(row.original.generatedAt) },
-    { header: "Severity", cell: ({ row }) => <StatusBadge label={row.original.riskLevel} tone={statusTone(row.original.riskLevel)} /> },
-    { header: "Supporting Metric", cell: ({ row }) => `${Math.round(row.original.score * 100)}% confidence` },
-    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
-  ], [classes.data, events.data]);
-
-  const clusterColumns = useMemo<ColumnDef<MlPrediction>[]>(() => [
-    { header: "Student Name", cell: ({ row }) => userName(users.data?.items ?? [], students.data?.items.find((student) => student.id === row.original.studentId)?.userId) },
-    { header: "Student ID", cell: ({ row }) => students.data?.items.find((student) => student.id === row.original.studentId)?.studentNumber ?? "Group signal" },
-    { header: "Cluster Label", accessorKey: "patternLabel" },
-    { header: "Attendance Pattern Summary", cell: ({ row }) => `${row.original.explanation} ${compactProgram(scope.programs, students.data?.items.find((student) => student.id === row.original.studentId)?.programId)}` },
-    { header: "Last Updated", cell: ({ row }) => formatDateTime(row.original.generatedAt) },
-    { header: "View Details", cell: () => <Button type="button" size="sm" variant="outline">View</Button> }
-  ], [scope.programs, students.data?.items, users.data?.items]);
-
-  const riskRows = items.filter((prediction) => prediction.type === "random_forest_risk");
-  const anomalyRows = items.filter((prediction) => prediction.type === "linear_regression_anomaly");
-  const clusterRows = items.filter((prediction) => prediction.type === "k_means_cluster");
+  const feedbackColumns = useMemo<ColumnDef<AttendanceSession>[]>(() => [
+    { header: "Event Session", accessorKey: "title" },
+    { header: "Event ID", cell: ({ row }) => row.original.eventId ?? row.original.id },
+    { header: "Mode", cell: ({ row }) => row.original.mode },
+    { header: "Attendance Rate", cell: ({ row }) => `${sessionAttendance(recordItems, row.original.id).attendanceRate}%` },
+    { header: "Records Captured", cell: ({ row }) => sessionAttendance(recordItems, row.original.id).total },
+    { header: "Objective Signal", cell: ({ row }) => {
+      const rate = sessionAttendance(recordItems, row.original.id).attendanceRate;
+      return rate >= 80 ? "Objective met" : rate >= 50 ? "Needs monitoring" : "Follow-up needed";
+    } },
+    { header: "Program Signal", cell: () => compactProgram(scope.programs, students.data?.items[0]?.programId) },
+    { header: "Last Activity", cell: ({ row }) => formatDateTime(row.original.endsAt ?? row.original.startsAt) }
+  ], [recordItems, scope.programs, students.data?.items]);
 
   return (
     <AdminFrame>
-      <AdminPageHeader title="Analytics" description="Review-only decision support for attendance patterns. Predictions never change grades, attendance, permissions, or student status automatically." />
+      <AdminPageHeader title="Analytics Insights" description="Random Forest event attendance prediction and feedback insights." />
       <AdminContextBar department={scope.department} semester={scope.activeSemester} />
-      <AdminToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search analytics">
+      <AdminToolbar search={search} onSearchChange={setSearch} searchPlaceholder="Search insights">
         <StatusBadge label="Review-only" tone="info" />
-        <StatusBadge label="Date range: repository data" tone="muted" />
       </AdminToolbar>
-      {scope.isLoading || predictions.isLoading ? <LoadingState label="Loading analytics" /> : null}
-      <section className="grid gap-4 xl:grid-cols-2">
-        {items.length ? <RiskSummaryChart data={riskData} /> : <EmptyState title="No risk distribution data" />}
-        {items.length ? <ParticipationBarChart data={participationData} /> : <EmptyState title="No participation cluster data" />}
-      </section>
-      <section className="space-y-3">
-        <div>
-          <StatusBadge label="Review-only" tone="info" />
-          <h2 className="mt-2 text-lg font-semibold">Absenteeism Risk Prediction</h2>
-          <p className="text-sm text-muted-foreground">Who may need early support?</p>
-        </div>
-        <PLPassDataGrid label="Absenteeism risk prediction" data={riskRows} columns={riskColumns} emptyTitle="No absenteeism risk signals" />
-      </section>
-      <section className="space-y-3">
-        <div>
-          <StatusBadge label="Review-only" tone="info" />
-          <h2 className="mt-2 text-lg font-semibold">Attendance Anomaly Detection</h2>
-          <p className="text-sm text-muted-foreground">Is an attendance pattern changing unexpectedly?</p>
-        </div>
-        <PLPassDataGrid label="Attendance anomaly detection" data={anomalyRows} columns={anomalyColumns} emptyTitle="No attendance anomalies" />
-      </section>
-      <section className="space-y-3">
-        <div>
-          <StatusBadge label="Review-only" tone="info" />
-          <h2 className="mt-2 text-lg font-semibold">Participation Clustering</h2>
-          <p className="text-sm text-muted-foreground">Which students show similar participation patterns?</p>
-        </div>
-        <PLPassDataGrid label="Participation clustering" data={clusterRows} columns={clusterColumns} emptyTitle="No participation clusters" />
-      </section>
+      <AdminTabs
+        label="Analytics insight tabs"
+        selected={tab}
+        onSelect={setTab}
+        tabs={[
+          { label: "Event Attendance Prediction", value: "prediction" },
+          { label: "Feedback and Objective Insights", value: "feedback" }
+        ]}
+      />
+      {scope.isLoading || predictions.isLoading || sessions.isLoading || records.isLoading ? <LoadingState label="Loading analytics insights" /> : null}
+      {tab === "prediction" ? (
+        <>
+          <section className="grid gap-4 xl:grid-cols-2">
+            {predictionRows.length ? <RiskSummaryChart data={riskData} /> : <EmptyState title="No prediction distribution data" />}
+            {predictionRows.length ? <ParticipationBarChart data={turnoutData} /> : <EmptyState title="No turnout prediction data" />}
+          </section>
+          <PLPassDataGrid label="Event attendance prediction" data={predictionRows} columns={predictionColumns} emptyTitle="No event attendance predictions" emptyDescription="Random Forest prediction rows will appear after event attendance signals are generated." toolbarActions={<AdminTableExportActions />} />
+        </>
+      ) : (
+        <PLPassDataGrid label="Feedback and objective insights" data={eventSessions} columns={feedbackColumns} emptyTitle="No feedback insights" emptyDescription="Event session feedback and objective signals will appear after attendance records are captured." toolbarActions={<AdminTableExportActions />} />
+      )}
     </AdminFrame>
   );
 }

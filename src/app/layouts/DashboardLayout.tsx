@@ -123,7 +123,7 @@ export function DashboardLayout({
         userLabel={userLabel}
         collapsed={collapsed}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden lg:flex",
+          "fixed inset-y-0 left-0 z-30 hidden md:flex",
           role === "student" && "student-glass-sidebar"
         )}
         headerAction={
@@ -141,7 +141,7 @@ export function DashboardLayout({
       />
 
       {drawerOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Mobile navigation">
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Mobile navigation">
           <button
             type="button"
             aria-label="Close navigation overlay"
@@ -177,25 +177,43 @@ export function DashboardLayout({
         </div>
       ) : null}
 
-      <div className={cn("flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "lg:pl-[76px]" : "lg:pl-[260px]")}>
-        <header className="sticky top-0 z-20 border-b bg-surface/95 backdrop-blur">
+      <div className={cn("flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
+        <header
+          className={cn(
+            "fixed left-0 right-0 top-0 z-40 border-b bg-surface/95 shadow-sm backdrop-blur transition-[left] duration-200 motion-reduce:transition-none",
+            collapsed ? "md:left-[60px]" : "md:left-[280px]"
+          )}
+        >
           <PageContainer className="flex min-h-16 items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <Button type="button" variant="outline" size="icon" className="lg:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
+              <Button type="button" variant="outline" size="icon" className="md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="hidden h-9 w-9 rounded-lg text-muted-foreground hover:bg-surface-muted hover:text-foreground md:inline-flex"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                onClick={() => setCollapsed((current) => !current)}
+              >
+                {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
+              </Button>
+              <span className="hidden h-7 w-px bg-border md:block" aria-hidden="true" />
               <div className="min-w-0">
                 {role !== "student" && (
-                  <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground sm:block">
+                  <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground xl:block">
                     {currentBreadcrumbs.join(" / ")}
                   </nav>
                 )}
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
-                    <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
-                    {role !== "student" && (
-                      <p className="hidden text-sm text-muted-foreground md:block">{currentDescription}</p>
+                    {role === "admin" ? (
+                      <p className="truncate text-lg font-semibold text-foreground">{currentTitle}</p>
+                    ) : (
+                      <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
                     )}
+                    {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
                   {primaryAction ? <div className="hidden md:block">{primaryAction}</div> : null}
                 </div>
@@ -263,7 +281,7 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        <main className="w-full min-w-0 flex-1 py-4 md:py-6 lg:py-8">
+        <main className={cn("w-full min-w-0 flex-1 pb-4 md:pb-6 lg:pb-8", filters ? "pt-36" : "pt-20")}>
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
               <section className="min-w-0">{children}</section>
