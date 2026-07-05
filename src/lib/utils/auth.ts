@@ -6,7 +6,7 @@ export function getAuthorizedHomePath(role: UserRole) {
     return APP_ROUTES.adminDashboard;
   }
   if (role === "faculty") {
-    return APP_ROUTES.facultyDashboard;
+    return APP_ROUTES.accessDenied;
   }
   if (role === "organizer") {
     return APP_ROUTES.organizerDashboard;
@@ -19,7 +19,7 @@ export function isPathAllowedForRole(pathname: string, role: UserRole) {
     return role === "admin";
   }
   if (pathname.startsWith("/faculty")) {
-    return role === "faculty";
+    return false;
   }
   if (pathname.startsWith("/organizer")) {
     return role === "organizer";

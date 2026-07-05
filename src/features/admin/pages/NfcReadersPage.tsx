@@ -8,6 +8,7 @@ import {
   AdminContextBar,
   AdminFrame,
   AdminPageHeader,
+  AdminTableExportActions,
   AdminToolbar,
   departmentName,
   formatDateTime,
@@ -60,7 +61,7 @@ export function NfcReadersPage() {
         onFilterChange={setStatus}
       />
       {scope.isLoading || readers.isLoading ? <LoadingState label="Loading NFC readers" /> : null}
-      <PLPassDataGrid label="NFC readers" data={visibleReaders} columns={columns} emptyTitle="No NFC readers found" emptyDescription="No devices match the selected status and department scope." />
+      <PLPassDataGrid label="NFC readers" data={visibleReaders} columns={columns} emptyTitle="No NFC readers found" emptyDescription="No devices match the selected status and department scope." toolbarActions={<AdminTableExportActions />} />
     </AdminFrame>
   );
 }

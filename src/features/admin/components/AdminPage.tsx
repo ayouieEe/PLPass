@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components */
-import type { ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
+import { Building2, CalendarDays, ChevronDown, Clock3, Search, X } from "lucide-react";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ErrorState } from "@/components/feedback/ErrorState";
+import { ExportButtons } from "@/components/shared/ExportButtons";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { SearchInput } from "@/components/shared/SearchInput";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useAdminProfiles, useSystemSettings } from "@/hooks/useRepositoryQueries";
@@ -57,7 +58,7 @@ export function useAdminScope() {
 }
 
 export function AdminFrame({ children }: { children: ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
+  return <div className="mx-auto w-full max-w-[1500px] space-y-4">{children}</div>;
 }
 
 export function AdminAccessError() {
@@ -78,13 +79,8 @@ export function AdminPageHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      <PageHeader
-        eyebrow="Dean Admin"
-        title={title}
-        description={description}
-        actions={actions}
-      />
+    <div className="space-y-3">
+      <PageHeader title={title} description={description} actions={actions} />
       {accessibleTitle ? <h1 className="sr-only">{accessibleTitle}</h1> : null}
       {children}
     </div>
@@ -102,12 +98,38 @@ export function AdminContextBar({
   lastUpdated?: string;
   extra?: ReactNode;
 }) {
+  const contextItems = [
+    {
+      icon: Building2,
+      label: "Scope",
+      value: department ? department.name : "Assigned departments"
+    },
+    semester
+      ? {
+          icon: CalendarDays,
+          label: "Semester",
+          value: `${semester.schoolYear} / ${semester.label}`
+        }
+      : undefined,
+    lastUpdated
+      ? {
+          icon: Clock3,
+          label: "Updated",
+          value: lastUpdated
+        }
+      : undefined
+  ].filter(Boolean) as Array<{ icon: ComponentType<{ className?: string }>; label: string; value: string }>;
+
   return (
-    <section className="flex flex-col gap-3 rounded-lg border bg-surface p-3 text-sm md:flex-row md:items-center md:justify-between" aria-label="Admin scope and academic context">
+    <section className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-surface-muted/70 px-4 py-3 text-sm shadow-sm md:flex-row md:items-center md:justify-between" aria-label="Admin scope and academic context">
       <div className="flex flex-wrap gap-2">
-        <StatusBadge label={`Scope: ${department ? department.name : "Assigned Dean departments"}`} tone="info" />
-        {semester ? <StatusBadge label={`${semester.schoolYear} / ${semester.label}`} tone="muted" /> : null}
-        {lastUpdated ? <StatusBadge label={`Last updated: ${lastUpdated}`} tone="muted" /> : null}
+        {contextItems.map(({ icon: Icon, label, value }) => (
+          <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+            <Icon className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            <span className="text-muted-foreground">{label}</span>
+            <span className="max-w-[16rem] truncate">{value}</span>
+          </span>
+        ))}
       </div>
       {extra ? <div className="flex flex-wrap items-center gap-2">{extra}</div> : null}
     </section>
@@ -133,28 +155,66 @@ export function AdminToolbar({
   onFilterChange?: (value: string) => void;
   children?: ReactNode;
 }) {
+  const filterOptions = filters ?? [];
+  const defaultFilter = filterOptions[0]?.value ?? "";
+  const hasSearch = typeof search === "string" && onSearchChange;
+  const hasFilters = Boolean(filterOptions.length && onFilterChange);
+  const hasActiveSearch = Boolean(search?.trim());
+  const hasActiveFilter = Boolean(filterOptions.length && selectedFilter && selectedFilter !== defaultFilter);
+  const canClear = hasActiveSearch || hasActiveFilter;
+
+  const handleClear = () => {
+    onSearchChange?.("");
+    if (filterOptions.length) {
+      onFilterChange?.(defaultFilter);
+    }
+  };
+
   return (
-    <section className="flex flex-col gap-3 rounded-lg border bg-surface p-3 lg:flex-row lg:items-center lg:justify-between" aria-label="Admin filters">
-      {typeof search === "string" && onSearchChange ? (
-        <div className="min-w-0 flex-1 lg:max-w-sm">
+    <section className="rounded-2xl border border-border/80 bg-surface p-3 shadow-sm" aria-label="Admin filters">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        {hasSearch ? (
+        <div className="relative min-w-0 flex-1 xl:max-w-md">
           <label className="sr-only">{searchLabel}</label>
-          <SearchInput value={search} placeholder={searchPlaceholder} onChange={onSearchChange} />
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <input
+            className="plpass-field h-11 w-full rounded-xl border bg-surface pl-11 pr-3 text-sm outline-none"
+            value={search}
+            placeholder={searchPlaceholder}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
         </div>
       ) : <span />}
-      <div className="flex flex-wrap items-center gap-2">
-        {filters?.map((filter) => (
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end xl:flex-nowrap">
+        {hasFilters ? (
+          <label className="relative inline-flex min-w-44 items-center">
+            <span className="sr-only">Filter records</span>
+            <select
+              value={selectedFilter ?? defaultFilter}
+              onChange={(event) => onFilterChange?.(event.target.value)}
+              className="plpass-field h-11 w-full appearance-none rounded-xl border bg-surface py-0 pl-4 pr-10 text-sm font-medium outline-none"
+            >
+              {filterOptions.map((filter) => (
+                <option key={filter.value} value={filter.value}>{filter.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          </label>
+        ) : null}
+        {children}
+        {(hasSearch || hasFilters) ? (
           <Button
-            key={filter.value}
             type="button"
             variant="outline"
-            size="sm"
-            className={cn(selectedFilter === filter.value && "plpass-filter-selected")}
-            onClick={() => onFilterChange?.(filter.value)}
+            className="h-11 rounded-xl px-4"
+            disabled={!canClear}
+            onClick={handleClear}
           >
-            {filter.label}
+            <X className="h-4 w-4" aria-hidden="true" />
+            Clear
           </Button>
-        ))}
-        {children}
+        ) : null}
+        </div>
       </div>
     </section>
   );
@@ -172,7 +232,7 @@ export function AdminTabs<T extends string>({
   onSelect: (value: T) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-2" role="tablist" aria-label={label}>
+    <div className="inline-flex max-w-full flex-wrap gap-1 rounded-2xl border border-border/80 bg-surface-muted p-1 shadow-sm" role="tablist" aria-label={label}>
       {tabs.map((tab) => (
         <button
           key={tab.value}
@@ -180,8 +240,8 @@ export function AdminTabs<T extends string>({
           role="tab"
           aria-selected={selected === tab.value}
           className={cn(
-            "rounded-md px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            selected === tab.value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-primary-hover hover:text-primary-foreground"
+            "rounded-xl px-3.5 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            selected === tab.value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-surface hover:text-foreground"
           )}
           onClick={() => onSelect(tab.value)}
         >
@@ -192,23 +252,65 @@ export function AdminTabs<T extends string>({
   );
 }
 
-export function UnavailablePanel({ title, message }: { title: string; message: string }) {
+export function UnavailablePanel({ title, message, actions }: { title: string; message: string; actions?: ReactNode }) {
   return (
-    <section className="rounded-lg border bg-surface-muted p-5" aria-disabled="true">
-      <StatusBadge label="Unavailable" tone="muted" />
-      <h2 className="mt-3 text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{message}</p>
+    <section className="flex flex-col gap-3 rounded-2xl border border-border bg-surface-muted px-4 py-3 text-sm shadow-sm sm:flex-row sm:items-center sm:justify-between" aria-disabled="true">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge label="Unavailable" tone="muted" />
+          <span className="font-medium text-foreground">{title}</span>
+        </div>
+        <p className="mt-1 text-sm leading-5 text-muted-foreground">{message}</p>
+      </div>
+      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
     </section>
   );
 }
 
 export function DetailPanel({ title = "Details", children }: { title?: string; children: ReactNode }) {
   return (
-    <section className="rounded-lg border bg-surface p-4">
-      <h2 className="font-semibold">{title}</h2>
-      <div className="mt-2 text-sm text-muted-foreground">{children}</div>
+    <section className="max-w-4xl rounded-2xl border border-border/80 bg-surface p-4 shadow-sm">
+      <h2 className="text-base font-semibold text-foreground">{title}</h2>
+      <div className="mt-2 text-sm leading-6 text-muted-foreground">{children}</div>
     </section>
   );
+}
+
+export function AdminSectionCard({
+  title,
+  description,
+  children,
+  actions,
+  className
+}: {
+  title?: string;
+  description?: string;
+  children: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn("rounded-2xl border border-border/80 bg-surface p-4 shadow-sm", className)}>
+      {(title || description || actions) ? (
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
+            {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+          </div>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
+export function AdminStatGrid({ children }: { children: ReactNode }) {
+  return <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6 [&>*]:h-full">{children}</section>;
+}
+
+export function AdminTableExportActions({ title = "Export generation requires backend support" }: { title?: string }) {
+  return <ExportButtons disabled title={title} />;
 }
 
 export function statusTone(status: string): BadgeTone {

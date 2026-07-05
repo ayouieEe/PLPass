@@ -30,7 +30,6 @@ function isDevelopmentSession(value: unknown): value is DevelopmentSession {
     typeof candidate.email === "string" &&
     candidate.isAuthenticated === true &&
     (candidate.role === "admin" ||
-      candidate.role === "faculty" ||
       candidate.role === "organizer" ||
       candidate.role === "student")
   );

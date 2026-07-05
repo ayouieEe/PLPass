@@ -10,7 +10,6 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAdminProfiles,
-  useFacultyProfiles,
   useNfcCredentialForStudent,
   useOrganizerProfiles,
   useStudents,
@@ -51,9 +50,9 @@ export function ProfilePage() {
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const userQuery = useUser(session?.userId, context);
   const studentQuery = useStudents({ pageSize: 1 }, context);
-  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, context);
-  const organizerQuery = useOrganizerProfiles({ pageSize: 100 }, context);
-  const adminQuery = useAdminProfiles({ pageSize: 100 }, context);
+  const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
+  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const adminQuery = useAdminProfiles({ pageSize: 1 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
   const student = studentQuery.data?.items[0];
   const nfcCredential = useNfcCredentialForStudent(student?.id, context);
@@ -73,7 +72,6 @@ export function ProfilePage() {
     catalog.departments.isLoading ||
     catalog.programs.isLoading ||
     (session.role === "student" && (studentQuery.isLoading || nfcCredential.isLoading)) ||
-    (session.role === "faculty" && facultyQuery.isLoading) ||
     (session.role === "organizer" && organizerQuery.isLoading) ||
     (session.role === "admin" && adminQuery.isLoading);
 
@@ -109,7 +107,7 @@ export function ProfilePage() {
   }
 
   if (session.role === "faculty") {
-  const profile = facultyQuery.data?.items.find((item) => item.userId === session.userId);
+    const profile = facultyQuery.data?.items.find((item) => item.userId === session.userId);
     fields.push(
       { label: "Employee ID", value: profile?.employeeNumber },
       { label: "Department", value: getNameById(departments, profile?.departmentId) },

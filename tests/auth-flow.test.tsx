@@ -63,7 +63,6 @@ async function signIn(displayName: string) {
 describe("mock authentication flow", () => {
   it.each([
     ["Admin One", "Admin dashboard"],
-    ["Faculty One", "Faculty dashboard"],
     ["Organizer One", "Organizer dashboard"],
     ["Student 01", "Student dashboard"]
   ])("logs in as %s and redirects by role", async (displayName, expectedHeading) => {
@@ -74,33 +73,33 @@ describe("mock authentication flow", () => {
   });
 
   it("redirects unauthenticated protected routes to login", async () => {
-    setRoute("/faculty/dashboard");
+    setRoute("/organizer/dashboard");
     render(<App />);
 
     await screen.findByRole("heading", { name: /sign in to plpass/i });
   });
 
   it("redirects to the requested protected route when allowed after login", async () => {
-    setRoute("/faculty/dashboard");
-    await signIn("Faculty One");
+    setRoute("/organizer/dashboard");
+    await signIn("Organizer One");
 
-    await screen.findByRole("heading", { name: "Faculty dashboard" });
+    await screen.findByRole("heading", { name: "Organizer dashboard" });
   });
 
   it("redirects cross-role login attempts to the signed-in role dashboard", async () => {
     setRoute("/admin/dashboard");
-    await signIn("Faculty One");
+    await signIn("Organizer One");
 
-    await screen.findByRole("heading", { name: "Faculty dashboard" });
+    await screen.findByRole("heading", { name: "Organizer dashboard" });
   });
 
   it("shows access denied for authenticated cross-role routes", async () => {
-    storeSession("faculty");
+    storeSession("organizer");
     setRoute("/admin/dashboard");
     render(<App />);
 
     await screen.findByRole("heading", { name: "Access denied" });
-    expect(screen.getByRole("link", { name: /return to authorized area/i })).toHaveAttribute("href", "/faculty/dashboard");
+    expect(screen.getByRole("link", { name: /return to authorized area/i })).toHaveAttribute("href", "/organizer/dashboard");
   });
 
   it("restores the development session after refresh", async () => {

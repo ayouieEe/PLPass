@@ -276,7 +276,7 @@ export function ComponentPreviewPage() {
           />
           <PLPassDataGrid label="Component preview student table" data={tableRows} columns={columns} emptyDescription="Try clearing filters in a later phase." />
           <div className="flex flex-wrap gap-3">
-            <ExportButtons onExportCsv={() => undefined} onExportPdf={() => undefined} />
+            <ExportButtons onExportXlsx={() => undefined} onExportPdf={() => undefined} />
             <AttachmentUploader onFilesSelected={() => undefined} />
           </div>
         </div>
