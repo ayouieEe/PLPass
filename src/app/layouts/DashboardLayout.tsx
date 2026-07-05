@@ -122,22 +122,7 @@ export function DashboardLayout({
         role={role}
         userLabel={userLabel}
         collapsed={collapsed}
-        className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden md:flex",
-          role === "student" && "student-glass-sidebar"
-        )}
-        headerAction={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-9 w-9 rounded-xl text-sidebar-foreground/75 hover:bg-sidebar-active hover:text-sidebar-foreground focus-visible:ring-ring"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => setCollapsed((current) => !current)}
-          >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
-          </Button>
-        }
+        className="fixed inset-y-0 left-0 z-30 hidden md:flex"
       />
 
       {drawerOpen ? (

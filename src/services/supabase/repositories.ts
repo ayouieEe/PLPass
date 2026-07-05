@@ -335,16 +335,10 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const classId = (query as { classId?: string })?.classId;
-    const eventId = (query as { eventId?: string })?.eventId;
-
-    const classRows = eventId
-      ? emptyPage<Row>(query)
-      : await selectRowsFiltered("class_sessions", query, "*", { class_id: classId });
-    const eventRows = classId
-      ? emptyPage<Row>(query)
-      : await selectRowsFiltered("event_sessions", query, "*", { event_id: eventId });
-
+    const [classRows, eventRows] = await Promise.all([
+      selectRows("class_sessions", query).catch(() => emptyPage<Row>(query)),
+      selectRows("event_sessions", query).catch(() => emptyPage<Row>(query))
+    ]);
     const items = [...classRows.items.map((row) => mapAttendanceSession(row, "class")), ...eventRows.items.map((row) => mapAttendanceSession(row, "event"))];
     return pageResult(items, classRows.total + eventRows.total, query);
   },
