@@ -103,10 +103,11 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
+  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, context);
+  const facultyProfile = facultyQuery.data?.items.find((item) => item.userId === session?.userId);
   return {
     context: context ?? { actorUserId: "", actorRole: "faculty" },
-    facultyId: facultyQuery.data?.items[0]?.id,
+    facultyId: facultyProfile?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
     isError: facultyQuery.isError
@@ -314,7 +315,10 @@ export function FacultyDashboardPage() {
   const scope = useFacultyScope();
   const [semesterId, setSemesterId] = useState("");
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
-  const classesQuery = useClasses({ pageSize: 100, semesterId: semesterId || undefined }, scope.context);
+  const classesQuery = useClasses(
+    { pageSize: 100, semesterId: semesterId || undefined, facultyId: scope.facultyId },
+    scope.context
+  );
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const mlQuery = useMlPredictions({ pageSize: 100 }, scope.context);

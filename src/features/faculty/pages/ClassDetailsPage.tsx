@@ -5,7 +5,7 @@ import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
-import { AlertTriangle, CalendarCheck, ClipboardList, FileDown, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarCheck, ClipboardList, FileDown, Users } from "lucide-react";
 import { Navigate, NavLink, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
@@ -91,10 +91,11 @@ const gridThemeVars = {
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
+  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, context);
+  const facultyProfile = facultyQuery.data?.items.find((item) => item.userId === session?.userId);
   return {
     context: context ?? { actorUserId: "", actorRole: "faculty" },
-    facultyId: facultyQuery.data?.items[0]?.id,
+    facultyId: facultyProfile?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
     isError: facultyQuery.isError
@@ -149,7 +150,7 @@ function attendanceRate(records: AttendanceRecord[]) {
  * candidates (a combined `fullName`, separate `firstName`/`lastName`, or a generic `name`) rather
  * than guessing one and risking another "property does not exist" TS error. Falls back to the
  * student number only if none of those fields are present, and to a placeholder if there's no
- * student at all. Replace with `student.<actualField>` directly once confirmed from types/domain.ts.
+ * student at all.
  */
 function studentName(student: Student | undefined) {
   if (!student) {
@@ -173,8 +174,7 @@ function studentName(student: Student | undefined) {
 /**
  * `Program` doesn't have a `programName` field (TS: "Property 'programName' does not exist on
  * type 'Program'"), so the real field name isn't confirmed here. This checks the common
- * candidates rather than guessing one and risking another round of the same error — replace with
- * `program.<actualField>` directly once you confirm it from types/domain.ts.
+ * candidates rather than guessing one and risking another round of the same error.
  */
 function programDisplayName(program: Program): string {
   const candidate = program as unknown as { programName?: string; name?: string; title?: string; programCode?: string };
@@ -235,6 +235,9 @@ export function ClassDetailsPage() {
   const records = recordsQuery.data?.items ?? [];
   const programsById = new Map(
     (catalogQuery.programs.data?.items ?? []).map((program: Program) => [program.id, programDisplayName(program)])
+  );
+  const semestersById = new Map(
+  (catalogQuery.semesters.data?.items ?? []).map((semester) => [semester.id, `${semester.label} ${semester.schoolYear}`])
   );
   const riskByStudent = new Map((predictionsQuery.data?.items ?? []).map((p: MlPrediction) => [p.studentId, p]));
   const flaggedCount = records.filter((record) => record.status === "absent").length;
@@ -353,7 +356,15 @@ export function ClassDetailsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Class Details"
+        eyebrow={
+          <NavLink
+            to={APP_ROUTES.facultyClasses}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to My Classes
+          </NavLink>
+        }
         title={`${classRecord.subjectCode} - ${classRecord.subjectTitle}`}
         description={`${classRecord.section} · ${classRecord.room} · ${classRecord.scheduleLabel}`}
         actions={
@@ -460,7 +471,7 @@ export function ClassDetailsPage() {
               ["Faculty", scope.facultyName],
               ["Room", classRecord.room],
               ["Schedule", classRecord.scheduleLabel],
-              ["Semester", classRecord.semesterId],
+             ["Semester", semestersById.get(classRecord.semesterId) ?? "Not set"],
               ["Class status", classRecord.status]
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border bg-background p-3">

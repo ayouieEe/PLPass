@@ -58,9 +58,10 @@ type Row = Record<string, unknown>;
 type TableName = keyof Database["public"]["Tables"];
 
 const defaultPageSize = 20;
-const classReadSelect = "*, subjects(subject_code, subject_name), rooms(room_code), sections(section_name, year_level, program_id, programs(department_id))";
+const classReadSelect = "*, subjects(subject_code, subject_name), rooms(room_code), sections(section_name, year_level, program_id, programs(department_id)), class_schedules(day_of_week, start_time, end_time)";
 const eventReadSelect = "*, event_categories(category_name)";
 const nfcCredentialReadSelect = "id, student_id, nfc_status, issued_at, last_successful_check_in_at";
+const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level)";
 
 function deferredLiveMutation(message = "This Supabase mutation needs a reviewed live schema workflow before it is enabled."): never {
   throw new RepositoryError(message, "VALIDATION_ERROR");
@@ -95,6 +96,33 @@ async function selectRows(table: TableName, query?: ListQuery, columns = "*"): P
   const to = from + listQuery.pageSize - 1;
   const client = getSupabaseBrowserClient();
   let builder = client.from(table).select(columns, { count: "exact" });
+
+  if (listQuery.sortBy) {
+    builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+  }
+
+  const { data, error, count } = await builder.range(from, to);
+  throwIfSupabaseError(error);
+  return pageResult((data ?? []) as unknown as Row[], count ?? data?.length ?? 0, listQuery);
+}
+
+async function selectRowsFiltered(
+  table: TableName,
+  query: ListQuery | undefined,
+  columns: string,
+  filters: Record<string, string | number | boolean | undefined>
+): Promise<PaginatedResult<Row>> {
+  const listQuery = queryOrDefault(query);
+  const from = listQuery.pageIndex * listQuery.pageSize;
+  const to = from + listQuery.pageSize - 1;
+  const client = getSupabaseBrowserClient();
+  let builder = client.from(table).select(columns, { count: "exact" });
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null && value !== "") {
+      builder = builder.eq(key, value);
+    }
+  }
 
   if (listQuery.sortBy) {
     builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
@@ -181,7 +209,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return mapProfileToUser(await selectSingleRow("profiles", userId));
   },
   async listStudents(query) {
-    const rows = await selectRows("students", query);
+    const rows = await selectRows("students", query, studentReadSelect);
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
   async listFacultyProfiles(query) {
@@ -234,7 +262,12 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     return pageResult(rows.items.map((row): Semester => ({ id: String(row.id ?? ""), label: String(row.label ?? row.semester_name ?? ""), schoolYear: String(row.school_year ?? ""), startsAt: String(row.starts_at ?? row.start_date ?? ""), endsAt: String(row.ends_at ?? row.end_date ?? ""), isActive: Boolean(row.is_active) })), rows.total, query);
   },
   async listClasses(query) {
-    const rows = await selectRows("classes", query, classReadSelect);
+    const facultyId = (query as { facultyId?: string })?.facultyId;
+    const sectionId = (query as { sectionId?: string })?.sectionId;
+    const rows = await selectRowsFiltered("classes", query, classReadSelect, {
+      faculty_id: facultyId,
+      section_id: sectionId
+    });
     return pageResult(rows.items.map(mapClass), rows.total, query);
   },
   async getClassById(classId) {
@@ -249,14 +282,24 @@ export const supabaseClassRosterRepository: ClassRosterRepository = {
   },
   async listStudentsForClass(classId, query) {
     const client = getSupabaseBrowserClient();
-    const { data, error, count } = await client.from("class_enrollments").select("student_id", { count: "exact" }).eq("class_id", classId);
-    throwIfSupabaseError(error);
-    const studentIds = (data ?? []).map((row) => String((row as Row).student_id ?? ""));
+    const { data: enrollmentRows, error: enrollmentError } = await client
+      .from("class_enrollments")
+      .select("student_id")
+      .eq("class_id", classId);
+    throwIfSupabaseError(enrollmentError);
+    const studentIds = (enrollmentRows ?? []).map((row) => String((row as Row).student_id ?? ""));
     if (studentIds.length === 0) {
       return emptyPage<Student>(query);
     }
-    const students = await selectRows("students", { ...queryOrDefault(query), pageSize: Math.max(studentIds.length, query?.pageSize ?? defaultPageSize) });
-    return pageResult(students.items.filter((row) => studentIds.includes(String(row.id))).map(mapStudent), count ?? studentIds.length, query);
+
+    const listQuery = queryOrDefault(query);
+    const { data, error, count } = await client
+      .from("students")
+      .select(studentReadSelect, { count: "exact" })
+      .in("id", studentIds)
+      .range(listQuery.pageIndex * listQuery.pageSize, listQuery.pageIndex * listQuery.pageSize + listQuery.pageSize - 1);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapStudent), count ?? studentIds.length, query);
   },
   async addStudentToClass(input: AddRosterStudentInput) {
     return mapClassRoster(await insertRow("class_enrollments", { class_id: input.classId, student_id: input.studentId }));
@@ -292,10 +335,20 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const [classRows, eventRows] = await Promise.all([selectRows("class_sessions", query), selectRows("event_sessions", query)]);
+    const classId = (query as { classId?: string })?.classId;
+    const eventId = (query as { eventId?: string })?.eventId;
+
+    const classRows = eventId
+      ? emptyPage<Row>(query)
+      : await selectRowsFiltered("class_sessions", query, "*", { class_id: classId });
+    const eventRows = classId
+      ? emptyPage<Row>(query)
+      : await selectRowsFiltered("event_sessions", query, "*", { event_id: eventId });
+
     const items = [...classRows.items.map((row) => mapAttendanceSession(row, "class")), ...eventRows.items.map((row) => mapAttendanceSession(row, "event"))];
     return pageResult(items, classRows.total + eventRows.total, query);
   },
+
   async getAttendanceSessionById(sessionId) {
     try {
       return mapAttendanceSession(await selectSingleRow("class_sessions", sessionId), "class");
@@ -306,9 +359,32 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
       throw error;
     }
   },
-  async createClassSession() {
-    deferredLiveMutation("Live class session creation is deferred until Phase 10 session-start workflows are reviewed.");
-  },
+  async createClassSession(input) {
+  const client = getSupabaseBrowserClient();
+  const { data: roomRow, error: roomError } = await client
+    .from("rooms")
+    .select("id")
+    .eq("room_code", input.room)
+    .maybeSingle();
+  throwIfSupabaseError(roomError);
+  const roomId = roomRow ? (roomRow as Row).id : null;
+
+  const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
+  const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
+  const dbMode = input.mode === "optional" ? "online" : "f2f";
+
+  const inserted = await insertRow("class_sessions", {
+    class_id: input.classId,
+    room_id: roomId,
+    session_date: input.date,
+    mode: dbMode,
+    session_status: "ongoing",
+    scheduled_start: scheduledStart,
+    scheduled_end: scheduledEnd,
+    actual_start: new Date().toISOString()
+  });
+  return mapAttendanceSession(inserted, "class");
+},
   async createEventSession() {
     deferredLiveMutation("Live event session creation is deferred until Phase 10 session-start workflows are reviewed.");
   },
@@ -321,9 +397,34 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
 
 export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
   async listAttendanceRecords(query) {
-    const rows = await selectRows("attendance_records", query);
+  const classId = (query as { classId?: string })?.classId;
+  const sessionId = (query as { sessionId?: string })?.sessionId;
+
+  if (sessionId) {
+    const rows = await selectRowsFiltered("attendance_records", query, "*", { class_session_id: sessionId });
     return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
-  },
+  }
+
+  if (classId) {
+    const sessions = await selectRowsFiltered("class_sessions", { pageIndex: 0, pageSize: 500 }, "id", { class_id: classId });
+    const sessionIds = sessions.items.map((row) => String(row.id));
+    if (sessionIds.length === 0) {
+      return pageResult([], 0, query);
+    }
+    const client = getSupabaseBrowserClient();
+    const listQuery = queryOrDefault(query);
+    const { data, error, count } = await client
+      .from("attendance_records")
+      .select("*", { count: "exact" })
+      .in("class_session_id", sessionIds)
+      .range(listQuery.pageIndex * listQuery.pageSize, listQuery.pageIndex * listQuery.pageSize + listQuery.pageSize - 1);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapAttendanceRecord), count ?? 0, query);
+  }
+
+  const rows = await selectRows("attendance_records", query);
+  return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
+},
   async getAttendanceRecordById(recordId) {
     return mapAttendanceRecord(await selectSingleRow("attendance_records", recordId));
   },

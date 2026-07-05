@@ -46,10 +46,11 @@ type FacultyScope = {
 function useFacultyScope(): FacultyScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const facultyQuery = useFacultyProfiles({ pageSize: 1 }, context);
+  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, context);
+  const facultyProfile = facultyQuery.data?.items.find((item) => item.userId === session?.userId);
   return {
     context: context ?? { actorUserId: "", actorRole: "faculty" },
-    facultyId: facultyQuery.data?.items[0]?.id,
+    facultyId: facultyProfile?.id,
     facultyName: session?.displayName ?? "Faculty",
     isLoading: facultyQuery.isLoading,
     isError: facultyQuery.isError
@@ -109,12 +110,15 @@ function mapToLiveStatus(status: AttendanceRecord["status"] | undefined): LiveAt
 function buildLiveRecords(students: Student[], sessionRecords: AttendanceRecord[]): LiveAttendanceRecord[] {
   return students.map((student) => {
     const record = sessionRecords.find((r) => r.studentId === student.id);
+    const recordWithTimes = record as unknown as { timeIn?: string; timeOut?: string } | undefined;
     return {
       id: record?.id ?? student.id,
-      studentName: student.studentNumber,
+      studentName: (student as unknown as { fullName?: string }).fullName ?? student.studentNumber,
       identifier: student.studentNumber,
       status: mapToLiveStatus(record?.status),
-      timestamp: record?.recordedAt ?? ""
+      timestamp: record?.recordedAt ?? "",
+      timeIn: recordWithTimes?.timeIn,
+      timeOut: recordWithTimes?.timeOut
     };
   });
 }
@@ -299,7 +303,7 @@ type ClassPickerValues = z.infer<typeof classPickerSchema>;
 export function StartSessionPage() {
   const scope = useFacultyScope();
   const navigate = useNavigate();
-  const classesQuery = useClasses({ pageSize: 100 }, scope.context);
+ const classesQuery = useClasses({ pageSize: 100, facultyId: scope.facultyId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
 
   const classPickerForm = useForm<ClassPickerValues>({
@@ -312,8 +316,11 @@ export function StartSessionPage() {
   const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
   const activeSessionQuery = useAttendanceSession(activeSessionId ?? "", scope.context);
-  const studentsQuery = useStudentsForClass(selectedClassId, undefined, scope.context);
-  const attendanceRecordsQuery = useAttendanceRecords({}, scope.context);
+ const studentsQuery = useStudentsForClass(selectedClassId, { pageSize: 200 }, scope.context);
+  const attendanceRecordsQuery = useAttendanceRecords(
+  { sessionId: activeSessionId ?? undefined, pageSize: 500 },
+  scope.context
+);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading faculty workspace" />;

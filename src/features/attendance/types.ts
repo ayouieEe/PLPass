@@ -7,6 +7,8 @@ export type LiveAttendanceRecord = {
   identifier: string;
   status: AttendanceStatus;
   timestamp: string;
+  timeIn?: string;
+  timeOut?: string;
 };
 
 export type TapResult = {

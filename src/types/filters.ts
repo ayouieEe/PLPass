@@ -33,6 +33,9 @@ export type AcademicFilter = {
 export type EntityFilter = {
   classId?: string;
   eventId?: string;
+  facultyId?: string;
+  sectionId?: string;
+  sessionId?: string;
 };
 
 export type AttendanceFilter = {
