@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, Mail, UserRound } from "lucide-react";
 import { AuthLayout } from "@/app/layouts/AuthLayout";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -19,17 +19,16 @@ type LocationState = {
 };
 
 const roleLabels: Partial<Record<UserRole, string>> = {
-  admin: "Admin",
   organizer: "Organizer",
   student: "Student"
 };
 
-const roleOrder: UserRole[] = ["admin", "organizer", "student"];
+const roleOrder: UserRole[] = ["organizer", "student"];
 type DevelopmentRoleFilter = "all" | UserRole;
 
 export function LoginPage() {
   const accounts = useDevelopmentAccounts();
-  const { session, signIn, signInWithPassword, isSessionRestored, isSupabaseMode, authError } = useDevelopmentSession();
+  const { session, signIn, signInWithPassword, isSessionRestored, isSupabaseMode, authError, logout } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [selectedAccount, setSelectedAccount] = useState<DevelopmentAccount | null>(null);
@@ -48,7 +47,7 @@ export function LoginPage() {
       student: []
     };
     for (const account of accounts.data ?? []) {
-      if (account.role === "faculty") {
+      if (account.role !== "organizer" && account.role !== "student") {
         continue;
       }
       groups[account.role].push(account);
@@ -59,10 +58,6 @@ export function LoginPage() {
   const availableRoles: DevelopmentRoleFilter[] = ["all", ...roleOrder.filter((role) => groupedAccounts[role].length > 0)];
   const allDevelopmentAccounts = roleOrder.flatMap((role) => groupedAccounts[role]);
   const visibleDevelopmentAccounts = selectedRole === "all" ? allDevelopmentAccounts : groupedAccounts[selectedRole] ?? [];
-
-  if (isSessionRestored && session) {
-    return <Navigate to={getAuthorizedHomePath(session.role)} replace />;
-  }
 
   function redirectAfterSignIn(role: UserRole) {
     const requestedPath = locationState?.from?.pathname;
@@ -104,6 +99,19 @@ export function LoginPage() {
   if (isSupabaseMode) {
     return (
       <AuthLayout title="Sign in to PLPass" description="Use your PLPass account to open your assigned workspace.">
+        {isSessionRestored && session ? (
+          <div className="mb-4 rounded-xl border border-primary/20 bg-highlight-soft p-3 text-sm">
+            <p className="font-medium">You are currently signed in as {session.displayName}.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={() => redirectAfterSignIn(session.role)}>
+                Continue to workspace
+              </Button>
+              <Button type="button" size="sm" variant="outline" onClick={logout}>
+                Sign out
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {authError ? (
           <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">
             {authError}
@@ -165,6 +173,20 @@ export function LoginPage() {
 
   return (
     <AuthLayout title="Sign in to PLPass" description="Choose a development account to preview role-specific workspaces.">
+      {isSessionRestored && session ? (
+        <div className="mb-5 rounded-xl border border-primary/20 bg-highlight-soft p-4 text-sm">
+          <p className="font-medium">Current session: {session.displayName}</p>
+          <p className="mt-1 text-muted-foreground">You can continue to the current workspace, sign out, or choose another development account below.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={() => redirectAfterSignIn(session.role)}>
+              Continue to workspace
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={logout}>
+              Sign out
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-5 rounded-xl border border-warning/30 bg-warning-muted p-4 text-sm text-warning-foreground">
         <div className="flex gap-3">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />

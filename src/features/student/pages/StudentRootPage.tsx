@@ -40,6 +40,7 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
@@ -125,11 +126,11 @@ function useStudentScope(): StudentScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return formatDisplayDate(value, "Not scheduled");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return formatDisplayTime(value, "Not set");
 }
 
 function statusTone(
@@ -232,7 +233,7 @@ function buildScheduleRows(classes: Class[], events: Event[], faculty: FacultyPr
     mode: "required",
     status: event.status
   }));
-  return [...classRows, ...eventRows].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  return [...classRows, ...eventRows].sort((a, b) => compareDateValues(a.startsAt, b.startsAt));
 }
 
 function attendanceColumns(onDetails: (row: AttendanceRow) => void): ColumnDef<AttendanceRow>[] {

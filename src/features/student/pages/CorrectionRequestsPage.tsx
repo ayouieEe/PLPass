@@ -30,6 +30,7 @@ import { TextAreaField } from "@/components/forms/TextAreaField";
 import { SubmitButton } from "@/components/forms/SubmitButton";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { formatDisplayDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { CorrectionRequest, Student } from "@/types/domain";
 
@@ -60,8 +61,6 @@ const correctionFormSchema = z.object({
 });
 
 type CorrectionFormValues = z.infer<typeof correctionFormSchema>;
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -242,7 +241,7 @@ export function CorrectionRequestsPage() {
 
   const correctionHistoryRows: CorrectionHistoryRow[] = (correctionsQuery.data?.items ?? []).map((request) => ({
     id: request.id,
-    submittedDate: dateFormatter.format(new Date(request.requestedAt)),
+    submittedDate: formatDisplayDate(request.requestedAt, "N/A"),
     subjectOrEventId: request.classId ?? request.eventId ?? "Session Record",
     type: request.requestedStatus === "excused" ? "Excused Absence" : "Correction",
     status: request.status,
@@ -409,7 +408,7 @@ export function CorrectionRequestsPage() {
               <div>
                 <h3 className="text-lg font-bold text-foreground">Correction Request Detail</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Submitted on {dateFormatter.format(new Date(selectedRequest.requestedAt))}
+                  Submitted on {formatDisplayDate(selectedRequest.requestedAt, "N/A")}
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="text-foreground hover:bg-secondary">
@@ -435,7 +434,7 @@ export function CorrectionRequestsPage() {
               </div>
 
               <div className="bg-card/40 p-4 rounded-xl border border-border space-y-2">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground">Admin Review Decision</span>
+                <span className="text-[10px] uppercase font-bold text-muted-foreground">Review Decision</span>
                 <div className="flex items-center gap-2 mt-1">
                   {selectedRequest.status === "approved" ? (
                     <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
@@ -450,7 +449,7 @@ export function CorrectionRequestsPage() {
                 </div>
                 {selectedRequest.reviewedAt && (
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Review Date: {dateFormatter.format(new Date(selectedRequest.reviewedAt))}
+                    Review Date: {formatDisplayDate(selectedRequest.reviewedAt, "N/A")}
                   </p>
                 )}
               </div>

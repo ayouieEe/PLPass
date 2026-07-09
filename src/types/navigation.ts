@@ -9,4 +9,4 @@ export type NavigationItem = {
   description?: string;
 };
 
-export type RoleNavigationConfig = Record<UserRole, NavigationItem[]>;
+export type RoleNavigationConfig = Partial<Record<UserRole, NavigationItem[]>>;

@@ -12,7 +12,7 @@ type ManualLookupPanelProps = {
   onSubmit: () => void;
 };
 
-const manualReasons = ["NFC sticker damaged", "NFC reader issue", "Student forgot ID", "System issue", "Approved by faculty", "Other"];
+const manualReasons = ["QR scanner issue", "Facial verification issue", "Student forgot ID", "System issue", "Approved manual entry", "Other"];
 
 export function ManualLookupPanel({ studentId, reason, remarks, students, disabled, onStudentChange, onReasonChange, onRemarksChange, onSubmit }: ManualLookupPanelProps) {
   return (

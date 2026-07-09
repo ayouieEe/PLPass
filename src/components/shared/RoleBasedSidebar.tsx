@@ -41,7 +41,7 @@ export function RoleBasedSidebar({
   headerAction,
   onNavigate
 }: RoleBasedSidebarProps) {
-  const groups = groupedItems(ROLE_NAVIGATION[role]);
+  const groups = groupedItems(ROLE_NAVIGATION[role] ?? []);
   const userInitials = initialsFromName(userLabel) || "PL";
 
   return (

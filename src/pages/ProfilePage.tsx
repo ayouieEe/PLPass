@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
-  useAdminProfiles,
-  useNfcCredentialForStudent,
   useOrganizerProfiles,
   useStudents,
   useUser
@@ -22,13 +20,6 @@ type ProfileFieldProps = {
   label: string;
   value?: string | number | null;
 };
-
-function maskCredential(value: string | undefined) {
-  if (!value) {
-    return "Not available";
-  }
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
-}
 
 function getNameById<T extends Program | Department>(items: T[] | undefined, id: string | undefined) {
   return items?.find((item) => item.id === id)?.name;
@@ -51,10 +42,8 @@ export function ProfilePage() {
   const userQuery = useUser(session?.userId, context);
   const studentQuery = useStudents({ pageSize: 1 }, context);
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
-  const adminQuery = useAdminProfiles({ pageSize: 1 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
   const student = studentQuery.data?.items[0];
-  const nfcCredential = useNfcCredentialForStudent(student?.id, context);
 
   function handleLogout() {
     logout();
@@ -70,9 +59,8 @@ export function ProfilePage() {
     userQuery.isLoading ||
     catalog.departments.isLoading ||
     catalog.programs.isLoading ||
-    (session.role === "student" && (studentQuery.isLoading || nfcCredential.isLoading)) ||
-    (session.role === "organizer" && organizerQuery.isLoading) ||
-    (session.role === "admin" && adminQuery.isLoading);
+    (session.role === "student" && studentQuery.isLoading) ||
+    (session.role === "organizer" && organizerQuery.isLoading);
 
   if (isLoading) {
     return <LoadingState label="Loading profile" />;
@@ -98,10 +86,7 @@ export function ProfilePage() {
       { label: "Program", value: getNameById(programs, student?.programId) },
       { label: "Year level", value: student?.yearLevel },
       { label: "Section", value: student?.section },
-      { label: "Student status", value: student?.status },
-      { label: "NFC credential status", value: nfcCredential.data?.status ?? "Not available" },
-      { label: "Masked credential identifier", value: maskCredential(nfcCredential.data?.nfcUid) },
-      { label: "Date issued", value: nfcCredential.data?.issuedAt }
+      { label: "Student status", value: student?.status }
     );
   }
 
@@ -112,15 +97,6 @@ export function ProfilePage() {
       { label: "Department", value: getNameById(departments, profile?.departmentId) },
       { label: "Position", value: profile?.position },
       { label: "Employment status", value: profile?.employmentStatus },
-      { label: "Profile image", value: "Placeholder" }
-    );
-  }
-
-  if (session.role === "admin") {
-    const profile = adminQuery.data?.items[0];
-    fields.push(
-      { label: "Employee ID", value: profile?.employeeNumber },
-      { label: "Department", value: getNameById(departments, profile?.departmentId) },
       { label: "Profile image", value: "Placeholder" }
     );
   }

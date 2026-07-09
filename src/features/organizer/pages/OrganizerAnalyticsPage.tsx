@@ -31,7 +31,6 @@ import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
 import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
-import { NFCReaderInput } from "@/features/attendance/NFCReaderInput";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
@@ -60,6 +59,7 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
@@ -142,11 +142,11 @@ function useOrganizerScope(): OrganizerScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return formatDisplayDate(value, "Not scheduled");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return formatDisplayTime(value, "Not set");
 }
 
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
@@ -211,12 +211,15 @@ function participantStudents(participants: EventParticipant[], students: Student
 }
 
 function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
-  const eventDate = event.startsAt.slice(0, 10);
+  const eventDate = dateKey(event.startsAt);
+  if (!eventDate) {
+    return undefined;
+  }
   return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
 }
 
 function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
-  const date = event.startsAt.slice(0, 10);
+  const date = dateKey(event.startsAt);
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
@@ -323,10 +326,9 @@ export function OrganizerAnalyticsPage() {
           </select>
         </label>
       </section>
-      <section className="grid gap-4 md:grid-cols-3">
-        <StatCard title="Absenteeism Risk Prediction" value={String(predictions.filter((prediction) => prediction.type === "random_forest_risk").length)} icon={AlertTriangle} tone="warning" description="Review-only" />
-        <StatCard title="Attendance Anomaly Detection" value={String(predictions.filter((prediction) => prediction.type === "linear_regression_anomaly").length)} icon={Search} description="Review-only" />
-        <StatCard title="Participation Clustering" value={String(predictions.filter((prediction) => prediction.type === "k_means_cluster").length)} icon={BarChart3} description="Review-only" />
+      <section className="grid gap-4 md:grid-cols-2">
+        <StatCard title="Random Forest Predictions" value={String(predictions.filter((prediction) => prediction.type === "random_forest_risk").length)} icon={AlertTriangle} tone="warning" description="Review-only" />
+        <StatCard title="Events Analyzed" value={String(new Set(predictions.map((prediction) => prediction.eventId).filter(Boolean)).size)} icon={CalendarCheck} description="Organizer scope" />
       </section>
       <section className="grid gap-4 xl:grid-cols-2">
         <AttendanceTrendChart data={chartData} />

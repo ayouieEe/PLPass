@@ -36,6 +36,7 @@ import {
   useOrganizerProfiles
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
@@ -76,11 +77,11 @@ function useStudentScope(): StudentScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "N/A";
+  return formatDisplayDate(value, "N/A");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "N/A";
+  return formatDisplayTime(value, "N/A");
 }
 
 function getStatusTone(status: AttendanceStatus) {

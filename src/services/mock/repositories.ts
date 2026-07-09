@@ -524,12 +524,14 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
 export const mockAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
     await applyMockMode("authentication");
-    return userFixtures.map((user) => ({
-      userId: user.id,
-      role: user.role,
-      displayName: user.displayName,
-      email: user.email
-    }));
+    return userFixtures
+      .filter((user) => user.role === "organizer" || user.role === "student")
+      .map((user) => ({
+        userId: user.id,
+        role: user.role,
+        displayName: user.displayName,
+        email: user.email
+      }));
   },
   async getSession(context = defaultRepositoryContext) {
     await applyMockMode("authentication");
@@ -1112,7 +1114,7 @@ export const mockNfcReaderRepository: NfcReaderRepository = {
   },
   async updateReaderStatus(readerId, status: NfcReaderStatus, context) {
     await beforeRead("nfcReaders", context, ["admin"]);
-    const reader = getOrThrow(nfcReaderState, readerId, "NFC reader");
+    const reader = getOrThrow(nfcReaderState, readerId, "credential reader");
     const updated = { ...reader, status };
     nfcReaderState = nfcReaderState.map((entry) => (entry.id === readerId ? updated : entry));
     return updated;

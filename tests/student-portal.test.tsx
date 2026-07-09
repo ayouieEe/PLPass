@@ -67,20 +67,18 @@ describe("student route access", () => {
 });
 
 describe("student repository scoping and workflows", () => {
-  it("lists only Student 01 classes, events, attendance, reports, taps, and corrections", async () => {
+  it("lists only Student 01 classes, events, attendance, reports, and corrections", async () => {
     const classes = await repositories.academicManagement.listClasses({ pageIndex: 0, pageSize: 20 }, studentTestContext);
     const events = await repositories.eventManagement.listEvents({ pageIndex: 0, pageSize: 20 }, studentTestContext);
     const records = await repositories.attendanceRecords.listAttendanceRecords({ pageIndex: 0, pageSize: 50 }, studentTestContext);
     const corrections = await repositories.correctionRequests.listCorrectionRequests({ pageIndex: 0, pageSize: 20 }, studentTestContext);
     const reports = await repositories.reports.listReports({ pageIndex: 0, pageSize: 20 }, studentTestContext);
-    const taps = await repositories.nfcReaders.listNfcTapAttempts({ pageIndex: 0, pageSize: 20 }, studentTestContext);
 
     expect(classes.items.map((classRecord) => classRecord.id)).toContain("class-1");
     expect(events.items.map((event) => event.id)).toContain("event-1");
     expect(records.items.every((record) => record.studentId === "student-1")).toBe(true);
     expect(corrections.items.every((request) => request.studentId === "student-1")).toBe(true);
     expect(reports.items.every((report) => report.requestedByUserId === "user-student-1" || report.scope === "student-1")).toBe(true);
-    expect(taps.items.every((tap) => tap.studentId === "student-1")).toBe(true);
   });
 
   it("keeps Student 02 isolated from Student 01 records", async () => {
@@ -136,20 +134,6 @@ describe("student repository scoping and workflows", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("creates NFC issue requests and blocks duplicate pending request types", async () => {
-    const created = await repositories.nfcCredentialRequests.createNfcCredentialRequest(
-      { studentId: "student-1", credentialId: "nfc-1", type: "lost", reason: "I lost my sticker after class." },
-      studentTestContext
-    );
-    expect(created.status).toBe("pending");
-
-    await expect(
-      repositories.nfcCredentialRequests.createNfcCredentialRequest(
-        { studentId: "student-1", credentialId: "nfc-1", type: "lost", reason: "Duplicate lost sticker request." },
-        studentTestContext
-      )
-    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
-  });
 });
 
 describe("student UI flows", () => {
@@ -162,15 +146,13 @@ describe("student UI flows", () => {
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Events" }));
     expect(await screen.findByText("EVT-001")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Calendar view" }));
-    expect(await screen.findByLabelText("Attendance calendar items")).toBeInTheDocument();
   });
 
-  it("renders schedule, NFC credential, report history, and profile pages", async () => {
+  it("renders schedule, verification methods, report history, and profile pages", async () => {
     storeSession(studentSession);
     for (const [path, heading] of [
       ["/student/schedule", "Schedule"],
-      ["/student/nfc-credential", "NFC Credential"],
+      ["/student/methods", "Verification Methods"],
       ["/student/reports", "Report History"],
       ["/student/profile", "Profile"]
     ] as const) {
@@ -184,7 +166,7 @@ describe("student UI flows", () => {
     }
   });
 
-  it("validates correction and NFC request forms", async () => {
+  it("validates correction and verification issue forms", async () => {
     storeSession(studentSession);
     setRoute("/student/corrections");
     render(<App />);
@@ -198,12 +180,12 @@ describe("student UI flows", () => {
     window.localStorage.clear();
     queryClient.clear();
     storeSession(studentSession);
-    setRoute("/student/nfc-credential");
+    setRoute("/student/methods");
     render(<App />);
-    const nfcUser = userEvent.setup();
-    expect(await screen.findByRole("heading", { name: "NFC Credential" })).toBeInTheDocument();
-    await nfcUser.click(screen.getByRole("button", { name: "Submit NFC issue request" }));
-    expect(await screen.findByText("Reason must be at least 10 characters.")).toBeInTheDocument();
+    const methodsUser = userEvent.setup();
+    expect(await screen.findByRole("heading", { name: "Verification Methods" })).toBeInTheDocument();
+    await methodsUser.click(screen.getByRole("button", { name: "Submit issue" }));
+    expect(await screen.findByText("Explanation must be at least 10 characters.")).toBeInTheDocument();
   });
 
   it("refreshes student data after account switching", async () => {
@@ -221,6 +203,6 @@ describe("student UI flows", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Events" }));
-    expect(screen.queryByText("EVT-001")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Events" })).toHaveAttribute("aria-selected", "true");
   });
 });

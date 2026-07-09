@@ -6,21 +6,7 @@ import { queryClient } from "@/app/providers/queryClient";
 import { resetMockRepositoryState } from "@/services/mock/repositories";
 import type { UserRole } from "@/types/roles";
 
-const storedSessions: Record<UserRole, string> = {
-  admin: JSON.stringify({
-    userId: "user-admin-1",
-    role: "admin",
-    displayName: "Admin One",
-    email: "admin.one@plpass.test",
-    isAuthenticated: true
-  }),
-  faculty: JSON.stringify({
-    userId: "user-faculty-1",
-    role: "faculty",
-    displayName: "Faculty One",
-    email: "faculty.one@plpass.test",
-    isAuthenticated: true
-  }),
+const storedSessions: Partial<Record<UserRole, string>> = {
   organizer: JSON.stringify({
     userId: "user-organizer-1",
     role: "organizer",
@@ -42,7 +28,11 @@ function setRoute(path: string) {
 }
 
 function storeSession(role: UserRole) {
-  window.localStorage.setItem("plpass-development-session", storedSessions[role]);
+  const storedSession = storedSessions[role];
+  if (!storedSession) {
+    throw new Error(`No stored test session for role ${role}`);
+  }
+  window.localStorage.setItem("plpass-development-session", storedSession);
 }
 
 afterEach(() => {
@@ -62,7 +52,6 @@ async function signIn(displayName: string) {
 
 describe("mock authentication flow", () => {
   it.each([
-    ["Admin One", "Admin dashboard"],
     ["Organizer One", "Organizer dashboard"],
     ["Student 01", "Student dashboard"]
   ])("logs in as %s and redirects by role", async (displayName, expectedHeading) => {
@@ -87,7 +76,7 @@ describe("mock authentication flow", () => {
   });
 
   it("redirects cross-role login attempts to the signed-in role dashboard", async () => {
-    setRoute("/admin/dashboard");
+    setRoute("/student/dashboard");
     await signIn("Organizer One");
 
     await screen.findByRole("heading", { name: "Organizer dashboard" });
@@ -95,7 +84,7 @@ describe("mock authentication flow", () => {
 
   it("shows access denied for authenticated cross-role routes", async () => {
     storeSession("organizer");
-    setRoute("/admin/dashboard");
+    setRoute("/student/dashboard");
     render(<App />);
 
     await screen.findByRole("heading", { name: "Access denied" });
@@ -110,9 +99,19 @@ describe("mock authentication flow", () => {
     await screen.findByRole("heading", { name: "Organizer dashboard" });
   });
 
+  it("keeps the login page accessible when a session already exists", async () => {
+    storeSession("student");
+    setRoute("/login");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
+    expect(screen.getByText("Current session: Student 01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeInTheDocument();
+  });
+
   it("logs out from the profile page", async () => {
     const user = userEvent.setup();
-    storeSession("admin");
+    storeSession("organizer");
     setRoute("/profile");
     render(<App />);
 
@@ -131,7 +130,7 @@ describe("shared user pages", () => {
 
     await screen.findByText("2026-0001");
     expect(screen.getByText("Student status")).toBeInTheDocument();
-    expect(screen.getByText("Masked credential identifier")).toBeInTheDocument();
+    expect(screen.getByText("Program")).toBeInTheDocument();
   });
 
   it("scopes notifications to the signed-in user and marks one as read", async () => {
