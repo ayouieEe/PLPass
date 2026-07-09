@@ -193,11 +193,7 @@ export function DashboardLayout({
                 )}
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
-                    {role === "admin" ? (
-                      <p className="truncate text-lg font-semibold text-foreground">{currentTitle}</p>
-                    ) : (
-                      <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
-                    )}
+                    <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
                     {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
                   {primaryAction ? <div className="hidden md:block">{primaryAction}</div> : null}

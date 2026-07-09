@@ -12,6 +12,7 @@ import {
   useOrganizerProfiles,
   useStudents
 } from "@/hooks/useRepositoryQueries";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { Class, Event, FacultyProfile, OrganizerProfile, Student } from "@/types/domain";
 
@@ -33,9 +34,6 @@ type ScheduleRow = {
   status: Class["status"] | Event["status"];
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
@@ -49,7 +47,7 @@ function useStudentScope(): StudentScope {
 }
 
 function formatEventSchedule(event: Event) {
-  return `${dateFormatter.format(new Date(event.startsAt))} ${timeFormatter.format(new Date(event.startsAt))} - ${timeFormatter.format(new Date(event.endsAt))}`;
+  return `${formatDisplayDate(event.startsAt)} ${formatDisplayTime(event.startsAt)} - ${formatDisplayTime(event.endsAt)}`;
 }
 
 function buildRows(

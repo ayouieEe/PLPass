@@ -183,7 +183,7 @@ export const reportFixtures: Report[] = [
 ];
 
 export const notificationFixtures: Notification[] = [
-  { id: "notification-1", userId: "user-student-1", type: "attendance", title: "Attendance recorded", body: "Your NFC tap was accepted.", status: "unread", createdAt: now },
+  { id: "notification-1", userId: "user-student-1", type: "attendance", title: "Attendance recorded", body: "Your QR scan was accepted.", status: "unread", createdAt: now },
   { id: "notification-2", userId: "user-faculty-1", type: "correction", title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now },
   { id: "notification-3", userId: "user-admin-1", type: "system", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
   { id: "notification-4", userId: "user-organizer-1", type: "report", title: "Report ready", body: "Event participation report is ready.", status: "unread", createdAt: now },
@@ -197,9 +197,7 @@ export const auditLogFixtures: AuditLog[] = [
 ];
 
 export const mlPredictionFixtures: MlPrediction[] = [
-  { id: "ml-1", type: "random_forest_risk", riskLevel: "high", studentId: "student-3", classId: "class-1", patternLabel: "Attendance risk", score: 0.82, generatedAt: now, explanation: "Random Forest risk result based on absences and late taps." },
-  { id: "ml-2", type: "linear_regression_anomaly", riskLevel: "medium", studentId: "student-2", classId: "class-1", patternLabel: "Late-arrival anomaly", score: 0.61, generatedAt: now, explanation: "Linear Regression anomaly result for increasing late arrivals." },
-  { id: "ml-3", type: "k_means_cluster", riskLevel: "low", eventId: "event-1", patternLabel: "High participation cluster", score: 0.22, generatedAt: now, explanation: "K-Means participation cluster for event attendance behavior." }
+  { id: "ml-1", type: "random_forest_risk", riskLevel: "high", studentId: "student-3", classId: "class-1", patternLabel: "Attendance risk", score: 0.82, generatedAt: now, explanation: "Random Forest risk result based on absences and late arrivals." }
 ];
 
 export const systemSettingsFixture: SystemSettings = {

@@ -5,6 +5,7 @@ import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
 import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useReports, useStudents } from "@/hooks/useRepositoryQueries";
+import { formatDisplayDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { Student } from "@/types/domain";
 
@@ -14,8 +15,6 @@ type StudentScope = {
   isLoading: boolean;
   isError: boolean;
 };
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -49,7 +48,7 @@ export function StudentReportsPage() {
     id: report.id,
     name: report.title,
     scope: report.scope,
-    generatedAt: report.generatedAt ? dateFormatter.format(new Date(report.generatedAt)) : "Queued",
+    generatedAt: formatDisplayDate(report.generatedAt, "Queued"),
     status: report.status
   }));
 

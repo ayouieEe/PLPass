@@ -9,6 +9,7 @@ export type SupabaseAuthFailureCode =
   | "AUTH_SESSION_MISSING"
   | "PROFILE_MISSING"
   | "ACCOUNT_INACTIVE"
+  | "UNSUPPORTED_ROLE"
   | "STUDENT_RECORD_MISSING"
   | "FACULTY_RECORD_MISSING"
   | "ORGANIZER_RECORD_MISSING"
@@ -199,38 +200,20 @@ async function assertSupabaseRoleRecord(reader: SupabaseSessionReader, userId: s
     return;
   }
 
-  if (role === "faculty") {
-    const { data, error } = await reader.readFacultyRecord(userId);
-    if (error) {
-      throw databaseQueryError(error);
-    }
-    if (!data) {
-      throw new SupabaseAuthResolutionError("FACULTY_RECORD_MISSING", "No visible faculty record was returned for this Supabase profile.", true);
-    }
-    return;
+  if (role !== "organizer") {
+    throw new SupabaseAuthResolutionError(
+      "UNSUPPORTED_ROLE",
+      "This PLPass build only supports Organizer and Student accounts. Please sign in with an Organizer or Student account.",
+      true
+    );
   }
 
-  if (role === "organizer") {
-    const { data, error } = await reader.readOrganizerRecord(userId);
-    if (error) {
-      throw databaseQueryError(error);
-    }
-    if (!data) {
-      throw new SupabaseAuthResolutionError("ORGANIZER_RECORD_MISSING", "No visible organizer record was returned for this Supabase profile.", true);
-    }
-    return;
-  }
-
-  const { data, error } = await reader.readDeanAssignments(userId);
+  const { data, error } = await reader.readOrganizerRecord(userId);
   if (error) {
     throw databaseQueryError(error);
   }
-  if (!data || data.length === 0) {
-    throw new SupabaseAuthResolutionError(
-      "DEAN_ASSIGNMENT_MISSING",
-      "No matching department-scoped Dean/Admin assignment was found for this Supabase profile.",
-      true
-    );
+  if (!data) {
+    throw new SupabaseAuthResolutionError("ORGANIZER_RECORD_MISSING", "No visible organizer record was returned for this Supabase profile.", true);
   }
 }
 

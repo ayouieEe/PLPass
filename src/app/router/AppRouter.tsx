@@ -1,4 +1,3 @@
-import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthenticatedLayout, PublicLayout } from "@/app/layouts/AppLayout";
 import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
@@ -7,23 +6,10 @@ import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
-import {
-  AdminDashboardPage,
-  AdminRootPage,
-  AcademicManagementPage,
-  AnalyticsPage as AdminAnalyticsPage,
-  AttendanceMonitoringPage,
-  AuditLogsPage,
-  NfcCredentialsPage,
-  NfcReadersPage,
-  SettingsPage,
-  UserManagementPage
-} from "@/features/admin/pages";
 import {
   CreateEventPage,
   EventAttendancePage,
@@ -48,10 +34,6 @@ import {
 } from "@/features/student/pages";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
-const ComponentPreviewPage = lazy(() =>
-  import("@/pages/ComponentPreviewPage").then((module) => ({ default: module.ComponentPreviewPage }))
-);
-
 export function AppRouter() {
   return (
     <Routes>
@@ -60,14 +42,6 @@ export function AppRouter() {
         <Route path={APP_ROUTES.login} element={<LoginPage />} />
         <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
         <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
-        <Route
-          path={APP_ROUTES.components}
-          element={
-            <Suspense fallback={<PlaceholderPage title="Component preview loading" />}>
-              <ComponentPreviewPage />
-            </Suspense>
-          }
-        />
         <Route path={APP_ROUTES.accessDenied} element={<AccessDeniedPage />} />
         <Route path="/home" element={<Navigate to="/" replace />} />
       </Route>
@@ -76,19 +50,6 @@ export function AppRouter() {
           <Route element={<RoleShellLayout />}>
             <Route path={APP_ROUTES.profile} element={<ProfilePage />} />
             <Route path={APP_ROUTES.notifications} element={<NotificationsPage />} />
-            <Route path={APP_ROUTES.dashboard} element={<PlaceholderPage title="Dashboard" />} />
-            <Route element={<RoleRoute allowedRoles={["admin"]} />}>
-              <Route path={APP_ROUTES.admin} element={<AdminRootPage />} />
-              <Route path={APP_ROUTES.adminDashboard} element={<AdminDashboardPage />} />
-              <Route path={APP_ROUTES.adminUsers} element={<UserManagementPage />} />
-              <Route path={APP_ROUTES.adminAcademic} element={<AcademicManagementPage />} />
-              <Route path={APP_ROUTES.adminAttendance} element={<AttendanceMonitoringPage />} />
-              <Route path={APP_ROUTES.adminNfcCredentials} element={<NfcCredentialsPage />} />
-              <Route path={APP_ROUTES.adminNfcReaders} element={<NfcReadersPage />} />
-              <Route path={APP_ROUTES.adminAnalytics} element={<AdminAnalyticsPage />} />
-              <Route path={APP_ROUTES.adminAuditLogs} element={<AuditLogsPage />} />
-              <Route path={APP_ROUTES.adminSettings} element={<SettingsPage />} />
-            </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} />}>
               <Route path={APP_ROUTES.organizer} element={<OrganizerRootPage />} />
               <Route path={APP_ROUTES.organizerDashboard} element={<OrganizerDashboardPage />} />
@@ -107,7 +68,6 @@ export function AppRouter() {
               <Route path={APP_ROUTES.studentSchedule} element={<StudentSchedulePage />} />
               <Route path={APP_ROUTES.studentAttendance} element={<MyAttendancePage />} />
               <Route path={APP_ROUTES.studentMethods} element={<AttendanceMethodsPage />} />
-              <Route path={APP_ROUTES.studentNfcCredential} element={<AttendanceMethodsPage />} />
               <Route path={APP_ROUTES.studentReports} element={<StudentReportsPage />} />
               <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.studentProfile} element={<StudentProfilePage />} />

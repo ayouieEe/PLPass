@@ -2,12 +2,6 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { UserRole } from "@/types/roles";
 
 export function getAuthorizedHomePath(role: UserRole) {
-  if (role === "admin") {
-    return APP_ROUTES.adminDashboard;
-  }
-  if (role === "faculty") {
-    return APP_ROUTES.accessDenied;
-  }
   if (role === "organizer") {
     return APP_ROUTES.organizerDashboard;
   }
@@ -15,12 +9,6 @@ export function getAuthorizedHomePath(role: UserRole) {
 }
 
 export function isPathAllowedForRole(pathname: string, role: UserRole) {
-  if (pathname.startsWith("/admin")) {
-    return role === "admin";
-  }
-  if (pathname.startsWith("/faculty")) {
-    return false;
-  }
   if (pathname.startsWith("/organizer")) {
     return role === "organizer";
   }

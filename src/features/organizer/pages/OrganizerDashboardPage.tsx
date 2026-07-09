@@ -30,7 +30,6 @@ import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
 import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
-import { NFCReaderInput } from "@/features/attendance/NFCReaderInput";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
@@ -59,6 +58,7 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
@@ -141,11 +141,11 @@ function useOrganizerScope(): OrganizerScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return formatDisplayDate(value, "Not scheduled");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return formatDisplayTime(value, "Not set");
 }
 
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
@@ -210,12 +210,15 @@ function participantStudents(participants: EventParticipant[], students: Student
 }
 
 function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
-  const eventDate = event.startsAt.slice(0, 10);
+  const eventDate = dateKey(event.startsAt);
+  if (!eventDate) {
+    return undefined;
+  }
   return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
 }
 
 function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
-  const date = event.startsAt.slice(0, 10);
+  const date = dateKey(event.startsAt);
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
@@ -306,7 +309,7 @@ export function OrganizerDashboardPage() {
   const records = recordsQuery.data?.items ?? [];
   const predictions = predictionsQuery.data?.items ?? [];
   const activeSession = sessions.find((session) => session.status === "active");
-  const nextEvent = events.filter((event) => new Date(event.startsAt) >= new Date()).sort((a, b) => a.startsAt.localeCompare(b.startsAt))[0];
+  const nextEvent = events.filter((event) => isFutureOrNowDate(event.startsAt)).sort((a, b) => compareDateValues(a.startsAt, b.startsAt))[0];
   const flagged = predictions.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical");
   const completedSessions = sessions.filter((session) => session.status === "completed");
   const trendData = events.map((event) => {

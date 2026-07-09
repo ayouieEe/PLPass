@@ -30,7 +30,6 @@ import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
 import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
-import { NFCReaderInput } from "@/features/attendance/NFCReaderInput";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
@@ -59,6 +58,7 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
@@ -141,11 +141,11 @@ function useOrganizerScope(): OrganizerScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return formatDisplayDate(value, "Not scheduled");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return formatDisplayTime(value, "Not set");
 }
 
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
@@ -210,12 +210,15 @@ function participantStudents(participants: EventParticipant[], students: Student
 }
 
 function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
-  const eventDate = event.startsAt.slice(0, 10);
+  const eventDate = dateKey(event.startsAt);
+  if (!eventDate) {
+    return undefined;
+  }
   return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
 }
 
 function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
-  const date = event.startsAt.slice(0, 10);
+  const date = dateKey(event.startsAt);
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
@@ -288,8 +291,6 @@ export function EventAttendancePage() {
   const tapsQuery = useNfcTapAttempts({ pageSize: 500 }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   const attendanceMutations = useAttendanceSimulationMutations(scope.context);
-  const [nfcValue, setNfcValue] = useState("");
-  const [readerState, setReaderState] = useState<"ready" | "processing" | "success" | "error" | "disconnected">("ready");
   const [qrEnabled, setQrEnabled] = useState(false);
   const [latestResult, setLatestResult] = useState<AttendanceSimulationResult | null>(null);
   const [manualStudentId, setManualStudentId] = useState("");
@@ -363,9 +364,7 @@ export function EventAttendancePage() {
     }
     return session.startsAt ? new Date(new Date(session.startsAt).getTime() + 120_000).toISOString() : undefined;
   }
-  async function submitCredentialScan(code: string, method: "nfc" | "qr", outcome?: string) {
-    setReaderState("processing");
-    setNfcValue("");
+  async function submitCredentialScan(code: string, method: "qr", outcome?: string) {
     try {
       const result = await attendanceMutations.credentialScanMutation.mutateAsync({
         sessionId: session.id,
@@ -374,10 +373,8 @@ export function EventAttendancePage() {
         occurredAt: simulatedTime(outcome)
       });
       setLatestResult(result);
-      setReaderState(result.attendanceRecord ? "success" : "error");
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
-      setReaderState("error");
       toast.error("Attendance simulation failed", { description: "The mock repository rejected the scan." });
     }
   }
@@ -409,18 +406,28 @@ export function EventAttendancePage() {
       <PageHeader
         eyebrow="Active Event Session"
         title={event?.title ?? session.title}
-        description="Development Simulation for keyboard-style NFC attendance, QR fallback, and manual override."
+        description="Development Simulation for QR check-in, facial verification, and manual override."
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
       <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <div className="space-y-4">
-          <NFCReaderInput value={nfcValue} readerState={readerState} showTestMenu onChange={setNfcValue} onSubmit={(code) => submitCredentialScan(code, "nfc")} onTestScan={(code, outcome) => submitCredentialScan(code, "nfc", outcome)} />
           <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
             <p className="font-semibold">Development Simulation</p>
             <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
           </div>
           <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
+          <section className="rounded-lg border bg-surface p-4" aria-label="Facial check-in simulation">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-semibold">Facial verification</p>
+                <p className="mt-1 text-sm text-muted-foreground">Development Simulation only. Uses a matched participant token to represent a successful face scan.</p>
+              </div>
+              <Button type="button" variant="outline" disabled={attendanceMutations.credentialScanMutation.isPending} onClick={() => submitCredentialScan("PLPASS-DEMO-1004", "qr")}>
+                Simulate face match
+              </Button>
+            </div>
+          </section>
           <ManualLookupPanel
             studentId={manualStudentId}
             reason={manualReason}
@@ -456,7 +463,6 @@ export function EventAttendancePage() {
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
               <option value="all">All methods</option>
-              <option value="nfc">NFC</option>
               <option value="qr">QR</option>
               <option value="manual">Manual</option>
               <option value="online">Online</option>

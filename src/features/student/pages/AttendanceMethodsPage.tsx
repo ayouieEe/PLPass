@@ -1,118 +1,59 @@
-import { useState, useEffect } from "react";
-import { useForm, Controller } from "react-hook-form";
-import { StudentSelect } from "@/components/forms/StudentSelect";
+import { useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { Camera, CheckCircle2, Clock, QrCode, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import type { ColDef } from "ag-grid-community";
-import {
-  Nfc,
-  UserCheck,
-  QrCode,
-  ShieldCheck,
-  History,
-  Camera,
-  RefreshCw,
-  Clock,
-  Sparkles
-} from "lucide-react";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import {
-  useStudents,
-  useNfcCredentialForStudent,
-  useNfcTapAttempts,
-  useAttendanceSessions,
-  useNfcCredentialRequests
-} from "@/hooks/useRepositoryQueries";
-import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
-import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useStudents } from "@/hooks/useRepositoryQueries";
+import { formatDisplayDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type { Student } from "@/types/domain";
 
 type StudentScope = {
   context: RepositoryContext;
   student?: Student;
-  studentName: string;
   isLoading: boolean;
   isError: boolean;
 };
-
-type NfcTapHistoryRow = {
-  id: string;
-  dateTime: string;
-  sessionTitle: string;
-  status: "Accepted" | "Rejected";
-  message: string;
-};
-
-const nfcRequestSchema = z.object({
-  type: z.enum(["lost", "damaged", "replacement"]),
-  reason: z.string().min(10, "Reason must be at least 10 characters.")
-});
 
 const issueReportSchema = z.object({
   issueDescription: z.string().min(10, "Explanation must be at least 10 characters.")
 });
 
-type NfcRequestFormValues = z.infer<typeof nfcRequestSchema>;
 type IssueReportFormValues = z.infer<typeof issueReportSchema>;
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
 
 function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const studentQuery = useStudents({ pageSize: 1 }, context);
+
   return {
     context: context ?? { actorUserId: "", actorRole: "student" },
     student: studentQuery.data?.items[0],
-    studentName: session?.displayName ?? "Student",
     isLoading: studentQuery.isLoading,
     isError: studentQuery.isError
   };
 }
 
-function maskCredential(value: string | undefined) {
-  if (!value) return "Not available";
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
+function buildQrToken(student?: Student) {
+  const identifier = student?.studentNumber ?? "STUDENT";
+  return `PLPASS-QR-${identifier}-${Math.floor(100000 + Math.random() * 900000)}`;
 }
 
 export function AttendanceMethodsPage() {
   const scope = useStudentScope();
-  const [activeTab, setActiveTab] = useState<"nfc" | "facial" | "qr">("nfc");
+  const [activeTab, setActiveTab] = useState<"facial" | "qr">("facial");
   const [isFaceEnrolled, setIsFaceEnrolled] = useState(false);
   const [isEnrollingFace, setIsEnrollingFace] = useState(false);
   const [enrollProgress, setEnrollProgress] = useState(0);
-  const [isQrGenerated, setIsQrGenerated] = useState(false);
   const [qrCodeVal, setQrCodeVal] = useState("");
   const [qrExpiry, setQrExpiry] = useState<string | null>(null);
-
-  // Sync state with localStorage
-  useEffect(() => {
-    setIsFaceEnrolled(localStorage.getItem("plpass-face-enrolled") === "true");
-    setIsQrGenerated(localStorage.getItem("plpass-qr-generated") === "true");
-    const storedQr = localStorage.getItem("plpass-qr-code-val");
-    if (storedQr) {
-      setQrCodeVal(storedQr);
-      setQrExpiry(localStorage.getItem("plpass-qr-expiry"));
-    }
-  }, []);
-
-  const credentialQuery = useNfcCredentialForStudent(scope.student?.id, scope.context);
-  const tapsQuery = useNfcTapAttempts({ pageSize: 50 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 50 }, scope.context);
-  const requestsQuery = useNfcCredentialRequests({ pageSize: 50 }, scope.context);
-
-  const nfcForm = useForm<NfcRequestFormValues>({
-    resolver: zodResolver(nfcRequestSchema),
-    defaultValues: { type: "lost", reason: "" }
-  });
 
   const facialIssueForm = useForm<IssueReportFormValues>({
     resolver: zodResolver(issueReportSchema),
@@ -124,499 +65,206 @@ export function AttendanceMethodsPage() {
     defaultValues: { issueDescription: "" }
   });
 
+  useEffect(() => {
+    setIsFaceEnrolled(localStorage.getItem("plpass-face-enrolled") === "true");
+    setQrCodeVal(localStorage.getItem("plpass-qr-code-val") ?? "");
+    setQrExpiry(localStorage.getItem("plpass-qr-expiry"));
+  }, []);
+
+  const enrolledDate = localStorage.getItem("plpass-face-enrolled-date");
+  const qrStatus = qrCodeVal ? "Active" : "Not generated";
+  const verificationReady = useMemo(() => {
+    return [isFaceEnrolled, Boolean(qrCodeVal)].filter(Boolean).length;
+  }, [isFaceEnrolled, qrCodeVal]);
+
   if (scope.isLoading) {
-    return <LoadingState label="Loading student workspace" />;
+    return <LoadingState label="Loading verification methods" />;
   }
 
   if (scope.isError || !scope.student) {
     return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
   }
 
-  if (credentialQuery.isLoading || tapsQuery.isLoading || requestsQuery.isLoading) {
-    return <LoadingState label="Loading attendance methods" />;
-  }
-
-  // NFC Submit lost/damaged
-  async function handleNfcSubmit(values: NfcRequestFormValues) {
-    try {
-      await requestsQuery.createMutation.mutateAsync({
-        studentId: scope.student?.id ?? "",
-        credentialId: credentialQuery.data?.id,
-        ...values
-      });
-      toast.success("NFC replacement request submitted successfully.");
-      nfcForm.reset({ type: "lost", reason: "" });
-    } catch {
-      toast.error("Failed to submit request.");
-    }
-  }
-
-  // Facial enrollment simulate
   function handleEnrollFace() {
     setIsEnrollingFace(true);
     setEnrollProgress(0);
-    const interval = setInterval(() => {
-      setEnrollProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            setIsEnrollingFace(false);
-            setIsFaceEnrolled(true);
-            localStorage.setItem("plpass-face-enrolled", "true");
-            localStorage.setItem("plpass-face-enrolled-date", new Date().toISOString());
-            toast.success("Facial registration complete!");
-          }, 500);
+    const interval = window.setInterval(() => {
+      setEnrollProgress((current) => {
+        if (current >= 100) {
+          window.clearInterval(interval);
+          setIsEnrollingFace(false);
+          setIsFaceEnrolled(true);
+          localStorage.setItem("plpass-face-enrolled", "true");
+          localStorage.setItem("plpass-face-enrolled-date", new Date().toISOString());
+          toast.success("Facial enrollment completed.");
           return 100;
         }
-        return prev + 20;
+        return current + 20;
       });
-    }, 200);
+    }, 180);
   }
 
-  function handleUnenrollFace() {
+  function handleRemoveFace() {
     setIsFaceEnrolled(false);
     localStorage.removeItem("plpass-face-enrolled");
     localStorage.removeItem("plpass-face-enrolled-date");
-    toast.info("Facial biometrics removed.");
+    toast.info("Facial enrollment removed.");
   }
 
-  // Submit facial issues report
+  function handleGenerateQr() {
+    const nextToken = buildQrToken(scope.student);
+    const expiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    setQrCodeVal(nextToken);
+    setQrExpiry(expiry);
+    localStorage.setItem("plpass-qr-generated", "true");
+    localStorage.setItem("plpass-qr-code-val", nextToken);
+    localStorage.setItem("plpass-qr-expiry", expiry);
+    toast.success("QR token generated.");
+  }
+
   function handleFacialIssueSubmit() {
-    toast.success("Issue report submitted to admin.");
+    toast.success("Facial verification issue submitted.");
     facialIssueForm.reset();
   }
 
-  // QR code generate simulate
-  function handleGenerateQr() {
-    const randomId = `PLPASS-QR-${Math.floor(100000 + Math.random() * 900000)}`;
-    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
-    setQrCodeVal(randomId);
-    setQrExpiry(expiry);
-    setIsQrGenerated(true);
-    localStorage.setItem("plpass-qr-generated", "true");
-    localStorage.setItem("plpass-qr-code-val", randomId);
-    localStorage.setItem("plpass-qr-expiry", expiry);
-    toast.success("Secure QR code generated and saved!");
-  }
-
-  function handleRegenerateQr() {
-    handleGenerateQr();
-  }
-
-  // Submit QR issue report
   function handleQrIssueSubmit() {
-    toast.success("Issue report submitted to admin.");
+    toast.success("QR scanning issue submitted.");
     qrIssueForm.reset();
   }
 
-  const enrolledDate = localStorage.getItem("plpass-face-enrolled-date");
-  const nfcTapRows: NfcTapHistoryRow[] = (tapsQuery.data?.items ?? []).map((tap) => {
-    const session = sessionsQuery.data?.items.find((entry) => entry.id === tap.sessionId);
-    return {
-      id: tap.id,
-      dateTime: `${dateFormatter.format(new Date(tap.attemptedAt))} ${timeFormatter.format(new Date(tap.attemptedAt))}`,
-      sessionTitle: session?.title ?? "NFC Reader Tap",
-      status: tap.accepted ? "Accepted" : "Rejected",
-      message: tap.message || "Tapped at reader"
-    };
-  });
-
-  const nfcTapColumns: ColDef<NfcTapHistoryRow>[] = [
-    { field: "dateTime", headerName: "Date & Time", minWidth: 190 },
-    { field: "sessionTitle", headerName: "Session / Class", minWidth: 210 },
-    {
-      field: "status",
-      headerName: "Status",
-      minWidth: 140,
-      cellRenderer: ({ data }: { data?: NfcTapHistoryRow }) =>
-        data ? <StatusBadge label={data.status} tone={data.status === "Accepted" ? "success" : "danger"} /> : null
-    },
-    { field: "message", headerName: "Message / Note", minWidth: 220 }
-  ];
-
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-6 p-1">
       <PageHeader
         eyebrow="Verification Setup"
-        title="NFC Credential"
-        description="Configure your active verification tokens, view live scan instructions, and manage credentials."
+        title="Verification Methods"
+        description="Set up the two attendance verification methods supported by the current PLPass plan: facial recognition and QR code."
       />
 
-      {/* Tabs Selector Navigation */}
-      <div className="grid grid-cols-3 gap-2 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md">
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard title="Ready Methods" value={`${verificationReady}/2`} icon={ShieldCheck} tone={verificationReady === 2 ? "success" : "warning"} />
+        <StatCard title="Facial Status" value={isFaceEnrolled ? "Enrolled" : "Not enrolled"} icon={Camera} tone={isFaceEnrolled ? "success" : "warning"} />
+        <StatCard title="QR Status" value={qrStatus} icon={QrCode} tone={qrCodeVal ? "success" : "warning"} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-1">
         <button
-          onClick={() => setActiveTab("nfc")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "nfc"
-              ? "bg-primary text-white shadow-sm"
-              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
-            }`}
-        >
-          <Nfc className="h-4 w-4" />
-          <span className="text-inherit">NFC Sticker</span>
-        </button>
-        <button
+          type="button"
           onClick={() => setActiveTab("facial")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "facial"
-              ? "bg-primary text-white shadow-sm"
-              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
-            }`}
+          className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
         >
-          <UserCheck className="h-4 w-4" />
-          <span className="text-inherit">Facial Recognition</span>
+          <Camera className="h-4 w-4" />
+          Facial Recognition
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab("qr")}
-          className={`flex items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold transition-all duration-300 ${activeTab === "qr"
-              ? "bg-primary text-white shadow-sm"
-              : "text-muted-foreground hover:bg-card/40 hover:text-foreground"
-            }`}
+          className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
         >
           <QrCode className="h-4 w-4" />
-          <span className="text-inherit">QR Code</span>
+          QR Code
         </button>
       </div>
 
-      {/* NFC TAB PANEL */}
-      {activeTab === "nfc" && (
-        <div className="space-y-6">
-          {/* KPI NFC Status */}
-          <div className="grid gap-6 md:grid-cols-3">
-            <StatCard
-              className="student-glass-card border-none hover:shadow-lg"
-              title="Credential Status"
-              value={credentialQuery.data?.status ?? "Not Available"}
-              icon={Nfc}
-              tone={credentialQuery.data?.status === "activated" ? "success" : "warning"}
-            />
-            <StatCard
-              className="student-glass-card border-none hover:shadow-lg"
-              title="Masked Identifier"
-              value={maskCredential(credentialQuery.data?.nfcUid)}
-              icon={ShieldCheck}
-            />
-            <StatCard
-              className="student-glass-card border-none hover:shadow-lg"
-              title="Date Issued"
-              value={credentialQuery.data?.issuedAt ? dateFormatter.format(new Date(credentialQuery.data.issuedAt)) : "N/A"}
-              icon={Clock}
-            />
-          </div>
-
-          {/* Instructions */}
-          <div className="student-glass-card p-6 space-y-3">
-            <h3 className="font-semibold text-foreground flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              NFC Usage Instructions
-            </h3>
-            <ul className="list-decimal pl-5 text-sm space-y-2 text-muted-foreground leading-relaxed">
-              <li>Keep the physical PLPass NFC sticker attached securely to the back of your school ID card.</li>
-              <li>When entering classes or event venues, tap your ID against the wall-mounted NFC reader.</li>
-              <li>Wait for the reader to beep once and display a solid green indicator before entering.</li>
-              <li>If you lose your sticker or it fails to register, report the issue immediately using the form below.</li>
-            </ul>
-          </div>
-
-          {/* Report Form */}
-          <form onSubmit={nfcForm.handleSubmit(handleNfcSubmit)} className="student-glass-card p-6 space-y-4">
-            <div>
-              <h3 className="font-semibold text-foreground">Report NFC Sticker Issues</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Submit request for lost or damaged sticker replacements.</p>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Report Type</label>
-                <Controller
-                  control={nfcForm.control}
-                  name="type"
-                  render={({ field }) => (
-                    <StudentSelect
-                      value={field.value}
-                      onChange={field.onChange}
-                      options={[
-                        { label: "Lost Sticker", value: "lost" },
-                        { label: "Damaged/Scratched Sticker", value: "damaged" },
-                        { label: "Request General Replacement", value: "replacement" }
-                      ]}
-                      placeholder="Select Issue Type"
-                    />
-                  )}
-                />
-              </div>
+      {activeTab === "facial" ? (
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="rounded-lg border bg-surface p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <label className="text-xs font-semibold text-foreground mb-1.5 block">Detailed Explanation</label>
-                <textarea
-                  {...nfcForm.register("reason")}
-                  placeholder="Explain what happened to your sticker (e.g. peel off, lost card)..."
-                  className="student-input w-full min-h-[80px] p-3 text-sm focus:outline-none"
-                />
-                {nfcForm.formState.errors.reason && (
-                  <p className="text-xs text-rose-500 mt-1">{nfcForm.formState.errors.reason.message}</p>
-                )}
+                <h2 className="text-lg font-semibold">Facial Recognition Enrollment</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Used for hands-free event check-in when the organizer enables facial verification.</p>
               </div>
+              {isFaceEnrolled ? (
+                <Button type="button" variant="outline" onClick={handleRemoveFace}>Remove enrollment</Button>
+              ) : (
+                <Button type="button" disabled={isEnrollingFace} onClick={handleEnrollFace}>
+                  {isEnrollingFace ? "Enrolling..." : "Start enrollment"}
+                </Button>
+              )}
             </div>
-            <div className="flex justify-between items-center pt-2">
-              <span className="text-xs text-muted-foreground">Requests are reviewed by admin within 24-48 hours.</span>
-              <Button type="submit" disabled={requestsQuery.createMutation.isPending} className="student-btn-primary px-6">
-                {requestsQuery.createMutation.isPending ? "Submitting..." : "Submit NFC issue request"}
+
+            <div className="mt-6 rounded-lg border bg-background p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  {isFaceEnrolled ? <CheckCircle2 className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
+                </div>
+                <div>
+                  <p className="font-semibold">{isFaceEnrolled ? "Enrollment active" : "Enrollment required"}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {isFaceEnrolled && enrolledDate ? `Registered ${formatDisplayDate(enrolledDate)}` : "Complete enrollment before using facial check-in."}
+                  </p>
+                </div>
+              </div>
+              {isEnrollingFace ? (
+                <div className="mt-5">
+                  <div className="h-2 rounded-full bg-muted">
+                    <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${enrollProgress}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">Scan progress: {enrollProgress}%</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <form onSubmit={facialIssueForm.handleSubmit(handleFacialIssueSubmit)} className="rounded-lg border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Report Facial Issue</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Use this if the event camera cannot verify you.</p>
+            <textarea
+              {...facialIssueForm.register("issueDescription")}
+              className="plpass-field mt-4 min-h-32 w-full rounded-md border p-3 text-sm"
+              placeholder="Describe the venue, time, and what happened."
+            />
+            {facialIssueForm.formState.errors.issueDescription ? (
+              <p className="mt-2 text-sm text-danger">{facialIssueForm.formState.errors.issueDescription.message}</p>
+            ) : null}
+            <Button type="submit" className="mt-4 w-full">Submit issue</Button>
+          </form>
+        </section>
+      ) : (
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="rounded-lg border bg-surface p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">QR Code Verification</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Generate a secure QR token for event check-in when QR verification is enabled.</p>
+              </div>
+              <Button type="button" onClick={handleGenerateQr}>
+                {qrCodeVal ? <RefreshCw className="mr-2 h-4 w-4" /> : <QrCode className="mr-2 h-4 w-4" />}
+                {qrCodeVal ? "Regenerate" : "Generate QR"}
               </Button>
             </div>
-          </form>
 
-          {/* Tap History */}
-          <div className="student-glass-card p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <History className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold text-foreground">NFC Tap History (Recent)</h3>
-            </div>
-            <PLPassDataGrid
-              data={nfcTapRows}
-              columns={nfcTapColumns}
-              label="NFC tap history"
-              emptyTitle="No tap attempts logged on this account"
-              enableQuickFilter={false}
-              enableColumnVisibility={false}
-            />
-          </div>
-
-          {/* Next Button */}
-          <div className="flex justify-end pt-2">
-            <Button onClick={() => setActiveTab("facial")} className="student-btn-primary px-6">
-              <span className="text-white">Next</span>
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* FACIAL RECOGNITION TAB PANEL */}
-      {activeTab === "facial" && (
-        <div className="space-y-6">
-          {!isFaceEnrolled ? (
-            /* Enrollment View */
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="student-glass-card p-6 space-y-4">
-                <h3 className="font-semibold text-foreground flex items-center gap-2">
-                  <Camera className="h-5 w-5 text-primary" />
-                  Facial Recognition Enrollment
-                </h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  PLPass utilizes high-precision local facial biometrics for hands-free verification in supported classrooms.
-                </p>
-
-                <div className="space-y-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-primary">Guidelines</h4>
-                  <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-2">
-                    <li>Ensure you are in a well-lit area with neutral background light.</li>
-                    <li>Look straight into the camera frame during the scanner process.</li>
-                    <li>Avoid hats, hoods, or sunglasses. Normal prescription glasses are okay.</li>
-                    <li>Your biometric markers are processed and saved securely inside a sandboxed module.</li>
-                  </ul>
-                </div>
-
-                <div className="pt-4">
-                  <Button onClick={handleEnrollFace} disabled={isEnrollingFace} className="student-btn-primary w-full py-6 text-base font-semibold shadow-lg">
-                    {isEnrollingFace ? "Analyzing Scan Markers..." : "Start Biometric Enrollment"}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Live camera scan visualizer mock */}
-              <div className="rounded-[24px] border flex flex-col items-center justify-center p-6 min-h-[300px] relative overflow-hidden bg-gradient-to-br from-primary via-primary-hover to-background border-border text-foreground shadow-xl">
-                {isEnrollingFace ? (
-                  <div className="text-center space-y-4 z-10">
-                    {/* Face Wireframe pulsating */}
-                    <div className="relative h-44 w-44 rounded-full border-4 border-dashed border-primary animate-spin flex items-center justify-center mx-auto">
-                      <div className="absolute h-36 w-36 rounded-full border border-primary/60 opacity-60 animate-pulse" />
-                      <UserCheck className="h-16 w-16 text-primary animate-bounce" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold tracking-wider text-primary">Biometric Scan Active</p>
-                      <p className="text-xs text-muted-foreground mt-1">Progress: {enrollProgress}%</p>
-                    </div>
-                    {/* Progress bar */}
-                    <div className="w-64 bg-secondary rounded-full h-2.5 mx-auto">
-                      <div className="bg-primary h-2.5 rounded-full transition-all duration-200" style={{ width: `${enrollProgress}%` }} />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center space-y-3 z-10">
-                    <div className="h-32 w-32 rounded-full border border-border bg-card flex items-center justify-center mx-auto shadow-inner">
-                      <Camera className="h-12 w-12 text-muted-foreground" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-muted-foreground">Scan Module Offline</p>
-                      <p className="text-xs text-muted-foreground mt-1">Start enrollment to activate camera feed simulation.</p>
-                    </div>
-                  </div>
-                )}
-                {/* scanning laser beam mock */}
-                {isEnrollingFace && (
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-primary shadow-[0_0_15px_rgba(var(--primary),1)] animate-ping" />
-                )}
-              </div>
-            </div>
-          ) : (
-            /* AFTER ENROLL VIEW */
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Credentials / Info */}
-              <div className="student-glass-card p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-foreground flex items-center gap-2">
-                    <UserCheck className="h-5 w-5 text-primary" />
-                    Facial Biometrics Enrolled
-                  </h3>
-                  <Button variant="outline" size="sm" onClick={handleUnenrollFace} className="student-btn-secondary border-destructive/30 text-destructive hover:bg-destructive/10 px-4 h-9">
-                    Delete Data
-                  </Button>
-                </div>
-
-                <div className="flex items-center gap-4 bg-primary/10 border border-primary/20 rounded-2xl p-4">
-                  <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center text-primary border border-primary/30">
-                    <Sparkles className="h-8 w-8 animate-pulse" />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-sm text-foreground">Status: Enrolled & Active</h4>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Registered Date: {enrolledDate ? dateFormatter.format(new Date(enrolledDate)) : "Today"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border bg-card/40 border-border p-4 space-y-2 text-xs text-muted-foreground">
-                  <p className="font-semibold text-foreground">Active Verification Details</p>
-                  <p>Biometric Hash: sha256-plpass-face-08ac3f91ae88b1</p>
-                  <p>Devices Registered: Campus Gate Camera 03, Room 402 Gate Camera</p>
-                  <p>Security Audit: Approved (Local Vault Storage encrypted with user token)</p>
-                </div>
-              </div>
-
-              {/* Issues Form */}
-              <form onSubmit={facialIssueForm.handleSubmit(handleFacialIssueSubmit)} className="student-glass-card p-6 space-y-4">
-                <div>
-                  <h3 className="font-semibold text-foreground">Report Face Recognition Issues</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Let administrators know if gates or classrooms fail to detect your face.</p>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1.5 block">Describe the recognition issue</label>
-                  <textarea
-                    {...facialIssueForm.register("issueDescription")}
-                    placeholder="Detail which classroom or reader failed, approximate time, and error messages shown..."
-                    className="student-input w-full min-h-[110px] p-3 text-sm focus:outline-none"
-                  />
-                  {facialIssueForm.formState.errors.issueDescription && (
-                    <p className="text-xs text-rose-500 mt-1">{facialIssueForm.formState.errors.issueDescription.message}</p>
-                  )}
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" className="student-btn-primary px-6">
-                    Report Issue to Admin
-                  </Button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* Next Button */}
-          <div className="flex justify-end pt-2">
-            <Button onClick={() => setActiveTab("qr")} className="student-btn-primary px-6">
-              <span className="text-white">Next</span>
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* SECURE QR CODE TAB PANEL */}
-      {activeTab === "qr" && (
-        <div className="space-y-6">
-          {!isQrGenerated ? (
-            /* Generate View */
-            <div className="student-glass-card p-8 space-y-6 max-w-xl mx-auto text-center">
-              <div className="h-16 w-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto text-primary">
-                <QrCode className="h-8 w-8" />
+            <div className="mt-6 flex flex-col items-center gap-4 rounded-lg border bg-background p-6 text-center">
+              <div className="relative flex h-44 w-44 items-center justify-center rounded-lg border bg-card shadow-sm">
+                <div className="absolute inset-4 opacity-20 [background-image:linear-gradient(to_right,currentColor_1px,transparent_1px),linear-gradient(to_bottom,currentColor_1px,transparent_1px)] [background-size:12px_12px]" />
+                <div className="absolute left-5 top-5 h-10 w-10 rounded border-4 border-foreground" />
+                <div className="absolute right-5 top-5 h-10 w-10 rounded border-4 border-foreground" />
+                <div className="absolute bottom-5 left-5 h-10 w-10 rounded border-4 border-foreground" />
+                <QrCode className="relative h-16 w-16 text-primary" />
               </div>
               <div>
-                <h3 className="font-semibold text-lg text-foreground">Generate Secure Attendance QR</h3>
-                <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-                  A dynamic, time-limited QR code you can present to professors or scanning terminals when physical ID stickers are unavailable.
+                <p className="font-mono text-sm font-semibold">{qrCodeVal || "No QR token generated"}</p>
+                <p className="mt-1 flex items-center justify-center gap-1 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  {qrExpiry ? `Valid until ${formatDisplayDate(qrExpiry)}` : "Generate a token before check-in."}
                 </p>
               </div>
-
-              <div className="bg-card/40 border border-border rounded-2xl p-4 text-xs text-muted-foreground max-w-md mx-auto text-left space-y-2">
-                <p className="font-semibold text-foreground">QR Scan Notes</p>
-                <p>• Generated QR includes encrypted student metadata matching your profile.</p>
-                <p>• The code is valid on all standard terminal webcams.</p>
-                <p>• QR regenerations immediately invalidate previous codes.</p>
-              </div>
-
-              <div className="pt-4">
-                <Button onClick={handleGenerateQr} className="student-btn-primary px-8">
-                  Generate QR Code
-                </Button>
-              </div>
             </div>
-          ) : (
-            /* AFTER GENERATE VIEW */
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Credentials about QR */}
-              <div className="student-glass-card p-6 text-center md:text-left flex flex-col md:flex-row gap-6 items-center">
-                {/* Mock QR Code element */}
-                <div className="shrink-0 bg-card p-4 border border-border rounded-2xl shadow-sm flex flex-col items-center">
-                  <div className="h-36 w-36 bg-background rounded-xl relative flex items-center justify-center text-foreground text-xs font-semibold overflow-hidden">
-                    {/* Diagonal grid cells to represent QR blocks */}
-                    <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:10px_10px]" />
-                    {/* Target boxes representing standard QR anchors */}
-                    <div className="absolute top-2 left-2 h-7 w-7 border-2 border-current rounded" />
-                    <div className="absolute top-2 right-2 h-7 w-7 border-2 border-current rounded" />
-                    <div className="absolute bottom-2 left-2 h-7 w-7 border-2 border-current rounded" />
-                    <QrCode className="h-12 w-12 text-primary animate-pulse" />
-                  </div>
-                  <span className="text-[10px] text-muted-foreground font-mono mt-2 tracking-widest">{qrCodeVal}</span>
-                </div>
+          </div>
 
-                <div className="space-y-3 flex-1">
-                  <h3 className="font-semibold text-foreground">QR Verification Active</h3>
-                  <div className="space-y-2 text-xs text-muted-foreground">
-                    <p className="flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-primary" />
-                      Token Identity: Enrolled & Validated
-                    </p>
-                    <p className="flex items-center gap-1.5">
-                      <Clock className="h-4 w-4 text-primary" />
-                      Valid until: {qrExpiry ? dateFormatter.format(new Date(qrExpiry)) : "N/A"}
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={handleRegenerateQr} className="student-btn-secondary px-4 gap-2">
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    <span>Regenerate QR Token</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* QR Issue Form */}
-              <form onSubmit={qrIssueForm.handleSubmit(handleQrIssueSubmit)} className="student-glass-card p-6 space-y-4">
-                <div>
-                  <h3 className="font-semibold text-foreground">Report QR Scanning Issues</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Report if scanner webcams fail to read your code at gate checks.</p>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-foreground mb-1.5 block">Description of issue</label>
-                  <textarea
-                    {...qrIssueForm.register("issueDescription")}
-                    placeholder="Detail reader location, date, and approximate scan time..."
-                    className="student-input w-full min-h-[110px] p-3 text-sm focus:outline-none"
-                  />
-                  {qrIssueForm.formState.errors.issueDescription && (
-                    <p className="text-xs text-rose-500 mt-1">{qrIssueForm.formState.errors.issueDescription.message}</p>
-                  )}
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" className="student-btn-primary px-6">
-                    Report Issue to Admin
-                  </Button>
-                </div>
-              </form>
-            </div>
-          )}
-        </div>
+          <form onSubmit={qrIssueForm.handleSubmit(handleQrIssueSubmit)} className="rounded-lg border bg-surface p-6">
+            <h2 className="text-lg font-semibold">Report QR Issue</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Use this if an event scanner cannot read your QR code.</p>
+            <textarea
+              {...qrIssueForm.register("issueDescription")}
+              className="plpass-field mt-4 min-h-32 w-full rounded-md border p-3 text-sm"
+              placeholder="Describe the scanner location, event, and error."
+            />
+            {qrIssueForm.formState.errors.issueDescription ? (
+              <p className="mt-2 text-sm text-danger">{qrIssueForm.formState.errors.issueDescription.message}</p>
+            ) : null}
+            <Button type="submit" className="mt-4 w-full">Submit issue</Button>
+          </form>
+        </section>
       )}
     </div>
   );

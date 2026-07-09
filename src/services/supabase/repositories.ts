@@ -543,7 +543,7 @@ export const supabaseAnalyticsMlRepository: AnalyticsMlRepository = {
     return pageResult(
       rows.map((row, index): MlPrediction => ({
         id: String(row.id ?? `ml-${index}`),
-        type: String(row.prediction_type ?? row.type ?? (row.risk_score !== undefined ? "random_forest_risk" : row.anomaly_level !== undefined ? "linear_regression_anomaly" : "k_means_cluster")) as MlPrediction["type"],
+        type: "random_forest_risk",
         riskLevel: String(row.risk_level ?? "low") as MlPrediction["riskLevel"],
         studentId: typeof row.student_id === "string" ? row.student_id : undefined,
         classId: typeof row.class_id === "string" ? row.class_id : undefined,

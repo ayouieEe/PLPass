@@ -46,7 +46,7 @@ export type AttendanceSessionType = (typeof ATTENDANCE_SESSION_TYPES)[number];
 export const ATTENDANCE_MODES = ["required", "optional", "makeup"] as const;
 export type AttendanceMode = (typeof ATTENDANCE_MODES)[number];
 
-export const ML_PREDICTION_TYPES = ["random_forest_risk", "linear_regression_anomaly", "k_means_cluster"] as const;
+export const ML_PREDICTION_TYPES = ["random_forest_risk"] as const;
 export type MlPredictionType = (typeof ML_PREDICTION_TYPES)[number];
 
 export const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;

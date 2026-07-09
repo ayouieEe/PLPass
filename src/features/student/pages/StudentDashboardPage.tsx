@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { AlertTriangle, CalendarCheck, ClipboardList, Nfc, UserCheck, AlertCircle, Calendar } from "lucide-react";
+import { AlertTriangle, CalendarCheck, ClipboardList, QrCode, UserCheck, AlertCircle, Calendar } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -16,10 +16,10 @@ import {
   useAttendanceSessions,
   useClasses,
   useEvents,
-  useStudents,
-  useNfcCredentialForStudent
+  useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { compareDateValues, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
@@ -63,11 +63,11 @@ function useStudentScope(): StudentScope {
 }
 
 function formatDate(value: string | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : "Not scheduled";
+  return formatDisplayDate(value, "Not scheduled");
 }
 
 function formatTime(value: string | undefined) {
-  return value ? timeFormatter.format(new Date(value)) : "Not set";
+  return formatDisplayTime(value, "Not set");
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
@@ -93,7 +93,6 @@ export function StudentDashboardPage() {
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const nfcCredentialQuery = useNfcCredentialForStudent(scope.student?.id, scope.context);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -113,8 +112,7 @@ export function StudentDashboardPage() {
     eventsQuery.isLoading ||
     sessionsQuery.isLoading ||
     recordsQuery.isLoading ||
-    catalog.semesters.isLoading ||
-    nfcCredentialQuery.isLoading
+    catalog.semesters.isLoading
   ) {
     return <LoadingState label="Loading student dashboard" />;
   }
@@ -132,7 +130,6 @@ export function StudentDashboardPage() {
   const events = eventsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
-  const nfcStatus = nfcCredentialQuery.data?.status ?? "Not Issued";
 
   // Filter records matching the active classes (which are filtered by semester)
   const classIds = new Set(classes.map((c) => c.id));
@@ -184,7 +181,7 @@ export function StudentDashboardPage() {
   });
 
   // Sorting schedule items by start time
-  scheduleRows.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  scheduleRows.sort((a, b) => compareDateValues(a.startsAt, b.startsAt));
 
   // Determine Alerts / Reminders
   const alerts: { title: string; desc: string; type: "danger" | "warning" | "info" }[] = [];
@@ -195,14 +192,6 @@ export function StudentDashboardPage() {
       title: `${absentRecordsCount} Unresolved Absences Detected`,
       desc: "Please file an Excused/Correction request to update your attendance records.",
       type: "danger"
-    });
-  }
-
-  if (nfcStatus !== "activated") {
-    alerts.push({
-      title: "NFC Credential Issue",
-      desc: `Your physical student ID sticker status is current: ${nfcStatus}. Report lost/damaged stickers in verification methods.`,
-      type: "warning"
     });
   }
 
@@ -335,7 +324,7 @@ export function StudentDashboardPage() {
           {/* Upcoming Events Card */}
           <div className="student-glass-card p-6 flex flex-col flex-1">
             <div className="flex items-center gap-2 mb-4 shrink-0">
-              <Nfc className="h-5 w-5 text-primary" />
+              <QrCode className="h-5 w-5 text-primary" />
               <h3 className="font-semibold text-foreground">Upcoming Campus Events</h3>
             </div>
 

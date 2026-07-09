@@ -9,8 +9,8 @@ export function LatestTapResultCard({ result }: LatestTapResultCardProps) {
   if (!result) {
     return (
       <article className="plpass-empty-state rounded-lg border p-4">
-        <h2 className="font-semibold text-foreground">Waiting for first tap</h2>
-        <p className="mt-1 text-sm">The latest NFC tap result will appear here.</p>
+        <h2 className="font-semibold text-foreground">Waiting for first scan</h2>
+        <p className="mt-1 text-sm">The latest verification result will appear here.</p>
       </article>
     );
   }

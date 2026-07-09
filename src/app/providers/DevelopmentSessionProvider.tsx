@@ -17,6 +17,7 @@ import { getDataSource, isSupabaseDataSource } from "@/lib/config/dataSource";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const storageKey = "plpass-development-session";
+const supabaseRestoreTimeoutMs = 8000;
 
 function isDevelopmentSession(value: unknown): value is DevelopmentSession {
   if (typeof value !== "object" || value === null) {
@@ -29,9 +30,7 @@ function isDevelopmentSession(value: unknown): value is DevelopmentSession {
     typeof candidate.displayName === "string" &&
     typeof candidate.email === "string" &&
     candidate.isAuthenticated === true &&
-    (candidate.role === "admin" ||
-      candidate.role === "organizer" ||
-      candidate.role === "student")
+    (candidate.role === "organizer" || candidate.role === "student")
   );
 }
 
@@ -43,11 +42,30 @@ function readStoredSession(): DevelopmentSession | null {
 
   try {
     const parsedSession: unknown = JSON.parse(rawSession);
-    return isDevelopmentSession(parsedSession) ? parsedSession : null;
+    if (isDevelopmentSession(parsedSession)) {
+      return parsedSession;
+    }
+    window.localStorage.removeItem(storageKey);
+    return null;
   } catch {
     window.localStorage.removeItem(storageKey);
     return null;
   }
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise
+      .then((value) => {
+        window.clearTimeout(timeout);
+        resolve(value);
+      })
+      .catch((error: unknown) => {
+        window.clearTimeout(timeout);
+        reject(error);
+      });
+  });
 }
 
 export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
@@ -68,7 +86,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
         supabase = getSupabaseBrowserClient();
-        const { data, error } = await supabase.auth.getUser();
+        const { data, error } = await withTimeout(
+          supabase.auth.getUser(),
+          supabaseRestoreTimeoutMs,
+          "Supabase session restore timed out. Please sign in again."
+        );
         if (error || !data.user) {
           if (isMounted) {
             setSession(null);
@@ -76,7 +98,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           }
           return;
         }
-        const nextSession = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id: data.user.id, email: data.user.email ?? "" });
+        const nextSession = await withTimeout(
+          resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id: data.user.id, email: data.user.email ?? "" }),
+          supabaseRestoreTimeoutMs,
+          "Supabase account resolution timed out. Please sign in again."
+        );
         if (isMounted) {
           setSession(nextSession);
           setIsSessionRestored(true);
