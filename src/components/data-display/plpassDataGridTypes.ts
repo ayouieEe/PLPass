@@ -19,4 +19,5 @@ export type PLPassDataGridProps<TData extends object> = {
   rowSelection?: "single" | "multiple";
   height?: number | string;
   toolbarActions?: ReactNode;
+  hideHeader?: boolean;
 };

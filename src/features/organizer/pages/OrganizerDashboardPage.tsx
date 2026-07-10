@@ -1,335 +1,319 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
-import { toast } from "sonner";
-import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
-import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { ErrorState } from "@/components/feedback/ErrorState";
-import { LoadingState } from "@/components/feedback/LoadingState";
-import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { DatePickerField } from "@/components/forms/DatePickerField";
-import { SelectField } from "@/components/forms/SelectField";
-import { SubmitButton } from "@/components/forms/SubmitButton";
-import { TextAreaField } from "@/components/forms/TextAreaField";
-import { TextField } from "@/components/forms/TextField";
-import { TimePickerField } from "@/components/forms/TimePickerField";
-import { ConfirmModal } from "@/components/modals/ConfirmModal";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { SearchInput } from "@/components/shared/SearchInput";
-import { StatCard } from "@/components/shared/StatCard";
-import { FilterBar } from "@/components/tables/FilterBar";
-import { Button } from "@/components/ui/button";
-import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
-import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
-import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
-import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
-import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
-import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
-import type { LiveAttendanceRecord } from "@/features/attendance/types";
-import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
-import type { ReportHistoryRecord } from "@/features/reports/types";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { type ReactNode, useMemo, useState } from "react";
 import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSimulationMutations,
-  useAttendanceSession,
-  useAttendanceSessionMutations,
-  useAttendanceSessions,
-  useCorrectionRequests,
-  useEvent,
-  useEventMutations,
-  useEventParticipants,
-  useEvents,
-  useMlPredictions,
-  useNfcTapAttempts,
-  useOrganizerProfiles,
-  useReports,
-  useStudents
-} from "@/hooks/useRepositoryQueries";
+  AlertTriangle,
+  CalendarCheck,
+  Clock3,
+  type LucideIcon,
+  TrendingUp,
+  Users
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
-import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type {
-  AttendanceRecord,
-  AttendanceSession,
-  CorrectionRequest,
-  Event,
-  EventParticipant,
-  MlPrediction,
-  Student
-} from "@/types/domain";
-import type {
-  AttendanceStatus,
-  CorrectionRequestStatus,
-  EventStatus,
-  RiskLevel,
-  SessionStatus,
-  StudentStatus,
-  VerificationMethod
-} from "@/types/enums";
 
-type OrganizerScope = {
-  context: RepositoryContext;
-  organizerId?: string;
-  organizerName: string;
-  isLoading: boolean;
-  isError: boolean;
+type DummyEvent = {
+  code: string;
+  title: string;
+  category: string;
+  venue: string;
+  date: string;
+  time: string;
+  predictedTurnout: number;
 };
 
-type EventWithCount = Event & { participantCount: number };
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const eventFormSchema = z
-  .object({
-    code: z.string().min(2, "Event code is required."),
-    title: z.string().min(3, "Event name is required."),
-    category: z.string().min(2, "Category is required."),
-    venue: z.string().min(2, "Venue is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    endTime: z.string().min(1, "End time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"]),
-    description: z.string().optional(),
-    remarks: z.string().optional()
-  })
-  .refine((value) => value.endTime > value.startTime, {
-    path: ["endTime"],
-    message: "End time must be after start time."
-  });
-
-const sessionFormSchema = z
-  .object({
-    venue: z.string().min(2, "Venue is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    expectedEndTime: z.string().min(1, "Expected end time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"])
-  })
-  .refine((value) => value.expectedEndTime > value.startTime, {
-    path: ["expectedEndTime"],
-    message: "Expected end time must be after start time."
-  });
-
-type EventFormValues = z.infer<typeof eventFormSchema>;
-type SessionFormValues = z.infer<typeof sessionFormSchema>;
-
-function useOrganizerScope(): OrganizerScope {
-  const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
-  return {
-    context: context ?? { actorUserId: "", actorRole: "organizer" },
-    organizerId: organizerQuery.data?.items[0]?.id,
-    organizerName: session?.displayName ?? "Organizer",
-    isLoading: organizerQuery.isLoading,
-    isError: organizerQuery.isError
-  };
-}
-
-function formatDate(value: string | undefined) {
-  return formatDisplayDate(value, "Not scheduled");
-}
-
-function formatTime(value: string | undefined) {
-  return formatDisplayTime(value, "Not set");
-}
-
-function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
-  if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
-    return "success" as const;
+const DUMMY_EVENTS: DummyEvent[] = [
+  {
+    code: "EVT-2026-001",
+    title: "Hospitality Career Fair & Industry Talk",
+    category: "Career Development",
+    venue: "PLP Pasig Gymnasium",
+    date: "2026-02-10",
+    time: "08:00 AM - 12:00 PM",
+    predictedTurnout: 82
+  },
+  {
+    code: "EVT-2026-002",
+    title: "Food & Beverage Service Skills Workshop",
+    category: "Skills Training",
+    venue: "PLP HM Training Laboratory",
+    date: "2026-02-24",
+    time: "01:00 PM - 05:00 PM",
+    predictedTurnout: 76
+  },
+  {
+    code: "EVT-2026-003",
+    title: "AHTOMP General Assembly & Orientation",
+    category: "General Assembly",
+    venue: "PLP Pasig Auditorium",
+    date: "2026-03-05",
+    time: "09:00 AM - 11:00 AM",
+    predictedTurnout: 91
+  },
+  {
+    code: "EVT-2026-004",
+    title: "Front Office Operations Simulation Day",
+    category: "Skills Training",
+    venue: "PLP HM Mock Hotel Lab",
+    date: "2026-03-19",
+    time: "08:30 AM - 03:30 PM",
+    predictedTurnout: 69
+  },
+  {
+    code: "EVT-2026-005",
+    title: "Sustainable Tourism Speaker Series",
+    category: "Seminar",
+    venue: "PLP Multi-Purpose Hall",
+    date: "2026-04-02",
+    time: "01:30 PM - 04:00 PM",
+    predictedTurnout: 58
+  },
+  {
+    code: "EVT-2026-006",
+    title: "AHTOMP Culinary & Mixology Showcase",
+    category: "Competition",
+    venue: "PLP HM Culinary Kitchen",
+    date: "2026-04-18",
+    time: "09:00 AM - 04:00 PM",
+    predictedTurnout: 88
   }
-  if (status === "late" || status === "draft" || status === "pending" || status === "medium") {
-    return "warning" as const;
-  }
-  if (status === "absent" || status === "cancelled" || status === "rejected" || status === "high" || status === "critical") {
-    return "danger" as const;
-  }
-  return "muted" as const;
+];
+
+type SessionSummary = {
+  eventCode: string;
+  date: string;
+  present: number;
+  late: number;
+  absent: number;
+  totalRegistered: number;
+  attendanceRate: number;
+};
+
+const DUMMY_SESSION_SUMMARY: SessionSummary[] = [
+  { eventCode: "EVT-2026-001", date: "2026-02-10", present: 142, late: 18, absent: 12, totalRegistered: 172, attendanceRate: 82.6 },
+  { eventCode: "EVT-2026-002", date: "2026-02-24", present: 97, late: 14, absent: 23, totalRegistered: 134, attendanceRate: 72.8 },
+  { eventCode: "EVT-2026-003", date: "2026-03-05", present: 203, late: 9, absent: 8, totalRegistered: 220, attendanceRate: 92.7 },
+  { eventCode: "EVT-2026-004", date: "2026-03-19", present: 88, late: 21, absent: 35, totalRegistered: 144, attendanceRate: 61.1 },
+  { eventCode: "EVT-2026-005", date: "2026-04-02", present: 61, late: 11, absent: 38, totalRegistered: 110, attendanceRate: 55.5 },
+  { eventCode: "EVT-2026-006", date: "2026-04-18", present: 168, late: 16, absent: 6, totalRegistered: 190, attendanceRate: 88.4 }
+];
+
+type SentimentSummary = {
+  eventCode: string;
+  overall: "Positive" | "Neutral" | "Negative";
+  positive: number;
+  neutral: number;
+  negative: number;
+};
+
+const DUMMY_SENTIMENT: SentimentSummary[] = [
+  { eventCode: "EVT-2026-001", overall: "Positive", positive: 78, neutral: 18, negative: 4 },
+  { eventCode: "EVT-2026-002", overall: "Positive", positive: 64, neutral: 27, negative: 9 },
+  { eventCode: "EVT-2026-003", overall: "Positive", positive: 71, neutral: 22, negative: 7 },
+  { eventCode: "EVT-2026-004", overall: "Neutral", positive: 48, neutral: 35, negative: 17 },
+  { eventCode: "EVT-2026-005", overall: "Neutral", positive: 39, neutral: 41, negative: 20 },
+  { eventCode: "EVT-2026-006", overall: "Positive", positive: 85, neutral: 12, negative: 3 }
+];
+
+const DUMMY_LATE_REASON_FREQUENCY = [
+  { category: "Traffic / Commute", share: 40 },
+  { category: "Class or Academic Conflict", share: 24 },
+  { category: "Personal / Health", share: 16 },
+  { category: "Weather / Force Majeure", share: 12 },
+  { category: "Other", share: 8 }
+] as const;
+
+const DUMMY_SUMMARY = {
+  totalEvents: 6,
+  activeSessionToday: { count: 1, eventCode: "EVT-2026-004" },
+  totalRegisteredStudents: 970,
+  predictedTurnoutNextEvent: { eventCode: "EVT-2026-005", value: 58 },
+  topLateArrivalReason: { category: "Traffic / Commute", share: 40 }
+};
+
+const SENTIMENT_COLORS: Record<string, string> = {
+  Positive: "#16a34a",
+  Neutral: "#f59e0b",
+  Negative: "#dc2626"
+};
+
+function shortCode(eventCode: string) {
+  return eventCode.replace("EVT-2026-", "EVT-");
 }
 
-function attendanceCounts(records: AttendanceRecord[]) {
-  return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
-  };
+function formatDate(date: string) {
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(new Date(`${date}T00:00:00`));
 }
 
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
-}
+function DashboardMetricCard({
+  title,
+  value,
+  detail,
+  icon: Icon,
+  tone = "default"
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  icon: LucideIcon;
+  tone?: "default" | "warning" | "success";
+}) {
+  const toneClass =
+    tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : tone === "success"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-primary/15 bg-primary/5 text-primary";
 
-function eventLabel(event: Event | undefined) {
-  return event ? `${event.code} - ${event.title}` : "Unknown event";
-}
-
-function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
-}
-
-function ShellState({ scope }: { scope: OrganizerScope }) {
-  if (scope.isLoading) {
-    return <LoadingState label="Loading organizer workspace" />;
-  }
-  if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
-  }
-  return null;
-}
-
-function OrganizerFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function recordsForSession(records: AttendanceRecord[], sessionId: string) {
-  return records.filter((record) => record.sessionId === sessionId);
-}
-
-function participantStudents(participants: EventParticipant[], students: Student[]) {
-  const participantIds = new Set(participants.map((participant) => participant.studentId));
-  return students.filter((student) => participantIds.has(student.id));
-}
-
-function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
-  const eventDate = dateKey(event.startsAt);
-  if (!eventDate) {
-    return undefined;
-  }
-  return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
-}
-
-function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
-  const date = dateKey(event.startsAt);
-  return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
-}
-
-function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
-  return records.map((record) => ({
-    id: record.id,
-    studentName: studentName(students.find((student) => student.id === record.studentId)),
-    identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-    status: record.status === "excused" ? "manual" : record.status,
-    timestamp: formatTime(record.recordedAt)
-  }));
-}
-
-function EventScheduleCard({ event }: { event: Event }) {
   return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{eventLabel(event)}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(event.startsAt)} {formatTime(event.startsAt)} - {formatTime(event.endsAt)} - {event.venue}</p>
+    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
+          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerEvent(event.id)}>View</NavLink>
-        </Button>
+        <span className={`grid h-10 w-10 flex-none place-items-center rounded-md border ${toneClass}`}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
       </div>
+      <p className="mt-4 line-clamp-2 text-sm leading-5 text-muted-foreground">{detail}</p>
     </article>
   );
 }
 
-function PredictionCard({ prediction }: { prediction: MlPrediction }) {
+function ChartPanel({
+  title,
+  description,
+  action,
+  children
+}: {
+  title: string;
+  description: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex items-center justify-between gap-2">
+    <section className="rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-medium">{prediction.patternLabel}</p>
-          <p className="text-sm text-muted-foreground">{prediction.explanation}</p>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <StatusBadge label={prediction.riskLevel} tone={statusTone(prediction.riskLevel)} />
+        {action}
       </div>
-    </article>
+      <div className="mt-5 h-72 w-full">{children}</div>
+    </section>
   );
 }
 
-function SessionCard({ session }: { session: AttendanceSession }) {
+function LateReasonLabels() {
   return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <aside className="h-full rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-medium">{session.title}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} {formatTime(session.startsAt)}</p>
+          <h2 className="text-base font-semibold text-foreground">Late-Arrival Reason Labels</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Share of late check-ins by reason this month.</p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerSession(session.id)}>View session</NavLink>
-        </Button>
+        <span className="flex-none rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+          Top
+        </span>
       </div>
-    </article>
-  );
 
+      <div className="mt-4 grid gap-3">
+        {DUMMY_LATE_REASON_FREQUENCY.map((reason) => (
+          <div key={reason.category} className="rounded-md border bg-background p-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-medium leading-5 text-foreground">{reason.category}</p>
+              <span className="text-sm font-semibold text-foreground">{reason.share}%</span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-amber-500" style={{ width: `${reason.share}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
 }
 
 export function OrganizerDashboardPage() {
-  const scope = useOrganizerScope();
-  const [semesterId, setSemesterId] = useState("");
-  const [schoolYear, setSchoolYear] = useState("");
-  const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
-  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
-  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const predictionsQuery = useMlPredictions({ pageSize: 100 }, scope.context);
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
-    return shellState;
-  }
-  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || catalog.semesters.isLoading) {
-    return <LoadingState label="Loading organizer dashboard" />;
-  }
-  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
-    return <ErrorState title="Unable to load organizer dashboard" message="The mock repositories could not load organizer dashboard data." />;
-  }
+  const [eventFilter, setEventFilter] = useState<string>("all");
 
-  const semesters = catalog.semesters.data?.items ?? [];
-  const events = (eventsQuery.data?.items ?? []).filter((event) => {
-    const matchesSemester = !semesterId || eventSemesterId(event, semesters) === semesterId;
-    const matchesSchoolYear = !schoolYear || semesters.find((semester) => semester.id === eventSemesterId(event, semesters))?.schoolYear === schoolYear;
-    return matchesSemester && matchesSchoolYear;
-  });
-  const sessions = sessionsQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
-  const predictions = predictionsQuery.data?.items ?? [];
-  const activeSession = sessions.find((session) => session.status === "active");
-  const nextEvent = events.filter((event) => isFutureOrNowDate(event.startsAt)).sort((a, b) => compareDateValues(a.startsAt, b.startsAt))[0];
-  const flagged = predictions.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical");
-  const completedSessions = sessions.filter((session) => session.status === "completed");
-  const trendData = events.map((event) => {
-    const eventSessions = sessions.filter((session) => session.eventId === event.id);
-    const eventRecords = records.filter((record) => eventSessions.some((session) => session.id === record.sessionId));
-    const counts = attendanceCounts(eventRecords);
-    return { label: event.code, present: counts.present, late: counts.late, absent: counts.absent };
-  });
-  const riskData = events.map((event) => ({
-    label: event.code,
-    watchlist: predictions.filter((prediction) => prediction.eventId === event.id && prediction.riskLevel === "medium").length,
-    atRisk: predictions.filter((prediction) => prediction.eventId === event.id && ["high", "critical"].includes(prediction.riskLevel)).length
-  }));
+  const eventLookup = useMemo(() => new Map(DUMMY_EVENTS.map((event) => [event.code, event])), []);
+
+  const trendData = useMemo(() => {
+    const rows =
+      eventFilter === "all"
+        ? DUMMY_SESSION_SUMMARY
+        : DUMMY_SESSION_SUMMARY.filter((row) => row.eventCode === eventFilter);
+
+    return rows.map((row) => ({
+      label: shortCode(row.eventCode),
+      date: formatDate(row.date),
+      attendanceRate: row.attendanceRate,
+      present: row.present,
+      late: row.late,
+      absent: row.absent
+    }));
+  }, [eventFilter]);
+
+  const predictionOverviewData = useMemo(
+    () =>
+      DUMMY_EVENTS.map((event) => ({
+        label: shortCode(event.code),
+        title: event.title,
+        predictedAttend: event.predictedTurnout,
+        predictedMiss: 100 - event.predictedTurnout
+      })),
+    []
+  );
+
+  const sentimentOverview = useMemo(() => {
+    const totals = DUMMY_SENTIMENT.reduce(
+      (acc, row) => ({
+        positive: acc.positive + row.positive,
+        neutral: acc.neutral + row.neutral,
+        negative: acc.negative + row.negative
+      }),
+      { positive: 0, neutral: 0, negative: 0 }
+    );
+    const count = DUMMY_SENTIMENT.length;
+
+    return [
+      { name: "Positive", value: Math.round(totals.positive / count) },
+      { name: "Neutral", value: Math.round(totals.neutral / count) },
+      { name: "Negative", value: Math.round(totals.negative / count) }
+    ];
+  }, []);
+
+  const activeEvent = eventLookup.get(DUMMY_SUMMARY.activeSessionToday.eventCode);
+  const nextEvent = eventLookup.get(DUMMY_SUMMARY.predictedTurnoutNextEvent.eventCode);
 
   return (
-    <OrganizerFrame>
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Organizer"
-        title="Organizer dashboard"
-        description="Scoped event overview, participation activity, and review-only insight signals."
+        title="Dashboard"
+        description="Day-to-day workspace for live sessions, turnout forecasts, attendance trends, and feedback signals."
         actions={
           <>
             <Button asChild variant="outline">
@@ -341,73 +325,131 @@ export function OrganizerDashboardPage() {
           </>
         }
       />
-      <section className="grid gap-3 rounded-lg border bg-surface p-4 md:grid-cols-2">
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">Semester</span>
-          <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={semesterId} onChange={(event) => setSemesterId(event.target.value)}>
-            <option value="">All semesters</option>
-            {semesters.map((semester) => (
-              <option key={semester.id} value={semester.id}>{semester.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-sm font-medium">School year</span>
-          <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={schoolYear} onChange={(event) => setSchoolYear(event.target.value)}>
-            <option value="">All school years</option>
-            {[...new Set(semesters.map((semester) => semester.schoolYear))].map((year) => <option key={year} value={year}>{year}</option>)}
-          </select>
-        </label>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <DashboardMetricCard
+          title="Total Events"
+          value={DUMMY_SUMMARY.totalEvents.toLocaleString()}
+          detail="Published AHTOMP events in the current data set."
+          icon={CalendarCheck}
+        />
+        <DashboardMetricCard
+          title="Active Sessions Today"
+          value={DUMMY_SUMMARY.activeSessionToday.count.toLocaleString()}
+          detail={activeEvent ? `${activeEvent.code}: ${activeEvent.title}` : "No active session. Showing the next upcoming event."}
+          icon={Clock3}
+          tone="success"
+        />
+        <DashboardMetricCard
+          title="Registered Students"
+          value={DUMMY_SUMMARY.totalRegisteredStudents.toLocaleString()}
+          detail="Total student registrations across tracked event sessions."
+          icon={Users}
+        />
+        <DashboardMetricCard
+          title="Next Event Turnout"
+          value={`${DUMMY_SUMMARY.predictedTurnoutNextEvent.value}%`}
+          detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."}
+          icon={TrendingUp}
+          tone="success"
+        />
+        <DashboardMetricCard
+          title="Top Late Reason"
+          value={`${DUMMY_SUMMARY.topLateArrivalReason.share}%`}
+          detail={DUMMY_SUMMARY.topLateArrivalReason.category}
+          icon={AlertTriangle}
+          tone="warning"
+        />
       </section>
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Total events" value={String(events.length)} icon={ClipboardList} />
-        <StatCard title="Average participation" value={`${attendanceRate(records)}%`} icon={Users} />
-        <StatCard title="Completed sessions" value={String(completedSessions.length)} icon={CalendarCheck} />
-        <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} />
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <ChartPanel
+          title="Attendance Trends"
+          description="Attendance rate per session, filterable by event."
+          action={
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              value={eventFilter}
+              onChange={(event) => setEventFilter(event.target.value)}
+              aria-label="Filter attendance trend by event"
+            >
+              <option value="all">All events</option>
+              {DUMMY_EVENTS.map((event) => (
+                <option key={event.code} value={event.code}>
+                  {event.code} - {event.title}
+                </option>
+              ))}
+            </select>
+          }
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={trendData} margin={{ top: 8, right: 14, left: -10, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+              <Tooltip
+                formatter={(value: number, name: string) => [name === "attendanceRate" ? `${value}%` : value, "Attendance rate"]}
+                labelFormatter={(label, payload) => `${label} - ${payload?.[0]?.payload?.date ?? ""}`}
+              />
+              <Line
+                type="monotone"
+                dataKey="attendanceRate"
+                name="Attendance rate"
+                stroke="#2563eb"
+                strokeWidth={3}
+                dot={{ r: 4, strokeWidth: 2 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+
+        <LateReasonLabels />
       </section>
-      {activeSession ? (
-        <section className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Active event session</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{activeSession.title} is currently active.</p>
-          <Button className="mt-4" asChild>
-            <NavLink to={APP_ROUTES.organizerSession(activeSession.id)}>Open active session</NavLink>
-          </Button>
-        </section>
-      ) : nextEvent ? (
-        <section className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Next upcoming event</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{eventLabel(nextEvent)} on {formatDate(nextEvent.startsAt)}.</p>
-          <Button className="mt-4" asChild variant="outline">
-            <NavLink to={APP_ROUTES.organizerEvent(nextEvent.id)}>View event</NavLink>
-          </Button>
-        </section>
-      ) : (
-        <EmptyState title="No active or upcoming event" description="Create an event to populate your organizer schedule." />
-      )}
+
       <section className="grid gap-4 xl:grid-cols-2">
-        <AttendanceTrendChart data={trendData} />
-        <RiskSummaryChart data={riskData} />
+        <ChartPanel
+          title="Prediction Overview"
+          description="Predicted-to-attend vs. predicted-to-miss by event."
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={predictionOverviewData} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+              <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+              <Tooltip formatter={(value: number) => `${value}%`} />
+              <Legend iconType="circle" />
+              <Bar dataKey="predictedAttend" name="Predicted to attend" stackId="prediction" fill="#16a34a" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="predictedMiss" name="Predicted to miss" stackId="prediction" fill="#dc2626" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+
+        <ChartPanel
+          title="Feedback Sentiment"
+          description="Average positive, neutral, and negative feedback share across events."
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={sentimentOverview}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={62}
+                outerRadius={92}
+                paddingAngle={3}
+                label={({ name, value }) => `${name} ${value}%`}
+              >
+                {sentimentOverview.map((entry) => (
+                  <Cell key={entry.name} fill={SENTIMENT_COLORS[entry.name]} />
+                ))}
+              </Pie>
+              <Legend iconType="circle" />
+              <Tooltip formatter={(value: number) => `${value}%`} />
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartPanel>
       </section>
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Upcoming event schedule</h2>
-          <div className="mt-4 space-y-3">
-            {events.length ? events.map((event) => <EventScheduleCard key={event.id} event={event} />) : <EmptyState title="No events" />}
-          </div>
-        </div>
-        <div className="rounded-lg border bg-surface p-4">
-          <h2 className="font-semibold">Attention-needed participants</h2>
-          <div className="mt-4 space-y-3">
-            {flagged.length ? flagged.map((prediction) => <PredictionCard key={prediction.id} prediction={prediction} />) : <EmptyState title="No flagged participants" description="No high-risk mock predictions are tied to your events." />}
-          </div>
-        </div>
-      </section>
-      <section className="rounded-lg border bg-surface p-4">
-        <h2 className="font-semibold">Recent completed event sessions</h2>
-        <div className="mt-4 grid gap-3">
-          {completedSessions.length ? completedSessions.slice(0, 4).map((session) => <SessionCard key={session.id} session={session} />) : <EmptyState title="No completed event sessions" />}
-        </div>
-      </section>
-    </OrganizerFrame>
+    </div>
   );
 }

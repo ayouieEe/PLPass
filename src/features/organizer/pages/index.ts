@@ -2,6 +2,7 @@ export { OrganizerRootPage } from "./OrganizerRootPage";
 export { OrganizerDashboardPage } from "./OrganizerDashboardPage";
 export { EventManagementPage } from "./EventManagementPage";
 export { CreateEventPage } from "./CreateEventPage";
+export { OrganizerUserManagementPage } from "./OrganizerUserManagement";
 export { EventDetailsPage } from "./EventDetailsPage";
 export { EventAttendancePage } from "./EventAttendancePage";
 export { EventRecordsPage } from "./EventRecordsPage";

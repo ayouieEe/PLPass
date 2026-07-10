@@ -69,7 +69,7 @@ import type {
   EventParticipant,
   MlPrediction,
   Student
-} from "@/types/domain";
+  } from "@/types/domain";
 import type {
   AttendanceStatus,
   CorrectionRequestStatus,
@@ -87,11 +87,19 @@ type OrganizerScope = {
   isLoading: boolean;
   isError: boolean;
 };
-
 type EventWithCount = Event & { participantCount: number };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+const VENUE_OPTIONS = [
+  { label: "Function Hall", value: "Function Hall" },
+  { label: "Banquet Hall", value: "Banquet Hall" },
+  { label: "Auditorium", value: "Auditorium" },
+  { label: "Gymnasium", value: "Gymnasium" },
+  { label: "AVR 1", value: "AVR 1" },
+  { label: "AVR 2", value: "AVR 2" },
+  { label: "AVR 4", value: "AVR 4" }
+];
 
 const eventFormSchema = z
   .object({
@@ -104,14 +112,16 @@ const eventFormSchema = z
     endTime: z.string().min(1, "End time is required."),
     attendanceMode: z.enum(["face-to-face", "online"]),
     description: z.string().optional(),
+    objective1: z.string().min(3, "Objective 1 is required."),
+    objective2: z.string().min(3, "Objective 2 is required."),
+    objective3: z.string().min(3, "Objective 3 is required."),
     remarks: z.string().optional()
   })
   .refine((value) => value.endTime > value.startTime, {
     path: ["endTime"],
     message: "End time must be after start time."
   });
-
-const sessionFormSchema = z
+  const sessionFormSchema = z
   .object({
     venue: z.string().min(2, "Venue is required."),
     date: z.string().min(1, "Date is required."),
@@ -139,7 +149,6 @@ function useOrganizerScope(): OrganizerScope {
     isError: organizerQuery.isError
   };
 }
-
 function formatDate(value: string | undefined) {
   return formatDisplayDate(value, "Not scheduled");
 }
@@ -160,7 +169,6 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
   }
   return "muted" as const;
 }
-
 function attendanceCounts(records: AttendanceRecord[]) {
   return {
     present: records.filter((record) => record.status === "present").length,
@@ -185,7 +193,6 @@ function eventLabel(event: Event | undefined) {
 function studentName(student: Student | undefined) {
   return student ? student.studentNumber : "Unknown student";
 }
-
 function ShellState({ scope }: { scope: OrganizerScope }) {
   if (scope.isLoading) {
     return <LoadingState label="Loading organizer workspace" />;
@@ -208,7 +215,6 @@ function participantStudents(participants: EventParticipant[], students: Student
   const participantIds = new Set(participants.map((participant) => participant.studentId));
   return students.filter((student) => participantIds.has(student.id));
 }
-
 function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
   const eventDate = dateKey(event.startsAt);
   if (!eventDate) {
@@ -231,7 +237,6 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     timestamp: formatTime(record.recordedAt)
   }));
 }
-
 function EventScheduleCard({ event }: { event: Event }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -261,7 +266,6 @@ function PredictionCard({ prediction }: { prediction: MlPrediction }) {
     </article>
   );
 }
-
 function SessionCard({ session }: { session: AttendanceSession }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -279,6 +283,73 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 }
 
+function mostCommonValue<T extends string | number>(items: T[]) {
+  return items.reduce<{ value: T | null; count: number; totals: Map<T, number> }>(
+    (summary, item) => {
+      const count = (summary.totals.get(item) ?? 0) + 1;
+      summary.totals.set(item, count);
+      return count > summary.count ? { ...summary, value: item, count } : summary;
+    },
+    { value: null, count: 0, totals: new Map<T, number>() }
+  ).value;
+}
+function buildAttendanceFactors(selectedStudents: Student[], category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+  const dominantYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
+  const dominantSection = mostCommonValue(selectedStudents.map((student) => student.section));
+  const categoryLabel = category.trim() || "Event category";
+  const timeLabel = startTime ? `${startTime} start time` : "Start time";
+
+  return [
+    { label: selectedStudents.length ? `${selectedStudents.length} selected dummy students` : "No selected dummy students yet", importance: 32 },
+    { label: dominantYear ? `Year ${dominantYear} participation profile` : "Year level profile", importance: 22 },
+    { label: dominantSection ? `Section ${dominantSection} concentration` : "Section concentration", importance: 18 },
+    { label: categoryLabel, importance: 14 },
+    { label: attendanceMode === "face-to-face" ? "Face-to-face attendance mode" : "Online attendance mode", importance: 9 },
+    { label: timeLabel, importance: 5 }
+  ];
+}
+
+function predictedAttendancePercentage(selectedCount: number, category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+  let score = 68;
+  const normalizedCategory = category.toLowerCase();
+
+  if (selectedCount >= 150) score += 8;
+  if (selectedCount >= 75 && selectedCount < 150) score += 5;
+  if (normalizedCategory.includes("assembly") || normalizedCategory.includes("career")) score += 7;
+  if (normalizedCategory.includes("competition") || normalizedCategory.includes("showcase")) score += 5;
+  if (attendanceMode === "face-to-face") score += 4;
+  if (startTime && startTime < "10:00") score += 3;
+  if (startTime && startTime >= "13:00") score -= 4;
+
+  return Math.max(45, Math.min(96, score));
+}
+function CreateEventSectionHeader({
+  eyebrow,
+  title,
+  description
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="border-b pb-4">
+      <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p>
+      <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function PredictionMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return (
+    <div className="rounded-lg border bg-surface p-4">
+      <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
+      <p className="mt-2 text-3xl font-semibold leading-none text-foreground">{value}</p>
+      {detail ? <p className="mt-2 text-sm text-muted-foreground">{detail}</p> : null}
+    </div>
+  );
+}
 export function CreateEventPage() {
   const scope = useOrganizerScope();
   const navigate = useNavigate();
@@ -288,13 +359,42 @@ export function CreateEventPage() {
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [participantError, setParticipantError] = useState("");
+  const [startSessionOpen, setStartSessionOpen] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(false);
   const studentsQuery = useStudents({ pageSize: 500, search, programId: programId || undefined, yearLevel: yearLevel ? Number(yearLevel) : undefined, section: section || undefined }, scope.context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
-    defaultValues: { code: "", title: "", category: "", venue: "", date: "", startTime: "", endTime: "", attendanceMode: "face-to-face", description: "", remarks: "" }
+    defaultValues: {
+      code: "",
+      title: "",
+      category: "",
+      venue: "",
+      date: "",
+      startTime: "",
+      endTime: "",
+      attendanceMode: "face-to-face",
+      description: "",
+      objective1: "",
+      objective2: "",
+      objective3: "",
+      remarks: ""
+    }
   });
+  const sessionForm = useForm<SessionFormValues>({
+    resolver: zodResolver(sessionFormSchema),
+    defaultValues: {
+      venue: "",
+      date: "",
+      startTime: "",
+      expectedEndTime: "",
+      attendanceMode: "face-to-face"
+    }
+  });
+  const watchedCategory = form.watch("category");
+  const watchedAttendanceMode = form.watch("attendanceMode");
+  const watchedStartTime = form.watch("startTime");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -304,6 +404,25 @@ export function CreateEventPage() {
   }
   const students = studentsQuery.data?.items ?? [];
   const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
+  const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
+  const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
+  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedAttendanceMode, watchedStartTime);
+  const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
+  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedAttendanceMode, watchedStartTime);
+  const livePreviewRecords: LiveAttendanceRecord[] = selectedStudents.slice(0, 6).map((student, index) => ({
+    id: `preview-${student.id}`,
+    studentName: studentName(student),
+    identifier: student.studentNumber,
+    status: index % 4 === 1 ? "late" : index % 4 === 2 ? "absent" : "present",
+    timestamp: index % 4 === 2 ? "Not checked in" : `${watchedStartTime || "09:00"} + ${index * 3}m`,
+    timeIn: index % 4 === 2 ? undefined : `${watchedStartTime || "09:00"} + ${index * 3}m`
+  }));
+  const sessionPreviewCounts = {
+    present: livePreviewRecords.filter((record) => record.status === "present").length,
+    late: livePreviewRecords.filter((record) => record.status === "late").length,
+    absent: Math.max(selectedIds.length - livePreviewRecords.filter((record) => record.status === "present" || record.status === "late").length, 0)
+  };
   function toggleStudent(studentId: string) {
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
@@ -312,44 +431,140 @@ export function CreateEventPage() {
     setSelectedIds((current) => [...new Set([...current, ...students.map((student) => student.id)])]);
     setParticipantError("");
   }
+  function startPreviewSession() {
+    setSessionStarted(true);
+  }
+  function endPreviewSession() {
+    setSessionStarted(false);
+    setStartSessionOpen(false);
+  }
   async function onSubmit(values: EventFormValues) {
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
-    const event = await mutations.createEventMutation.mutateAsync({ ...values, participantStudentIds: selectedIds });
+    const event = await mutations.createEventMutation.mutateAsync({
+      code: values.code,
+      title: values.title,
+      category: values.category,
+      venue: values.venue,
+      date: values.date,
+      startTime: values.startTime,
+      endTime: values.endTime,
+      attendanceMode: values.attendanceMode,
+      description: values.description,
+      remarks: values.remarks,
+      participantStudentIds: selectedIds
+    });
     navigate(APP_ROUTES.organizerEvent(event.id));
   }
   return (
     <OrganizerFrame>
-      <PageHeader eyebrow="Organizer" title="Create Event" description="Create a pending mock event and participant records through the repository layer." />
+      <PageHeader
+        eyebrow="Event Management"
+        title="Create Event"
+        description="Create events, assign participants, preview live predicted attendance, and publish immediately."
+      />
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
-        <section className="grid gap-4 rounded-lg border bg-surface p-5 md:grid-cols-2">
-          <TextField control={form.control} name="code" label="Event code" />
-          <TextField control={form.control} name="title" label="Event name" />
-          <TextField control={form.control} name="category" label="Category" />
-          <TextField control={form.control} name="venue" label="Venue" />
-          <DatePickerField control={form.control} name="date" label="Date" />
-          <TimePickerField control={form.control} name="startTime" label="Start time" />
-          <TimePickerField control={form.control} name="endTime" label="End time" />
-          <SelectField control={form.control} name="attendanceMode" label="Attendance mode" options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]} />
-          <div className="md:col-span-2">
-            <TextAreaField control={form.control} name="description" label="Description" />
+        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
+            <CreateEventSectionHeader
+              eyebrow="A. Create Event"
+              title="Event Details"
+              description="Enter the event information and up to three objectives for feedback generation."
+            />
+            <div className="grid gap-4 md:grid-cols-2">
+              <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
+              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
+              <TextField control={form.control} name="category" label="Category" placeholder="e.g. Career Talk" />
+              <SelectField
+                control={form.control}
+                name="venue"
+                label="Venue"
+                placeholder="Select a venue"
+                options={VENUE_OPTIONS}
+              />
+              <DatePickerField control={form.control} name="date" label="Date" />
+              <TimePickerField control={form.control} name="startTime" label="Start Time" />
+              <TimePickerField control={form.control} name="endTime" label="End Time" />
+              <SelectField
+                control={form.control}
+                name="attendanceMode"
+                label="Attendance Mode"
+                options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
+              />
+              <div className="md:col-span-2">
+                <TextAreaField
+                  control={form.control}
+                  name="description"
+                  label="Description (Optional)"
+                  placeholder="e.g. A career orientation with hotel and restaurant industry partners."
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <section className="rounded-lg border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Objectives (1-3)</h3>
+              <p className="mt-1 text-sm text-muted-foreground">All three objectives are required for the event record.</p>
+              <div className="mt-4 grid gap-3">
+                <TextField control={form.control} name="objective1" label="Objective 1" placeholder="e.g. Improve student awareness of hospitality career paths." />
+                <TextField control={form.control} name="objective2" label="Objective 2" placeholder="e.g. Encourage participation in department-wide activities." />
+                <TextField control={form.control} name="objective3" label="Objective 3" placeholder="e.g. Gather feedback for future event planning." />
+              </div>
+            </section>
           </div>
-          <div className="md:col-span-2">
-            <TextAreaField control={form.control} name="remarks" label="Remarks" />
-          </div>
+          <aside className="space-y-4 rounded-lg border bg-surface p-5 shadow-sm lg:sticky lg:top-4 lg:self-start">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-primary" aria-hidden="true" />
+              <h2 className="font-semibold text-foreground">Predicted Attendance Preview</h2>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Live Random Forest Prediction</p>
+            <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
+              Based on the current dummy student list
+              {dominantSelectedYear ? `, mostly Year ${dominantSelectedYear}` : ""}
+              {dominantSelectedSection ? ` from ${dominantSelectedSection}` : ""}.
+            </div>
+
+            <PredictionMetric label="Predicted Attendance Percentage" value={`${predictedPercentage}%`} />
+            <PredictionMetric label="Expected Attendees" value={String(expectedAttendees)} detail={`of ${selectedIds.length} selected participants`} />
+
+            <div className="rounded-lg border bg-background p-4">
+              <p className="text-xs font-medium uppercase text-muted-foreground">Ranked Attendance Factors</p>
+              <div className="mt-4 space-y-3">
+                {attendanceFactors.map((factor) => (
+                  <div key={factor.label} className="grid gap-1">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate text-foreground">{factor.label}</span>
+                      <span className="font-medium text-muted-foreground">{factor.importance}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${factor.importance}%` }} />
+                    </div>
+                  </div>
+                  ))}
+              </div>
+            </div>
+          </aside>
         </section>
-        <section className="space-y-4 rounded-lg border bg-surface p-5">
+        <section className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
+          <CreateEventSectionHeader
+            eyebrow="Participants"
+            title="Participant Selection"
+            description="Select the students who will be invited and notified when the event is published."
+          />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="font-semibold">Participant selection</h2>
+              <h2 className="font-semibold text-foreground">Participants</h2>
               <p className="text-sm text-muted-foreground">{selectedIds.length} selected participants</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={selectAllFiltered}>Select all filtered students</Button>
+              <Button type="button" variant="default" onClick={selectAllFiltered}>All Students</Button>
               <Button type="button" variant="outline" onClick={() => setSelectedIds([])}>Clear selected students</Button>
             </div>
+          </div>
+          <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
+            Selected students will receive the event notification after you publish.
           </div>
           <div className="grid gap-3 md:grid-cols-4">
             <SearchInput value={search} placeholder="Search students" onChange={setSearch} />
@@ -367,34 +582,110 @@ export function CreateEventPage() {
             </select>
           </div>
           {participantError ? <p className="text-sm text-danger">{participantError}</p> : null}
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {students.length ? students.map((student) => (
-              <label key={student.id} className="flex items-center gap-3 rounded-lg border bg-background p-3 text-sm">
-                <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
-                <span>
-                  <span className="block font-medium">{student.studentNumber}</span>
-                  <span className="text-muted-foreground">{student.programId} - Year {student.yearLevel} - {student.section}</span>
-                </span>
-              </label>
-            )) : <EmptyState title="No students found" />}
+          <div className="max-h-[420px] overflow-y-auto rounded-lg border bg-background p-3">
+            <div className="grid gap-2 md:grid-cols-2">
+              {students.length ? students.map((student) => (
+                <label key={student.id} className="flex items-center gap-3 rounded-lg border bg-surface p-3 text-sm">
+                  <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
+                    <span>
+                      <span className="block font-medium text-foreground">{student.studentNumber}</span>
+                    <span className="text-muted-foreground">{programById.get(student.programId) ?? student.programId} - Year {student.yearLevel} - {student.section}</span>
+                  </span>
+                </label>
+              )) : <EmptyState title="No students found" />}
+            </div>
           </div>
-          <div className="rounded-lg border bg-background p-3">
-            <h3 className="font-medium">Review selected participants</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{selectedStudents.length ? selectedStudents.map((student) => student.studentNumber).join(", ") : "No selected participants yet."}</p>
+          </section>
+        {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-5 shadow-sm">
+          <div>
+            <h2 className="font-semibold text-foreground">Publish Event</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students. No approval workflow is required.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => setStartSessionOpen(true)}>
+              Start Session
+            </Button>
+            <SubmitButton
+              isSubmitting={mutations.createEventMutation.isPending}
+              onClick={() => {
+                if (selectedIds.length === 0) {
+                  setParticipantError("Select at least one participant.");
+                }
+              }}
+            >
+              Publish Event
+            </SubmitButton>
           </div>
         </section>
-        {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
-        <SubmitButton
-          isSubmitting={mutations.createEventMutation.isPending}
-          onClick={() => {
-            if (selectedIds.length === 0) {
-              setParticipantError("Select at least one participant.");
-            }
-          }}
-        >
-          Create pending event
-        </SubmitButton>
       </form>
+      {startSessionOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-foreground/40 p-4">
+          <section className="plpass-modal-surface w-full max-w-5xl rounded-lg border p-5 shadow-lg" role="dialog" aria-modal="true">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+              <div>
+                <p className="text-xs font-medium uppercase text-primary">Start Session Modal</p>
+                <h2 className="mt-1 text-lg font-semibold text-foreground">Start attendance session</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Use this when the event is about to start so attendance can be collected.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setStartSessionOpen(false)}>Close</Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <SelectField control={sessionForm.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
+              <DatePickerField control={sessionForm.control} name="date" label="Session Date" />
+              <TimePickerField control={sessionForm.control} name="startTime" label="Start Time" />
+              <TimePickerField control={sessionForm.control} name="expectedEndTime" label="Expected End Time" />
+              <SelectField control={sessionForm.control} name="attendanceMode" label="Mode" options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]} />
+            </div>
+
+            {!sessionStarted ? (
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-4">
+                <div>
+                  <h3 className="font-semibold text-foreground">Ready to start</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Starting opens attendance capture with QR and Facial verification status.</p>
+                </div>
+                <Button type="button" onClick={sessionForm.handleSubmit(startPreviewSession)}>Start</Button>
+              </div>
+            ) : (
+              <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="space-y-4">
+                  <ActiveSessionHeader
+                    title={form.watch("title") || "New Event Session"}
+                    venue={sessionForm.watch("venue") || form.watch("venue") || "Selected venue"}
+                    startedAt={`${sessionForm.watch("date") || form.watch("date") || "Session date"} ${sessionForm.watch("startTime") || form.watch("startTime") || "Start time"}`}
+                    statusLabel="active"
+                  />
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <section className="rounded-lg border bg-background p-4">
+                      <h3 className="font-semibold text-foreground">QR check-in</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">Live QR scans update student time-in status.</p>
+                    </section>
+                    <section className="rounded-lg border bg-background p-4">
+                      <h3 className="font-semibold text-foreground">Facial verification</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">Facial matches confirm identity before time-in is recorded.</p>
+                    </section>
+                  </div>
+                  <SessionSummaryCards
+                    present={sessionPreviewCounts.present}
+                    late={sessionPreviewCounts.late}
+                    absent={sessionPreviewCounts.absent}
+                    total={selectedIds.length}
+                  />
+                </div>
+                <div className="space-y-4">
+                  <div className="rounded-lg border bg-background p-4">
+                    <h3 className="font-semibold text-foreground">Live check-in list</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">QR/Facial time-in statuses appear here during the session.</p>
+                  </div>
+                  {livePreviewRecords.length ? <LiveAttendanceList records={livePreviewRecords} /> : <EmptyState title="No selected participants" description="Select participants before starting a session preview." />}
+                  <Button type="button" variant="destructive" onClick={endPreviewSession}>End Session</Button>
+                </div>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
     </OrganizerFrame>
   );
 }

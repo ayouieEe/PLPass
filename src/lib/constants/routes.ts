@@ -10,6 +10,7 @@ export const APP_ROUTES = {
   organizerDashboard: "/organizer/dashboard",
   organizerEvents: "/organizer/events",
   organizerCreateEvent: "/organizer/events/create",
+  organizerUsers: "/organizer/users",
   organizerRecords: "/organizer/records",
   organizerReports: "/organizer/reports",
   organizerAnalytics: "/organizer/analytics",

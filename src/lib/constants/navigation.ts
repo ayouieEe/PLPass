@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   ShieldCheck,
   UserCircle,
+  Users,
   FileText,
   UserCheck
 } from "lucide-react";
@@ -16,6 +17,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Dashboard", path: APP_ROUTES.organizerDashboard, icon: LayoutDashboard, group: "Overview" },
     { label: "Events", path: APP_ROUTES.organizerEvents, icon: ClipboardList, group: "Events" },
     { label: "Create Session", path: APP_ROUTES.organizerCreateEvent, icon: CalendarCheck, group: "Events" },
+    { label: "User Management", path: APP_ROUTES.organizerUsers, icon: Users, group: "Management" },
     { label: "Event Records", path: APP_ROUTES.organizerRecords, icon: UserCheck, group: "Events" },
     { label: "Reports", path: APP_ROUTES.organizerReports, icon: FileText, group: "Insights" },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights" },
