@@ -27,7 +27,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
-type DummyEvent = {
+export type DummyEvent = {
   code: string;
   title: string;
   category: string;
@@ -37,7 +37,7 @@ type DummyEvent = {
   predictedTurnout: number;
 };
 
-const DUMMY_EVENTS: DummyEvent[] = [
+export const DUMMY_EVENTS: DummyEvent[] = [
   {
     code: "EVT-2026-001",
     title: "Hospitality Career Fair & Industry Talk",
@@ -94,7 +94,7 @@ const DUMMY_EVENTS: DummyEvent[] = [
   }
 ];
 
-type SessionSummary = {
+export type SessionSummary = {
   eventCode: string;
   date: string;
   present: number;
@@ -104,7 +104,7 @@ type SessionSummary = {
   attendanceRate: number;
 };
 
-const DUMMY_SESSION_SUMMARY: SessionSummary[] = [
+export const DUMMY_SESSION_SUMMARY: SessionSummary[] = [
   { eventCode: "EVT-2026-001", date: "2026-02-10", present: 142, late: 18, absent: 12, totalRegistered: 172, attendanceRate: 82.6 },
   { eventCode: "EVT-2026-002", date: "2026-02-24", present: 97, late: 14, absent: 23, totalRegistered: 134, attendanceRate: 72.8 },
   { eventCode: "EVT-2026-003", date: "2026-03-05", present: 203, late: 9, absent: 8, totalRegistered: 220, attendanceRate: 92.7 },
@@ -113,7 +113,7 @@ const DUMMY_SESSION_SUMMARY: SessionSummary[] = [
   { eventCode: "EVT-2026-006", date: "2026-04-18", present: 168, late: 16, absent: 6, totalRegistered: 190, attendanceRate: 88.4 }
 ];
 
-type SentimentSummary = {
+export type SentimentSummary = {
   eventCode: string;
   overall: "Positive" | "Neutral" | "Negative";
   positive: number;
@@ -121,7 +121,7 @@ type SentimentSummary = {
   negative: number;
 };
 
-const DUMMY_SENTIMENT: SentimentSummary[] = [
+export const DUMMY_SENTIMENT: SentimentSummary[] = [
   { eventCode: "EVT-2026-001", overall: "Positive", positive: 78, neutral: 18, negative: 4 },
   { eventCode: "EVT-2026-002", overall: "Positive", positive: 64, neutral: 27, negative: 9 },
   { eventCode: "EVT-2026-003", overall: "Positive", positive: 71, neutral: 22, negative: 7 },
@@ -130,7 +130,7 @@ const DUMMY_SENTIMENT: SentimentSummary[] = [
   { eventCode: "EVT-2026-006", overall: "Positive", positive: 85, neutral: 12, negative: 3 }
 ];
 
-const DUMMY_LATE_REASON_FREQUENCY = [
+export const DUMMY_LATE_REASON_FREQUENCY = [
   { category: "Traffic / Commute", share: 40 },
   { category: "Class or Academic Conflict", share: 24 },
   { category: "Personal / Health", share: 16 },
@@ -138,7 +138,7 @@ const DUMMY_LATE_REASON_FREQUENCY = [
   { category: "Other", share: 8 }
 ] as const;
 
-const DUMMY_SUMMARY = {
+export const DUMMY_SUMMARY = {
   totalEvents: 6,
   activeSessionToday: { count: 1, eventCode: "EVT-2026-004" },
   totalRegisteredStudents: 970,
@@ -363,9 +363,57 @@ export function OrganizerDashboardPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <ChartPanel
-          title="Attendance Trends"
-          description="Attendance rate per session, filterable by event."
+        <div className="space-y-4">
+          <section className="rounded-lg border bg-surface p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Today&apos;s Event Details</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Overview of the event scheduled for today and its current session context.</p>
+              </div>
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                Live today
+              </span>
+            </div>
+
+            {activeEvent ? (
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Event</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{activeEvent.code}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{activeEvent.title}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Venue</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{activeEvent.venue}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{activeEvent.category}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Schedule</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{activeEvent.date}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{activeEvent.time}</p>
+                </div>
+                <div className="rounded-lg border bg-background p-4">
+                  <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Turnout</p>
+                  <p className="mt-2 text-lg font-semibold text-foreground">{activeEvent.predictedTurnout}%</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Predicted attendance</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-lg border border-dashed bg-background p-4 text-sm text-muted-foreground">
+                There is no active session configured for today yet. The dashboard will show the next event once it is available.
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end">
+              <Button asChild size="sm" className="rounded-lg px-4 shadow-sm">
+                <NavLink to={`${APP_ROUTES.organizerRecords}?tab=today`}>View Today&apos;s Events</NavLink>
+              </Button>
+            </div>
+          </section>
+
+          <ChartPanel
+            title="Attendance Trends"
+            description="Attendance rate per session, filterable by event."
           action={
             <select
               className="h-10 rounded-md border bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -402,7 +450,8 @@ export function OrganizerDashboardPage() {
               />
             </LineChart>
           </ResponsiveContainer>
-        </ChartPanel>
+          </ChartPanel>
+        </div>
 
         <LateReasonLabels />
       </section>

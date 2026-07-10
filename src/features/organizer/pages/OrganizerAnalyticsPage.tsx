@@ -1,14 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Clock3, Plus, Search, TrendingUp, Users } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useForm } from "react-hook-form";
+import { DUMMY_EVENTS, DUMMY_LATE_REASON_FREQUENCY, DUMMY_SENTIMENT, DUMMY_SESSION_SUMMARY, DUMMY_SUMMARY } from "./OrganizerDashboardPage";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
-import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -280,62 +280,254 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 }
 
-export function OrganizerAnalyticsPage() {
-  const scope = useOrganizerScope();
-  const [eventId, setEventId] = useState("");
-  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
-  const predictionsQuery = useMlPredictions({ pageSize: 100, eventId: eventId || undefined }, scope.context);
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
-    return shellState;
-  }
-  if (eventsQuery.isLoading || predictionsQuery.isLoading) {
-    return <LoadingState label="Loading organizer analytics" />;
-  }
-  if (predictionsQuery.isError) {
-    return <ErrorState title="Unable to load analytics" message="No organizer-scoped analytics predictions are available." />;
-  }
-  const events = eventsQuery.data?.items ?? [];
-  const predictions = predictionsQuery.data?.items ?? [];
-  const chartData = events.map((event) => ({
-    label: event.code,
-    present: 4,
-    late: predictions.filter((prediction) => prediction.eventId === event.id && prediction.riskLevel === "medium").length,
-    absent: predictions.filter((prediction) => prediction.eventId === event.id && ["high", "critical"].includes(prediction.riskLevel)).length
-  }));
-  const participationData = events.map((event) => ({ label: event.code, participation: event.status === "completed" ? 92 : 74 }));
-  const columns: ColumnDef<MlPrediction>[] = [
-    { accessorKey: "patternLabel", header: "Risk or anomaly summary" },
-    { accessorKey: "type", header: "Insight area" },
-    { id: "affected", header: "Affected students or event", cell: ({ row }) => eventLabel(events.find((event) => event.id === row.original.eventId)) },
-    { accessorKey: "riskLevel", header: "Risk", cell: ({ row }) => <StatusBadge label={row.original.riskLevel} tone={statusTone(row.original.riskLevel)} /> },
-    { id: "range", header: "Data range", cell: () => "Current semester" },
-    { id: "updated", header: "Last updated", cell: ({ row }) => formatDate(row.original.generatedAt) },
-    { accessorKey: "explanation", header: "Safe explanation" },
-    { id: "action", header: "Action", cell: () => <Button variant="outline" size="sm" disabled>View details</Button> }
-  ];
+function DashboardMetricCard({
+  title,
+  value,
+  detail,
+  icon: Icon,
+  tone = "default"
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  icon: typeof CalendarCheck;
+  tone?: "default" | "warning" | "success";
+}) {
+  const toneClass =
+    tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-700"
+      : tone === "success"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-primary/15 bg-primary/5 text-primary";
+
   return (
-    <OrganizerFrame>
-      <PageHeader eyebrow="Review-only ML" title="Analytics and ML" description="Organizer-scoped analytics previews. No automatic sanctions or attendance changes are shown." />
-      <section className="rounded-lg border bg-surface p-4">
-        <label className="block max-w-xs space-y-1.5">
-          <span className="text-sm font-medium">Event filter</span>
-          <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={eventId} onChange={(event) => setEventId(event.target.value)}>
-            <option value="">All owned events</option>
-            {events.map((event) => <option key={event.id} value={event.id}>{eventLabel(event)}</option>)}
-          </select>
-        </label>
+    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
+          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
+        </div>
+        <span className={`grid h-10 w-10 flex-none place-items-center rounded-md border ${toneClass}`}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+      </div>
+      <p className="mt-4 line-clamp-2 text-sm leading-5 text-muted-foreground">{detail}</p>
+    </article>
+  );
+}
+
+function ChartPanel({
+  title,
+  description,
+  action,
+  children
+}: {
+  title: string;
+  description: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+        {action}
+      </div>
+      <div className="mt-5 h-72 w-full">{children}</div>
+    </section>
+  );
+}
+
+function LateReasonLabels() {
+  return (
+    <aside className="h-full rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Late-arrival reasons</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Share of late check-ins by reason this month.</p>
+        </div>
+        <span className="flex-none rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">Top</span>
+      </div>
+
+      <div className="mt-4 grid gap-3">
+        {DUMMY_LATE_REASON_FREQUENCY.map((reason) => (
+          <div key={reason.category} className="rounded-md border bg-background p-3">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-medium leading-5 text-foreground">{reason.category}</p>
+              <span className="text-sm font-semibold text-foreground">{reason.share}%</span>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-amber-500" style={{ width: `${reason.share}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+export function OrganizerAnalyticsPage() {
+  const [eventFilter, setEventFilter] = useState("all");
+  const eventLookup = useMemo(() => new Map(DUMMY_EVENTS.map((event) => [event.code, event])), []);
+
+  const trendData = useMemo(() => {
+    const rows = eventFilter === "all" ? DUMMY_SESSION_SUMMARY : DUMMY_SESSION_SUMMARY.filter((row) => row.eventCode === eventFilter);
+
+    return rows.map((row) => ({
+      label: row.eventCode,
+      attendanceRate: row.attendanceRate,
+      date: row.date
+    }));
+  }, [eventFilter]);
+
+  const predictionOverviewData = useMemo(
+    () =>
+      DUMMY_EVENTS.map((event) => ({
+        label: event.code,
+        title: event.title,
+        predictedAttend: event.predictedTurnout,
+        predictedMiss: 100 - event.predictedTurnout
+      })),
+    []
+  );
+
+  const sentimentOverview = useMemo(() => {
+    const totals = DUMMY_SENTIMENT.reduce(
+      (acc, row) => ({
+        positive: acc.positive + row.positive,
+        neutral: acc.neutral + row.neutral,
+        negative: acc.negative + row.negative
+      }),
+      { positive: 0, neutral: 0, negative: 0 }
+    );
+    const count = DUMMY_SENTIMENT.length;
+
+    return [
+      { name: "Positive", value: Math.round(totals.positive / count) },
+      { name: "Neutral", value: Math.round(totals.neutral / count) },
+      { name: "Negative", value: Math.round(totals.negative / count) }
+    ];
+  }, []);
+
+  const activeEvent = eventLookup.get(DUMMY_SUMMARY.activeSessionToday.eventCode);
+  const nextEvent = eventLookup.get(DUMMY_SUMMARY.predictedTurnoutNextEvent.eventCode);
+  const topLateReason = DUMMY_LATE_REASON_FREQUENCY.find((reason) => reason.category === DUMMY_SUMMARY.topLateArrivalReason.category) ?? DUMMY_LATE_REASON_FREQUENCY[0];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Insights"
+        title="Analytics insights"
+        description="Use the current event data to forecast turnout, review feedback sentiment, and identify late-arrival patterns that can guide venue, timing, and transport planning."
+      />
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <DashboardMetricCard title="Total Events" value={DUMMY_SUMMARY.totalEvents.toLocaleString()} detail="Published AHTOMP events in the current data set." icon={CalendarCheck} />
+        <DashboardMetricCard title="Active Sessions Today" value={DUMMY_SUMMARY.activeSessionToday.count.toLocaleString()} detail={activeEvent ? `${activeEvent.code}: ${activeEvent.title}` : "No active session configured yet."} icon={Clock3} tone="success" />
+        <DashboardMetricCard title="Registered Students" value={DUMMY_SUMMARY.totalRegisteredStudents.toLocaleString()} detail="Total student registrations across tracked event sessions." icon={Users} />
+        <DashboardMetricCard title="Next Event Turnout" value={`${DUMMY_SUMMARY.predictedTurnoutNextEvent.value}%`} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" />
+        <DashboardMetricCard title="Top Late Reason" value={`${DUMMY_SUMMARY.topLateArrivalReason.share}%`} detail={DUMMY_SUMMARY.topLateArrivalReason.category} icon={AlertTriangle} tone="warning" />
       </section>
-      <section className="grid gap-4 md:grid-cols-2">
-        <StatCard title="Random Forest Predictions" value={String(predictions.filter((prediction) => prediction.type === "random_forest_risk").length)} icon={AlertTriangle} tone="warning" description="Review-only" />
-        <StatCard title="Events Analyzed" value={String(new Set(predictions.map((prediction) => prediction.eventId).filter(Boolean)).size)} icon={CalendarCheck} description="Organizer scope" />
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          <ChartPanel
+            title="Attendance Trends"
+            description="Attendance rate per session, filterable by event."
+            action={
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                value={eventFilter}
+                onChange={(event) => setEventFilter(event.target.value)}
+                aria-label="Filter attendance trend by event"
+              >
+                <option value="all">All events</option>
+                {DUMMY_EVENTS.map((event) => (
+                  <option key={event.code} value={event.code}>
+                    {event.code} - {event.title}
+                  </option>
+                ))}
+              </select>
+            }
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 8, right: 14, left: -10, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value: number) => [`${value}%`, "Attendance rate"]} labelFormatter={(label, payload) => `${label} - ${payload?.[0]?.payload?.date ?? ""}`} />
+                <Line type="monotone" dataKey="attendanceRate" name="Attendance rate" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartPanel title="Prediction Overview" description="Predicted-to-attend vs. predicted-to-miss by event.">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={predictionOverviewData} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value: number) => `${value}%`} />
+                  <Legend iconType="circle" />
+                  <Bar dataKey="predictedAttend" name="Predicted to attend" stackId="prediction" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="predictedMiss" name="Predicted to miss" stackId="prediction" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+
+            <ChartPanel title="Feedback Sentiment" description="Average positive, neutral, and negative feedback share across events.">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={sentimentOverview}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={62}
+                    outerRadius={92}
+                    paddingAngle={3}
+                    label={({ name, value }) => `${name} ${value}%`}
+                  >
+                    {sentimentOverview.map((entry) => (
+                      <Cell key={entry.name} fill={entry.name === "Positive" ? "#16a34a" : entry.name === "Neutral" ? "#f59e0b" : "#dc2626"} />
+                    ))}
+                  </Pie>
+                  <Legend iconType="circle" />
+                  <Tooltip formatter={(value: number) => `${value}%`} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          </div>
+        </div>
+
+        <LateReasonLabels />
       </section>
-      <section className="grid gap-4 xl:grid-cols-2">
-        <AttendanceTrendChart data={chartData} />
-        <ParticipationBarChart data={participationData} />
+
+      <section className="rounded-xl border bg-surface p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Analytics highlights</h2>
+            <p className="mt-1 text-sm text-muted-foreground">The next event forecast and the clearest late-arrival signal from the current dummy dataset.</p>
+          </div>
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">Dummy data</span>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border bg-background p-4">
+            <p className="text-sm font-medium">Forecast for the next event</p>
+            <p className="mt-2 text-3xl font-semibold">{DUMMY_SUMMARY.predictedTurnoutNextEvent.value}%</p>
+            <p className="mt-1 text-sm text-muted-foreground">Predicted turnout for {nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "the next event"}</p>
+          </div>
+          <div className="rounded-lg border bg-background p-4">
+            <p className="text-sm font-medium">Top late-arrival reason</p>
+            <p className="mt-2 text-3xl font-semibold">{topLateReason.category}</p>
+            <p className="mt-1 text-sm text-muted-foreground">Flagged in {topLateReason.share}% of late check-ins this month, so AHTOMP can adjust venue, timing, or transport logistics.</p>
+          </div>
+        </div>
       </section>
-      <RiskSummaryChart data={chartData.map((entry) => ({ label: entry.label, watchlist: entry.late, atRisk: entry.absent }))} />
-      <PLPassDataGrid label="Organizer analytics insights" data={predictions} columns={columns} emptyTitle="No analytics insights" emptyDescription="No review-only predictions match this event filter." />
-    </OrganizerFrame>
+    </div>
   );
 }

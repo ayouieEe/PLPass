@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
   BadgeCheck,
@@ -532,15 +533,20 @@ function StudentDetailModal({
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-6">
+  // Rendered via a portal directly into document.body so the overlay's
+  // z-[9999] is evaluated in the root stacking context. Without this, a
+  // transformed/filtered ancestor elsewhere in the layout (e.g. a sidebar
+  // wrapper) can trap the modal in a local stacking context, letting a
+  // sticky/fixed topbar render on top of it and show through as a white bar.
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-700/40 p-6">
       <section
-        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-lg border bg-surface shadow-xl"
+        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-lg border bg-white shadow-xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="student-detail-title"
       >
-        <div className="border-b bg-primary/5 px-5 py-4">
+        <div className="border-b border-primary/10 bg-white px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-primary">Student Account Details</p>
@@ -562,7 +568,7 @@ function StudentDetailModal({
           </div>
         </div>
 
-        <div className="max-h-[calc(86vh-97px)] overflow-y-auto px-6 pb-10 pt-6">
+        <div className="max-h-[calc(86vh-97px)] overflow-y-auto bg-white px-6 pb-10 pt-6">
           <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <DetailTile label="Account status">
               <StatusBadge value={student.status} />
@@ -681,7 +687,8 @@ function StudentDetailModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
 

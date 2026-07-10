@@ -14,6 +14,7 @@ export const APP_ROUTES = {
   organizerRecords: "/organizer/records",
   organizerReports: "/organizer/reports",
   organizerAnalytics: "/organizer/analytics",
+  organizerCorrections: "/organizer/corrections",
   organizerProfile: "/organizer/profile",
   organizerEvent: (eventId: string) => `/organizer/events/${eventId}`,
   organizerSession: (sessionId: string) => `/organizer/sessions/${sessionId}`,

@@ -6,6 +6,7 @@ export { OrganizerUserManagementPage } from "./OrganizerUserManagement";
 export { EventDetailsPage } from "./EventDetailsPage";
 export { EventAttendancePage } from "./EventAttendancePage";
 export { EventRecordsPage } from "./EventRecordsPage";
-export { EventReportsPage } from "./EventReportsPage";
+export { AuthenticationMethodsPage } from "./AuthenticationMethodsPage";
 export { OrganizerAnalyticsPage } from "./OrganizerAnalyticsPage";
 export { OrganizerProfilePage } from "./OrganizerProfilePage";
+export { OrganizerCorrectionRequestsPage } from "./OrganizerCorrectionRequestsPage";

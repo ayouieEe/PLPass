@@ -16,8 +16,9 @@ import {
   EventDetailsPage,
   EventManagementPage,
   EventRecordsPage,
-  EventReportsPage,
+  AuthenticationMethodsPage,
   OrganizerAnalyticsPage,
+  OrganizerCorrectionRequestsPage,
   OrganizerDashboardPage,
   OrganizerProfilePage,
   OrganizerUserManagementPage,
@@ -60,7 +61,8 @@ export function AppRouter() {
               <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
               <Route path="/organizer/sessions/:sessionId" element={<EventAttendancePage />} />
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
-              <Route path={APP_ROUTES.organizerReports} element={<EventReportsPage />} />
+              <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
+              <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
               <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
             </Route>

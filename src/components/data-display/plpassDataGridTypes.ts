@@ -17,6 +17,9 @@ export type PLPassDataGridProps<TData extends object> = {
   enableQuickFilter?: boolean;
   enableColumnVisibility?: boolean;
   rowSelection?: "single" | "multiple";
+  checkboxSelection?: boolean;
+  suppressRowClickSelection?: boolean;
+  onSelectionChange?: (selectedRows: TData[]) => void;
   height?: number | string;
   toolbarActions?: ReactNode;
   hideHeader?: boolean;

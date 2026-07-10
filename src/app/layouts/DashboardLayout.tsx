@@ -60,7 +60,7 @@ export function DashboardLayout({
   const unreadCount = useNotificationUnreadCount(notificationContext);
   const currentTitle = title ?? `${role[0].toUpperCase()}${role.slice(1)} portal`;
   const currentDescription = description ?? "PLPass authenticated workspace";
-  const currentBreadcrumbs = breadcrumbs ?? ["PLPass", `${role} portal`];
+  const currentBreadcrumbs = breadcrumbs ?? [];
 
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
@@ -186,11 +186,11 @@ export function DashboardLayout({
               </Button>
               <span className="hidden h-7 w-px bg-border md:block" aria-hidden="true" />
               <div className="min-w-0">
-                {role !== "student" && (
+                {role !== "student" && breadcrumbs ? (
                   <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground xl:block">
                     {currentBreadcrumbs.join(" / ")}
                   </nav>
-                )}
+                ) : null}
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
                     <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
@@ -243,10 +243,19 @@ export function DashboardLayout({
                     <p className="font-medium">{userLabel}</p>
                     <p className="text-xs capitalize text-muted-foreground">{role}</p>
                   </div>
-                  <NavLink className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-muted" to={APP_ROUTES.profile}>
-                    <UserCircle className="h-4 w-4" aria-hidden="true" />
-                    Profile
-                  </NavLink>
+                    <NavLink
+                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-muted"
+                      to={
+                        session?.role === "organizer"
+                          ? APP_ROUTES.organizerProfile
+                          : session?.role === "student"
+                          ? APP_ROUTES.studentProfile
+                          : APP_ROUTES.profile
+                      }
+                    >
+                      <UserCircle className="h-4 w-4" aria-hidden="true" />
+                      Profile
+                    </NavLink>
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-muted"

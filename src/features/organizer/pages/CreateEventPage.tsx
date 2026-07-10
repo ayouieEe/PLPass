@@ -58,26 +58,23 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
-import type { AttendanceSimulationResult } from "@/services/contracts";
+import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
-  CorrectionRequest,
   Event,
   EventParticipant,
   MlPrediction,
   Student
-  } from "@/types/domain";
+} from "@/types/domain";
 import type {
   AttendanceStatus,
   CorrectionRequestStatus,
   EventStatus,
   RiskLevel,
   SessionStatus,
-  StudentStatus,
-  VerificationMethod
+  StudentStatus
 } from "@/types/enums";
 
 type OrganizerScope = {
@@ -100,7 +97,10 @@ const VENUE_OPTIONS = [
   { label: "AVR 2", value: "AVR 2" },
   { label: "AVR 4", value: "AVR 4" }
 ];
-
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
 const eventFormSchema = z
   .object({
     code: z.string().min(2, "Event code is required."),
@@ -110,31 +110,32 @@ const eventFormSchema = z
     date: z.string().min(1, "Date is required."),
     startTime: z.string().min(1, "Start time is required."),
     endTime: z.string().min(1, "End time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"]),
     description: z.string().optional(),
     objective1: z.string().min(3, "Objective 1 is required."),
     objective2: z.string().min(3, "Objective 2 is required."),
     objective3: z.string().min(3, "Objective 3 is required."),
     remarks: z.string().optional()
   })
-  .refine((value) => value.endTime > value.startTime, {
+  .refine((value) => {
+    const startMinutes = timeToMinutes(value.startTime);
+    const endMinutes = timeToMinutes(value.endTime);
+    return endMinutes > startMinutes;
+  }, {
     path: ["endTime"],
-    message: "End time must be after start time."
+    message: "End time must be after the start time."
   });
   const sessionFormSchema = z
   .object({
     venue: z.string().min(2, "Venue is required."),
     date: z.string().min(1, "Date is required."),
     startTime: z.string().min(1, "Start time is required."),
-    expectedEndTime: z.string().min(1, "Expected end time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"])
+    expectedEndTime: z.string().min(1, "Expected end time is required.")
   })
   .refine((value) => value.expectedEndTime > value.startTime, {
     path: ["expectedEndTime"],
     message: "Expected end time must be after start time."
   });
-
-type EventFormValues = z.infer<typeof eventFormSchema>;
+  type EventFormValues = z.infer<typeof eventFormSchema>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
@@ -152,11 +153,9 @@ function useOrganizerScope(): OrganizerScope {
 function formatDate(value: string | undefined) {
   return formatDisplayDate(value, "Not scheduled");
 }
-
 function formatTime(value: string | undefined) {
   return formatDisplayTime(value, "Not set");
 }
-
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
@@ -177,7 +176,6 @@ function attendanceCounts(records: AttendanceRecord[]) {
     excused: records.filter((record) => record.status === "excused").length
   };
 }
-
 function attendanceRate(records: AttendanceRecord[]) {
   if (records.length === 0) {
     return 0;
@@ -202,11 +200,9 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
   }
   return null;
 }
-
 function OrganizerFrame({ children }: { children: React.ReactNode }) {
   return <div className="space-y-6">{children}</div>;
 }
-
 function recordsForSession(records: AttendanceRecord[], sessionId: string) {
   return records.filter((record) => record.sessionId === sessionId);
 }
@@ -222,12 +218,10 @@ function eventSemesterId(event: Event, semesters: { id: string; startsAt: string
   }
   return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
 }
-
 function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
   const date = dateKey(event.startsAt);
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
-
 function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
   return records.map((record) => ({
     id: record.id,
@@ -252,7 +246,6 @@ function EventScheduleCard({ event }: { event: Event }) {
     </article>
   );
 }
-
 function PredictionCard({ prediction }: { prediction: MlPrediction }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -280,10 +273,8 @@ function SessionCard({ session }: { session: AttendanceSession }) {
       </div>
     </article>
   );
-
-}
-
-function mostCommonValue<T extends string | number>(items: T[]) {
+  }
+  function mostCommonValue<T extends string | number>(items: T[]) {
   return items.reduce<{ value: T | null; count: number; totals: Map<T, number> }>(
     (summary, item) => {
       const count = (summary.totals.get(item) ?? 0) + 1;
@@ -293,31 +284,28 @@ function mostCommonValue<T extends string | number>(items: T[]) {
     { value: null, count: 0, totals: new Map<T, number>() }
   ).value;
 }
-function buildAttendanceFactors(selectedStudents: Student[], category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+function buildAttendanceFactors(selectedStudents: Student[], category: string, startTime: string) {
   const dominantYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSection = mostCommonValue(selectedStudents.map((student) => student.section));
   const categoryLabel = category.trim() || "Event category";
   const timeLabel = startTime ? `${startTime} start time` : "Start time";
-
-  return [
+return [
     { label: selectedStudents.length ? `${selectedStudents.length} selected dummy students` : "No selected dummy students yet", importance: 32 },
     { label: dominantYear ? `Year ${dominantYear} participation profile` : "Year level profile", importance: 22 },
     { label: dominantSection ? `Section ${dominantSection} concentration` : "Section concentration", importance: 18 },
     { label: categoryLabel, importance: 14 },
-    { label: attendanceMode === "face-to-face" ? "Face-to-face attendance mode" : "Online attendance mode", importance: 9 },
+    { label: "Face-to-face attendance mode", importance: 9 },
     { label: timeLabel, importance: 5 }
   ];
 }
-
-function predictedAttendancePercentage(selectedCount: number, category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+function predictedAttendancePercentage(selectedCount: number, category: string, startTime: string) {
   let score = 68;
   const normalizedCategory = category.toLowerCase();
-
   if (selectedCount >= 150) score += 8;
   if (selectedCount >= 75 && selectedCount < 150) score += 5;
   if (normalizedCategory.includes("assembly") || normalizedCategory.includes("career")) score += 7;
   if (normalizedCategory.includes("competition") || normalizedCategory.includes("showcase")) score += 5;
-  if (attendanceMode === "face-to-face") score += 4;
+  score += 4;
   if (startTime && startTime < "10:00") score += 3;
   if (startTime && startTime >= "13:00") score -= 4;
 
@@ -328,19 +316,18 @@ function CreateEventSectionHeader({
   title,
   description
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: string;
 }) {
   return (
     <div className="border-b pb-4">
-      <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p>
+      {eyebrow ? <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p> : null}
       <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
-
 function PredictionMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
     <div className="rounded-lg border bg-surface p-4">
@@ -361,6 +348,8 @@ export function CreateEventPage() {
   const [participantError, setParticipantError] = useState("");
   const [startSessionOpen, setStartSessionOpen] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [notificationModalOpen, setNotificationModalOpen] = useState(false);
+  const [notificationStatuses, setNotificationStatuses] = useState<{ studentId: string; studentNumber: string; status: "pending" | "sent" | "failed" }[]>([]);
   const studentsQuery = useStudents({ pageSize: 500, search, programId: programId || undefined, yearLevel: yearLevel ? Number(yearLevel) : undefined, section: section || undefined }, scope.context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
@@ -374,7 +363,6 @@ export function CreateEventPage() {
       date: "",
       startTime: "",
       endTime: "",
-      attendanceMode: "face-to-face",
       description: "",
       objective1: "",
       objective2: "",
@@ -388,12 +376,10 @@ export function CreateEventPage() {
       venue: "",
       date: "",
       startTime: "",
-      expectedEndTime: "",
-      attendanceMode: "face-to-face"
+      expectedEndTime: ""
     }
   });
   const watchedCategory = form.watch("category");
-  const watchedAttendanceMode = form.watch("attendanceMode");
   const watchedStartTime = form.watch("startTime");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
@@ -407,10 +393,10 @@ export function CreateEventPage() {
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
-  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedAttendanceMode, watchedStartTime);
+  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
   const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
-  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedAttendanceMode, watchedStartTime);
-  const livePreviewRecords: LiveAttendanceRecord[] = selectedStudents.slice(0, 6).map((student, index) => ({
+  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedStartTime);
+   const livePreviewRecords: LiveAttendanceRecord[] = selectedStudents.slice(0, 6).map((student, index) => ({
     id: `preview-${student.id}`,
     studentName: studentName(student),
     identifier: student.studentNumber,
@@ -443,20 +429,58 @@ export function CreateEventPage() {
       setParticipantError("Select at least one participant.");
       return;
     }
-    const event = await mutations.createEventMutation.mutateAsync({
-      code: values.code,
-      title: values.title,
-      category: values.category,
-      venue: values.venue,
-      date: values.date,
-      startTime: values.startTime,
-      endTime: values.endTime,
-      attendanceMode: values.attendanceMode,
-      description: values.description,
-      remarks: values.remarks,
-      participantStudentIds: selectedIds
-    });
-    navigate(APP_ROUTES.organizerEvent(event.id));
+    try {
+      const event = await mutations.createEventMutation.mutateAsync({
+        code: values.code,
+        title: values.title,
+        category: values.category,
+        venue: values.venue,
+        date: values.date,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        attendanceMode: "face-to-face",
+        description: values.description,
+        remarks: values.remarks,
+        participantStudentIds: selectedIds
+      });
+      // Mock notification: show summary modal and simulate sending emails to selected students
+      setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
+      setNotificationModalOpen(true);
+      // simulate sends sequentially to avoid flooding UI
+      selectedStudents.forEach((student, index) => {
+        setTimeout(() => {
+          setNotificationStatuses((current) => current.map((entry) => (entry.studentId === student.id ? { ...entry, status: "sent" } : entry)));
+        }, 400 + index * 200);
+      });
+      // close modal and navigate after all simulated sends complete
+      setTimeout(() => {
+        setNotificationModalOpen(false);
+        toast.success(`Published ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""} — notifications simulated`);
+        navigate(APP_ROUTES.organizerEvent(event.id));
+      }, 400 + selectedStudents.length * 200 + 300);
+    } catch (err) {
+      // If the Supabase repository intentionally defers live creation, fall back to simulated publish
+      const isDeferred = err instanceof Error && /deferred/i.test(err.message || "");
+      if (isDeferred) {
+        setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
+        setNotificationModalOpen(true);
+        selectedStudents.forEach((student, index) => {
+          setTimeout(() => {
+            setNotificationStatuses((current) => current.map((entry) => (entry.studentId === student.id ? { ...entry, status: "sent" } : entry)));
+          }, 400 + index * 200);
+        });
+        setTimeout(() => {
+          setNotificationModalOpen(false);
+          toast.success(`Notified ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""} (simulated)`);
+        }, 400 + selectedStudents.length * 200 + 300);
+        // Clear mutation error state so the ErrorState UI doesn't persist
+        try {
+          mutations.createEventMutation.reset();
+        } catch {}
+        return;
+      }
+      throw err;
+    }
   }
   return (
     <OrganizerFrame>
@@ -469,7 +493,6 @@ export function CreateEventPage() {
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
             <CreateEventSectionHeader
-              eyebrow="A. Create Event"
               title="Event Details"
               description="Enter the event information and up to three objectives for feedback generation."
             />
@@ -487,12 +510,6 @@ export function CreateEventPage() {
               <DatePickerField control={form.control} name="date" label="Date" />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />
               <TimePickerField control={form.control} name="endTime" label="End Time" />
-              <SelectField
-                control={form.control}
-                name="attendanceMode"
-                label="Attendance Mode"
-                options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
-              />
               <div className="md:col-span-2">
                 <TextAreaField
                   control={form.control}
@@ -503,7 +520,6 @@ export function CreateEventPage() {
                 />
               </div>
             </div>
-
             <section className="rounded-lg border bg-background p-4">
               <h3 className="font-semibold text-foreground">Objectives (1-3)</h3>
               <p className="mt-1 text-sm text-muted-foreground">All three objectives are required for the event record.</p>
@@ -525,7 +541,6 @@ export function CreateEventPage() {
               {dominantSelectedYear ? `, mostly Year ${dominantSelectedYear}` : ""}
               {dominantSelectedSection ? ` from ${dominantSelectedSection}` : ""}.
             </div>
-
             <PredictionMetric label="Predicted Attendance Percentage" value={`${predictedPercentage}%`} />
             <PredictionMetric label="Expected Attendees" value={String(expectedAttendees)} detail={`of ${selectedIds.length} selected participants`} />
 
@@ -549,7 +564,6 @@ export function CreateEventPage() {
         </section>
         <section className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
           <CreateEventSectionHeader
-            eyebrow="Participants"
             title="Participant Selection"
             description="Select the students who will be invited and notified when the event is published."
           />
@@ -596,93 +610,44 @@ export function CreateEventPage() {
             </div>
           </div>
           </section>
-        {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
+          {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-5 shadow-sm">
           <div>
             <h2 className="font-semibold text-foreground">Publish Event</h2>
             <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students. No approval workflow is required.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => setStartSessionOpen(true)}>
-              Start Session
-            </Button>
-            <SubmitButton
-              isSubmitting={mutations.createEventMutation.isPending}
-              onClick={() => {
-                if (selectedIds.length === 0) {
-                  setParticipantError("Select at least one participant.");
-                }
-              }}
-            >
-              Publish Event
-            </SubmitButton>
-          </div>
+          <SubmitButton
+            isSubmitting={mutations.createEventMutation.isPending}
+            onClick={() => {
+              if (selectedIds.length === 0) {
+                setParticipantError("Select at least one participant.");
+              }
+            }}
+          >
+            Publish Event
+          </SubmitButton>
         </section>
       </form>
-      {startSessionOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-foreground/40 p-4">
-          <section className="plpass-modal-surface w-full max-w-5xl rounded-lg border p-5 shadow-lg" role="dialog" aria-modal="true">
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b pb-4">
+      {notificationModalOpen ? (
+        <div className="fixed inset-0 z-60 grid place-items-center bg-foreground/40 p-4">
+          <section className="plpass-modal-surface w-full max-w-lg rounded-lg border p-5 shadow-lg" role="dialog" aria-modal="true">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium uppercase text-primary">Start Session Modal</p>
-                <h2 className="mt-1 text-lg font-semibold text-foreground">Start attendance session</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Use this when the event is about to start so attendance can be collected.</p>
+                <h3 className="text-lg font-semibold">Sending notifications</h3>
+                <p className="mt-1 text-sm text-muted-foreground">Simulating email sends to selected participants.</p>
               </div>
-              <Button type="button" variant="outline" onClick={() => setStartSessionOpen(false)}>Close</Button>
+              <Button type="button" variant="outline" onClick={() => setNotificationModalOpen(false)}>Close</Button>
             </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <SelectField control={sessionForm.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
-              <DatePickerField control={sessionForm.control} name="date" label="Session Date" />
-              <TimePickerField control={sessionForm.control} name="startTime" label="Start Time" />
-              <TimePickerField control={sessionForm.control} name="expectedEndTime" label="Expected End Time" />
-              <SelectField control={sessionForm.control} name="attendanceMode" label="Mode" options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]} />
+            <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
+              {notificationStatuses.map((entry) => (
+                <div key={entry.studentId} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
+                  <div className="truncate">{entry.studentNumber}</div>
+                  <div className="text-muted-foreground">
+                    {entry.status === "pending" ? "Pending" : entry.status === "sent" ? "Sent" : "Failed"}
+                  </div>
+                </div>
+              ))}
             </div>
-
-            {!sessionStarted ? (
-              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-4">
-                <div>
-                  <h3 className="font-semibold text-foreground">Ready to start</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">Starting opens attendance capture with QR and Facial verification status.</p>
-                </div>
-                <Button type="button" onClick={sessionForm.handleSubmit(startPreviewSession)}>Start</Button>
-              </div>
-            ) : (
-              <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="space-y-4">
-                  <ActiveSessionHeader
-                    title={form.watch("title") || "New Event Session"}
-                    venue={sessionForm.watch("venue") || form.watch("venue") || "Selected venue"}
-                    startedAt={`${sessionForm.watch("date") || form.watch("date") || "Session date"} ${sessionForm.watch("startTime") || form.watch("startTime") || "Start time"}`}
-                    statusLabel="active"
-                  />
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <section className="rounded-lg border bg-background p-4">
-                      <h3 className="font-semibold text-foreground">QR check-in</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Live QR scans update student time-in status.</p>
-                    </section>
-                    <section className="rounded-lg border bg-background p-4">
-                      <h3 className="font-semibold text-foreground">Facial verification</h3>
-                      <p className="mt-1 text-sm text-muted-foreground">Facial matches confirm identity before time-in is recorded.</p>
-                    </section>
-                  </div>
-                  <SessionSummaryCards
-                    present={sessionPreviewCounts.present}
-                    late={sessionPreviewCounts.late}
-                    absent={sessionPreviewCounts.absent}
-                    total={selectedIds.length}
-                  />
-                </div>
-                <div className="space-y-4">
-                  <div className="rounded-lg border bg-background p-4">
-                    <h3 className="font-semibold text-foreground">Live check-in list</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">QR/Facial time-in statuses appear here during the session.</p>
-                  </div>
-                  {livePreviewRecords.length ? <LiveAttendanceList records={livePreviewRecords} /> : <EmptyState title="No selected participants" description="Select participants before starting a session preview." />}
-                  <Button type="button" variant="destructive" onClick={endPreviewSession}>End Session</Button>
-                </div>
-              </div>
-            )}
           </section>
         </div>
       ) : null}

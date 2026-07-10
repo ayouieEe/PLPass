@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import { Activity, MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -43,6 +43,7 @@ export function RoleBasedSidebar({
 }: RoleBasedSidebarProps) {
   const groups = groupedItems(ROLE_NAVIGATION[role] ?? []);
   const userInitials = initialsFromName(userLabel) || "PL";
+  const navigate = useNavigate();
 
   return (
     <aside
@@ -103,18 +104,19 @@ export function RoleBasedSidebar({
       </nav>
 
       <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
-        <NavLink
-          to={APP_ROUTES.profile}
+        <button
+          type="button"
           title={collapsed ? `${userLabel} profile` : undefined}
           aria-label={`${userLabel} profile`}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            cn(
-              "group flex items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-active/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
-              collapsed && "justify-center rounded-xl px-2",
-              isActive && "plpass-sidebar-active"
-            )
-          }
+          onClick={() => {
+            const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
+            navigate(route);
+            onNavigate?.();
+          }}
+          className={cn(
+            "group flex w-full items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-active/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+            collapsed && "justify-center rounded-xl px-2"
+          )}
         >
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
             {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
@@ -128,7 +130,7 @@ export function RoleBasedSidebar({
               <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             </>
           ) : null}
-        </NavLink>
+        </button>
       </div>
     </aside>
   );

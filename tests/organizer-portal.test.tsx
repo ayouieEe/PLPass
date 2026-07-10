@@ -1,12 +1,30 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
+import { EventManagementPage } from "@/features/organizer/pages/EventManagementPage";
+import { CompletedEventModal } from "@/features/organizer/pages/EventRecordsPage";
+import { AuthenticationMethodsPage } from "@/features/organizer/pages/AuthenticationMethodsPage";
+import { OrganizerCorrectionRequestsPage } from "@/features/organizer/pages/OrganizerCorrectionRequestsPage";
 import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/mocks/testHelpers";
 import { developmentErrorToggle } from "@/services/mock/developmentErrorToggle";
 import { resetMockRepositoryState } from "@/services/mock/repositories";
 import { repositories } from "@/services/repositories";
+
+vi.mock("@/components/data-display/PLPassDataGrid", () => ({
+  PLPassDataGrid: ({ toolbarActions, data, onSelectionChange }: { toolbarActions?: ReactNode; data?: Array<{ code?: string; requestId?: string; id?: string }> ; onSelectionChange?: (rows: Array<{ code?: string; requestId?: string; id?: string }>) => void }) => (
+    <div>
+      {toolbarActions}
+      <button type="button" onClick={() => onSelectionChange?.(data?.slice(0, 1) ?? [])}>Select first row</button>
+      <div data-testid="mock-grid-rows">
+        {(data ?? []).map((row) => <div key={row.id ?? row.requestId ?? row.code}>{row.requestId ?? row.code ?? row.id}</div>)}
+      </div>
+    </div>
+  )
+}));
 
 const organizerSession = JSON.stringify({
   userId: "user-organizer-1",
@@ -220,6 +238,20 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
+  it("opens a modal when a credential action button is clicked", async () => {
+    render(
+      <MemoryRouter>
+        <AuthenticationMethodsPage />
+      </MemoryRouter>
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: /view qr/i })[0]);
+
+    expect(await screen.findByRole("dialog", { name: /qr credential action/i })).toBeInTheDocument();
+    expect(screen.getByText(/preview the qr credential/i)).toBeInTheDocument();
+  });
+
   it("renders the second organizer routes with isolated data and empty records", async () => {
     storeSession(organizerTwoSession);
     setRoute("/organizer/events");
@@ -236,6 +268,47 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Event unavailable" })).toBeInTheDocument();
+  });
+
+  it("shows the completed event record modal after the session summary view button is clicked", async () => {
+    render(
+      <MemoryRouter initialEntries={["/organizer/events"]}>
+        <EventManagementPage />
+      </MemoryRouter>
+    );
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: /select first row/i }));
+    await user.click(screen.getByRole("button", { name: /start selected session/i }));
+    await user.click(screen.getByRole("button", { name: /start session/i }));
+    await user.click(screen.getByRole("button", { name: /end session/i }));
+    await user.click(screen.getByRole("button", { name: /view event record/i }));
+
+    expect(await screen.findByText(/view more/i)).toBeInTheDocument();
+    expect(screen.getByText(/attendee information/i)).toBeInTheDocument();
+  });
+
+  it("shows export report actions inside the completed event modal", () => {
+    render(
+      <CompletedEventModal
+        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] } as any}
+        rows={[]}
+        onClose={() => {}}
+      />
+    );
+
+    expect(screen.getByText(/export this event/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /attendance/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /summary/i })).toBeInTheDocument();
+  });
+
+  it("shows pending, approved, and rejected request tabs", async () => {
+    render(<OrganizerCorrectionRequestsPage />);
+
+    expect(screen.getByRole("button", { name: /all requests/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /pending/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approved/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /rejected/i })).toBeInTheDocument();
   });
 
   it("validates create event participant selection", async () => {

@@ -113,6 +113,9 @@ export function PLPassDataGrid<TData extends object>({
   enableQuickFilter = false,
   enableColumnVisibility = false,
   rowSelection,
+  checkboxSelection = false,
+  suppressRowClickSelection = false,
+  onSelectionChange,
   height,
   toolbarActions,
   hideHeader = false
@@ -195,6 +198,13 @@ export function PLPassDataGrid<TData extends object>({
     }
     window.requestAnimationFrame(() => normalizePaginationControls(gridShellRef.current));
   }, []);
+
+  const handleSelectionChanged = useCallback(
+    (event: { api: GridApi<TData> }) => {
+      onSelectionChange?.(event.api.getSelectedRows());
+    },
+    [onSelectionChange]
+  );
 
   const goToPage = useCallback((page: number) => {
     gridApiRef.current?.paginationGoToPage(page);
@@ -291,17 +301,21 @@ export function PLPassDataGrid<TData extends object>({
           paginationPageSize={DEFAULT_PAGE_SIZE}
           quickFilterText={quickFilterText}
           rowSelection={rowSelection}
+          suppressRowClickSelection={suppressRowClickSelection}
           rowHeight={52}
           headerHeight={44}
           noRowsOverlayComponent={NoRowsOverlay}
           theme="legacy"
           suppressCellFocus={false}
           suppressColumnVirtualisation
+          suppressMovableColumns
+          suppressColumnMoveAnimation
           ensureDomOrder
           animateRows={false}
           onGridReady={handleGridReady}
           onModelUpdated={handleModelUpdated}
           onPaginationChanged={handlePaginationChanged}
+          onSelectionChanged={handleSelectionChanged}
         />
       </div>
       {hasRows ? (
