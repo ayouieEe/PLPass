@@ -1,6 +1,7 @@
 import {
   BarChart3,
   CalendarCheck,
+  CalendarDays,
   ClipboardList,
   LayoutDashboard,
   ShieldCheck,
@@ -23,9 +24,10 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
   ],
   student: [
     { label: "Dashboard", path: APP_ROUTES.studentDashboard, icon: LayoutDashboard, group: "Overview" },
-    { label: "Verification Methods", path: APP_ROUTES.studentMethods, icon: ShieldCheck, group: "Verification" },
+    { label: "Events", path: APP_ROUTES.studentUpcomingEvents, icon: CalendarDays, group: "Events" },
+    { label: "Attendance Methods", path: APP_ROUTES.studentMethods, icon: ShieldCheck, group: "Attendance" },
     { label: "Attendance Records", path: APP_ROUTES.studentAttendance, icon: CalendarCheck, group: "Attendance" },
-    { label: "Correction Requests", path: APP_ROUTES.studentCorrections, icon: UserCheck, group: "Attendance" },
+    { label: "Request History", path: APP_ROUTES.studentRequestHistory, icon: ClipboardList, group: "Records" },
     { label: "Profile", path: APP_ROUTES.studentProfile, icon: UserCircle, group: "Account" }
   ]
 };

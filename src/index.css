@@ -237,6 +237,37 @@
     @apply border-input bg-surface text-foreground placeholder:text-muted-foreground disabled:bg-disabled focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
   }
 
+  .plpass-select,
+  select.plpass-field {
+    @apply h-11 w-full appearance-none rounded-xl border border-input bg-surface px-3 pr-10 text-sm font-medium text-foreground outline-none transition disabled:cursor-not-allowed disabled:bg-disabled disabled:opacity-60 focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%234F5654' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.75' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.85rem center;
+    background-repeat: no-repeat;
+    background-size: 1.1rem;
+    cursor: pointer;
+    box-shadow: inset 0 1px 2px hsl(var(--foreground) / 0.02), 0 1px 2px hsl(var(--foreground) / 0.03);
+  }
+
+  .plpass-select:hover:not(:disabled),
+  select.plpass-field:hover:not(:disabled) {
+    @apply border-primary/50 bg-primary/5;
+  }
+
+  .plpass-select:disabled,
+  select.plpass-field:disabled {
+    cursor: not-allowed;
+  }
+
+  .plpass-select option,
+  select.plpass-field option {
+    @apply bg-popover text-popover-foreground;
+  }
+
+  .dark .plpass-select,
+  .dark select.plpass-field {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23B9C1BF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.75' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+  }
+
   .plpass-table-surface {
     @apply border-border bg-surface text-foreground;
   }
@@ -409,7 +440,7 @@
   }
 
   /* Premium Select Dropdown Styling for Student Role */
-  .student-bg-gradient select,
+  .student-bg-gradient select.plpass-select,
   select.student-input {
     appearance: none !important;
     -webkit-appearance: none !important;
@@ -430,19 +461,19 @@
     font-weight: 500 !important;
   }
 
-  .dark .student-bg-gradient select,
+  .dark .student-bg-gradient select.plpass-select,
   .dark select.student-input {
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23B9C1BF' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
   }
 
-  .student-bg-gradient select:hover,
+  .student-bg-gradient select.plpass-select:hover,
   select.student-input:hover {
     border-color: hsl(var(--primary) / 0.5) !important;
     background-color: hsl(var(--primary) / 0.02) !important;
     transform: translateY(-0.5px);
   }
 
-  .student-bg-gradient select:focus,
+  .student-bg-gradient select.plpass-select:focus,
   select.student-input:focus {
     border-color: hsl(var(--primary)) !important;
     box-shadow: 0 0 0 3.5px hsl(var(--primary) / 0.15) !important;
@@ -451,20 +482,46 @@
     outline: none !important;
   }
 
-  .student-bg-gradient select option,
+  .student-bg-gradient select.plpass-select option,
   select.student-input option {
     background-color: hsl(var(--card)) !important;
     color: hsl(var(--sidebar-foreground)) !important;
     padding: 12px !important;
   }
 
-  .student-select-trigger,
+  .student-select-trigger {
+    background: hsl(var(--card)) !important;
+    border-color: hsl(var(--border)) !important;
+    border-radius: 0.75rem !important;
+    color: hsl(var(--sidebar-foreground)) !important;
+    box-shadow: inset 0 1px 2px hsl(var(--foreground) / 0.02), 0 1px 2px hsl(var(--foreground) / 0.03) !important;
+  }
+
+  .student-select-trigger:hover {
+    border-color: hsl(var(--primary) / 0.5) !important;
+    background-color: hsl(var(--primary) / 0.02) !important;
+  }
+
+  .student-select-trigger:focus,
+  .student-select-trigger[data-open="true"] {
+    border-color: hsl(var(--primary)) !important;
+    box-shadow: 0 0 0 3.5px hsl(var(--primary) / 0.15) !important;
+  }
+
   .student-select-trigger span {
     color: hsl(var(--sidebar-foreground)) !important;
   }
 
+  .student-select-menu {
+    background: hsl(var(--popover) / 0.96) !important;
+    border-color: hsl(var(--border)) !important;
+    border-radius: 0.75rem !important;
+    box-shadow: 0 16px 40px -18px hsl(var(--foreground) / 0.35), 0 8px 18px -12px hsl(var(--primary) / 0.25) !important;
+  }
+
   .student-select-option {
     color: hsl(var(--sidebar-foreground)) !important;
+    border-radius: 0.625rem !important;
   }
 
   .student-select-option:hover {

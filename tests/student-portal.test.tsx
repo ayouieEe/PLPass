@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
@@ -48,6 +48,12 @@ describe("student route access", () => {
 
     expect(await screen.findByRole("heading", { name: "Student dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "student navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open attended event records" })).toHaveAttribute("href", "/student/attendance");
+    expect(screen.getByRole("link", { name: "Open attendance records" })).toHaveAttribute("href", "/student/attendance");
+    expect(screen.getByRole("link", { name: "Open event cards" })).toHaveAttribute("href", "/student/events");
+    expect(screen.getByRole("button", { name: "Open feedback tasks" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Request History" })).toHaveAttribute("href", "/student/request-history");
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
@@ -137,23 +143,121 @@ describe("student repository scoping and workflows", () => {
 });
 
 describe("student UI flows", () => {
-  it("renders attendance tabs and calendar view", async () => {
+  it("renders attendance records by year", async () => {
     storeSession(studentSession);
     setRoute("/student/attendance");
     render(<App />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Events" }));
-    expect(await screen.findByText("EVT-001")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
+    const yearSelect = screen.getByRole("combobox", { name: "Attendance year" });
+    expect(screen.getByRole("option", { name: "2026" })).toBeInTheDocument();
+    await user.selectOptions(yearSelect, "2026");
+    const presentRecord = (await screen.findByText(/EVT-2026-001/)).closest("article");
+    expect(presentRecord).not.toBeNull();
+    await user.click(within(presentRecord as HTMLElement).getByRole("button", { name: "View Details" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByText("Request Attendance Correction")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calendar View" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close modal" }));
+
+    const feedbackRecord = (await screen.findByText(/EVT-001/)).closest("article");
+    expect(feedbackRecord).not.toBeNull();
+    await user.click(within(feedbackRecord as HTMLElement).getByRole("button", { name: "View Details" }));
+    expect(await screen.findByText("Event feedback required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answer Event Feedback" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close modal" }));
+
+    const lateRecord = (await screen.findByText(/EVT-2026-003/)).closest("article");
+    expect(lateRecord).not.toBeNull();
+    await user.click(within(lateRecord as HTMLElement).getByRole("button", { name: "View Details" }));
+    expect(await screen.findByText("Locked after submission.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update Reason" })).not.toBeInTheDocument();
   });
 
-  it("renders schedule, verification methods, report history, and profile pages", async () => {
+  it("opens feedback-due attendance tasks from dashboard metrics", async () => {
+    storeSession(studentSession);
+    setRoute("/student/dashboard");
+    render(<App />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("heading", { name: "Student dashboard" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open feedback tasks" }));
+    const feedbackDialog = await screen.findByRole("dialog");
+    expect(within(feedbackDialog).getByRole("heading", { name: "Pending Feedback" })).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("CCS Orientation")).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("Front Office Simulation Challenge")).toBeInTheDocument();
+    const presentTask = within(feedbackDialog).getByText("CCS Orientation").closest("article");
+    const lateTask = within(feedbackDialog).getByText("Front Office Simulation Challenge").closest("article");
+    expect(presentTask).not.toBeNull();
+    expect(lateTask).not.toBeNull();
+    expect(within(presentTask as HTMLElement).getByText("present")).toBeInTheDocument();
+    expect(within(lateTask as HTMLElement).getByText("late")).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("Late reason first")).toBeInTheDocument();
+    expect(within(feedbackDialog).getByRole("link", { name: /Submit Late Reason/ })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/student/attendance?status=feedback-due&focus=student-pdf-event-front-office-sim")
+    );
+    const feedbackLinks = within(feedbackDialog).getAllByRole("link", { name: /Answer Feedback|Submit Late Reason/ });
+    expect(feedbackLinks.length).toBeGreaterThan(0);
+    expect(feedbackLinks[0]).toHaveAttribute("href", expect.stringContaining("/student/attendance?status=feedback-due&focus="));
+  });
+
+  it("locks event feedback until a late reason is submitted", async () => {
+    storeSession(studentSession);
+    setRoute("/student/attendance?status=feedback-due&focus=student-pdf-event-front-office-sim");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
+    const detailDialog = await screen.findByRole("dialog");
+    expect(within(detailDialog).getByRole("heading", { name: "Front Office Simulation Challenge" })).toBeInTheDocument();
+    expect(within(detailDialog).getByText("Required before feedback unlocks")).toBeInTheDocument();
+    expect(within(detailDialog).getByText("Late reason required")).toBeInTheDocument();
+    expect(within(detailDialog).getByRole("button", { name: "Submit Reason" })).toBeInTheDocument();
+    expect(within(detailDialog).queryByRole("button", { name: "Answer Event Feedback" })).not.toBeInTheDocument();
+  });
+
+  it("opens pending feedback tasks from the attendance summary", async () => {
+    storeSession(studentSession);
+    setRoute("/student/attendance");
+    render(<App />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open feedback due tasks" }));
+    const feedbackDialog = await screen.findByRole("dialog");
+    expect(within(feedbackDialog).getByRole("heading", { name: "Pending Feedback" })).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("Front Office Simulation Challenge")).toBeInTheDocument();
+    const lateTask = within(feedbackDialog).getByText("Front Office Simulation Challenge").closest("article");
+    expect(lateTask).not.toBeNull();
+    expect(within(lateTask as HTMLElement).getByText("late")).toBeInTheDocument();
+
+    await user.click(within(feedbackDialog).getByRole("button", { name: "Submit Late Reason" }));
+    const detailDialog = await screen.findByRole("dialog");
+    expect(within(detailDialog).getByRole("heading", { name: "Front Office Simulation Challenge" })).toBeInTheDocument();
+    expect(within(detailDialog).getByRole("button", { name: "Submit Reason" })).toBeInTheDocument();
+  });
+
+  it("opens a focused feedback-due attendance detail from the query string", async () => {
+    storeSession(studentSession);
+    setRoute("/student/attendance?status=feedback-due&focus=event-1");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Feedback due" })).toBeInTheDocument();
+    const detailDialog = await screen.findByRole("dialog");
+    expect(within(detailDialog).getByRole("heading", { name: "CCS Orientation" })).toBeInTheDocument();
+    expect(within(detailDialog).getByText("Event feedback required")).toBeInTheDocument();
+    expect(within(detailDialog).getByRole("button", { name: "Answer Event Feedback" })).toBeInTheDocument();
+  });
+
+  it("renders upcoming events, attendance methods, and profile pages", async () => {
     storeSession(studentSession);
     for (const [path, heading] of [
-      ["/student/schedule", "Schedule"],
-      ["/student/methods", "Verification Methods"],
-      ["/student/reports", "Report History"],
+      ["/student/schedule", "Events"],
+      ["/student/methods", "Attendance Methods"],
+      ["/student/request-history", "Request History"],
       ["/student/profile", "Profile"]
     ] as const) {
       setRoute(path);
@@ -183,26 +287,36 @@ describe("student UI flows", () => {
     setRoute("/student/methods");
     render(<App />);
     const methodsUser = userEvent.setup();
-    expect(await screen.findByRole("heading", { name: "Verification Methods" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Attendance Methods" })).toBeInTheDocument();
     await methodsUser.click(screen.getByRole("button", { name: "Submit issue" }));
     expect(await screen.findByText("Explanation must be at least 10 characters.")).toBeInTheDocument();
+
+    await methodsUser.type(screen.getByPlaceholderText("Describe the event, venue, and what happened."), "QR scanner failed during the venue check-in.");
+    await methodsUser.click(screen.getByRole("button", { name: "Submit issue" }));
+
+    cleanup();
+    queryClient.clear();
+    setRoute("/student/request-history");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Request History" })).toBeInTheDocument();
+    expect(await screen.findByText("Authentication issue")).toBeInTheDocument();
+    expect(screen.getByText("QR scanner failed during the venue check-in.")).toBeInTheDocument();
   });
 
   it("refreshes student data after account switching", async () => {
     storeSession(studentSession);
     setRoute("/student/attendance");
     const view = render(<App />);
-    const user = userEvent.setup();
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Events" }));
-    expect(await screen.findByText("EVT-001")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
+    expect(await screen.findByText(/EVT-2026-001/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Calendar View" })).not.toBeInTheDocument();
 
     view.unmount();
     window.localStorage.setItem("plpass-development-session", studentTwoSession);
     queryClient.clear();
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Events" }));
-    expect(screen.getByRole("tab", { name: "Events" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
   });
 });

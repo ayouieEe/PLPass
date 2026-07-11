@@ -1,874 +1,824 @@
-import { useState, useEffect } from "react";
-import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import type { ColDef } from "ag-grid-community";
 import {
-  Calendar,
-  FileSpreadsheet,
-  FileText,
-  Search,
-  BookOpen,
-  PartyPopper,
+  ArrowRight,
+  CalendarCheck,
+  CalendarDays,
+  CheckCircle2,
   Clock,
-  User,
-  ExternalLink,
-  ChevronRight,
-  Filter,
-  CheckCircle
+  FilePenLine,
+  FileUp,
+  History,
+  ListFilter,
+  Lock,
+  MessageSquareText,
+  Search
 } from "lucide-react";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { Button } from "@/components/ui/button";
-import { StudentSelect } from "@/components/forms/StudentSelect";
-import { LoadingState } from "@/components/feedback/LoadingState";
-import { ErrorState } from "@/components/feedback/ErrorState";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { ModalShell } from "@/components/modals/ModalShell";
+import { Button } from "@/components/ui/button";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents } from "@/hooks/useRepositoryQueries";
+import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
+import { cn } from "@/lib/utils/cn";
 import {
-  useStudents,
-  useClasses,
-  useEvents,
-  useAttendanceSessions,
-  useAttendanceRecords,
-  useFacultyProfiles,
-  useOrganizerProfiles
-} from "@/hooks/useRepositoryQueries";
-import { APP_ROUTES } from "@/lib/constants/routes";
-import { compareDateValues, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type {
-  AttendanceRecord,
-  Student
-} from "@/types/domain";
-import type { AttendanceStatus } from "@/types/enums";
+  isFeedbackSubmitted,
+  buildStudentEventWorkflow,
+  correctionRequestTypeLabels,
+  createStudentCorrectionRequest,
+  eventFromStudentRecord,
+  getCorrectionRequestTypes,
+  getEventObjectives,
+  getStudentEventMetrics,
+  getStudentEventRecords,
+  lateReasonOptions,
+  loadStudentCorrectionRequests,
+  markStudentFeedbackSubmitted,
+  statusTone,
+  StudentEventRecord,
+  upsertStudentEventRecord,
+  useStudentScope,
+  type CorrectionRequestType
+} from "@/features/student/studentExperience";
 
-type StudentScope = {
-  context: RepositoryContext;
-  student?: Student;
-  studentName: string;
-  isLoading: boolean;
-  isError: boolean;
-};
+const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
+const timeOnlyPattern = /^\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?$/i;
 
-type SessionLogRow = {
-  id: string;
-  dateTime: string;
-  status: AttendanceStatus;
-  verificationMethod: string;
-  record?: AttendanceRecord;
-};
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-function useStudentScope(): StudentScope {
-  const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const studentQuery = useStudents({ pageSize: 1 }, context);
-  return {
-    context: context ?? { actorUserId: "", actorRole: "student" },
-    student: studentQuery.data?.items[0],
-    studentName: session?.displayName ?? "Student",
-    isLoading: studentQuery.isLoading,
-    isError: studentQuery.isError
-  };
+function CardAccent() {
+  return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
 }
 
-function formatDate(value: string | undefined) {
-  return formatDisplayDate(value, "N/A");
+function getDatedValue(value: string | undefined) {
+  if (!value || timeOnlyPattern.test(value.trim())) return null;
+  const date = toValidDate(value);
+  return date && date.getFullYear() > 2000 ? date : null;
 }
 
-function formatTime(value: string | undefined) {
-  return formatDisplayTime(value, "N/A");
+function getRecordDate(record: StudentEventRecord) {
+  return getDatedValue(record.startsAt) ?? getDatedValue(record.recordedAt) ?? getDatedValue(record.endsAt);
 }
 
-function getStatusTone(status: AttendanceStatus) {
-  if (status === "present") return "success";
-  if (status === "late") return "warning";
-  if (status === "absent") return "danger";
-  return "muted";
+function getRecordYear(record: StudentEventRecord) {
+  return getRecordDate(record)?.getFullYear().toString() ?? "Date pending";
 }
 
-function PaginationControls({
-  currentPage,
-  totalPages,
-  onPageChange
-}: {
-  currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-}) {
-  if (totalPages <= 1) return null;
+function formatRecordDate(record: StudentEventRecord) {
+  return formatDisplayDate(getRecordDate(record), "Date pending");
+}
 
-  return (
-    <div className="flex justify-center items-center gap-2 pt-4">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={currentPage === 1}
-        onClick={() => onPageChange(currentPage - 1)}
-        className="student-btn-secondary px-3 text-xs h-9"
-      >
-        Previous
-      </Button>
-      <span className="text-xs text-muted-foreground font-medium px-2">
-        Page {currentPage} of {totalPages}
-      </span>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={currentPage === totalPages}
-        onClick={() => onPageChange(currentPage + 1)}
-        className="student-btn-secondary px-3 text-xs h-9"
-      >
-        Next
-      </Button>
-    </div>
-  );
+function formatRecordTime(record: StudentEventRecord) {
+  return formatDisplayTime(record.startsAt || record.recordedAt, "Time pending");
+}
+
+function getDefaultRequestType(status: StudentEventRecord["status"]) {
+  return getCorrectionRequestTypes(status)[0] ?? "excused";
 }
 
 export function MyAttendancePage() {
   const scope = useStudentScope();
-  const navigate = useNavigate();
-  const [tab, setTab] = useState<"class" | "event">("class");
-  const [view, setView] = useState<"list" | "calendar">("list");
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedItem, setSelectedItem] = useState<{
-    id: string;
-    code: string;
-    title: string;
-    kind: "class" | "event";
-    facultyName?: string;
-    organizerName?: string;
-    sched: string;
-    time: string;
-  } | null>(null);
-  const [isGenerating, setIsGenerating] = useState<"xlsx" | "pdf" | null>(null);
-  const [filterDate, setFilterDate] = useState("");
-  const [listPage, setListPage] = useState(1);
-  const [calendarPage, setCalendarPage] = useState(1);
-
-  useEffect(() => {
-    setListPage(1);
-    setCalendarPage(1);
-  }, [tab, search, statusFilter, filterDate]);
-
-  const classesQuery = useClasses({ pageSize: 100 }, scope.context);
+  const [searchParams] = useSearchParams();
+  const focusedRecordId = searchParams.get("focus");
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const facultyQuery = useFacultyProfiles({ pageSize: 100 }, scope.context);
-  const organizerQuery = useOrganizerProfiles({ pageSize: 100 }, scope.context);
+  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const [selectedRecord, setSelectedRecord] = useState<StudentEventRecord | null>(null);
+  const [lateReasonRecord, setLateReasonRecord] = useState<StudentEventRecord | null>(null);
+  const [localRevision, setLocalRevision] = useState(0);
+  const [search, setSearch] = useState("");
+  const [yearFilter, setYearFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
+  const [requestType, setRequestType] = useState<CorrectionRequestType>("excused");
+  const [explanation, setExplanation] = useState("");
+  const [attachmentName, setAttachmentName] = useState("");
+  const [feedbackRecord, setFeedbackRecord] = useState<StudentEventRecord | null>(null);
+  const [feedbackRatings, setFeedbackRatings] = useState<Record<string, number>>({});
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [openedFocus, setOpenedFocus] = useState<string | null>(null);
+  const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
+
+  useEffect(() => {
+    setStatusFilter(searchParams.get("status") ?? "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!focusedRecordId || openedFocus === focusedRecordId || selectedRecord || !scope.student) {
+      return;
+    }
+
+    if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
+      return;
+    }
+
+    const nextRecords = getStudentEventRecords({
+      studentId: scope.student.id,
+      records: recordsQuery.data?.items ?? [],
+      sessions: sessionsQuery.data?.items ?? [],
+      events: eventsQuery.data?.items ?? []
+    });
+    const matchingRecord = nextRecords.find(
+      (record) => record.eventId === focusedRecordId || record.id === focusedRecordId
+    );
+
+    if (!matchingRecord) {
+      return;
+    }
+
+    setRequestType(getDefaultRequestType(matchingRecord.status));
+    setExplanation("");
+    setAttachmentName("");
+    setSelectedRecord(matchingRecord);
+    setOpenedFocus(focusedRecordId);
+  }, [
+    eventsQuery.data?.items,
+    eventsQuery.isLoading,
+    focusedRecordId,
+    localRevision,
+    openedFocus,
+    recordsQuery.data?.items,
+    recordsQuery.isLoading,
+    scope.student,
+    selectedRecord,
+    sessionsQuery.data?.items,
+    sessionsQuery.isLoading
+  ]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
   }
 
   if (scope.isError || !scope.student) {
-    return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
+    return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (
-    classesQuery.isLoading ||
-    eventsQuery.isLoading ||
-    sessionsQuery.isLoading ||
-    recordsQuery.isLoading ||
-    facultyQuery.isLoading ||
-    organizerQuery.isLoading
-  ) {
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) {
     return <LoadingState label="Loading attendance records" />;
   }
 
-  const classes = classesQuery.data?.items ?? [];
+  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError) {
+    return <ErrorState title="Unable to load attendance records" message="Please try refreshing the page." />;
+  }
+
+  const student = scope.student;
+  const records = getStudentEventRecords({
+    studentId: student.id,
+    records: recordsQuery.data?.items ?? [],
+    sessions: sessionsQuery.data?.items ?? [],
+    events: eventsQuery.data?.items ?? []
+  });
+  void localRevision;
+  const corrections = [...loadStudentCorrectionRequests(student.id), ...(correctionsQuery.data?.items ?? [])];
   const events = eventsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
-  const faculties = facultyQuery.data?.items ?? [];
-  const organizers = organizerQuery.data?.items ?? [];
-
-  // Group classes with calculations
-  const classItems = classes.map((c) => {
-    const profProfile = faculties.find((f) => f.id === c.facultyId);
-    const prof = profProfile?.displayName ?? profProfile?.title ?? "Professor";
-    const classSessions = sessions.filter((s) => {
-      if (s.classId !== c.id) return false;
-      if (filterDate) {
-        const logDate = new Date(s.startsAt);
-        const [year, month, day] = filterDate.split("-").map(Number);
-        if (
-          logDate.getFullYear() !== year ||
-          logDate.getMonth() !== month - 1 ||
-          logDate.getDate() !== day
-        ) {
-          return false;
-        }
-      }
-      return true;
+  const metrics = getStudentEventMetrics(records, student.id);
+  const attendedRecords = metrics.attendedRecords;
+  const attendedCount = metrics.attendedCount;
+  const pendingCorrections = corrections.filter((request) => request.status === "pending").length;
+  const feedbackDue = metrics.feedbackDue;
+  const pendingFeedbackRecords = attendedRecords.filter(
+    (record) => !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId)
+  );
+  const latestRecord = attendedRecords[0];
+  const yearOptions = Array.from(new Set(attendedRecords.map((record) => getRecordYear(record))))
+    .sort((first, second) => {
+      if (first === "Date pending") return 1;
+      if (second === "Date pending") return -1;
+      return Number(second) - Number(first);
     });
-    const sessionIds = classSessions.map((s) => s.id);
-    const classRecords = records.filter((r) => sessionIds.includes(r.sessionId));
-
-    // Mock schedule days / times
-    const dayMap = ["MWF", "TTh", "Saturday"];
-    const schedText = dayMap[Math.abs(c.id.charCodeAt(0) ?? 0) % dayMap.length];
-    const timeText = "09:00 AM - 10:30 AM";
-
-    return {
-      id: c.id,
-      code: c.subjectCode,
-      title: c.subjectTitle,
-      sched: schedText,
-      time: timeText,
-      facultyName: prof,
-      records: classRecords,
-      sessions: classSessions
-    };
+  const visibleRecords = attendedRecords.filter((record) => {
+    const term = search.trim().toLowerCase();
+    const correction = corrections.find((request) => request.eventId === record.eventId);
+    const displayStatus = correction?.status === "pending" ? "correction-pending" : record.status;
+    const hasFeedbackDue = !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId);
+    const matchesSearch = !term || [record.eventName, record.eventCode, record.category, record.venue].some((value) => value.toLowerCase().includes(term));
+    const matchesYear = !yearFilter || getRecordYear(record) === yearFilter;
+    const matchesStatus = !statusFilter || (statusFilter === "feedback-due" ? hasFeedbackDue : displayStatus === statusFilter);
+    return matchesSearch && matchesYear && matchesStatus;
   });
-
-  // Group events with calculations
-  const eventItems = events.flatMap((e) => {
-    const org = organizers.find((o) => o.id === e.organizerId)?.organizationName ?? "Campus Organizer";
-    const eventSessions = sessions.filter((s) => {
-      if (s.eventId !== e.id) return false;
-      if (filterDate) {
-        const logDate = new Date(s.startsAt);
-        const [year, month, day] = filterDate.split("-").map(Number);
-        if (
-          logDate.getFullYear() !== year ||
-          logDate.getMonth() !== month - 1 ||
-          logDate.getDate() !== day
-        ) {
-          return false;
-        }
-      }
-      return true;
-    });
-    const sessionIds = eventSessions.map((s) => s.id);
-    const eventRecords = records.filter((r) => sessionIds.includes(r.sessionId));
-    if (eventRecords.length === 0 && eventSessions.length === 0) {
-      return [];
+  const recordsByYear = visibleRecords.reduce<Array<{ year: string; records: StudentEventRecord[] }>>((groups, record) => {
+    const year = getRecordYear(record);
+    const existingGroup = groups.find((group) => group.year === year);
+    if (existingGroup) {
+      existingGroup.records.push(record);
+    } else {
+      groups.push({ year, records: [record] });
     }
+    return groups;
+  }, []);
+  const selectedCorrection = selectedRecord ? corrections.find((request) => request.eventId === selectedRecord.eventId) : undefined;
+  const selectedFeedbackSubmitted = selectedRecord ? selectedRecord.feedbackSubmitted || isFeedbackSubmitted(student.id, selectedRecord.eventId) : false;
+  const selectedEvent = selectedRecord ? events.find((entry) => entry.id === selectedRecord.eventId) ?? eventFromStudentRecord(selectedRecord) : undefined;
+  const selectedSession = selectedRecord ? sessions.find((entry) => entry.eventId === selectedRecord.eventId) : undefined;
+  const selectedRequestTypes = selectedRecord ? getCorrectionRequestTypes(selectedRecord.status) : [];
+  const selectedWorkflow = selectedEvent && selectedRecord ? buildStudentEventWorkflow({
+    event: selectedEvent,
+    session: selectedSession,
+    record: selectedRecord,
+    feedbackSubmitted: Boolean(selectedFeedbackSubmitted),
+    correctionStatus: selectedCorrection?.status
+  }) : undefined;
+  const feedbackEvent = feedbackRecord ? events.find((entry) => entry.id === feedbackRecord.eventId) ?? eventFromStudentRecord(feedbackRecord) : undefined;
+  const feedbackObjectives = feedbackEvent ? getEventObjectives(feedbackEvent).slice(0, 3) : [];
 
-    return [{
-      id: e.id,
-      code: e.code,
-      title: e.title,
-      sched: formatDate(e.startsAt),
-      time: `${formatTime(e.startsAt)} - ${formatTime(e.endsAt)}`,
-      organizerName: org,
-      records: eventRecords,
-      sessions: eventSessions
-    }];
-  });
-
-  // Filter based on search and status filters
-  const filteredClasses = classItems.filter((item) => {
-    const matchesSearch =
-      item.code.toLowerCase().includes(search.toLowerCase()) ||
-      item.title.toLowerCase().includes(search.toLowerCase()) ||
-      item.facultyName.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" || item.records.some((r) => r.status === statusFilter);
-    return matchesSearch && matchesStatus;
-  });
-
-  const filteredEvents = eventItems.filter((item) => {
-    const matchesSearch =
-      item.code.toLowerCase().includes(search.toLowerCase()) ||
-      item.title.toLowerCase().includes(search.toLowerCase()) ||
-      item.organizerName.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" || item.records.some((r) => r.status === statusFilter);
-    return matchesSearch && matchesStatus;
-  });
-
-  // Trigger report generation simulate
-  function generateReport(type: "xlsx" | "pdf", category: "classes" | "events") {
-    setIsGenerating(type);
-    setTimeout(() => {
-      setIsGenerating(null);
-      toast.success(`${type.toUpperCase()} Attendance report for ${category} generated successfully and ready for download!`);
-    }, 1500);
+  function submitLateReason(reason: string) {
+    if (!lateReasonRecord) return;
+    const nextRecord = { ...lateReasonRecord, lateReason: reason };
+    upsertStudentEventRecord(student.id, nextRecord);
+    if (selectedRecord?.eventId === nextRecord.eventId) {
+      setSelectedRecord(nextRecord);
+    }
+    setLateReasonRecord(null);
+    setLocalRevision((value) => value + 1);
+    toast.success("Late reason submitted.");
   }
 
-  // File correction route
-  function fileCorrection(record: AttendanceRecord | undefined, code: string, name: string) {
-    navigate(
-      `${APP_ROUTES.studentCorrections}?category=${tab}&recordId=${record?.id ?? ""}&code=${code}&name=${name}`
-    );
+  function openRecordDetails(record: StudentEventRecord) {
+    setRequestType(getDefaultRequestType(record.status));
+    setExplanation("");
+    setAttachmentName("");
+    setSelectedRecord(record);
   }
 
-  // Selected item sessions list for detail view
-  const selectedSessions = selectedItem
-    ? selectedItem.kind === "class"
-      ? classItems.find((c) => c.id === selectedItem.id)?.sessions ?? []
-      : eventItems.find((e) => e.id === selectedItem.id)?.sessions ?? []
-    : [];
+  function openFeedbackDueRecord(record: StudentEventRecord) {
+    setFeedbackDueModalOpen(false);
+    openRecordDetails(record);
+  }
 
-  const selectedRecords = selectedItem
-    ? selectedItem.kind === "class"
-      ? classItems.find((c) => c.id === selectedItem.id)?.records ?? []
-      : eventItems.find((e) => e.id === selectedItem.id)?.records ?? []
-    : [];
+  function openFeedback(record: StudentEventRecord) {
+    setFeedbackRecord(record);
+    setFeedbackRatings({});
+    setFeedbackComment("");
+  }
 
-  const selectedSessionRows: SessionLogRow[] = selectedSessions.map((session) => {
-    const record = selectedRecords.find((entry) => entry.sessionId === session.id);
-    return {
-      id: session.id,
-      dateTime: `${formatDate(session.startsAt)} at ${formatTime(session.startsAt)}`,
-      status: record?.status ?? "absent",
-      verificationMethod: record?.verificationMethod ?? "N/A",
-      record
-    };
-  });
-
-  // Group all check-in logs for calendar sequential agenda view
-  const calendarItems = (tab === "class" ? filteredClasses : filteredEvents).flatMap((item) => {
-    return item.records
-      .filter((r) => {
-        if (filterDate) {
-          const sess = sessions.find((s) => s.id === r.sessionId);
-          const logDate = new Date(sess?.startsAt ?? r.recordedAt);
-          const [year, month, day] = filterDate.split("-").map(Number);
-          if (
-            logDate.getFullYear() !== year ||
-            logDate.getMonth() !== month - 1 ||
-            logDate.getDate() !== day
-          ) {
-            return false;
-          }
-        }
-        return true;
-      })
-      .map((r) => {
-        const sess = sessions.find((s) => s.id === r.sessionId);
-        return {
-          recordId: r.id,
-          sessionId: r.sessionId,
-          startsAt: sess?.startsAt ?? r.recordedAt,
-          code: item.code,
-          title: item.title,
-          status: r.status,
-          verificationMethod: r.verificationMethod,
-          record: r
-        };
-      });
-  });
-
-  calendarItems.sort((a, b) => new Date(b.startsAt).getTime() - new Date(a.startsAt).getTime());
-
-  // Pagination for List view
-  const itemsPerPage = 5;
-  const totalListItems = tab === "class" ? filteredClasses.length : filteredEvents.length;
-  const totalListPages = Math.ceil(totalListItems / itemsPerPage) || 1;
-  const paginatedListClasses = filteredClasses.slice((listPage - 1) * itemsPerPage, listPage * itemsPerPage);
-  const paginatedListEvents = filteredEvents.slice((listPage - 1) * itemsPerPage, listPage * itemsPerPage);
-
-  // Pagination for Calendar view
-  const totalCalendarItems = calendarItems.length;
-  const totalCalendarPages = Math.ceil(totalCalendarItems / itemsPerPage) || 1;
-  const paginatedCalendarItems = calendarItems.slice((calendarPage - 1) * itemsPerPage, calendarPage * itemsPerPage);
-
-  const groupedByDate: { [dateStr: string]: typeof calendarItems } = {};
-  paginatedCalendarItems.forEach((item) => {
-    const dateStr = formatDate(item.startsAt);
-    if (!groupedByDate[dateStr]) {
-      groupedByDate[dateStr] = [];
+  function submitFeedback() {
+    if (!feedbackRecord) return;
+    const feedbackEvent = events.find((entry) => entry.id === feedbackRecord.eventId) ?? eventFromStudentRecord(feedbackRecord);
+    const objectives = getEventObjectives(feedbackEvent).slice(0, 3);
+    if (!objectives.every((objective) => feedbackRatings[objective] > 0)) {
+      toast.error("Please rate every event objective.");
+      return;
     }
-    groupedByDate[dateStr].push(item);
-  });
 
-  const sessionLogColumns: ColDef<SessionLogRow>[] = [
-    { field: "dateTime", headerName: "Date & Time", minWidth: 190 },
-    {
-      field: "status",
-      headerName: "Status",
-      minWidth: 140,
-      cellRenderer: ({ data }: { data?: SessionLogRow }) =>
-        data ? <StatusBadge label={data.status} tone={getStatusTone(data.status)} /> : null
-    },
-    { field: "verificationMethod", headerName: "Verification Method", minWidth: 190 },
-    {
-      colId: "action",
-      headerName: "Action",
-      minWidth: 180,
-      cellRenderer: ({ data }: { data?: SessionLogRow }) => {
-        if (!data) return null;
-        if ((data.status === "absent" || data.status === "late") && data.record) {
-          return (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileCorrection(data.record as AttendanceRecord, selectedItem?.code ?? "", selectedItem?.title ?? "")}
-              className="student-btn-secondary px-4 text-xs h-9 gap-1.5"
-            >
-              <ExternalLink className="h-3 w-3" />
-              <span>File Correction</span>
-            </Button>
-          );
-        }
-        return (
-          <span className="text-xs text-success font-semibold flex items-center gap-1">
-            <CheckCircle className="h-4 w-4 text-success" />
-            Verified
-          </span>
-        );
+    markStudentFeedbackSubmitted(student.id, feedbackRecord.eventId);
+    if (selectedRecord?.eventId === feedbackRecord.eventId) {
+      setSelectedRecord({ ...selectedRecord, feedbackSubmitted: true });
+    }
+    setFeedbackRecord(null);
+    setFeedbackRatings({});
+    setFeedbackComment("");
+    setLocalRevision((value) => value + 1);
+    toast.success("Event feedback submitted. Attendance is now complete.");
+  }
+
+  async function submitCorrection() {
+    if (!selectedRecord) return;
+    const requestTypes = getCorrectionRequestTypes(selectedRecord.status);
+    if (!requestTypes.includes(requestType)) {
+      toast.error("Select a valid correction type for this attendance status.");
+      return;
+    }
+    if (explanation.trim().length < 12) {
+      toast.error("Please provide a clear explanation.");
+      return;
+    }
+
+    try {
+      const reason = attachmentName ? `${explanation.trim()} Attachment: ${attachmentName}` : explanation.trim();
+      if (selectedRecord.id.startsWith("student-pdf-record-")) {
+        createStudentCorrectionRequest(student.id, {
+          attendanceRecordId: selectedRecord.id,
+          eventId: selectedRecord.eventId,
+          requestedStatus: requestType,
+          reason
+        });
+        setLocalRevision((value) => value + 1);
+      } else {
+        await correctionsQuery.createMutation.mutateAsync({
+          studentId: student.id,
+          attendanceRecordId: selectedRecord.id,
+          eventId: selectedRecord.eventId,
+          requestedStatus: requestType,
+          reason
+        });
       }
+      toast.success("Correction request submitted.");
+      setExplanation("");
+      setAttachmentName("");
+    } catch {
+      toast.error("Unable to submit correction request.");
     }
-  ];
+  }
 
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-6">
       <PageHeader
-        eyebrow="Records"
+        eyebrow="Attendance"
         title="Attendance Records"
-        description="Verify and browse your class and event log details."
+        description="Review attended events grouped by year, then open details for feedback and correction status."
       />
 
-      {/* Main Tabs (Classes vs Events) & Views Toggles */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex gap-2 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md" role="tablist" aria-label="Attendance category">
-          <Button
-            role="tab"
-            aria-selected={tab === "class"}
-            variant={tab === "class" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => {
-              setTab("class");
-              setSelectedItem(null);
-            }}
-            className={`rounded-xl gap-2 font-semibold px-5 ${
-              tab === "class" ? "bg-primary text-white shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
-            }`}
-          >
-            <BookOpen className="h-4 w-4" />
-            <span className={tab === "class" ? "text-white" : "text-muted-foreground"}>Classes</span>
-          </Button>
-          <Button
-            role="tab"
-            aria-selected={tab === "event"}
-            variant={tab === "event" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => {
-              setTab("event");
-              setSelectedItem(null);
-            }}
-            className={`rounded-xl gap-2 font-semibold px-5 ${
-              tab === "event" ? "bg-primary text-white shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
-            }`}
-          >
-            <PartyPopper className="h-4 w-4" />
-            <span className={tab === "event" ? "text-white" : "text-muted-foreground"}>Events</span>
-          </Button>
+      <section className={cn(cardShellClass, "p-0")}>
+        <CardAccent />
+        <div className="flex flex-wrap items-start justify-between gap-4 p-5 md:p-6">
+          <div className="flex items-start gap-3">
+            <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5">
+              <History className="h-5 w-5 text-primary" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance summary</p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight">{attendedCount} attended events</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {latestRecord
+                  ? `Most recent attended event: ${latestRecord.eventName} on ${formatRecordDate(latestRecord)}.`
+                  : "Present and late event attendance will appear here once recorded."}
+              </p>
+            </div>
+          </div>
+          <StatusBadge label="Yearly list" tone="info" />
         </div>
 
-        <div className="flex gap-3 rounded-[24px] border border-border/40 bg-card/50 p-2 shadow-sm backdrop-blur-md">
-          <Button
-            variant={view === "list" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setView("list")}
-            className={`rounded-xl px-4 ${
-              view === "list" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
-            }`}
-          >
-            List view
-          </Button>
-          <Button
-            variant={view === "calendar" ? "default" : "ghost"}
-            size="sm"
-            onClick={() => setView("calendar")}
-            className={`rounded-xl px-4 ${
-              view === "calendar" ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover" : "text-muted-foreground hover:bg-card/40"
-            }`}
-          >
-            Calendar view
-          </Button>
-        </div>
-      </div>
-
-      {/* Search & Filter Bar */}
-      <section className="student-glass-card p-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-end">
-        <div className="relative w-full">
-          <label className="block text-[10px] font-semibold uppercase text-muted-foreground mb-1.5 pl-1">Search Records</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              className="student-input pl-9 h-11 w-full px-3 text-sm focus:outline-none"
-              placeholder={tab === "class" ? "Search subject, code..." : "Search event, organizer..."}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        <div className="grid gap-4 border-t bg-surface-muted/30 p-5 md:grid-cols-4 md:p-6">
+          <div className="rounded-2xl border bg-surface p-4 shadow-sm">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <CalendarCheck className="h-3.5 w-3.5 text-primary" />
+              Attended
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight">{attendedCount}</p>
           </div>
-        </div>
-        <div className="relative w-full">
-          <label className="block text-[10px] font-semibold uppercase text-muted-foreground mb-1.5 pl-1">Status Filter</label>
-          <div className="relative flex items-center gap-2 w-full">
-            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-            <StudentSelect
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { label: "All Attendance Statuses", value: "all" },
-                { label: "Present", value: "present" },
-                { label: "Late", value: "late" },
-                { label: "Absent", value: "absent" },
-                { label: "Excused", value: "excused" }
-              ]}
-              placeholder="All Attendance Statuses"
-              className="w-full"
-            />
+          <div className="rounded-2xl border bg-surface p-4 shadow-sm">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <History className="h-3.5 w-3.5 text-primary" />
+              Years Shown
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight">{recordsByYear.length}</p>
           </div>
-        </div>
-        <div className="relative w-full">
-          <div className="flex justify-between items-center mb-1.5 pl-1">
-            <label className="block text-[10px] font-semibold uppercase text-muted-foreground">Filter by Date</label>
-            {filterDate && (
-              <button
-                type="button"
-                onClick={() => setFilterDate("")}
-                className="text-[10px] text-primary hover:underline font-semibold"
-              >
-                Clear
-              </button>
+          <div className="rounded-2xl border bg-surface p-4 shadow-sm">
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <FilePenLine className="h-3.5 w-3.5 text-warning" />
+              Corrections
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight">{pendingCorrections}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Open feedback due tasks"
+            onClick={() => setFeedbackDueModalOpen(true)}
+            className={cn(
+              "group relative overflow-hidden rounded-2xl border p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              feedbackDue ? "border-primary/30 bg-primary/10" : "bg-surface"
             )}
-          </div>
-          <input
-            type="date"
-            aria-label="Filter Date"
-            className="student-input h-11 w-full px-3 text-xs focus:outline-none"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-          />
+          >
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent opacity-80" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <MessageSquareText className="h-3.5 w-3.5 text-primary" />
+                  Feedback Due
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight">{feedbackDue}</p>
+              </div>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-primary shadow-sm transition-transform group-hover:translate-x-0.5">
+                <ArrowRight className="h-4 w-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border bg-background/80 px-3 py-2">
+              <span className="text-xs font-semibold text-foreground">
+                {feedbackDue ? "View feedback tasks" : "Open feedback panel"}
+              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Click</span>
+            </div>
+          </button>
         </div>
 
-        {/* Generate Report Buttons */}
-        <div className="flex gap-3 justify-end items-center w-full">
-          <Button
-            variant="outline"
-            disabled={isGenerating !== null}
-            onClick={() => generateReport("xlsx", tab === "class" ? "classes" : "events")}
-            className="student-btn-secondary gap-2 text-xs flex-1 border-primary/20 text-primary hover:bg-primary/5 h-11"
-          >
-            <FileSpreadsheet className="h-4 w-4 text-primary" />
-            <span>Generate XLSX</span>
-          </Button>
-          <Button
-            variant="outline"
-            disabled={isGenerating !== null}
-            onClick={() => generateReport("pdf", tab === "class" ? "classes" : "events")}
-            className="student-btn-secondary gap-2 text-xs flex-1 border-destructive/20 text-destructive hover:bg-destructive/5 h-11"
-          >
-            <FileText className="h-4 w-4 text-destructive" />
-            <span>Generate PDF</span>
-          </Button>
+        <div className="grid gap-3 border-t p-5 md:grid-cols-[minmax(0,1fr)_180px_240px] md:p-6">
+          <label className="flex h-11 items-center gap-3 rounded-xl border bg-background px-3 text-sm">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              aria-label="Search attendance records"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="w-full bg-transparent outline-none"
+              placeholder="Search event records..."
+            />
+          </label>
+          <label className="relative flex h-11 items-center">
+            <CalendarDays className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+            <select
+              aria-label="Attendance year"
+              className="plpass-select pl-9"
+              value={yearFilter}
+              onChange={(event) => setYearFilter(event.target.value)}
+            >
+              <option value="">All years</option>
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+          <label className="relative flex h-11 items-center">
+            <ListFilter className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+            <select
+              aria-label="Attendance status"
+              className="plpass-select pl-9"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="">All record statuses</option>
+              <option value="present">Present</option>
+              <option value="late">Late</option>
+              <option value="feedback-due">Feedback Due</option>
+              <option value="correction-pending">Correction Pending</option>
+            </select>
+          </label>
         </div>
       </section>
 
-      {/* LIST VIEW RENDER */}
-      {view === "list" && (
-        <div className="space-y-6">
-          <div className="grid gap-6">
-            {tab === "class" ? (
-              paginatedListClasses.length > 0 ? (
-                paginatedListClasses.map((item) => (
-                  <article
-                    key={item.id}
-                    className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
-                  >
-                    <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-border pb-4">
-                      <div>
-                        <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
-                          {item.code}
-                        </span>
-                        <h3 className="font-semibold text-xl text-foreground mt-1">{item.title}</h3>
-                      </div>
-                      <div className="text-right sm:text-right text-left">
-                        <p className="text-xs text-foreground flex items-center gap-1.5 sm:justify-end">
-                          <Clock className="h-3.5 w-3.5 text-primary" />
-                          {item.sched} | {item.time}
-                        </p>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5 sm:justify-end mt-1.5">
-                          <User className="h-3.5 w-3.5" />
-                          {item.facultyName}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-semibold text-foreground">{item.records.length} Sessions Logged:</span>
-                        <span className="bg-success/10 text-success px-2 py-0.5 rounded-lg border border-success/20">
-                          {item.records.filter((r) => r.status === "present").length} Present
-                        </span>
-                        <span className="bg-warning/10 text-warning px-2 py-0.5 rounded-lg border border-warning/20">
-                          {item.records.filter((r) => r.status === "late").length} Late
-                        </span>
-                        <span className="bg-danger/10 text-danger px-2 py-0.5 rounded-lg border border-danger/20">
-                          {item.records.filter((r) => r.status === "absent").length} Absent
-                        </span>
-                      </div>
-
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          setSelectedItem({
-                            id: item.id,
-                            code: item.code,
-                            title: item.title,
-                            kind: "class",
-                            facultyName: item.facultyName,
-                            sched: item.sched,
-                            time: item.time
-                          })
-                        }
-                        className="text-primary hover:text-primary-hover hover:bg-primary/5 gap-1 text-xs font-semibold"
-                      >
-                        <span>View More</span>
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <EmptyState title="No classes found matching filters" />
-              )
-            ) : paginatedListEvents.length > 0 ? (
-              paginatedListEvents.map((item) => (
-                <article
-                  key={item.id}
-                  className="student-glass-card p-6 space-y-4 hover:shadow-xl transition-all"
-                >
-                  <div className="flex flex-col sm:flex-row justify-between gap-2 border-b border-border pb-4">
-                    <div>
-                      <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
-                        {item.code}
-                      </span>
-                      <h3 className="font-semibold text-xl text-foreground mt-1">{item.title}</h3>
-                    </div>
-                    <div className="text-right sm:text-right text-left">
-                      <p className="text-xs text-foreground flex items-center gap-1.5 sm:justify-end">
-                        <Calendar className="h-3.5 w-3.5 text-primary" />
-                        {item.sched}
-                      </p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1.5 sm:justify-end mt-1.5">
-                        <User className="h-3.5 w-3.5" />
-                        Organizer: {item.organizerName}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-4 pt-1">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground">Status: </span>
-                      {item.records.length > 0 ? (
-                        <StatusBadge
-                          label={item.records[0].status}
-                          tone={getStatusTone(item.records[0].status)}
-                        />
-                      ) : (
-                        <span className="text-muted-foreground">Not Registered</span>
-                      )}
-                    </div>
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setSelectedItem({
-                          id: item.id,
-                          code: item.code,
-                          title: item.title,
-                          kind: "event",
-                          organizerName: item.organizerName,
-                          sched: item.sched,
-                          time: item.time
-                        })
-                      }
-                      className="text-primary hover:text-primary-hover hover:bg-primary/5 gap-1 text-xs font-semibold"
-                    >
-                      <span>View More</span>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </article>
-              ))
-            ) : (
-              <EmptyState title="No events found matching filters" />
-            )}
-          </div>
-          <PaginationControls
-            currentPage={listPage}
-            totalPages={totalListPages}
-            onPageChange={setListPage}
-          />
-        </div>
-      )}
-
-      {/* CALENDAR VIEW RENDER */}
-      {view === "calendar" && (
-        <div className="space-y-6">
-          <section className="space-y-6" aria-label="Attendance calendar agenda">
-            {Object.entries(groupedByDate).length > 0 ? (
-              Object.entries(groupedByDate).map(([dateStr, items]) => {
-                const firstItem = items[0];
-                const dateObj = new Date(firstItem.startsAt);
-                const dayNum = dateObj.getDate();
-                const dayName = dateObj.toLocaleDateString("en-US", { weekday: "short" });
-                const monthName = dateObj.toLocaleDateString("en-US", { month: "short" });
-
-                return (
-                  <div key={dateStr} className="flex flex-col md:flex-row gap-4 items-start pb-6 border-b border-border/20 last:border-b-0">
-                    {/* Calendar Tear-off Card */}
-                    <div className="flex md:flex-col items-center justify-center bg-card border border-border/60 w-full md:w-20 p-3 md:py-4 rounded-2xl shadow-sm shrink-0 gap-2 md:gap-0">
-                      <span className="text-[10px] font-bold text-primary uppercase tracking-wider">{monthName}</span>
-                      <span className="text-2xl md:text-3xl font-black text-foreground md:-mt-1">{dayNum}</span>
-                      <span className="text-[10px] text-muted-foreground uppercase font-medium">{dayName}</span>
-                    </div>
-
-                    {/* Sessions Stack */}
-                    <div className="flex-1 w-full space-y-3">
-                      {items.map((log) => (
-                        <div key={log.recordId} className="student-glass-card p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] bg-secondary text-secondary-foreground px-2 py-0.5 rounded font-mono font-semibold">
-                                {log.code}
-                              </span>
-                              <span className="text-[11px] text-muted-foreground">
-                                {formatTime(log.startsAt)}
-                              </span>
-                            </div>
-                            <h4 className="font-semibold text-base text-foreground mt-1.5">{log.title}</h4>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Verification: <span className="font-medium text-foreground uppercase">{log.verificationMethod}</span>
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                            <StatusBadge label={log.status} tone={getStatusTone(log.status)} />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => fileCorrection(log.record, log.code, log.title)}
-                              className="student-btn-secondary px-4 text-xs h-9 gap-1.5 shrink-0 border border-primary/20 hover:bg-primary/5"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                              <span>Correction Request</span>
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <EmptyState title="No logs found for the selected filter" />
-            )}
-          </section>
-          <PaginationControls
-            currentPage={calendarPage}
-            totalPages={totalCalendarPages}
-            onPageChange={setCalendarPage}
-          />
-        </div>
-      )}
-
-      {/* VIEW MORE / DETAILS SESSIONS MODAL */}
-      {selectedItem && createPortal(
-        <section
-          className="fixed inset-0 z-[9999] grid place-items-center bg-black/40 p-4 backdrop-blur-md animate-in fade-in-30"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-3xl rounded-[28px] border border-border bg-card/90 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
-            <div className="flex justify-between items-start border-b border-border pb-4">
-              <div>
-                <span className="text-xs font-mono font-bold uppercase text-primary tracking-wider">
-                  {selectedItem.code}
-                </span>
-                <h2 className="text-xl font-bold text-foreground mt-1">{selectedItem.title}</h2>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-muted-foreground">
-                  <p>Schedule: {selectedItem.sched} | {selectedItem.time}</p>
-                  <p className="font-semibold text-primary">
-                    {selectedItem.kind === "class" ? `Teacher: ${selectedItem.facultyName}` : `Organizer: ${selectedItem.organizerName}`}
-                  </p>
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedItem(null)} className="text-foreground hover:bg-secondary">
-                ✕ Close
-              </Button>
+      {statusFilter === "feedback-due" ? (
+        <section className="rounded-2xl border border-primary/30 bg-primary/10 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Feedback due</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Open a record, then choose <span className="font-semibold text-foreground">Answer Event Feedback</span> to complete that attendance.
+              </p>
             </div>
+            <Button type="button" variant="outline" onClick={() => setStatusFilter("")}>Show all records</Button>
+          </div>
+        </section>
+      ) : null}
 
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/40 p-4 rounded-2xl border border-border/30">
-                <h3 className="font-bold text-sm text-foreground">Previous Sessions and Attendance Log</h3>
-                <div className="flex flex-wrap gap-2 text-[11px]">
-                  <span className="bg-success/15 text-success px-2.5 py-1 rounded-lg border border-success/30 font-semibold uppercase">
-                    {selectedRecords.filter((r) => r.status === "present").length} Present
-                  </span>
-                  <span className="bg-warning/15 text-warning px-2.5 py-1 rounded-lg border border-warning/30 font-semibold uppercase">
-                    {selectedRecords.filter((r) => r.status === "late").length} Late
-                  </span>
-                  <span className="bg-danger/15 text-danger px-2.5 py-1 rounded-lg border border-danger/30 font-semibold uppercase">
-                    {selectedRecords.filter((r) => r.status === "absent").length} Absent
-                  </span>
-                </div>
-              </div>
+      <section className={cardShellClass}>
+        <CardAccent />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold tracking-tight">Attended Events by Year</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Present and late event attendance, grouped by event year from newest to oldest.</p>
+          </div>
+          <StatusBadge label={`${visibleRecords.length} attended`} tone="info" />
+        </div>
 
-              <div className="space-y-3 max-h-[320px] overflow-y-auto pr-1">
-                {selectedSessionRows.length > 0 ? (
-                  selectedSessionRows.map((row) => (
-                    <div
-                      key={row.id}
-                      className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-2xl border border-border/30 bg-card/45 hover:bg-card/75 transition-all gap-4"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2.5 rounded-xl shrink-0 ${
-                          row.status === "present" ? "bg-success/10 text-success" :
-                          row.status === "late" ? "bg-warning/10 text-warning" :
-                          "bg-danger/10 text-danger"
-                        }`}>
-                          <Clock className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="font-semibold text-sm text-foreground">{row.dateTime}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Method: <span className="font-medium text-foreground uppercase">{row.verificationMethod}</span>
+        <div className="mt-6">
+          {recordsByYear.length ? (
+            <div className="space-y-5">
+              {recordsByYear.map((group) => (
+                <section key={group.year} className="rounded-2xl border bg-background/60 p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-surface-muted/50 px-4 py-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Year</p>
+                      <h3 className="text-2xl font-semibold tracking-tight">{group.year}</h3>
+                    </div>
+                    <StatusBadge
+                      label={`${group.records.length} event${group.records.length === 1 ? "" : "s"}`}
+                      tone="info"
+                    />
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {group.records.map((record, index) => {
+                const correction = corrections.find((request) => request.eventId === record.eventId);
+                const displayStatus = correction?.status === "pending" ? "correction-pending" : record.status;
+                const event = events.find((entry) => entry.id === record.eventId);
+                const session = sessions.find((entry) => entry.eventId === record.eventId);
+                const workflow = event ? buildStudentEventWorkflow({
+                  event,
+                  session,
+                  record,
+                  feedbackSubmitted: Boolean(record.feedbackSubmitted || isFeedbackSubmitted(student.id, record.eventId)),
+                  correctionStatus: correction?.status
+                }) : undefined;
+                const eventDate = getRecordDate(record);
+                const monthLabel = !eventDate
+                  ? "Date"
+                  : eventDate.toLocaleDateString(undefined, { month: "short" });
+                const dayLabel = eventDate ? String(eventDate.getDate()).padStart(2, "0") : "--";
+                return (
+                  <article key={record.id} className="relative grid gap-3 sm:grid-cols-[5.5rem_2.5rem_minmax(0,1fr)]">
+                    <div className="hidden rounded-xl border bg-surface p-3 text-center sm:block">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{monthLabel}</p>
+                      <p className="mt-0.5 text-2xl font-semibold leading-none tracking-tight text-foreground">{dayLabel}</p>
+                      <p className="mt-1 text-[11px] font-medium text-muted-foreground">{formatRecordTime(record)}</p>
+                    </div>
+
+                    <div className="relative hidden sm:flex sm:justify-center">
+                      {index < group.records.length - 1 ? (
+                        <span className="absolute bottom-[-1.25rem] top-10 w-px bg-border" aria-hidden="true" />
+                      ) : null}
+                      <span className={cn(
+                        "relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-4 border-surface bg-primary/10 text-primary shadow-sm",
+                        displayStatus === "late" && "bg-warning/10 text-warning",
+                        displayStatus === "absent" && "bg-danger/10 text-danger",
+                        displayStatus === "correction-pending" && "bg-info/10 text-info"
+                      )}>
+                        <CalendarDays className="h-4 w-4" />
+                      </span>
+                    </div>
+
+                    <div className="min-w-0 rounded-2xl border bg-background p-4 shadow-sm transition-colors hover:border-primary/30">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground sm:hidden">
+                            <CalendarDays className="h-4 w-4 text-primary" />
+                            <span>{formatRecordDate(record)}</span>
+                            <span>{formatRecordTime(record)}</span>
+                          </div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {record.eventCode} - {record.category}
                           </p>
+                          <h3 className="mt-1 text-lg font-semibold tracking-tight">{record.eventName}</h3>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              <CalendarDays className="h-4 w-4 text-primary" />
+                              {formatRecordDate(record)}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <Clock className="h-4 w-4 text-primary" />
+                              {formatRecordTime(record)}
+                            </span>
+                          </div>
                         </div>
+                        <StatusBadge label={displayStatus} tone={statusTone(displayStatus)} />
                       </div>
-                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                        <StatusBadge label={row.status} tone={getStatusTone(row.status)} />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => fileCorrection(row.record, selectedItem?.code ?? "", selectedItem?.title ?? "")}
-                          className="student-btn-secondary px-4 text-xs h-9 gap-1.5 shrink-0 border border-primary/20 hover:bg-primary/5"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          <span>Correction Request</span>
+
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                        <p className="text-sm text-muted-foreground">{workflow?.nextActionDescription ?? "Review attendance status."}</p>
+                        <Button size="sm" variant="outline" onClick={() => openRecordDetails(record)}>
+                          View Details
                         </Button>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <EmptyState title="No session entries recorded" />
-                )}
+                  </article>
+                );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No attended events" description="Present and late event attendance will appear here, grouped by year." />
+          )}
+        </div>
+      </section>
+
+      <ModalShell
+        open={feedbackDueModalOpen}
+        title="Pending Feedback"
+        description="Open the exact attendance record that still needs your action."
+        size="lg"
+        onClose={() => setFeedbackDueModalOpen(false)}
+      >
+        {pendingFeedbackRecords.length ? (
+          <div className="space-y-3">
+            {pendingFeedbackRecords.map((record) => {
+              const needsLateReason = record.status === "late" && !record.lateReason;
+
+              return (
+                <article key={record.id} className="rounded-2xl border bg-background p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {record.eventCode} - {record.category}
+                      </p>
+                      <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                          {formatRecordDate(record)}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5 text-primary" />
+                          {formatRecordTime(record)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <StatusBadge label={record.status} tone={statusTone(record.status)} />
+                      <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+                        {needsLateReason ? "Late reason first" : "Feedback due"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                    <p className="max-w-xl text-sm text-muted-foreground">
+                      {needsLateReason
+                        ? "Submit your late reason first. The event feedback unlocks after that."
+                        : "Answer the event feedback to complete this attendance record."}
+                    </p>
+                    <Button type="button" size="sm" onClick={() => openFeedbackDueRecord(record)}>
+                      {needsLateReason ? "Submit Late Reason" : "Answer Feedback"}
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-success/20 bg-success/10 p-5">
+            <p className="flex items-center gap-2 font-semibold text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              No pending feedback right now.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Completed attendance records are already settled.</p>
+          </div>
+        )}
+      </ModalShell>
+
+      {selectedRecord ? (
+        <ModalShell
+          open={Boolean(selectedRecord)}
+          title={selectedRecord.eventName}
+          description={`${selectedRecord.eventCode} - ${selectedRecord.venue}`}
+          size="lg"
+          onClose={() => setSelectedRecord(null)}
+        >
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time In</p>
+                <p className="mt-1 font-semibold">{selectedWorkflow?.timeInLabel ?? formatDisplayTime(selectedRecord.recordedAt)}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time Out</p>
+                <p className="mt-1 font-semibold">{selectedWorkflow?.timeOutLabel ?? "Not recorded"}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Authentication Source</p>
+                <p className="mt-1 font-semibold">Organizer recorded via {selectedRecord.method}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feedback Status</p>
+                <p className="mt-1 font-semibold">{selectedWorkflow?.feedbackLabel ?? (selectedFeedbackSubmitted ? "Submitted" : "Locked")}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance Completion</p>
+                <p className="mt-1 font-semibold">{selectedWorkflow?.attendanceLabel ?? "Review required"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {selectedWorkflow?.nextActionDescription ?? "Open the required action to complete this record."}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-background p-4 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Session Information</p>
+                <p className="mt-1 font-semibold">{formatDisplayDate(selectedRecord.startsAt)} {formatDisplayTime(selectedRecord.startsAt)} - {formatDisplayTime(selectedRecord.endsAt)}</p>
+              </div>
+              {selectedRecord.status === "late" ? (
+                <div className="rounded-xl border bg-background p-4 sm:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Late Reason</p>
+                      <p className="mt-1 font-semibold">{selectedRecord.lateReason ?? "Required before feedback unlocks"}</p>
+                      {selectedRecord.lateReason ? (
+                        <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                          <Lock className="h-3.5 w-3.5" />
+                          Locked after submission.
+                        </p>
+                      ) : null}
+                    </div>
+                    {!selectedRecord.lateReason ? (
+                      <Button variant="outline" size="sm" onClick={() => setLateReasonRecord(selectedRecord)}>
+                        Submit Reason
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {selectedWorkflow?.requiresLateReason ? (
+                <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 sm:col-span-2">
+                  <p className="font-semibold text-warning">Late reason required</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Submit your late reason first. Event feedback unlocks after this step.</p>
+                </div>
+              ) : null}
+              {selectedWorkflow?.canSubmitFeedback ? (
+                <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4 sm:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">Event feedback required</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Answer the event feedback to complete this attendance record.</p>
+                    </div>
+                    <Button type="button" onClick={() => openFeedback(selectedRecord)}>
+                      <MessageSquareText className="h-4 w-4" />
+                      Answer Event Feedback
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              {selectedFeedbackSubmitted ? (
+                <div className="rounded-2xl border border-success/20 bg-success/10 p-4 sm:col-span-2">
+                  <p className="flex items-center gap-2 font-semibold text-success">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Feedback submitted. Attendance is complete.
+                  </p>
+                </div>
+              ) : null}
+              <div className="rounded-xl border bg-background p-4 sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Correction Request Status</p>
+                <p className="mt-1 font-semibold">{selectedCorrection?.status ?? "No request submitted"}</p>
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-border">
-              <Button onClick={() => setSelectedItem(null)} className="student-btn-primary px-6">Done</Button>
+            {selectedRequestTypes.length ? (
+            <div className="mt-6 rounded-2xl border bg-background p-5">
+              <div className="flex items-center gap-2">
+                <MessageSquareText className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold">Request Attendance Correction</h3>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium">Event Code</span>
+                  <input className="plpass-field h-10 w-full rounded-lg border px-3 text-sm" value={selectedRecord.eventCode} readOnly />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium">Event Name</span>
+                  <input className="plpass-field h-10 w-full rounded-lg border px-3 text-sm" value={selectedRecord.eventName} readOnly />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium">Request Type</span>
+                  <select className="plpass-select h-10 rounded-lg" value={requestType} onChange={(event) => setRequestType(event.target.value as CorrectionRequestType)}>
+                    {selectedRequestTypes.map((type) => (
+                      <option key={type} value={type}>{correctionRequestTypeLabels[type]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-sm font-medium">Attachment Upload</span>
+                  <div className="flex h-10 items-center gap-2 rounded-lg border bg-surface px-3 text-sm">
+                    <FileUp className="h-4 w-4 text-primary" />
+                    <input type="file" className="w-full text-xs" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? "")} />
+                  </div>
+                </label>
+                <label className="space-y-1.5 sm:col-span-2">
+                  <span className="text-sm font-medium">Explanation</span>
+                  <textarea className="plpass-field min-h-24 w-full rounded-lg border p-3 text-sm" value={explanation} onChange={(event) => setExplanation(event.target.value)} />
+                </label>
+              </div>
+              <Button className="mt-4" onClick={submitCorrection}>Submit Request</Button>
             </div>
+            ) : null}
+        </ModalShell>
+      ) : null}
+
+      {lateReasonRecord ? (
+        <ModalShell
+          open={Boolean(lateReasonRecord)}
+          title="Late Reason"
+          description="Select the reason for your late Time In."
+          size="sm"
+          onClose={() => setLateReasonRecord(null)}
+        >
+            <div className="mt-5 grid gap-2">
+              {lateReasonOptions.map((reason) => (
+                <Button key={reason} type="button" variant="outline" className="justify-start" onClick={() => submitLateReason(reason)}>
+                  {reason}
+                </Button>
+              ))}
+            </div>
+        </ModalShell>
+      ) : null}
+
+      {feedbackRecord ? (
+        <ModalShell
+          open={Boolean(feedbackRecord)}
+          title="Event Feedback"
+          description="Rate each event objective to complete your attendance."
+          size="lg"
+          onClose={() => setFeedbackRecord(null)}
+        >
+          <div className="mt-5 space-y-4">
+            {feedbackObjectives.map((objective, index) => (
+              <div key={objective} className="rounded-xl border bg-background p-4">
+                <p className="text-sm font-semibold">Objective {index + 1}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{objective}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[1, 2, 3, 4, 5].map((rating) => (
+                    <Button
+                      key={rating}
+                      type="button"
+                      size="sm"
+                      variant={feedbackRatings[objective] === rating ? "default" : "outline"}
+                      onClick={() => setFeedbackRatings((current) => ({ ...current, [objective]: rating }))}
+                    >
+                      {rating}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <label className="space-y-1.5">
+              <span className="text-sm font-medium">Comment</span>
+              <textarea
+                className="plpass-field min-h-24 w-full rounded-lg border p-3 text-sm"
+                value={feedbackComment}
+                onChange={(event) => setFeedbackComment(event.target.value)}
+                placeholder="Share anything useful about the event."
+              />
+            </label>
+            <Button type="button" className="w-full sm:w-auto" onClick={submitFeedback}>
+              Submit Event Feedback
+            </Button>
           </div>
-        </section>,
-        document.body
-      )}
+        </ModalShell>
+      ) : null}
     </div>
   );
 }

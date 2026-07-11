@@ -19,9 +19,11 @@ export const APP_ROUTES = {
   student: "/student",
   studentDashboard: "/student/dashboard",
   studentSchedule: "/student/schedule",
+  studentUpcomingEvents: "/student/events",
+  studentEvent: (eventId: string) => `/student/events/${eventId}`,
   studentAttendance: "/student/attendance",
   studentMethods: "/student/methods",
-  studentReports: "/student/reports",
+  studentRequestHistory: "/student/request-history",
   studentCorrections: "/student/corrections",
   studentProfile: "/student/profile"
 } as const;
