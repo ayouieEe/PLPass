@@ -1,8 +1,10 @@
 export { StudentRootPage } from "./StudentRootPage";
 export { StudentDashboardPage } from "./StudentDashboardPage";
 export { StudentSchedulePage } from "./StudentSchedulePage";
+export { StudentUpcomingEventsPage } from "./StudentUpcomingEventsPage";
+export { StudentEventDetailsPage } from "./StudentEventDetailsPage";
 export { MyAttendancePage } from "./MyAttendancePage";
 export { CorrectionRequestsPage } from "./CorrectionRequestsPage";
 export { AttendanceMethodsPage } from "./AttendanceMethodsPage";
-export { StudentReportsPage } from "./StudentReportsPage";
+export { RequestHistoryPage } from "./RequestHistoryPage";
 export { StudentProfilePage } from "./StudentProfilePage";

@@ -1,415 +1,594 @@
-import { useState, useEffect } from "react";
-import { AlertTriangle, CalendarCheck, ClipboardList, QrCode, UserCheck, AlertCircle, Calendar } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  ArrowRight,
+  CalendarCheck,
+  CalendarDays,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  FilePenLine,
+  History,
+  MapPin,
+  MessageSquareText,
+  QrCode,
+  ShieldCheck,
+  Sparkles
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { StudentSelect } from "@/components/forms/StudentSelect";
-import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import {
-  useAcademicCatalog,
-  useAttendanceRecords,
-  useAttendanceSessions,
-  useClasses,
-  useEvents,
-  useStudents
-} from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useEvents } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { compareDateValues, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type {
-  AttendanceRecord,
-  Event,
-  Student
-} from "@/types/domain";
+import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import {
+  countdownLabel,
+  ensureStudentIdentityReadiness,
+  getStudentEventMetrics,
+  getStudentEventRecords,
+  isFeedbackSubmitted,
+  statusTone,
+  studentVisibleEvents,
+  useStudentScope
+} from "@/features/student/studentExperience";
 
-type StudentScope = {
-  context: RepositoryContext;
-  student?: Student;
-  studentName: string;
-  isLoading: boolean;
-  isError: boolean;
-};
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
-type ScheduleRow = {
-  id: string;
-  kind: "class" | "event";
-  name: string;
-  code: string;
-  venue: string;
-  startsAt: string;
-  endsAt?: string;
-  owner: string;
-};
+function buildMonthGrid(anchor: Date) {
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingBlanks = firstOfMonth.getDay();
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-function useStudentScope(): StudentScope {
-  const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
-  const studentQuery = useStudents({ pageSize: 1 }, context);
-  return {
-    context: context ?? { actorUserId: "", actorRole: "student" },
-    student: studentQuery.data?.items[0],
-    studentName: session?.displayName ?? "Student",
-    isLoading: studentQuery.isLoading,
-    isError: studentQuery.isError
-  };
+  const cells: Array<Date | null> = [];
+  for (let i = 0; i < leadingBlanks; i += 1) {
+    cells.push(null);
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    cells.push(new Date(year, month, day));
+  }
+  while (cells.length % 7 !== 0) {
+    cells.push(null);
+  }
+  return cells;
 }
 
-function formatDate(value: string | undefined) {
-  return formatDisplayDate(value, "Not scheduled");
+function AuthActionRow({
+  to,
+  icon: Icon,
+  label,
+  description
+}: {
+  to: string;
+  icon: typeof QrCode;
+  label: string;
+  description: string;
+}) {
+  return (
+    <NavLink
+      to={to}
+      className="group flex items-center gap-3 rounded-xl border bg-background p-3 transition-colors hover:border-primary/30"
+    >
+      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10">
+        <Icon className="h-4 w-4 text-primary" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold">{label}</p>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+    </NavLink>
+  );
 }
 
-function formatTime(value: string | undefined) {
-  return formatDisplayTime(value, "Not set");
+function MetricLink({
+  to,
+  children,
+  label
+}: {
+  to: string;
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <NavLink
+      to={to}
+      aria-label={label}
+      className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="h-full transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:shadow-md">
+        {children}
+      </div>
+    </NavLink>
+  );
 }
 
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) return 0;
-  const attended = records.filter((r) => r.status === "present" || r.status === "late").length;
-  return Math.round((attended / records.length) * 100);
+function MetricButton({
+  children,
+  label,
+  onClick
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="group block h-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <div className="h-full transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:shadow-md">
+        {children}
+      </div>
+    </button>
+  );
 }
 
 export function StudentDashboardPage() {
   const scope = useStudentScope();
-  const navigate = useNavigate();
-  const [semesterId, setSemesterId] = useState("");
-  const [isFaceEnrolled, setIsFaceEnrolled] = useState(false);
-  const [isQrGenerated, setIsQrGenerated] = useState(false);
-
-  useEffect(() => {
-    setIsFaceEnrolled(localStorage.getItem("plpass-face-enrolled") === "true");
-    setIsQrGenerated(localStorage.getItem("plpass-qr-generated") === "true");
-  }, []);
-
-  const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
-  const classesQuery = useClasses({ pageSize: 100, semesterId: semesterId || undefined }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
+  const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => new Date());
+  const [qrReady, setQrReady] = useState(false);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+
+  useEffect(() => {
+    setQrReady(Boolean(ensureStudentIdentityReadiness(scope.student).qrCode));
+  }, [scope.student]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
   }
 
   if (scope.isError || !scope.student) {
-    return (
-      <ErrorState
-        title="Student profile unavailable"
-        message="The signed-in account does not have an active student profile."
-      />
-    );
+    return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (
-    classesQuery.isLoading ||
-    eventsQuery.isLoading ||
-    sessionsQuery.isLoading ||
-    recordsQuery.isLoading ||
-    catalog.semesters.isLoading
-  ) {
-    return <LoadingState label="Loading student dashboard" />;
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
+    return <LoadingState label="Loading dashboard" />;
   }
 
-  if (classesQuery.isError || eventsQuery.isError || recordsQuery.isError) {
-    return (
-      <ErrorState
-        title="Unable to load dashboard data"
-        message="An error occurred while loading student record items."
-      />
-    );
+  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
+    return <ErrorState title="Unable to load dashboard" message="Please try refreshing the page." />;
   }
 
-  const classes = classesQuery.data?.items ?? [];
-  const events = eventsQuery.data?.items ?? [];
-  const sessions = sessionsQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
+  const student = scope.student;
+  const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
+  const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+  const upcomingEvents = sortedEvents.slice(0, 4);
+  const nextEvent = sortedEvents.find((event) => new Date(event.startsAt).getTime() > Date.now());
 
-  // Filter records matching the active classes (which are filtered by semester)
-  const classIds = new Set(classes.map((c) => c.id));
-  const classSessions = sessions.filter((s) => s.type === "class" && s.classId && classIds.has(s.classId));
-  const classSessionIds = new Set(classSessions.map((s) => s.id));
-  const classRecords = records.filter((r) => classSessionIds.has(r.sessionId));
-
-  // Events attended
-  const eventSessions = sessions.filter((s) => s.type === "event");
-  const eventSessionIds = new Set(eventSessions.map((s) => s.id));
-  const eventRecords = records.filter(
-    (r) => eventSessionIds.has(r.sessionId) && (r.status === "present" || r.status === "late")
+  const eventRecords = getStudentEventRecords({
+    studentId: student.id,
+    records: recordsQuery.data?.items ?? [],
+    sessions: sessionsQuery.data?.items ?? [],
+    events: eventsQuery.data?.items ?? []
+  });
+  const eventMetrics = getStudentEventMetrics(eventRecords, student.id);
+  const attendedCount = eventMetrics.attendedCount;
+  const attendanceRate = eventMetrics.attendanceRate;
+  const pendingFeedback = eventMetrics.feedbackDue;
+  const pendingFeedbackRecords = eventMetrics.attendedRecords.filter(
+    (record) => !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId)
   );
+  const eventDateKeys = new Set(events.map((event) => dateKey(event.startsAt)).filter(Boolean));
+  const selectedDateEvents = events.filter((event) => dateKey(event.startsAt) === selectedDate);
 
-  // Compute Today's Schedule and Upcoming Events
-  const today = new Date();
-  const scheduleRows: ScheduleRow[] = [];
-  const upcomingEvents: Event[] = [];
+  const calendarCells = buildMonthGrid(monthAnchor);
+  const monthLabel = monthAnchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const todayKey = dateKey(new Date());
 
-  classes.forEach((c) => {
-    scheduleRows.push({
-      id: c.id,
-      kind: "class",
-      name: c.subjectTitle,
-      code: c.subjectCode,
-      venue: c.room || "Room TBA",
-      startsAt: new Date(today.setHours(9, 0, 0, 0)).toISOString(),
-      endsAt: new Date(today.setHours(10, 30, 0, 0)).toISOString(),
-      owner: "Professor"
-    });
-  });
-
-  events.forEach((e) => {
-    const isFuture = new Date(e.startsAt) >= new Date();
-    if (isFuture) {
-      upcomingEvents.push(e);
-    }
-    // Add to schedule if happening soon
-    scheduleRows.push({
-      id: e.id,
-      kind: "event",
-      name: e.title,
-      code: e.code,
-      venue: e.venue || "Campus Venue",
-      startsAt: e.startsAt,
-      endsAt: e.endsAt,
-      owner: e.organizerId || "Organizer"
-    });
-  });
-
-  // Sorting schedule items by start time
-  scheduleRows.sort((a, b) => compareDateValues(a.startsAt, b.startsAt));
-
-  // Determine Alerts / Reminders
-  const alerts: { title: string; desc: string; type: "danger" | "warning" | "info" }[] = [];
-  const absentRecordsCount = classRecords.filter((r) => r.status === "absent").length;
-
-  if (absentRecordsCount > 0) {
-    alerts.push({
-      title: `${absentRecordsCount} Unresolved Absences Detected`,
-      desc: "Please file an Excused/Correction request to update your attendance records.",
-      type: "danger"
-    });
-  }
-
-  if (!isFaceEnrolled) {
-    alerts.push({
-      title: "Biometric Setup Required",
-      desc: "You have not enrolled your face for facial recognition attendance. Visit verification methods to register.",
-      type: "warning"
-    });
-  }
-
-  if (!isQrGenerated) {
-    alerts.push({
-      title: "QR Code Inactive",
-      desc: "Generate your secure QR verification token to enable fallback scanner check-ins.",
-      type: "info"
-    });
+  function goToMonth(offset: number) {
+    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
   }
 
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Student Portal"
         title="Student dashboard"
-        description="Monitor your class attendance, view verification options, and verify upcoming events."
-        actions={
-          <Button asChild className="student-btn-primary px-6">
-            <NavLink to={APP_ROUTES.studentCorrections}>Submit Correction</NavLink>
-          </Button>
-        }
+        description="Track published events, organizer-recorded attendance, feedback tasks, and your next required action."
       />
 
-      {/* Semester Selector */}
-      <section className="student-glass-card p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-foreground">Select Academic Term</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Filtering stats, schedules, and class attendance.</p>
+      {nextEvent && (
+        <section className="relative overflow-hidden rounded-2xl border border-primary/30 bg-surface p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
+          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
+          <div className="relative flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5">
+                <Sparkles className="h-5 w-5 text-primary" />
+              </span>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Next up</p>
+                <h2 className="mt-0.5 text-base font-semibold tracking-tight">{nextEvent.title}</h2>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {formatDisplayDate(nextEvent.startsAt)} · {formatDisplayTime(nextEvent.startsAt)}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {nextEvent.venue}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                {countdownLabel(nextEvent.startsAt)}
+              </span>
+              <Button asChild size="sm">
+                <NavLink to={APP_ROUTES.studentEvent(nextEvent.id)}>
+                  View Details
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </NavLink>
+              </Button>
+            </div>
           </div>
-          <div className="w-full max-w-xs">
-            <StudentSelect
-              value={semesterId}
-              onChange={setSemesterId}
-              options={[
-                { label: "All Semesters", value: "" },
-                ...(catalog.semesters.data?.items.map((sem) => ({
-                  label: `${sem.label} (${sem.schoolYear})`,
-                  value: sem.id
-                })) ?? [])
-              ]}
-              placeholder="All Semesters"
+          {pendingFeedback > 0 && (
+            <div className="relative mt-4 flex items-center gap-2 border-t pt-3 text-sm text-muted-foreground">
+              <MessageSquareText className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+              You also have <span className="font-semibold text-foreground">{pendingFeedback}</span> feedback{" "}
+              {pendingFeedback === 1 ? "form" : "forms"} waiting to be completed.
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricLink to={APP_ROUTES.studentAttendance} label="Open attended event records">
+          <StatCard title="Events Attended" value={String(attendedCount)} description="Open attendance records" icon={CalendarCheck} />
+        </MetricLink>
+        <MetricLink to={APP_ROUTES.studentAttendance} label="Open attendance records">
+          <StatCard title="Attendance Rate" value={`${attendanceRate}%`} description="Review attendance records" icon={History} tone={attendanceRate < 80 ? "warning" : "success"} />
+        </MetricLink>
+        <MetricLink to={APP_ROUTES.studentUpcomingEvents} label="Open event cards">
+          <StatCard title="Events" value={String(upcomingEvents.length)} description="Browse event cards" icon={CalendarDays} />
+        </MetricLink>
+        <MetricButton label="Open feedback tasks" onClick={() => setFeedbackModalOpen(true)}>
+          <div
+            className={`relative h-full overflow-hidden rounded-xl border p-4 shadow-sm transition-colors ${
+              pendingFeedback ? "border-primary/30 bg-primary/10" : "bg-surface"
+            }`}
+          >
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent opacity-80" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <MessageSquareText className="h-3.5 w-3.5 text-primary" />
+                  Pending Feedback
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight">{pendingFeedback}</p>
+              </div>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-primary shadow-sm transition-transform group-hover:translate-x-0.5">
+                <ArrowRight className="h-4 w-4" />
+              </span>
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border bg-background/80 px-3 py-2">
+              <span className="text-xs font-semibold text-foreground">
+                {pendingFeedback ? "View feedback tasks" : "Open feedback panel"}
+              </span>
+              <span className="text-[11px] font-medium text-muted-foreground">Click</span>
+            </div>
+          </div>
+        </MetricButton>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Events</h2>
+              <p className="text-sm text-muted-foreground">Open an event to view details, resources, progress, and next action.</p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <NavLink to={APP_ROUTES.studentUpcomingEvents}>
+                View all
+                <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+              </NavLink>
+            </Button>
+          </div>
+
+          <div className="mt-5 grid gap-3">
+            {upcomingEvents.length ? upcomingEvents.map((event) => (
+              <article
+                key={event.id}
+                className="group flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-background p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                  </span>
+                  <div>
+                    <h3 className="font-semibold leading-tight">{event.title}</h3>
+                    <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                      {formatDisplayDate(event.startsAt)} at {formatDisplayTime(event.startsAt)}
+                    </p>
+                    <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                      {event.venue}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    {countdownLabel(event.startsAt)}
+                  </span>
+                  <Button asChild size="sm" variant="ghost" className="opacity-70 transition-opacity group-hover:opacity-100">
+                    <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
+                  </Button>
+                </div>
+              </article>
+            )) : <EmptyState title="No upcoming events" description="Published events will appear here." />}
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Calendar</h2>
+              <p className="text-sm text-muted-foreground">Select a date to highlight scheduled events.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="outline" size="sm">
+                <NavLink to={`${APP_ROUTES.studentUpcomingEvents}?view=calendar&tab=upcoming&date=${selectedDate}`}>
+                  View all
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </NavLink>
+              </Button>
+              <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
+                <button
+                  type="button"
+                  aria-label="Previous month"
+                  onClick={() => goToMonth(-1)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-background"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Next month"
+                  onClick={() => goToMonth(1)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg transition-colors hover:bg-background"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-3 text-sm font-semibold">{monthLabel}</p>
+
+          <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-muted-foreground">
+            {WEEKDAY_LABELS.map((label, index) => (
+              <div key={`${label}-${index}`} className="py-1">
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-1 grid grid-cols-7 gap-1">
+            {calendarCells.map((day, index) => {
+              if (!day) {
+                return <div key={`blank-${index}`} className="h-10" />;
+              }
+              const key = dateKey(day);
+              const hasEvent = eventDateKeys.has(key);
+              const selected = key === selectedDate;
+              const isToday = key === todayKey;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSelectedDate(key)}
+                  className={`relative h-10 rounded-lg text-sm font-medium transition-colors ${
+                    selected
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : isToday
+                        ? "bg-primary/10 text-primary"
+                        : hasEvent
+                          ? "bg-highlight text-highlight-foreground hover:bg-highlight/80"
+                          : "text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {day.getDate()}
+                  {hasEvent && !selected && (
+                    <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-current opacity-70" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 space-y-2 border-t pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+            </p>
+            {selectedDateEvents.length ? selectedDateEvents.map((event) => (
+              <div key={event.id} className="rounded-xl border bg-background p-3 text-sm transition-colors hover:border-primary/30">
+                <p className="font-semibold">{event.title}</p>
+                <p className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                  {formatDisplayTime(event.startsAt)} · {event.venue}
+                </p>
+              </div>
+            )) : <p className="text-sm text-muted-foreground">No event selected for this date.</p>}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
+              <FilePenLine className="h-4 w-4 text-primary" />
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Things To Do</h2>
+              <p className="text-sm text-muted-foreground">Anything that needs your action shows up here.</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3">
+            {pendingFeedback > 0 ? (
+              <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                    <MessageSquareText className="h-4 w-4 text-warning" />
+                  </span>
+                  <div>
+                    <p className="font-semibold">
+                      Give feedback on {pendingFeedback} event{pendingFeedback === 1 ? "" : "s"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      You attended {pendingFeedback === 1 ? "an event that's" : "events that are"} asking for a
+                      quick feedback form.
+                    </p>
+                  </div>
+                </div>
+                <Button type="button" size="sm" className="mt-3" onClick={() => setFeedbackModalOpen(true)}>
+                  Give Feedback
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                <p className="text-sm font-medium text-emerald-700">You're all caught up — nothing pending right now.</p>
+              </div>
+            )}
+
+            <div className="rounded-xl border bg-background p-4">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <QrCode className="h-3.5 w-3.5" />
+                How attendance works
+              </p>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                Just show your QR code when it's time to check in. The organizer scans it to record your Time
+                In and Time Out — you don't need to do anything else.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight">Attendance Methods</h2>
+                <p className="text-sm text-muted-foreground">Your QR code for checking in and out, plus your attendance history.</p>
+              </div>
+            </div>
+            <span
+              className={`flex flex-shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                qrReady ? "bg-emerald-500/10 text-emerald-600" : "bg-warning/10 text-warning"
+              }`}
+            >
+              {qrReady ? <CheckCircle2 className="h-3 w-3" /> : <QrCode className="h-3 w-3" />}
+              {qrReady ? "QR code ready" : "QR code not set up"}
+            </span>
+          </div>
+          <div className="mt-5 grid gap-2">
+            <AuthActionRow
+              to={APP_ROUTES.studentMethods}
+              icon={QrCode}
+              label="Show QR UID"
+              description="The code organizers scan for your Time In and Time Out"
+            />
+            <AuthActionRow
+              to={APP_ROUTES.studentAttendance}
+              icon={History}
+              label="Review Records"
+              description="See your past check-ins and attendance status per event"
             />
           </div>
         </div>
       </section>
 
-      {/* Main KPI Stat Cards */}
-      <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard
-          className="student-glass-card border-none hover:shadow-lg"
-          title="Classes Attendance"
-          value={String(classRecords.length)}
-          description="Total sessions logged"
-          icon={CalendarCheck}
-        />
-        <StatCard
-          className="student-glass-card border-none hover:shadow-lg"
-          title="Attendance rate (classes)"
-          value={`${attendanceRate(classRecords)}%`}
-          description="Enrolled courses check-in rate"
-          icon={ClipboardList}
-          tone={attendanceRate(classRecords) < 80 ? "warning" : "success"}
-        />
-        <StatCard
-          className="student-glass-card border-none hover:shadow-lg"
-          title="Events Attended"
-          value={String(eventRecords.length)}
-          description="Co-curricular participation logs"
-          icon={UserCheck}
-        />
-      </section>
+      <ModalShell
+        open={feedbackModalOpen}
+        title="Pending Feedback"
+        description="These attended events still need action before attendance is marked complete."
+        size="lg"
+        onClose={() => setFeedbackModalOpen(false)}
+      >
+        {pendingFeedbackRecords.length ? (
+          <div className="space-y-3">
+            {pendingFeedbackRecords.map((record) => {
+              const needsLateReason = record.status === "late" && !record.lateReason;
+              const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(record.eventId)}`;
 
-      {/* Bottom Dashboard Layout: Schedule/Events on Left, Alerts on Right */}
-      <section className="grid gap-6 lg:grid-cols-3 items-stretch">
-        {/* Left Column: Today's Schedule & Upcoming Campus Events */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          {/* Today's Schedule Card */}
-          <div className="student-glass-card p-6 flex flex-col flex-1">
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-primary" />
-                <h3 className="font-semibold text-foreground">Today's Schedule</h3>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(`${APP_ROUTES.studentAttendance}?view=calendar`)}
-                className="student-btn-secondary px-4 h-9 text-xs"
-              >
-                View Calendar
-              </Button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {scheduleRows.length > 0 ? (
-                <div className="space-y-3">
-                  {scheduleRows.slice(0, 4).map((item) => (
-                    <div
-                      key={`${item.kind}-${item.id}`}
-                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-border"
-                    >
-                      <div>
-                        <h4 className="font-medium text-sm text-foreground">
-                          {item.code} - {item.name}
-                        </h4>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatTime(item.startsAt)} - {formatTime(item.endsAt)} | {item.venue}
-                        </p>
+              return (
+                <article key={record.id} className="rounded-2xl border bg-background p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {record.eventCode} - {record.category}
+                      </p>
+                      <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1.5">
+                          <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                          {formatDisplayDate(record.startsAt)}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5 text-primary" />
+                          {formatDisplayTime(record.startsAt)}
+                        </span>
                       </div>
-                      <StatusBadge label={item.kind} tone={item.kind === "class" ? "info" : "success"} />
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState title="No classes or events scheduled for today" />
-              )}
-            </div>
-          </div>
-
-          {/* Upcoming Events Card */}
-          <div className="student-glass-card p-6 flex flex-col flex-1">
-            <div className="flex items-center gap-2 mb-4 shrink-0">
-              <QrCode className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold text-foreground">Upcoming Campus Events</h3>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {upcomingEvents.length > 0 ? (
-                <div className="space-y-3">
-                  {upcomingEvents.slice(0, 4).map((event) => (
-                    <div
-                      key={event.id}
-                      className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0 border-border"
-                    >
-                      <div>
-                        <h4 className="font-medium text-sm text-foreground">{event.title}</h4>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatDate(event.startsAt)} at {formatTime(event.startsAt)} | {event.venue}
-                        </p>
-                      </div>
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-secondary text-secondary-foreground border border-border">
-                        {event.code}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <StatusBadge label={record.status} tone={statusTone(record.status)} />
+                      <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+                        {needsLateReason ? "Late reason first" : "Feedback due"}
                       </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState title="No upcoming co-curricular events listed" />
-              )}
-            </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                    <p className="max-w-xl text-sm text-muted-foreground">
+                      {needsLateReason
+                        ? "Submit your late reason first. The event feedback unlocks after that."
+                        : "Answer the event feedback to complete this attendance record."}
+                    </p>
+                    <Button asChild size="sm">
+                      <NavLink to={target}>
+                        {needsLateReason ? "Submit Late Reason" : "Answer Feedback"}
+                        <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                      </NavLink>
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
-        </div>
-
-        {/* Right Column: Alerts & Reminders */}
-        <div className="lg:col-span-1">
-          <div className="student-glass-card p-6 border-l-4 border-l-primary h-full flex flex-col">
-            <div className="flex items-center gap-2 mb-4 shrink-0">
-              <AlertTriangle className="h-5 w-5 text-primary" />
-              <h3 className="font-semibold text-foreground">Alerts & Reminders</h3>
-            </div>
-
-            {alerts.length > 0 ? (
-              <div className="space-y-3 flex-1 overflow-y-auto">
-                {alerts.map((alert, idx) => {
-                  let alertClass = "";
-                  if (alert.type === "danger") {
-                    alertClass = "border-danger/30 bg-danger-muted/40 text-danger";
-                  } else if (alert.type === "warning") {
-                    alertClass = "border-warning/30 bg-warning-muted/40 text-warning";
-                  } else {
-                    alertClass = "border-info/30 bg-info-muted/40 text-info";
-                  }
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex gap-3 rounded-2xl border p-4 text-sm leading-relaxed ${alertClass}`}
-                    >
-                      <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="font-semibold">{alert.title}</h4>
-                        <p className="mt-1 text-xs opacity-90">{alert.desc}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6 border border-dashed border-border rounded-2xl bg-white/30">
-                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary mb-3 shadow-inner">
-                  <svg
-                    className="h-6 w-6 text-primary"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <h4 className="font-semibold text-sm text-foreground">All Caught Up</h4>
-                <p className="text-xs text-muted-foreground mt-1 max-w-[200px]">
-                  No pending alerts or required actions at this time.
-                </p>
-              </div>
-            )}
+        ) : (
+          <div className="rounded-2xl border border-success/20 bg-success/10 p-5">
+            <p className="flex items-center gap-2 font-semibold text-success">
+              <CheckCircle2 className="h-4 w-4" />
+              No pending feedback right now.
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Completed attendance records are already settled.</p>
           </div>
-        </div>
-      </section>
+        )}
+      </ModalShell>
     </div>
   );
 }

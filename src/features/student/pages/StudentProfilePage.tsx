@@ -19,13 +19,17 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useUser,
   useStudents,
-  useAcademicCatalog
+  useAcademicCatalog,
+  useAttendanceRecords,
+  useAttendanceSessions,
+  useEvents
 } from "@/hooks/useRepositoryQueries";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { ensureStudentIdentityReadiness, getStudentEventMetrics, getStudentEventRecords } from "@/features/student/studentExperience";
 import type { Program, Department } from "@/types/domain";
 
 type ProfileFieldProps = {
@@ -60,6 +64,9 @@ export function StudentProfilePage() {
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const userQuery = useUser(session?.userId, context);
   const studentQuery = useStudents({ pageSize: 1 }, context);
+  const eventsQuery = useEvents({ pageSize: 100 }, context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, context);
+  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
 
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -67,6 +74,8 @@ export function StudentProfilePage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [hasQrUid, setHasQrUid] = useState(false);
+  const [hasFacialEnrollment, setHasFacialEnrollment] = useState(false);
 
   // Sync / initialize default avatar
   useEffect(() => {
@@ -76,7 +85,10 @@ export function StudentProfilePage() {
     } else {
       setAvatarUrl(`https://api.dicebear.com/7.x/initials/svg?seed=${session?.displayName ?? "Student"}`);
     }
-  }, [session]);
+    const readiness = ensureStudentIdentityReadiness(studentQuery.data?.items[0]);
+    setHasQrUid(Boolean(readiness.qrCode));
+    setHasFacialEnrollment(readiness.faceEnrolled);
+  }, [session, studentQuery.data?.items]);
 
   if (!session) {
     return <ErrorState title="No active session" message="Sign in with a student account to view this page." />;
@@ -86,13 +98,16 @@ export function StudentProfilePage() {
     userQuery.isLoading ||
     catalog.departments.isLoading ||
     catalog.programs.isLoading ||
-    studentQuery.isLoading;
+    studentQuery.isLoading ||
+    eventsQuery.isLoading ||
+    sessionsQuery.isLoading ||
+    recordsQuery.isLoading;
 
   if (isLoading) {
     return <LoadingState label="Loading profile information" />;
   }
 
-  if (userQuery.isError || studentQuery.isError) {
+  if (userQuery.isError || studentQuery.isError || eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
     return <ErrorState title="Unable to load profile" message="An error occurred while loading repository details." />;
   }
 
@@ -104,6 +119,14 @@ export function StudentProfilePage() {
   if (!user || !student) {
     return <ErrorState title="Profile not found" message="No profile details found for this student account." />;
   }
+
+  const eventRecords = getStudentEventRecords({
+    studentId: student.id,
+    records: recordsQuery.data?.items ?? [],
+    sessions: sessionsQuery.data?.items ?? [],
+    events: eventsQuery.data?.items ?? []
+  });
+  const metrics = getStudentEventMetrics(eventRecords, student.id);
 
   function handleLogout() {
     logout();
@@ -216,6 +239,19 @@ export function StudentProfilePage() {
               <ProfileField label="Year Level" value={`Year ${student.yearLevel}`} icon={Award} />
               <ProfileField label="Section" value={student.section} icon={CalendarCheck} />
               <ProfileField label="Enrollment Status" value={student.status} icon={ShieldAlert} />
+            </div>
+          </div>
+
+          <div className="student-glass-card p-6 space-y-4 shadow-sm">
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <ShieldAlert className="h-5 w-5 text-primary" />
+              Attendance Readiness & Statistics
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ProfileField label="QR UID Status" value={hasQrUid ? "Ready" : "Not prepared"} icon={Hash} />
+              <ProfileField label="Facial Enrollment" value={hasFacialEnrollment ? "Enrolled" : "Not enrolled"} icon={Camera} />
+              <ProfileField label="Event Records" value={metrics.totalCount} icon={CalendarCheck} />
+              <ProfileField label="Attendance Rate" value={`${metrics.attendanceRate}%`} icon={Award} />
             </div>
           </div>
 

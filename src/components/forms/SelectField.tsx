@@ -1,5 +1,5 @@
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
-import { fieldBaseClass, fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
+import { fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
 type SelectOption = {
   label: string;
@@ -30,7 +30,7 @@ export function SelectField<TFieldValues extends FieldValues>({
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
           <span className={labelClass}>{label}</span>
-          <select {...field} className={fieldBaseClass} disabled={disabled}>
+          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled}>
             <option value="">{placeholder}</option>
             {options.map((option) => (
               <option key={option.value} value={option.value}>

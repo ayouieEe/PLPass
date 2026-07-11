@@ -1,4 +1,4 @@
-import { ChevronDown, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type FilterOption = {
@@ -45,13 +45,12 @@ export function FilterBar({ search, filters, selectedFilter, onSearchChange, onF
               <select
                 value={selectedFilter || defaultFilter}
                 onChange={(event) => onFilterChange(event.target.value)}
-                className="plpass-field h-12 w-full appearance-none rounded-lg border bg-surface py-0 pl-4 pr-10 text-sm font-medium outline-none"
+                className="plpass-select h-12 rounded-lg pl-4"
               >
                 {filters.map((filter) => (
                   <option key={filter.value} value={filter.value}>{filter.label}</option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-muted-foreground" aria-hidden="true" />
             </label>
           ) : null}
           <Button
