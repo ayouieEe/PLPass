@@ -77,6 +77,18 @@ describe("organizer route access", () => {
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
+  it("renders the analytics insights workspace with detailed sections", async () => {
+    storeSession(organizerSession);
+    setRoute("/organizer/analytics");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /event attendance prediction/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /attendance analytics/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /feedback & objective insights/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /late arrival insights/i })).toBeInTheDocument();
+  });
+
   it("denies organizer routes to a student user", async () => {
     storeSession(studentSession);
     setRoute("/organizer/events");

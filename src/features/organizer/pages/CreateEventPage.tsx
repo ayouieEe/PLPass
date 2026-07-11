@@ -54,8 +54,7 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useReports,
-  useStudents
+  useReports
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
@@ -97,6 +96,34 @@ const VENUE_OPTIONS = [
   { label: "AVR 2", value: "AVR 2" },
   { label: "AVR 4", value: "AVR 4" }
 ];
+
+const DUMMY_STUDENTS: Student[] = [
+  // BSHM Students (Hospitality Management)
+  { id: "STU-1001", userId: "user-student-1", studentNumber: "2022-10871", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1002", userId: "user-student-2", studentNumber: "2023-10232", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1006", userId: "user-student-3", studentNumber: "2023-10236", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1011", userId: "user-student-4", studentNumber: "2022-10881", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1019", userId: "user-student-5", studentNumber: "2022-10889", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1003", userId: "user-student-6", studentNumber: "2022-10873", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1004", userId: "user-student-7", studentNumber: "2023-10234", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1005", userId: "user-student-8", studentNumber: "2022-10875", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1007", userId: "user-student-9", studentNumber: "2022-10877", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1008", userId: "user-student-10", studentNumber: "2023-10238", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1009", userId: "user-student-11", studentNumber: "2022-10879", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1010", userId: "user-student-12", studentNumber: "2023-10240", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1012", userId: "user-student-13", studentNumber: "2023-10242", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1013", userId: "user-student-14", studentNumber: "2022-10883", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1014", userId: "user-student-15", studentNumber: "2023-10244", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1015", userId: "user-student-16", studentNumber: "2022-10885", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1016", userId: "user-student-17", studentNumber: "2023-10246", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1017", userId: "user-student-18", studentNumber: "2022-10887", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1018", userId: "user-student-19", studentNumber: "2023-10248", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
+  { id: "STU-1020", userId: "user-student-20", studentNumber: "2023-10250", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3B", createdAt: "2026-06-26T08:00:00.000Z" }
+];
+
+const PROGRAM_CODES = {
+  "program-bshm": "BSHM"
+};
 function timeToMinutes(value: string) {
   const [hours, minutes] = value.split(":").map(Number);
   return hours * 60 + minutes;
@@ -350,7 +377,17 @@ export function CreateEventPage() {
   const [sessionStarted, setSessionStarted] = useState(false);
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [notificationStatuses, setNotificationStatuses] = useState<{ studentId: string; studentNumber: string; status: "pending" | "sent" | "failed" }[]>([]);
-  const studentsQuery = useStudents({ pageSize: 500, search, programId: programId || undefined, yearLevel: yearLevel ? Number(yearLevel) : undefined, section: section || undefined }, scope.context);
+  
+  // Filter hardcoded students based on search and filters
+  const filteredStudents = DUMMY_STUDENTS.filter((student) => {
+    const matchesSearch = !search || student.studentNumber.includes(search) || student.id.includes(search) || student.section.includes(search);
+    const matchesProgram = !programId || student.programId === programId;
+    const matchesYear = !yearLevel || student.yearLevel === Number(yearLevel);
+    const matchesSection = !section || student.section === section;
+    return matchesSearch && matchesProgram && matchesYear && matchesSection;
+  });
+  
+  const students = filteredStudents;
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
   const form = useForm<EventFormValues>({
@@ -385,12 +422,11 @@ export function CreateEventPage() {
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
   }
-  if (studentsQuery.isLoading || catalog.programs.isLoading) {
+  if (catalog.programs.isLoading) {
     return <LoadingState label="Loading participant selector" />;
   }
-  const students = studentsQuery.data?.items ?? [];
-  const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
-  const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
+  const selectedStudents = selectedIds.map((id) => DUMMY_STUDENTS.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const programById = new Map(Object.entries(PROGRAM_CODES));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
   const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
@@ -584,15 +620,15 @@ export function CreateEventPage() {
             <SearchInput value={search} placeholder="Search students" onChange={setSearch} />
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
               <option value="">All programs</option>
-              {catalog.programs.data?.items.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
+              <option value="program-bshm">BSHM</option>
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
               <option value="">All year levels</option>
-              {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+              {Array.from(new Set(DUMMY_STUDENTS.map((s) => s.yearLevel))).sort().map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
               <option value="">All sections</option>
-              {["A", "B"].map((item) => <option key={item} value={item}>Section {item}</option>)}
+              {Array.from(new Set(DUMMY_STUDENTS.map((s) => s.section))).sort().map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
           {participantError ? <p className="text-sm text-danger">{participantError}</p> : null}
