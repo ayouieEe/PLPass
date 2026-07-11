@@ -28,9 +28,11 @@ import {
   CorrectionRequestsPage as StudentCorrectionRequestsPage,
   MyAttendancePage,
   AttendanceMethodsPage,
-  StudentReportsPage,
+  StudentEventDetailsPage,
   StudentDashboardPage,
   StudentSchedulePage,
+  StudentUpcomingEventsPage,
+  RequestHistoryPage,
   StudentProfilePage,
   StudentRootPage
 } from "@/features/student/pages";
@@ -70,9 +72,11 @@ export function AppRouter() {
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />
               <Route path={APP_ROUTES.studentDashboard} element={<StudentDashboardPage />} />
               <Route path={APP_ROUTES.studentSchedule} element={<StudentSchedulePage />} />
+              <Route path={APP_ROUTES.studentUpcomingEvents} element={<StudentUpcomingEventsPage />} />
+              <Route path="/student/events/:eventId" element={<StudentEventDetailsPage />} />
               <Route path={APP_ROUTES.studentAttendance} element={<MyAttendancePage />} />
               <Route path={APP_ROUTES.studentMethods} element={<AttendanceMethodsPage />} />
-              <Route path={APP_ROUTES.studentReports} element={<StudentReportsPage />} />
+              <Route path={APP_ROUTES.studentRequestHistory} element={<RequestHistoryPage />} />
               <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.studentProfile} element={<StudentProfilePage />} />
             </Route>

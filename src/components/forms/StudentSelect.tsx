@@ -52,16 +52,15 @@ export function StudentSelect({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`flex h-10 w-full items-center justify-between rounded-2xl border border-border bg-card/65 px-4 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-4 focus:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60 student-select-trigger ${
-          isOpen ? "border-primary ring-4 ring-primary/10" : ""
-        }`}
+        data-open={isOpen ? "true" : undefined}
+        className="student-select-trigger flex h-11 w-full items-center justify-between border px-3 text-sm font-medium transition-all duration-200 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown className={`h-4.5 w-4.5 text-muted-foreground transition-transform duration-200 shrink-0 ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 z-50 mt-2 max-h-60 overflow-y-auto rounded-2xl border border-border bg-card/90 p-1.5 shadow-xl backdrop-blur-xl animate-in fade-in-50 slide-in-from-top-2 duration-150">
+        <div className="student-select-menu absolute left-0 right-0 z-50 mt-2 max-h-60 overflow-y-auto border p-1.5 backdrop-blur-xl animate-in fade-in-50 slide-in-from-top-2 duration-150">
           {options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-muted-foreground text-center">No options available</div>
           ) : (
