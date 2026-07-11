@@ -787,7 +787,7 @@ export const mockEventManagementRepository: EventManagementRepository = {
       venue: input.venue.trim(),
       startsAt: `${input.date}T${input.startTime}:00.000Z`,
       endsAt: `${input.date}T${input.endTime}:00.000Z`,
-      status: "pending"
+      status: "approved"
     };
     const participants: EventParticipant[] = input.participantStudentIds.map((studentId) => ({
       id: `participant-${created.id}-${studentId}`,
@@ -799,9 +799,9 @@ export const mockEventManagementRepository: EventManagementRepository = {
     eventParticipantState = [...participants, ...eventParticipantState];
     auditLogState = [
       {
-        id: `audit-event-created-${Date.now()}`,
+        id: `audit-event-published-${Date.now()}`,
         actorUserId: currentContext.actorUserId,
-        action: "event.created",
+        action: "event.published",
         targetType: "event",
         targetId: created.id,
         timestamp: new Date().toISOString(),

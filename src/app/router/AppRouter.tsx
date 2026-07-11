@@ -16,10 +16,12 @@ import {
   EventDetailsPage,
   EventManagementPage,
   EventRecordsPage,
-  EventReportsPage,
+  AuthenticationMethodsPage,
   OrganizerAnalyticsPage,
+  OrganizerCorrectionRequestsPage,
   OrganizerDashboardPage,
   OrganizerProfilePage,
+  OrganizerUserManagementPage,
   OrganizerRootPage
 } from "@/features/organizer/pages";
 import {
@@ -57,10 +59,12 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerDashboard} element={<OrganizerDashboardPage />} />
               <Route path={APP_ROUTES.organizerEvents} element={<EventManagementPage />} />
               <Route path={APP_ROUTES.organizerCreateEvent} element={<CreateEventPage />} />
+              <Route path={APP_ROUTES.organizerUsers} element={<OrganizerUserManagementPage />} />
               <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
               <Route path="/organizer/sessions/:sessionId" element={<EventAttendancePage />} />
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
-              <Route path={APP_ROUTES.organizerReports} element={<EventReportsPage />} />
+              <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
+              <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
               <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
             </Route>

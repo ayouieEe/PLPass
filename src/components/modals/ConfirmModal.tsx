@@ -19,35 +19,31 @@ export function ConfirmModal({
   title,
   description,
   confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  cancelLabel,
   tone = "default",
   children,
   onConfirm,
   onCancel
 }: ConfirmModalProps) {
-  if (!open) {
-    return null;
-  }
-
   return (
     <ModalShell
       open={open}
       title={title}
       description={description}
-      size="sm"
       onClose={onCancel}
-      footer={(
-        <>
+      size="sm"
+      footer={
+        <div className="flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={onCancel}>
             {cancelLabel}
           </Button>
           <Button type="button" variant={tone === "danger" ? "destructive" : "default"} onClick={onConfirm}>
             {confirmLabel}
           </Button>
-        </>
-      )}
+        </div>
+      }
     >
-      {children ? <div className="text-sm text-muted-foreground">{children}</div> : null}
+      {children}
     </ModalShell>
   );
 }

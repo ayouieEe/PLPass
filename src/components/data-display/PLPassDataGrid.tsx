@@ -113,8 +113,12 @@ export function PLPassDataGrid<TData extends object>({
   enableQuickFilter = false,
   enableColumnVisibility = false,
   rowSelection,
+  checkboxSelection = false,
+  suppressRowClickSelection = false,
+  onSelectionChange,
   height,
-  toolbarActions
+  toolbarActions,
+  hideHeader = false
 }: PLPassDataGridProps<TData>) {
   const gridShellRef = useRef<HTMLDivElement>(null);
   const gridApiRef = useRef<GridApi<TData> | null>(null);
@@ -195,6 +199,13 @@ export function PLPassDataGrid<TData extends object>({
     window.requestAnimationFrame(() => normalizePaginationControls(gridShellRef.current));
   }, []);
 
+  const handleSelectionChanged = useCallback(
+    (event: { api: GridApi<TData> }) => {
+      onSelectionChange?.(event.api.getSelectedRows());
+    },
+    [onSelectionChange]
+  );
+
   const goToPage = useCallback((page: number) => {
     gridApiRef.current?.paginationGoToPage(page);
   }, []);
@@ -208,17 +219,22 @@ export function PLPassDataGrid<TData extends object>({
   }
 
   return (
-    <section className="plpass-data-grid-shell rounded-2xl border border-border bg-surface p-6 shadow-sm" aria-label={label}>
-      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-4">
-          <span className="h-9 w-1 rounded-full bg-primary" aria-hidden="true" />
-          <p className="min-w-0 truncate text-lg font-bold text-foreground">{label}</p>
-          <span className="rounded-full border bg-surface-muted px-3.5 py-1.5 font-mono text-xs text-muted-foreground">
-            {hasRows ? `${firstRow}-${lastRow} of ${displayedRowCount}` : "0 records"}
-          </span>
+    <section
+      className={cn("plpass-data-grid-shell rounded-2xl border border-border bg-surface shadow-sm", hideHeader ? "p-4" : "p-6")}
+      aria-label={label}
+    >
+      {!hideHeader ? (
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-4">
+            <span className="h-9 w-1 rounded-full bg-primary" aria-hidden="true" />
+            <p className="min-w-0 truncate text-lg font-bold text-foreground">{label}</p>
+            <span className="rounded-full border bg-surface-muted px-3.5 py-1.5 font-mono text-xs text-muted-foreground">
+              {hasRows ? `${firstRow}-${lastRow} of ${displayedRowCount}` : "0 records"}
+            </span>
+          </div>
+          {toolbarActions ? <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div> : null}
         </div>
-        {toolbarActions ? <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div> : null}
-      </div>
+      ) : null}
       {(enableQuickFilter || enableColumnVisibility) ? (
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {enableQuickFilter ? (
@@ -285,17 +301,21 @@ export function PLPassDataGrid<TData extends object>({
           paginationPageSize={DEFAULT_PAGE_SIZE}
           quickFilterText={quickFilterText}
           rowSelection={rowSelection}
+          suppressRowClickSelection={suppressRowClickSelection}
           rowHeight={52}
           headerHeight={44}
           noRowsOverlayComponent={NoRowsOverlay}
           theme="legacy"
           suppressCellFocus={false}
           suppressColumnVirtualisation
+          suppressMovableColumns
+          suppressColumnMoveAnimation
           ensureDomOrder
           animateRows={false}
           onGridReady={handleGridReady}
           onModelUpdated={handleModelUpdated}
           onPaginationChanged={handlePaginationChanged}
+          onSelectionChanged={handleSelectionChanged}
         />
       </div>
       {hasRows ? (
