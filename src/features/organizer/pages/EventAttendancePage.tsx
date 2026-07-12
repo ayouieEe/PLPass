@@ -223,25 +223,13 @@ function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
 }
 
 function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
-  return records.map((record) => {
-    // Add checkout time for students who were present or late - simulate 30 mins after check-in
-    let checkoutTime: string | undefined;
-    if (record.status === "present" || record.status === "late") {
-      const checkInDate = new Date(record.recordedAt);
-      const checkOutDate = new Date(checkInDate.getTime() + 30 * 60 * 1000); // 30 mins later
-      checkoutTime = checkOutDate.toISOString();
-    }
-
-    return {
-      id: record.id,
-      studentName: studentName(students.find((student) => student.id === record.studentId)),
-      identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-      status: record.status === "excused" ? "manual" : record.status,
-      timestamp: formatTime(record.recordedAt),
-      timeIn: record.recordedAt,
-      timeOut: checkoutTime
-    };
-  });
+  return records.map((record) => ({
+    id: record.id,
+    studentName: studentName(students.find((student) => student.id === record.studentId)),
+    identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
+    status: record.status === "excused" ? "manual" : record.status,
+    timestamp: formatTime(record.recordedAt)
+  }));
 }
 
 function EventScheduleCard({ event }: { event: Event }) {
@@ -411,15 +399,14 @@ export function EventAttendancePage() {
   async function confirmEnd() {
     await mutations.endSessionMutation.mutateAsync({ sessionId: session.id, reason: endReason });
     setEndOpen(false);
-    // Redirect to checkout page instead of records
-    navigate(APP_ROUTES.organizerSessionCheckout(session.id));
+    navigate(APP_ROUTES.organizerRecords);
   }
   return (
     <OrganizerFrame>
       <PageHeader
         eyebrow="Active Event Session"
         title={event?.title ?? session.title}
-        description="Development Simulation for QR check-in and facial verification."
+        description="Development Simulation for QR check-in, facial verification, and manual override."
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />

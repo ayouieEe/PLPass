@@ -11,10 +11,8 @@ import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
 import {
-  AuditTrailPage,
   CreateEventPage,
   EventAttendancePage,
-  SessionCheckoutPage,
   EventDetailsPage,
   EventManagementPage,
   EventRecordsPage,
@@ -64,12 +62,10 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerUsers} element={<OrganizerUserManagementPage />} />
               <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
               <Route path="/organizer/sessions/:sessionId" element={<EventAttendancePage />} />
-              <Route path="/organizer/sessions/:sessionId/checkout" element={<SessionCheckoutPage />} />
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
               <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
               <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
-              <Route path={APP_ROUTES.organizerAuditTrail} element={<AuditTrailPage />} />
               <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
