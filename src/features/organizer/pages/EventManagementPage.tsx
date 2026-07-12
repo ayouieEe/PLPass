@@ -41,6 +41,7 @@ type AttendanceRow = {
   eventCode: string;
   attendanceMethod: AttendanceMethod;
   checkInTime: string;
+  checkOutTime?: string;
   attendanceStatus: AttendanceStatus;
   lateReason?: LateReason;
 };
@@ -157,21 +158,21 @@ const sessionSummaries: CompletedRecord[] = [
 ];
 
 const attendanceDetails: AttendanceRow[] = [
-  { id: "ATT-6001", studentId: "STU-1002", studentName: "Ximena Garcia", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:38 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
-  { id: "ATT-6002", studentId: "STU-1003", studentName: "Angel Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:44 AM", attendanceStatus: "present" },
-  { id: "ATT-6003", studentId: "STU-1004", studentName: "Rhea Ramos", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:50 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
-  { id: "ATT-6004", studentId: "STU-1005", studentName: "Ivy Reyes", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:03 AM", attendanceStatus: "late", lateReason: "Personal / Health" },
-  { id: "ATT-6005", studentId: "STU-1006", studentName: "Gwen Castillo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", attendanceStatus: "absent" },
-  { id: "ATT-6006", studentId: "STU-1007", studentName: "Leo Villanueva", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:34 AM", attendanceStatus: "late", lateReason: "Other" },
-  { id: "ATT-6007", studentId: "STU-1008", studentName: "Mika Bautista", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:17 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6008", studentId: "STU-1009", studentName: "Leo Ocampo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", attendanceStatus: "absent" },
-  { id: "ATT-6009", studentId: "STU-1010", studentName: "Yuri Flores", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:32 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6010", studentId: "STU-1011", studentName: "Odessa Navarro", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:16 AM", attendanceStatus: "late", lateReason: "Other" },
-  { id: "ATT-6011", studentId: "STU-1012", studentName: "Ivy Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:37 AM", attendanceStatus: "present" },
-  { id: "ATT-6012", studentId: "STU-1013", studentName: "Francis Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "07:40 AM", attendanceStatus: "present" },
-  { id: "ATT-6013", studentId: "STU-1014", studentName: "Kyla Cruz", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:38 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6014", studentId: "STU-1015", studentName: "Carlo Ramos", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:30 AM", attendanceStatus: "late", lateReason: "Weather / Force Majeure" },
-  { id: "ATT-6015", studentId: "STU-1016", studentName: "Mika Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:37 AM", attendanceStatus: "late", lateReason: "Personal / Health" }
+  { id: "ATT-6001", studentId: "STU-1002", studentName: "Ximena Garcia", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:38 AM", checkOutTime: "11:58 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
+  { id: "ATT-6002", studentId: "STU-1003", studentName: "Angel Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:44 AM", checkOutTime: "12:04 PM", attendanceStatus: "present" },
+  { id: "ATT-6003", studentId: "STU-1004", studentName: "Rhea Ramos", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:50 AM", checkOutTime: "11:52 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
+  { id: "ATT-6004", studentId: "STU-1005", studentName: "Ivy Reyes", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:03 AM", checkOutTime: "12:10 PM", attendanceStatus: "late", lateReason: "Personal / Health" },
+  { id: "ATT-6005", studentId: "STU-1006", studentName: "Gwen Castillo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", checkOutTime: "-", attendanceStatus: "absent" },
+  { id: "ATT-6006", studentId: "STU-1007", studentName: "Leo Villanueva", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:34 AM", checkOutTime: "12:02 PM", attendanceStatus: "late", lateReason: "Other" },
+  { id: "ATT-6007", studentId: "STU-1008", studentName: "Mika Bautista", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:17 AM", checkOutTime: "11:55 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
+  { id: "ATT-6008", studentId: "STU-1009", studentName: "Leo Ocampo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", checkOutTime: "-", attendanceStatus: "absent" },
+  { id: "ATT-6009", studentId: "STU-1010", studentName: "Yuri Flores", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:32 AM", checkOutTime: "12:08 PM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
+  { id: "ATT-6010", studentId: "STU-1011", studentName: "Odessa Navarro", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:16 AM", checkOutTime: "12:00 PM", attendanceStatus: "late", lateReason: "Other" },
+  { id: "ATT-6011", studentId: "STU-1012", studentName: "Ivy Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:37 AM", checkOutTime: "11:50 AM", attendanceStatus: "present" },
+  { id: "ATT-6012", studentId: "STU-1013", studentName: "Francis Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "07:40 AM", checkOutTime: "12:06 PM", attendanceStatus: "present" },
+  { id: "ATT-6013", studentId: "STU-1014", studentName: "Kyla Cruz", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:38 AM", checkOutTime: "12:01 PM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
+  { id: "ATT-6014", studentId: "STU-1015", studentName: "Carlo Ramos", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:30 AM", checkOutTime: "11:57 AM", attendanceStatus: "late", lateReason: "Weather / Force Majeure" },
+  { id: "ATT-6015", studentId: "STU-1016", studentName: "Mika Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:37 AM", checkOutTime: "12:05 PM", attendanceStatus: "late", lateReason: "Personal / Health" }
 ];
 
 function statusTone(status: AttendanceStatus | "Today" | "Incoming" | "Active" | "Completed") {
@@ -531,11 +532,6 @@ export function EventManagementPage() {
         eyebrow="Event Management"
         title="Event Records"
         description="Published events appear here after the Create Event workflow; start a session only when the event is ready to run."
-        actions={
-          <Button type="button" onClick={() => navigate(APP_ROUTES.organizerCreateEvent)}>
-            Create Event
-          </Button>
-        }
       />
 
 
@@ -861,6 +857,7 @@ function CompletedEventModal({ record, rows, onClose, onExportReport }: { record
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
     { accessorKey: "checkInTime", header: "Check-in Time" },
+    { accessorKey: "checkOutTime", header: "Check-out Time" },
     { id: "status", header: "Attendance Status", cell: ({ row }) => <StatusBadge label={row.original.attendanceStatus} tone={statusTone(row.original.attendanceStatus)} /> },
     { id: "lateReason", header: "Late Arrival Reason", cell: ({ row }) => row.original.lateReason ?? "-" }
   ];
