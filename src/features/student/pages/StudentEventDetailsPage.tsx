@@ -70,10 +70,10 @@ function buildTodayDemoEvent() {
     code: "EVT-2026-005",
     organizerId: "organizer-1",
     departmentId: "dept-ccs",
-    category: "Career Development",
+    category: "Seminar",
     title: "Sustainable Tourism Speaker Series",
     venue: "PLP Multi-Purpose Hall",
-    startsAt: todayIsoAt(14),
+    startsAt: todayIsoAt(13, 30),
     endsAt: todayIsoAt(16),
     status: "approved"
   };
@@ -86,8 +86,8 @@ function buildTodayDemoEvent() {
     status: "draft",
     startsAt: event.startsAt,
     endsAt: event.endsAt,
-    lateCutoffAt: todayIsoAt(14, 15),
-    attendanceWindowStartAt: todayIsoAt(13, 55),
+    lateCutoffAt: todayIsoAt(13, 45),
+    attendanceWindowStartAt: todayIsoAt(13, 25),
     attendanceWindowEndAt: event.endsAt,
     createdByUserId: "user-organizer-1"
   };
@@ -104,7 +104,7 @@ function buildUpcomingDemoEvent() {
     title: "AHTOMP Culinary & Mixology Showcase",
     venue: "PLP HM Culinary Kitchen",
     startsAt: tomorrowIsoAt(9),
-    endsAt: tomorrowIsoAt(11),
+    endsAt: tomorrowIsoAt(16),
     status: "approved"
   };
   const session: AttendanceSession = {
@@ -127,12 +127,12 @@ function buildUpcomingDemoEvent() {
 function buildOngoingTodayDemoEvent() {
   const event: Event = {
     id: ONGOING_DEMO_EVENT_ID,
-    code: "EVT-2026-LIVE",
+    code: "EVT-2026-004",
     organizerId: "organizer-1",
     departmentId: "dept-ccs",
-    category: "Student Wellness",
-    title: "Live QR & Facial Check-in Drill",
-    venue: "PLP HM Training Laboratory",
+    category: "Skills Training",
+    title: "Front Office Operations Simulation Day",
+    venue: "PLP HM Mock Hotel Lab",
     startsAt: relativeNowIso(-30),
     endsAt: relativeNowIso(90),
     status: "approved"
@@ -141,7 +141,7 @@ function buildOngoingTodayDemoEvent() {
     id: "demo-today-wellness-check-in-session",
     type: "event",
     eventId: event.id,
-    title: "Live QR & Facial Check-in Drill Attendance",
+    title: "Front Office Operations Simulation Day Attendance",
     mode: "required",
     status: "active",
     startsAt: event.startsAt,
@@ -152,6 +152,56 @@ function buildOngoingTodayDemoEvent() {
     createdByUserId: "user-organizer-1"
   };
   return { event, session };
+}
+
+function buildOrganizerFallbackEvent(id: string | undefined) {
+  const nowRelative = id === "event-4"
+    ? buildOngoingTodayDemoEvent()
+    : id === "event-5"
+      ? buildTodayDemoEvent()
+      : id === "event-6"
+        ? buildUpcomingDemoEvent()
+        : undefined;
+  if (nowRelative) {
+    return {
+      event: { ...nowRelative.event, id: id ?? nowRelative.event.id },
+      session: { ...nowRelative.session, eventId: id ?? nowRelative.event.id }
+    };
+  }
+
+  if (id === "event-1") {
+    const startsAt = tomorrowIsoAt(8);
+    const endsAt = tomorrowIsoAt(12);
+    const event: Event = {
+      id,
+      code: "EVT-2026-001",
+      organizerId: "organizer-1",
+      departmentId: "dept-ccs",
+      category: "Career Development",
+      title: "Hospitality Career Fair & Industry Talk",
+      venue: "PLP Pasig Gymnasium",
+      startsAt,
+      endsAt,
+      status: "approved"
+    };
+    const session: AttendanceSession = {
+      id: "event-1-fallback-session",
+      type: "event",
+      eventId: event.id,
+      title: "Hospitality Career Fair & Industry Talk Attendance",
+      mode: "required",
+      status: "draft",
+      startsAt,
+      endsAt,
+      lateCutoffAt: tomorrowIsoAt(8, 15),
+      attendanceWindowStartAt: tomorrowIsoAt(7, 55),
+      attendanceWindowEndAt: endsAt,
+      createdByUserId: "user-organizer-1"
+    };
+    return { event, session };
+  }
+
+  return undefined;
 }
 
 function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -348,7 +398,7 @@ export function StudentEventDetailsPage() {
       ? buildUpcomingDemoEvent()
       : eventId === ONGOING_DEMO_EVENT_ID
         ? buildOngoingTodayDemoEvent()
-        : undefined;
+        : buildOrganizerFallbackEvent(eventId);
   if ((eventQuery.isError || !eventQuery.data) && !demoEvent) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
 
   const event = eventQuery.data ?? demoEvent?.event;

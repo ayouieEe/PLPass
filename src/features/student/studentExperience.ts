@@ -353,8 +353,20 @@ export function sortEventsByDate(events: Event[]) {
   return [...events].sort((first, second) => compareDateValues(first.startsAt, second.startsAt));
 }
 
+const organizerAlignedEventCodes = new Set(["EVT-2026-001", "EVT-2026-002", "EVT-2026-003", "EVT-2026-004", "EVT-2026-005", "EVT-2026-006"]);
+
+const organizerAlignedStudentEvents: Event[] = [
+  { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "Hospitality Career Fair & Industry Talk", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
+  { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Food & Beverage Service Skills Workshop", venue: "PLP HM Training Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
+  { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "AHTOMP General Assembly & Orientation", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
+  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Front Office Operations Simulation Day", venue: "PLP HM Mock Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
+  { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Seminar", title: "Sustainable Tourism Speaker Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
+  { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Competition", title: "AHTOMP Culinary & Mixology Showcase", venue: "PLP HM Culinary Kitchen", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
+];
+
 export function studentVisibleEvents(events: Event[]) {
-  const visible = events.filter((event) => event.status !== "cancelled" && (event.status === "approved" || event.status === "completed" || isFutureOrNowDate(event.startsAt)));
+  const sourceEvents = events.some((event) => organizerAlignedEventCodes.has(event.code)) ? events : organizerAlignedStudentEvents;
+  const visible = sourceEvents.filter((event) => event.status !== "cancelled" && (event.status === "approved" || event.status === "completed" || isFutureOrNowDate(event.startsAt)));
   return sortEventsByDate(visible);
 }
 
@@ -393,14 +405,14 @@ function pdfStudentDemoRecords(studentId: string): StudentEventRecord[] {
       id: "student-pdf-record-front-office-sim",
       eventId: "student-pdf-event-front-office-sim",
       eventCode: "EVT-2026-004",
-      eventName: "Front Office Simulation Challenge",
-      category: "Simulation",
-      venue: "PLP HM Simulation Room",
-      startsAt: "2026-04-18T01:00:00.000Z",
-      endsAt: "2026-04-18T04:00:00.000Z",
+      eventName: "Front Office Operations Simulation Day",
+      category: "Skills Training",
+      venue: "PLP HM Mock Hotel Lab",
+      startsAt: "2026-03-19T00:30:00.000Z",
+      endsAt: "2026-03-19T07:30:00.000Z",
       status: "late",
       method: "QR",
-      recordedAt: "2026-04-18T01:27:00.000Z"
+      recordedAt: "2026-03-19T00:57:00.000Z"
     },
     {
       id: "student-pdf-record-fnb-workshop",
@@ -416,17 +428,30 @@ function pdfStudentDemoRecords(studentId: string): StudentEventRecord[] {
       recordedAt: "2026-02-24T09:00:00.000Z"
     },
     {
-      id: "student-pdf-record-archive",
-      eventId: "student-pdf-event-archive",
-      eventCode: "EVT-2025-010",
-      eventName: "AHTOMP Membership Orientation Archive",
-      category: "General Assembly",
-      venue: "PLP Pasig Auditorium",
-      startsAt: "2025-11-21T01:00:00.000Z",
-      endsAt: "2025-11-21T03:00:00.000Z",
+      id: "student-pdf-record-sustainable-tourism",
+      eventId: "student-pdf-event-sustainable-tourism",
+      eventCode: "EVT-2026-005",
+      eventName: "Sustainable Tourism Speaker Series",
+      category: "Seminar",
+      venue: "PLP Multi-Purpose Hall",
+      startsAt: "2026-04-02T05:30:00.000Z",
+      endsAt: "2026-04-02T08:00:00.000Z",
+      status: "present",
+      method: "QR",
+      recordedAt: "2026-04-02T05:34:00.000Z"
+    },
+    {
+      id: "student-pdf-record-culinary-showcase",
+      eventId: "student-pdf-event-culinary-showcase",
+      eventCode: "EVT-2026-006",
+      eventName: "AHTOMP Culinary & Mixology Showcase",
+      category: "Competition",
+      venue: "PLP HM Culinary Kitchen",
+      startsAt: "2026-04-18T01:00:00.000Z",
+      endsAt: "2026-04-18T08:00:00.000Z",
       status: "present",
       method: "Facial",
-      recordedAt: "2025-11-21T01:07:00.000Z",
+      recordedAt: "2026-04-18T01:07:00.000Z",
       feedbackSubmitted: true
     }
   ];
@@ -462,7 +487,9 @@ export function recordsForStudentEvents(input: {
         feedbackSubmitted: record.note?.includes("Feedback submitted") ?? false
       }];
     });
-  return [...repositoryRecords, ...pdfStudentDemoRecords(input.studentId)];
+  const repositoryEventCodes = new Set(repositoryRecords.map((record) => record.eventCode));
+  const fallbackDemoRecords = pdfStudentDemoRecords(input.studentId).filter((record) => !repositoryEventCodes.has(record.eventCode));
+  return [...repositoryRecords, ...fallbackDemoRecords];
 }
 
 export function getStudentRecordDate(record: StudentEventRecord) {

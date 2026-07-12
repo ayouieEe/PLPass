@@ -109,26 +109,42 @@ export const classRosterFixtures: ClassRoster[] = [
 ];
 
 export const eventFixtures: Event[] = [
-  { id: "event-1", code: "EVT-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Orientation", title: "CCS Orientation", venue: "Main Hall", startsAt: "2026-06-27T01:00:00.000Z", endsAt: "2026-06-27T04:00:00.000Z", status: "approved" },
-  { id: "event-2", code: "EVT-002", organizerId: "organizer-2", departmentId: "dept-cba", category: "Forum", title: "Business Forum", venue: "Auditorium", startsAt: "2026-07-01T02:00:00.000Z", endsAt: "2026-07-01T05:00:00.000Z", status: "pending" },
-  { id: "event-3", code: "EVT-003", organizerId: "organizer-1", category: "Leadership", title: "Leadership Summit", venue: "Gymnasium", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", status: "completed" },
-  { id: "event-4", code: "EVT-004", organizerId: "organizer-2", category: "Assembly", title: "Cancelled Assembly", venue: "Court", startsAt: "2026-07-10T01:00:00.000Z", endsAt: "2026-07-10T03:00:00.000Z", status: "cancelled" }
+  { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "Hospitality Career Fair & Industry Talk", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
+  { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Food & Beverage Service Skills Workshop", venue: "PLP HM Training Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
+  { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "AHTOMP General Assembly & Orientation", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
+  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Front Office Operations Simulation Day", venue: "PLP HM Mock Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
+  { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Seminar", title: "Sustainable Tourism Speaker Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
+  { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Competition", title: "AHTOMP Culinary & Mixology Showcase", venue: "PLP HM Culinary Kitchen", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
 ];
 
-export const eventParticipantFixtures: EventParticipant[] = eventFixtures.flatMap((event, eventIndex) =>
-  studentFixtures.slice(eventIndex, eventIndex + 6).map((student) => ({
-    id: `participant-${event.id}-${student.id}`,
+export const eventParticipantFixtures: EventParticipant[] = [
+  ...eventFixtures.flatMap((event, eventIndex) =>
+    studentFixtures.slice(eventIndex, eventIndex + 6).map((student) => ({
+      id: `participant-${event.id}-${student.id}`,
+      eventId: event.id,
+      studentId: student.id,
+      registeredAt: now
+    }))
+  ),
+  ...eventFixtures.map((event) => ({
+    id: `participant-live-student-${event.id}`,
     eventId: event.id,
-    studentId: student.id,
+    studentId: "student-1",
     registeredAt: now
   }))
+].filter((participant, index, list) =>
+  list.findIndex((entry) => entry.eventId === participant.eventId && entry.studentId === participant.studentId) === index
 );
 
 export const attendanceSessionFixtures: AttendanceSession[] = [
   { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", lateCutoffAt: "2026-06-24T00:15:00.000Z", attendanceWindowStartAt: "2026-06-23T23:55:00.000Z", attendanceWindowEndAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-faculty-1" },
   { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", endsAt: "2026-06-26T01:30:00.000Z", lateCutoffAt: "2026-06-26T00:15:00.000Z", attendanceWindowStartAt: "2026-06-25T23:55:00.000Z", attendanceWindowEndAt: "2026-06-26T01:30:00.000Z", createdByUserId: "user-faculty-1" },
-  { id: "session-3", type: "event", eventId: "event-1", title: "CCS Orientation Attendance", mode: "required", status: "draft", startsAt: "2026-06-27T01:00:00.000Z", endsAt: "2026-06-27T04:00:00.000Z", lateCutoffAt: "2026-06-27T01:15:00.000Z", attendanceWindowStartAt: "2026-06-27T00:55:00.000Z", attendanceWindowEndAt: "2026-06-27T04:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-4", type: "event", eventId: "event-3", title: "Leadership Summit Attendance", mode: "optional", status: "completed", startsAt: "2026-07-05T01:00:00.000Z", endsAt: "2026-07-05T06:00:00.000Z", lateCutoffAt: "2026-07-05T01:15:00.000Z", attendanceWindowStartAt: "2026-07-05T00:55:00.000Z", attendanceWindowEndAt: "2026-07-05T06:00:00.000Z", createdByUserId: "user-organizer-1" }
+  { id: "session-3", type: "event", eventId: "event-1", title: "Hospitality Career Fair & Industry Talk Attendance", mode: "required", status: "completed", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", lateCutoffAt: "2026-02-10T00:15:00.000Z", attendanceWindowStartAt: "2026-02-09T23:55:00.000Z", attendanceWindowEndAt: "2026-02-10T04:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-4", type: "event", eventId: "event-2", title: "Food & Beverage Service Skills Workshop Attendance", mode: "required", status: "completed", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", lateCutoffAt: "2026-02-24T05:15:00.000Z", attendanceWindowStartAt: "2026-02-24T04:55:00.000Z", attendanceWindowEndAt: "2026-02-24T09:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-5", type: "event", eventId: "event-3", title: "AHTOMP General Assembly & Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", lateCutoffAt: "2026-03-05T01:15:00.000Z", attendanceWindowStartAt: "2026-03-05T00:55:00.000Z", attendanceWindowEndAt: "2026-03-05T03:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-6", type: "event", eventId: "event-4", title: "Front Office Operations Simulation Day Attendance", mode: "required", status: "completed", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", lateCutoffAt: "2026-03-19T00:45:00.000Z", attendanceWindowStartAt: "2026-03-19T00:25:00.000Z", attendanceWindowEndAt: "2026-03-19T07:30:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-7", type: "event", eventId: "event-5", title: "Sustainable Tourism Speaker Series Attendance", mode: "required", status: "completed", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", lateCutoffAt: "2026-04-02T05:45:00.000Z", attendanceWindowStartAt: "2026-04-02T05:25:00.000Z", attendanceWindowEndAt: "2026-04-02T08:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-8", type: "event", eventId: "event-6", title: "AHTOMP Culinary & Mixology Showcase Attendance", mode: "required", status: "completed", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", lateCutoffAt: "2026-04-18T01:15:00.000Z", attendanceWindowStartAt: "2026-04-18T00:55:00.000Z", attendanceWindowEndAt: "2026-04-18T08:00:00.000Z", createdByUserId: "user-organizer-1" }
 ];
 
 export const attendanceRecordFixtures: AttendanceRecord[] = [
@@ -137,8 +153,13 @@ export const attendanceRecordFixtures: AttendanceRecord[] = [
   { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No tap received" },
   { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "excused", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
   { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "nfc", recordedAt: "2026-06-26T00:02:00.000Z" },
-  { id: "record-6", sessionId: "session-4", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-07-05T01:04:00.000Z" },
-  { id: "record-7", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-06-27T01:04:00.000Z" }
+  { id: "record-6", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-02-10T00:04:00.000Z", note: "Feedback submitted" },
+  { id: "record-7", sessionId: "session-4", studentId: "student-1", status: "absent", verificationMethod: "manual", recordedAt: "2026-02-24T09:00:00.000Z", note: "No attendance scan received" },
+  { id: "record-8", sessionId: "session-5", studentId: "student-1", status: "late", verificationMethod: "manual", recordedAt: "2026-03-05T01:18:00.000Z", note: "Late reason: Traffic / Commute" },
+  { id: "record-9", sessionId: "session-6", studentId: "student-1", status: "late", verificationMethod: "qr", recordedAt: "2026-03-19T00:57:00.000Z" },
+  { id: "record-10", sessionId: "session-7", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-04-02T05:34:00.000Z" },
+  { id: "record-11", sessionId: "session-8", studentId: "student-1", status: "present", verificationMethod: "manual", recordedAt: "2026-04-18T01:07:00.000Z", note: "Feedback submitted" },
+  { id: "record-12", sessionId: "session-5", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-03-05T01:04:00.000Z" }
 ];
 
 export const nfcCredentialFixtures: NfcCredential[] = [
@@ -172,7 +193,7 @@ export const nfcTapAttemptFixtures: NfcTapAttempt[] = [
 export const correctionRequestFixtures: CorrectionRequest[] = [
   { id: "correction-1", studentId: "student-2", attendanceRecordId: "record-2", classId: "class-1", requestedStatus: "present", reason: "Tapped before grace period ended.", status: "pending", requestedAt: now },
   { id: "correction-2", studentId: "student-3", attendanceRecordId: "record-3", classId: "class-1", requestedStatus: "excused", reason: "Medical appointment.", status: "approved", requestedAt: now, reviewedByUserId: "user-faculty-1", reviewedAt: now },
-  { id: "correction-3", studentId: "student-7", attendanceRecordId: "record-6", eventId: "event-3", requestedStatus: "late", reason: "Wrong event time.", status: "rejected", requestedAt: now, reviewedByUserId: "user-organizer-1", reviewedAt: now }
+  { id: "correction-3", studentId: "student-7", attendanceRecordId: "record-12", eventId: "event-3", requestedStatus: "late", reason: "Wrong event time.", status: "rejected", requestedAt: now, reviewedByUserId: "user-organizer-1", reviewedAt: now }
 ];
 
 export const reportFixtures: Report[] = [

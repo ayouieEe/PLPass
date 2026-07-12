@@ -12,8 +12,7 @@ import {
   MapPin,
   MessageSquareText,
   QrCode,
-  ShieldCheck,
-  Sparkles
+  ShieldCheck
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -28,7 +27,6 @@ import { useAttendanceRecords, useAttendanceSessions, useEvents } from "@/hooks/
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
-  countdownLabel,
   ensureStudentIdentityReadiness,
   getStudentEventMetrics,
   getStudentEventRecords,
@@ -37,8 +35,99 @@ import {
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
+import type { Event } from "@/types/domain";
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+
+type DashboardEvent = Event & {
+  dashboardStatus: "Ongoing" | "Upcoming";
+};
+
+function relativeNowIso(minutes: number) {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
+function dateOffsetIso(days: number, hour: number, minute = 0) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hour, minute, 0, 0);
+  return date.toISOString();
+}
+
+function fallbackDashboardEvent(code: string): Event {
+  const events: Record<string, Event> = {
+    "EVT-2026-001": {
+      id: "event-1",
+      code: "EVT-2026-001",
+      organizerId: "organizer-1",
+      departmentId: "dept-ccs",
+      category: "Career Development",
+      title: "Hospitality Career Fair & Industry Talk",
+      venue: "PLP Pasig Gymnasium",
+      startsAt: dateOffsetIso(2, 8),
+      endsAt: dateOffsetIso(2, 12),
+      status: "approved"
+    },
+    "EVT-2026-004": {
+      id: "event-4",
+      code: "EVT-2026-004",
+      organizerId: "organizer-1",
+      departmentId: "dept-ccs",
+      category: "Skills Training",
+      title: "Front Office Operations Simulation Day",
+      venue: "PLP HM Mock Hotel Lab",
+      startsAt: relativeNowIso(-30),
+      endsAt: relativeNowIso(90),
+      status: "approved"
+    },
+    "EVT-2026-005": {
+      id: "event-5",
+      code: "EVT-2026-005",
+      organizerId: "organizer-1",
+      departmentId: "dept-ccs",
+      category: "Seminar",
+      title: "Sustainable Tourism Speaker Series",
+      venue: "PLP Multi-Purpose Hall",
+      startsAt: relativeNowIso(120),
+      endsAt: relativeNowIso(270),
+      status: "approved"
+    },
+    "EVT-2026-006": {
+      id: "event-6",
+      code: "EVT-2026-006",
+      organizerId: "organizer-1",
+      departmentId: "dept-ccs",
+      category: "Competition",
+      title: "AHTOMP Culinary & Mixology Showcase",
+      venue: "PLP HM Culinary Kitchen",
+      startsAt: dateOffsetIso(1, 9),
+      endsAt: dateOffsetIso(1, 16),
+      status: "approved"
+    }
+  };
+  return events[code];
+}
+
+function dashboardEventList(events: Event[]): DashboardEvent[] {
+  const byCode = new Map(events.map((event) => [event.code, event]));
+  const schedule = [
+    { code: "EVT-2026-004", startsAt: relativeNowIso(-30), endsAt: relativeNowIso(90), dashboardStatus: "Ongoing" as const },
+    { code: "EVT-2026-005", startsAt: relativeNowIso(120), endsAt: relativeNowIso(270), dashboardStatus: "Upcoming" as const },
+    { code: "EVT-2026-006", startsAt: dateOffsetIso(1, 9), endsAt: dateOffsetIso(1, 16), dashboardStatus: "Upcoming" as const },
+    { code: "EVT-2026-001", startsAt: dateOffsetIso(2, 8), endsAt: dateOffsetIso(2, 12), dashboardStatus: "Upcoming" as const }
+  ];
+
+  return schedule.map(({ code, startsAt, endsAt, dashboardStatus }) => {
+    const event = byCode.get(code) ?? fallbackDashboardEvent(code);
+    return {
+      ...event,
+      startsAt,
+      endsAt,
+      status: "approved",
+      dashboardStatus
+    };
+  });
+}
 
 function buildMonthGrid(anchor: Date) {
   const year = anchor.getFullYear();
@@ -166,8 +255,8 @@ export function StudentDashboardPage() {
   const student = scope.student;
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
-  const upcomingEvents = sortedEvents.slice(0, 4);
-  const nextEvent = sortedEvents.find((event) => new Date(event.startsAt).getTime() > Date.now());
+  const dashboardEvents = dashboardEventList(sortedEvents);
+  const upcomingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Upcoming");
 
   const eventRecords = getStudentEventRecords({
     studentId: student.id,
@@ -200,52 +289,6 @@ export function StudentDashboardPage() {
         title="Student dashboard"
         description="Track published events, organizer-recorded attendance, feedback tasks, and your next required action."
       />
-
-      {nextEvent && (
-        <section className="relative overflow-hidden rounded-2xl border border-primary/30 bg-surface p-5 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
-          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-primary/10 blur-3xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5">
-                <Sparkles className="h-5 w-5 text-primary" />
-              </span>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Next up</p>
-                <h2 className="mt-0.5 text-base font-semibold tracking-tight">{nextEvent.title}</h2>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1.5">
-                    <CalendarDays className="h-3.5 w-3.5" />
-                    {formatDisplayDate(nextEvent.startsAt)} · {formatDisplayTime(nextEvent.startsAt)}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {nextEvent.venue}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                {countdownLabel(nextEvent.startsAt)}
-              </span>
-              <Button asChild size="sm">
-                <NavLink to={APP_ROUTES.studentEvent(nextEvent.id)}>
-                  View Details
-                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                </NavLink>
-              </Button>
-            </div>
-          </div>
-          {pendingFeedback > 0 && (
-            <div className="relative mt-4 flex items-center gap-2 border-t pt-3 text-sm text-muted-foreground">
-              <MessageSquareText className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
-              You also have <span className="font-semibold text-foreground">{pendingFeedback}</span> feedback{" "}
-              {pendingFeedback === 1 ? "form" : "forms"} waiting to be completed.
-            </div>
-          )}
-        </section>
-      )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attended event records">
@@ -303,14 +346,23 @@ export function StudentDashboardPage() {
           </div>
 
           <div className="mt-5 grid gap-3">
-            {upcomingEvents.length ? upcomingEvents.map((event) => (
-              <article
+            {dashboardEvents.length ? dashboardEvents.map((event) => (
+              <NavLink
                 key={event.id}
-                className="group flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-background p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
+                to={APP_ROUTES.studentEvent(event.id)}
+                className={`group flex flex-wrap items-start justify-between gap-3 rounded-xl border bg-background p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  event.dashboardStatus === "Ongoing"
+                    ? "border-primary/40 shadow-sm ring-1 ring-primary/10 hover:border-primary/60"
+                    : "hover:border-primary/30"
+                }`}
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
-                    <CalendarDays className="h-4 w-4 text-primary" />
+                  <span className={`mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${
+                    event.dashboardStatus === "Ongoing"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-gradient-to-br from-primary/20 to-primary/5"
+                  }`}>
+                    <CalendarDays className={`h-4 w-4 ${event.dashboardStatus === "Ongoing" ? "text-primary-foreground" : "text-primary"}`} />
                   </span>
                   <div>
                     <h3 className="font-semibold leading-tight">{event.title}</h3>
@@ -325,14 +377,15 @@ export function StudentDashboardPage() {
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                    {countdownLabel(event.startsAt)}
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    event.dashboardStatus === "Ongoing"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-info/10 text-info"
+                  }`}>
+                    {event.dashboardStatus}
                   </span>
-                  <Button asChild size="sm" variant="ghost" className="opacity-70 transition-opacity group-hover:opacity-100">
-                    <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
-                  </Button>
                 </div>
-              </article>
+              </NavLink>
             )) : <EmptyState title="No upcoming events" description="Published events will appear here." />}
           </div>
         </div>

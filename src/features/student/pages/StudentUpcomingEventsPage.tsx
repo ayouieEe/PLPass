@@ -78,7 +78,7 @@ function buildTodayDemoEvent() {
     code: "EVT-2026-005",
     organizerId: "organizer-1",
     departmentId: "dept-ccs",
-    category: "Career Development",
+    category: "Seminar",
     title: "Sustainable Tourism Speaker Series",
     venue: "PLP Multi-Purpose Hall",
     startsAt: relativeNowIso(90),
@@ -105,12 +105,12 @@ function buildTodayDemoEvent() {
 function buildOngoingTodayDemoEvent() {
   const event: Event = {
     id: "demo-today-wellness-check-in",
-    code: "EVT-2026-LIVE",
+    code: "EVT-2026-004",
     organizerId: "organizer-1",
     departmentId: "dept-ccs",
-    category: "Student Wellness",
-    title: "Live QR & Facial Check-in Drill",
-    venue: "PLP HM Training Laboratory",
+    category: "Skills Training",
+    title: "Front Office Operations Simulation Day",
+    venue: "PLP HM Mock Hotel Lab",
     startsAt: relativeNowIso(-30),
     endsAt: relativeNowIso(90),
     status: "approved"
@@ -119,7 +119,7 @@ function buildOngoingTodayDemoEvent() {
     id: "demo-today-wellness-check-in-session",
     type: "event",
     eventId: event.id,
-    title: "Live QR & Facial Check-in Drill Attendance",
+    title: "Front Office Operations Simulation Day Attendance",
     mode: "required",
     status: "active",
     startsAt: event.startsAt,
@@ -142,7 +142,7 @@ function buildUpcomingDemoEvent() {
     title: "AHTOMP Culinary & Mixology Showcase",
     venue: "PLP HM Culinary Kitchen",
     startsAt: tomorrowIsoAt(9),
-    endsAt: tomorrowIsoAt(11),
+    endsAt: tomorrowIsoAt(16),
     status: "approved"
   };
   const session: AttendanceSession = {
