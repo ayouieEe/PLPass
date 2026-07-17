@@ -112,6 +112,28 @@ const config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)"
+      },
+      keyframes: {
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" }
+        },
+        "fade-in-up": {
+          "0%": { opacity: "0", transform: "translateY(10px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" }
+        },
+        "hover-lift": {
+          "0%": { transform: "translateY(0)" },
+          "100%": { transform: "translateY(-4px)" }
+        }
+      },
+      animation: {
+        "fade-in": "fade-in 0.5s ease-in-out",
+        "fade-in-up": "fade-in-up 0.6s ease-out",
+        "fade-in-up-1": "fade-in-up 0.6s ease-out 0.1s both",
+        "fade-in-up-2": "fade-in-up 0.6s ease-out 0.2s both",
+        "fade-in-up-3": "fade-in-up 0.6s ease-out 0.3s both",
+        "hover-lift": "hover-lift 0.3s ease-out"
       }
     }
   },

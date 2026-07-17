@@ -26,6 +26,12 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import {
+  lateReasons,
+  loadOrganizerMockState,
+  type OrganizerCompletedEvent,
+  type OrganizerEvent
+} from "@/features/organizer/data/organizerMockStore";
 
 export type DummyEvent = {
   code: string;
@@ -164,6 +170,30 @@ function formatDate(date: string) {
   }).format(new Date(`${date}T00:00:00`));
 }
 
+function dashboardEventFromStore(event: OrganizerEvent): DummyEvent {
+  return {
+    code: event.code,
+    title: event.name,
+    category: event.category,
+    venue: event.venue,
+    date: event.date,
+    time: `${event.startTime} - ${event.endTime}`,
+    predictedTurnout: event.predictedTurnout
+  };
+}
+
+function sessionSummaryFromStore(event: OrganizerCompletedEvent): SessionSummary {
+  return {
+    eventCode: event.code,
+    date: event.date,
+    present: event.present,
+    late: event.late,
+    absent: event.absent,
+    totalRegistered: event.totalRegistered,
+    attendanceRate: event.attendanceRate
+  };
+}
+
 function DashboardMetricCard({
   title,
   value,
@@ -185,7 +215,7 @@ function DashboardMetricCard({
         : "border-primary/15 bg-primary/5 text-primary";
 
   return (
-    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm">
+    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
@@ -225,7 +255,7 @@ function ChartPanel({
   );
 }
 
-function LateReasonLabels() {
+function LateReasonLabels({ data }: { data: Array<{ category: string; share: number }> }) {
   return (
     <aside className="h-full rounded-lg border bg-surface p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -239,7 +269,7 @@ function LateReasonLabels() {
       </div>
 
       <div className="mt-4 grid gap-3">
-        {DUMMY_LATE_REASON_FREQUENCY.map((reason) => (
+        {data.map((reason) => (
           <div key={reason.category} className="rounded-md border bg-background p-3">
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm font-medium leading-5 text-foreground">{reason.category}</p>
@@ -257,14 +287,16 @@ function LateReasonLabels() {
 
 export function OrganizerDashboardPage() {
   const [eventFilter, setEventFilter] = useState<string>("all");
+  const [mockState] = useState(() => loadOrganizerMockState());
 
-  const eventLookup = useMemo(() => new Map(DUMMY_EVENTS.map((event) => [event.code, event])), []);
+  const dashboardEvents = useMemo(() => mockState.events.map(dashboardEventFromStore), [mockState.events]);
+  const completedSummaries = useMemo(() => mockState.completedEvents.map(sessionSummaryFromStore), [mockState.completedEvents]);
 
   const trendData = useMemo(() => {
     const rows =
       eventFilter === "all"
-        ? DUMMY_SESSION_SUMMARY
-        : DUMMY_SESSION_SUMMARY.filter((row) => row.eventCode === eventFilter);
+        ? completedSummaries
+        : completedSummaries.filter((row) => row.eventCode === eventFilter);
 
     return rows.map((row) => ({
       label: shortCode(row.eventCode),
@@ -274,21 +306,22 @@ export function OrganizerDashboardPage() {
       late: row.late,
       absent: row.absent
     }));
-  }, [eventFilter]);
+  }, [completedSummaries, eventFilter]);
 
   const predictionOverviewData = useMemo(
     () =>
-      DUMMY_EVENTS.map((event) => ({
+      dashboardEvents.map((event) => ({
         label: shortCode(event.code),
         title: event.title,
         predictedAttend: event.predictedTurnout,
         predictedMiss: 100 - event.predictedTurnout
       })),
-    []
+    [dashboardEvents]
   );
 
   const sentimentOverview = useMemo(() => {
-    const totals = DUMMY_SENTIMENT.reduce(
+    const rows = mockState.completedEvents.length ? mockState.completedEvents.map((event) => event.sentiment) : DUMMY_SENTIMENT;
+    const totals = rows.reduce(
       (acc, row) => ({
         positive: acc.positive + row.positive,
         neutral: acc.neutral + row.neutral,
@@ -296,22 +329,41 @@ export function OrganizerDashboardPage() {
       }),
       { positive: 0, neutral: 0, negative: 0 }
     );
-    const count = DUMMY_SENTIMENT.length;
+    const count = rows.length || 1;
 
     return [
       { name: "Positive", value: Math.round(totals.positive / count) },
       { name: "Neutral", value: Math.round(totals.neutral / count) },
       { name: "Negative", value: Math.round(totals.negative / count) }
     ];
-  }, []);
+  }, [mockState.completedEvents]);
 
-  const activeEvent = eventLookup.get(DUMMY_SUMMARY.activeSessionToday.eventCode);
-  const nextEvent = eventLookup.get(DUMMY_SUMMARY.predictedTurnoutNextEvent.eventCode);
+  const activeStoreEvent =
+    mockState.events.find((event) => event.status === "active") ??
+    mockState.events.find((event) => event.status === "today") ??
+    mockState.events.find((event) => event.status === "incoming");
+  const activeEvent = activeStoreEvent ? dashboardEventFromStore(activeStoreEvent) : undefined;
+  const nextStoreEvent = mockState.events
+    .filter((event) => event.status === "incoming" || event.status === "today")
+    .sort((first, second) => first.date.localeCompare(second.date))[0];
+  const nextEvent = nextStoreEvent ? dashboardEventFromStore(nextStoreEvent) : undefined;
+  const activeSessionCount = mockState.events.filter((event) => event.status === "active" || event.status === "today").length;
+  const totalEvents = mockState.events.filter((event) => event.status !== "cancelled").length;
+  const lateReasonData = useMemo(() => {
+    const lateRows = mockState.attendanceRows.filter((row) => row.attendanceStatus === "late");
+    return lateReasons.map((reason) => {
+      const count = lateRows.filter((row) => row.lateReason === reason).length;
+      return {
+        category: reason,
+        share: lateRows.length ? Math.round((count / lateRows.length) * 100) : 0
+      };
+    });
+  }, [mockState.attendanceRows]);
+  const topLateReason = lateReasonData.reduce((top, item) => (item.share > top.share ? item : top), lateReasonData[0] ?? DUMMY_SUMMARY.topLateArrivalReason);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Organizer"
         title="Dashboard"
         description="Day-to-day workspace for live sessions, turnout forecasts, attendance trends, and feedback signals."
         actions={
@@ -327,39 +379,49 @@ export function OrganizerDashboardPage() {
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <DashboardMetricCard
-          title="Total Events"
-          value={DUMMY_SUMMARY.totalEvents.toLocaleString()}
-          detail="Published AHTOMP events in the current data set."
-          icon={CalendarCheck}
-        />
-        <DashboardMetricCard
-          title="Active Sessions Today"
-          value={DUMMY_SUMMARY.activeSessionToday.count.toLocaleString()}
-          detail={activeEvent ? `${activeEvent.code}: ${activeEvent.title}` : "No active session. Showing the next upcoming event."}
-          icon={Clock3}
-          tone="success"
-        />
-        <DashboardMetricCard
-          title="Registered Students"
-          value={DUMMY_SUMMARY.totalRegisteredStudents.toLocaleString()}
-          detail="Total student registrations across tracked event sessions."
-          icon={Users}
-        />
-        <DashboardMetricCard
-          title="Next Event Turnout"
-          value={`${DUMMY_SUMMARY.predictedTurnoutNextEvent.value}%`}
-          detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."}
-          icon={TrendingUp}
-          tone="success"
-        />
-        <DashboardMetricCard
-          title="Top Late Reason"
-          value={`${DUMMY_SUMMARY.topLateArrivalReason.share}%`}
-          detail={DUMMY_SUMMARY.topLateArrivalReason.category}
-          icon={AlertTriangle}
-          tone="warning"
-        />
+        <div className="animate-fade-in-up-1">
+          <DashboardMetricCard
+            title="Total Events"
+            value={totalEvents.toLocaleString()}
+            detail="Published AHTOMP events in the current data set."
+            icon={CalendarCheck}
+          />
+        </div>
+        <div className="animate-fade-in-up-2">
+          <DashboardMetricCard
+            title="Active Sessions Today"
+            value={activeSessionCount.toLocaleString()}
+            detail={activeEvent ? `${activeEvent.code}: ${activeEvent.title}` : "No active session. Showing the next upcoming event."}
+            icon={Clock3}
+            tone="success"
+          />
+        </div>
+        <div className="animate-fade-in-up-3">
+          <DashboardMetricCard
+            title="Registered Students"
+            value={mockState.students.length.toLocaleString()}
+            detail="Total student registrations across tracked event sessions."
+            icon={Users}
+          />
+        </div>
+        <div className="animate-fade-in-up-1">
+          <DashboardMetricCard
+            title="Next Event Turnout"
+            value={nextEvent ? `${nextEvent.predictedTurnout}%` : "0%"}
+            detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."}
+            icon={TrendingUp}
+            tone="success"
+          />
+        </div>
+        <div className="animate-fade-in-up-2">
+          <DashboardMetricCard
+            title="Top Late Reason"
+            value={`${topLateReason.share}%`}
+            detail={topLateReason.category}
+            icon={AlertTriangle}
+            tone="warning"
+          />
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -406,7 +468,7 @@ export function OrganizerDashboardPage() {
 
             <div className="mt-5 flex justify-end">
               <Button asChild size="sm" className="rounded-lg px-4 shadow-sm">
-                <NavLink to={`${APP_ROUTES.organizerRecords}?tab=today`}>View Today&apos;s Events</NavLink>
+                <NavLink to={`${APP_ROUTES.organizerEvents}?tab=today`}>View Today&apos;s Events</NavLink>
               </Button>
             </div>
           </section>
@@ -422,7 +484,7 @@ export function OrganizerDashboardPage() {
               aria-label="Filter attendance trend by event"
             >
               <option value="all">All events</option>
-              {DUMMY_EVENTS.map((event) => (
+              {dashboardEvents.map((event) => (
                 <option key={event.code} value={event.code}>
                   {event.code} - {event.title}
                 </option>
@@ -453,7 +515,7 @@ export function OrganizerDashboardPage() {
           </ChartPanel>
         </div>
 
-        <LateReasonLabels />
+        <LateReasonLabels data={lateReasonData} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">

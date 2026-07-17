@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, Check, CheckCircle2, Eye, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +6,14 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import {
+  approveOrganizerCorrectionRequest,
+  createMockExport,
+  loadOrganizerMockState,
+  rejectOrganizerCorrectionRequest,
+  type OrganizerCorrectionRequest,
+  type OrganizerMockState
+} from "@/features/organizer/data/organizerMockStore";
 
 type RequestStatus = "pending" | "approved" | "rejected";
 type RequestType = "Excuse" | "Correction";
@@ -185,13 +193,47 @@ const mockRequestDetails: Record<string, RequestDetails> = {
   }
 };
 
+function requestStatusFromStore(status: OrganizerCorrectionRequest["status"]): RequestStatus {
+  if (status === "Approved") return "approved";
+  if (status === "Rejected") return "rejected";
+  return "pending";
+}
+
+function requestTypeFromStore(type: OrganizerCorrectionRequest["requestType"]): RequestType {
+  return type === "Excused Absence" ? "Excuse" : "Correction";
+}
+
+function buildRequestsFromStore(state: OrganizerMockState): CorrectionRequest[] {
+  return state.correctionRequests.map((request) => {
+    const student = state.students.find((item) => item.name === request.studentName);
+    const event = state.events.find((item) => item.code === request.eventCode);
+    const attendanceRow = state.attendanceRows.find((row) => row.studentName === request.studentName && row.eventCode === request.eventCode);
+
+    return {
+      id: request.id,
+      requestId: request.id,
+      studentName: request.studentName,
+      studentNumber: student?.schoolId ?? "N/A",
+      eventCode: request.eventCode,
+      eventName: event?.name ?? request.eventCode,
+      requestType: requestTypeFromStore(request.requestType),
+      dateSubmitted: event?.date ?? "2026-07-17",
+      status: requestStatusFromStore(request.status),
+      recordedAttendanceStatus: attendanceRow?.attendanceStatus ?? "absent",
+      requestedStatus: request.requestedStatus
+    };
+  });
+}
+
 export function OrganizerCorrectionRequestsPage() {
+  const [mockState, setMockState] = useState(() => loadOrganizerMockState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
+  const requests = useMemo(() => buildRequestsFromStore(mockState), [mockState]);
 
-  const filteredRequests = mockRequests.filter(
+  const filteredRequests = requests.filter(
     (request) =>
       (statusFilter === "all" || request.status === statusFilter) &&
       (request.requestId.toLowerCase().includes(search.toLowerCase()) ||
@@ -200,26 +242,52 @@ export function OrganizerCorrectionRequestsPage() {
         request.eventName.toLowerCase().includes(search.toLowerCase()))
   );
 
+  function buildRequestDetails(request: CorrectionRequest): RequestDetails {
+    const baseDetails = mockRequestDetails[request.id];
+    const storeRequest = mockState.correctionRequests.find((item) => item.id === request.id);
+    return {
+      ...baseDetails,
+      ...request,
+      explanation: storeRequest?.explanation ?? baseDetails?.explanation ?? "",
+      supportingAttachment: storeRequest?.fileAttached ? `${request.id.toLowerCase()}-attachment.pdf` : baseDetails?.supportingAttachment,
+      attachmentFileName: storeRequest?.fileAttached ? "Supporting Attachment" : baseDetails?.attachmentFileName,
+      decision: request.status === "approved" ? "approved" : request.status === "rejected" ? "rejected" : undefined,
+      decisionRemarks:
+        request.status === "approved"
+          ? storeRequest?.decisionRemarks ?? baseDetails?.decisionRemarks ?? `Approved. Attendance status updated to ${request.requestedStatus}.`
+          : request.status === "rejected"
+            ? storeRequest?.decisionRemarks ?? baseDetails?.decisionRemarks ?? "Rejected. Original attendance status retained."
+            : undefined
+    };
+  }
+
   function viewRequest(request: CorrectionRequest) {
-    setSelectedRequest(mockRequestDetails[request.id] || { ...request, explanation: "" });
+    const currentRequest = requests.find((item) => item.id === request.id) ?? request;
+    setSelectedRequest(buildRequestDetails(currentRequest));
     setDecisionRemarks("");
   }
 
   function approveRequest() {
     if (!selectedRequest) return;
+    const remark = decisionRemarks.trim() || `Approved. Attendance status updated to ${selectedRequest.requestedStatus}.`;
+
+    setMockState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
     toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
-    setSelectedRequest(null);
   }
 
   function rejectRequest() {
     if (!selectedRequest) return;
+    const remark = decisionRemarks.trim() || "Rejected. Original attendance status retained.";
+
+    setMockState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
     toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
-    setSelectedRequest(null);
   }
 
   function exportTabReport() {
     const label = statusFilter === "all" ? "All correction requests" : `${statusFilter} correction requests`;
-    toast.success(`${label} report exported.`);
+    toast.success(createMockExport(label));
   }
 
   const columns: Array<ColumnDef<CorrectionRequest>> = [
@@ -264,7 +332,7 @@ export function OrganizerCorrectionRequestsPage() {
       header: "Actions",
       cell: ({ row }) => (
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => viewRequest(row.original)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => viewRequest(row.original)} aria-label={`View more ${row.original.requestId}`}>
             <Eye className="h-4 w-4" aria-hidden="true" />
             View More
           </Button>
@@ -276,7 +344,6 @@ export function OrganizerCorrectionRequestsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Attendance Management"
         title="Excused / Correction Requests"
         description="Review and process student attendance correction and excuse requests."
       />
@@ -391,11 +458,11 @@ export function OrganizerCorrectionRequestsPage() {
                   </label>
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => rejectRequest()}>
+                  <Button type="button" variant="outline" onClick={() => rejectRequest()} aria-label="Reject request">
                     <ThumbsDown className="mr-2 h-4 w-4" />
                     Reject Request
                   </Button>
-                  <Button type="button" onClick={() => approveRequest()}>
+                  <Button type="button" onClick={() => approveRequest()} aria-label="Approve request">
                     <ThumbsUp className="mr-2 h-4 w-4" />
                     Approve Request
                   </Button>

@@ -18,9 +18,20 @@ import {
   Users,
   X
 } from "lucide-react";
+import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import {
+  approveOrganizerCorrectionRequest,
+  createMockExport,
+  loadOrganizerMockState,
+  regenerateOrganizerQr,
+  rejectOrganizerCorrectionRequest,
+  updateOrganizerFacialStatus,
+  type OrganizerMockState,
+  type OrganizerStudent
+} from "@/features/organizer/data/organizerMockStore";
 type StudentStatus = "Active" | "Suspended";
-type CredentialStatus = "Ready" | "Needs Review" | "Missing";
+type CredentialStatus = "Ready" | "Needs Review" | "Missing" | "Generated" | "Regeneration Requested" | "Activated" | "Inactive" | "Damaged";
 type CorrectionStatus = "Pending" | "Approved" | "Rejected";
 
 type ParticipationRecord = {
@@ -424,6 +435,57 @@ const STUDENTS: StudentAccount[] = [
     correctionRequests: []
   }
 ];
+
+function titleCaseStatus(status: "present" | "late" | "absent"): "Present" | "Late" | "Absent" {
+  if (status === "present") return "Present";
+  if (status === "late") return "Late";
+  return "Absent";
+}
+
+function compactMethod(method: "QR Code" | "Facial Recognition"): "QR" | "Facial" {
+  return method === "QR Code" ? "QR" : "Facial";
+}
+
+function buildStudentAccounts(state: OrganizerMockState): StudentAccount[] {
+  const eventsByCode = new Map(state.events.map((event) => [event.code, event]));
+
+  return state.students.map((student: OrganizerStudent) => {
+    const rows = state.attendanceRows.filter((row) => row.studentId === student.id);
+    const attendedRows = rows.filter((row) => row.attendanceStatus === "present" || row.attendanceStatus === "late");
+    const correctionRequests = state.correctionRequests
+      .filter((request) => request.studentName === student.name)
+      .map((request) => ({
+        id: request.id,
+        eventCode: request.eventCode,
+        type: request.requestType,
+        status: request.status
+      }));
+
+    return {
+      id: student.id,
+      schoolId: student.schoolId,
+      name: student.name,
+      email: student.email,
+      section: student.section,
+      status: student.accountStatus,
+      attendanceRate: rows.length ? Math.round((attendedRows.length / rows.length) * 100) : 0,
+      eventsJoined: attendedRows.length,
+      qrStatus: student.qrStatus,
+      facialStatus: student.facialStatus,
+      participationHistory: rows.map((row) => {
+        const event = eventsByCode.get(row.eventCode);
+        return {
+          eventCode: row.eventCode,
+          eventTitle: event?.name ?? row.eventCode,
+          date: event?.date ?? "",
+          status: titleCaseStatus(row.attendanceStatus),
+          method: compactMethod(row.attendanceMethod)
+        };
+      }),
+      correctionRequests
+    };
+  });
+}
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
@@ -475,10 +537,11 @@ function MetricCard({
     </article>
   );
 }
-function ExportButton({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
+function ExportButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick?: () => void }) {
   return (
     <button
       type="button"
+      onClick={onClick}
       className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
     >
       <Icon className="h-4 w-4" aria-hidden="true" />
@@ -524,10 +587,18 @@ function DetailTile({
 
 function StudentDetailModal({
   student,
-  onClose
+  onClose,
+  onRegenerateQr,
+  onMarkFacialReady,
+  onApproveCorrection,
+  onRejectCorrection
 }: {
   student: StudentAccount | undefined;
   onClose: () => void;
+  onRegenerateQr: (studentId: string) => void;
+  onMarkFacialReady: (studentId: string) => void;
+  onApproveCorrection: (requestId: string) => void;
+  onRejectCorrection: (requestId: string) => void;
 }) {
   if (!student) {
     return null;
@@ -649,10 +720,24 @@ function StudentDetailModal({
                   <div className="rounded-md border bg-surface p-3">
                     <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">QR Credential</p>
                     <StatusBadge value={student.qrStatus} />
+                    <button
+                      type="button"
+                      onClick={() => onRegenerateQr(student.id)}
+                      className="mt-3 h-8 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-muted"
+                    >
+                      Regenerate QR
+                    </button>
                   </div>
                   <div className="rounded-md border bg-surface p-3">
                     <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Facial Credential</p>
                     <StatusBadge value={student.facialStatus} />
+                    <button
+                      type="button"
+                      onClick={() => onMarkFacialReady(student.id)}
+                      className="mt-3 h-8 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-muted"
+                    >
+                      Mark Ready
+                    </button>
                   </div>
                 </div>
               </section>
@@ -674,6 +759,24 @@ function StudentDetailModal({
                           </div>
                           <StatusBadge value={request.status} />
                         </div>
+                        {request.status === "Pending" ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => onApproveCorrection(request.id)}
+                              className="h-8 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onRejectCorrection(request.id)}
+                              className="h-8 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
                       </article>
                     ))
                   ) : (
@@ -693,15 +796,17 @@ function StudentDetailModal({
 }
 
 export function OrganizerUserManagementPage() {
+  const [mockState, setMockState] = useState(() => loadOrganizerMockState());
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [selectedStudentId, setSelectedStudentId] = useState(STUDENTS[0]?.id ?? "");
+  const studentAccounts = useMemo(() => buildStudentAccounts(mockState), [mockState]);
+  const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
 
   const filteredStudents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    return STUDENTS.filter((student) => {
+    return studentAccounts.filter((student) => {
       const matchesQuery =
         !normalizedQuery ||
         student.name.toLowerCase().includes(normalizedQuery) ||
@@ -713,12 +818,36 @@ export function OrganizerUserManagementPage() {
 
       return matchesQuery && matchesSection && matchesStatus;
     });
-  }, [query, sectionFilter, statusFilter]);
+  }, [query, sectionFilter, statusFilter, studentAccounts]);
 
-  const selectedStudent = STUDENTS.find((student) => student.id === selectedStudentId) ?? filteredStudents[0] ?? STUDENTS[0];
-  const sections = Array.from(new Set(STUDENTS.map((student) => student.section)));
-  const averageAttendance = Math.round(STUDENTS.reduce((sum, student) => sum + student.attendanceRate, 0) / STUDENTS.length);
-  const totalCorrectionRequests = STUDENTS.reduce((sum, student) => sum + student.correctionRequests.length, 0);
+  const selectedStudent = studentAccounts.find((student) => student.id === selectedStudentId) ?? filteredStudents[0] ?? studentAccounts[0];
+  const sections = Array.from(new Set(studentAccounts.map((student) => student.section)));
+  const averageAttendance = studentAccounts.length ? Math.round(studentAccounts.reduce((sum, student) => sum + student.attendanceRate, 0) / studentAccounts.length) : 0;
+  const totalCorrectionRequests = studentAccounts.reduce((sum, student) => sum + student.correctionRequests.length, 0);
+
+  function exportReport(label: string) {
+    toast.success(createMockExport(label));
+  }
+
+  function regenerateQrCredential(studentId: string) {
+    setMockState((current) => regenerateOrganizerQr(current, studentId));
+    toast.success("QR credential regenerated locally.");
+  }
+
+  function markFacialReady(studentId: string) {
+    setMockState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
+    toast.success("Facial credential marked ready locally.");
+  }
+
+  function approveCorrection(requestId: string) {
+    setMockState((current) => approveOrganizerCorrectionRequest(current, requestId, "Approved from organizer user management."));
+    toast.success(`${requestId} approved locally.`);
+  }
+
+  function rejectCorrection(requestId: string) {
+    setMockState((current) => rejectOrganizerCorrectionRequest(current, requestId, "Rejected from organizer user management."));
+    toast.warning(`${requestId} rejected locally.`);
+  }
   const studentColumns = useMemo<ColDef<StudentAccount>[]>(
     () => [
       {
@@ -833,16 +962,15 @@ export function OrganizerUserManagementPage() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-medium text-primary">Organizer</p>
-          <h1 className="mt-1 text-2xl font-semibold text-foreground">User Management</h1>
+          <h1 className="text-2xl font-semibold text-foreground">User Management</h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
             Manage HM student accounts, credentials, attendance rates, participation history, and correction requests.
           </p>
         </div>
       </header>
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Student Accounts" value={STUDENTS.length.toString()} detail="HM student accounts in scope." icon={Users} />
-        <MetricCard title="Active Accounts" value={STUDENTS.filter((student) => student.status === "Active").length.toString()} detail="Accounts allowed to join events." icon={UserRoundCheck} />
+        <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="HM student accounts in scope." icon={Users} />
+        <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Accounts allowed to join events." icon={UserRoundCheck} />
         <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Across listed student accounts." icon={BadgeCheck} />
         <MetricCard title="Correction Requests" value={totalCorrectionRequests.toString()} detail="Filed attendance corrections." icon={ClipboardList} />
       </section>
@@ -916,12 +1044,12 @@ export function OrganizerUserManagementPage() {
           </div>
           <div className="grid gap-3">
             <ReportExportGroup title="Student List" description="Account status, credentials, and student profile fields.">
-              <ExportButton icon={FileSpreadsheet} label="XLSX" />
-              <ExportButton icon={FileText} label="PDF" />
+              <ExportButton icon={FileSpreadsheet} label="XLSX" onClick={() => exportReport("Student List XLSX")} />
+              <ExportButton icon={FileText} label="PDF" onClick={() => exportReport("Student List PDF")} />
             </ReportExportGroup>
             <ReportExportGroup title="Participation History" description="Attendance rates, events joined, and correction request activity.">
-              <ExportButton icon={Download} label="XLSX" />
-              <ExportButton icon={FileText} label="PDF" />
+              <ExportButton icon={Download} label="XLSX" onClick={() => exportReport("Participation History XLSX")} />
+              <ExportButton icon={FileText} label="PDF" onClick={() => exportReport("Participation History PDF")} />
             </ReportExportGroup>
           </div>
         </div>
@@ -929,6 +1057,10 @@ export function OrganizerUserManagementPage() {
       <StudentDetailModal
         student={isStudentModalOpen ? selectedStudent : undefined}
         onClose={() => setIsStudentModalOpen(false)}
+        onRegenerateQr={regenerateQrCredential}
+        onMarkFacialReady={markFacialReady}
+        onApproveCorrection={approveCorrection}
+        onRejectCorrection={rejectCorrection}
       />
     </div>
   );

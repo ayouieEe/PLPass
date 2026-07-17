@@ -38,6 +38,11 @@ import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
 import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
 import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
 import type { ReportHistoryRecord } from "@/features/reports/types";
+import {
+  loadOrganizerMockState,
+  publishOrganizerEvent,
+  type OrganizerEvent
+} from "@/features/organizer/data/organizerMockStore";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -150,6 +155,13 @@ const eventFormSchema = z
   }, {
     path: ["endTime"],
     message: "End time must be after the start time."
+  })
+  .refine((value) => {
+    const today = new Date().toISOString().slice(0, 10);
+    return value.date >= today;
+  }, {
+    path: ["date"],
+    message: "Date cannot be in the past."
   });
   const sessionFormSchema = z
   .object({
@@ -377,6 +389,7 @@ export function CreateEventPage() {
   const [sessionStarted, setSessionStarted] = useState(false);
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [notificationStatuses, setNotificationStatuses] = useState<{ studentId: string; studentNumber: string; status: "pending" | "sent" | "failed" }[]>([]);
+  const [isPublishing, setIsPublishing] = useState(false);
   
   // Filter hardcoded students based on search and filters
   const filteredStudents = DUMMY_STUDENTS.filter((student) => {
@@ -389,7 +402,6 @@ export function CreateEventPage() {
   
   const students = filteredStudents;
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
-  const mutations = useEventMutations(scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
@@ -460,25 +472,27 @@ export function CreateEventPage() {
     setSessionStarted(false);
     setStartSessionOpen(false);
   }
-  async function onSubmit(values: EventFormValues) {
+  function onSubmit(values: EventFormValues) {
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
+    setIsPublishing(true);
+    const event: OrganizerEvent = {
+      code: values.code,
+      name: values.title,
+      category: values.category,
+      venue: values.venue,
+      date: values.date,
+      startTime: values.startTime,
+      endTime: values.endTime,
+      predictedTurnout: predictedPercentage,
+      objectives: [values.objective1, values.objective2, values.objective3],
+      status: "incoming"
+    };
+
+    publishOrganizerEvent(loadOrganizerMockState(), event, selectedIds);
     try {
-      const event = await mutations.createEventMutation.mutateAsync({
-        code: values.code,
-        title: values.title,
-        category: values.category,
-        venue: values.venue,
-        date: values.date,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        attendanceMode: "face-to-face",
-        description: values.description,
-        remarks: values.remarks,
-        participantStudentIds: selectedIds
-      });
       // Mock notification: show summary modal and simulate sending emails to selected students
       setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
       setNotificationModalOpen(true);
@@ -491,8 +505,11 @@ export function CreateEventPage() {
       // close modal and navigate after all simulated sends complete
       setTimeout(() => {
         setNotificationModalOpen(false);
+        setIsPublishing(false);
+        form.reset();
+        setSelectedIds([]);
         toast.success(`Published ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""} — notifications simulated`);
-        navigate(APP_ROUTES.organizerEvent(event.id));
+        navigate(APP_ROUTES.organizerEvents);
       }, 400 + selectedStudents.length * 200 + 300);
     } catch (err) {
       // If the Supabase repository intentionally defers live creation, fall back to simulated publish
@@ -511,7 +528,7 @@ export function CreateEventPage() {
         }, 400 + selectedStudents.length * 200 + 300);
         // Clear mutation error state so the ErrorState UI doesn't persist
         try {
-          mutations.createEventMutation.reset();
+          setIsPublishing(false);
         } catch {}
         return;
       }
@@ -521,7 +538,6 @@ export function CreateEventPage() {
   return (
     <OrganizerFrame>
       <PageHeader
-        eyebrow="Event Management"
         title="Create Event"
         description="Create events, assign participants, preview live predicted attendance, and publish immediately."
       />
@@ -543,7 +559,7 @@ export function CreateEventPage() {
                 placeholder="Select a venue"
                 options={VENUE_OPTIONS}
               />
-              <DatePickerField control={form.control} name="date" label="Date" />
+              <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().slice(0, 10)} />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />
               <TimePickerField control={form.control} name="endTime" label="End Time" />
               <div className="md:col-span-2">
@@ -646,14 +662,13 @@ export function CreateEventPage() {
             </div>
           </div>
           </section>
-          {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-5 shadow-sm">
           <div>
             <h2 className="font-semibold text-foreground">Publish Event</h2>
             <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students. No approval workflow is required.</p>
           </div>
           <SubmitButton
-            isSubmitting={mutations.createEventMutation.isPending}
+            isSubmitting={isPublishing}
             onClick={() => {
               if (selectedIds.length === 0) {
                 setParticipantError("Select at least one participant.");

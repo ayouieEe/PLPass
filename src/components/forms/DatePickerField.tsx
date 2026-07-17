@@ -6,6 +6,7 @@ type DatePickerFieldProps<TFieldValues extends FieldValues> = {
   name: FieldPath<TFieldValues>;
   label: string;
   disabled?: boolean;
+  min?: string;
 };
 
 export function DatePickerField<TFieldValues extends FieldValues>({
@@ -13,6 +14,7 @@ export function DatePickerField<TFieldValues extends FieldValues>({
   name,
   label,
   disabled
+  ,min
 }: DatePickerFieldProps<TFieldValues>) {
   return (
     <Controller
@@ -21,7 +23,7 @@ export function DatePickerField<TFieldValues extends FieldValues>({
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
           <span className={labelClass}>{label}</span>
-          <input {...field} className={fieldBaseClass} type="date" disabled={disabled} />
+          <input {...field} className={fieldBaseClass} type="date" disabled={disabled} min={min} />
           {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}

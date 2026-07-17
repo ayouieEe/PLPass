@@ -91,6 +91,7 @@ export type ManualAttendanceInput = {
   reason: string;
   remarks: string;
   occurredAt?: string;
+  allowManualJoin?: boolean;
 };
 
 export type AttendanceSimulationResultStatus =

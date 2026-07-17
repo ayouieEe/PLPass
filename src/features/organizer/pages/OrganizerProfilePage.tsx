@@ -77,6 +77,7 @@ export function OrganizerProfilePage() {
   const user = userQuery.data;
   const organizer = organizerQuery.data?.items[0];
   const departments = catalog.departments.data?.items;
+  const departmentDisplayName = "Hospitality Management"; //getNameById(departments
 
   if (!user || !organizer) {
     return <ErrorState title="Profile not found" message="No organizer profile details were found for this account." />;
@@ -91,10 +92,16 @@ export function OrganizerProfilePage() {
   function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
     if (event.target.files && event.target.files.length > 0) {
       const file = event.target.files[0];
-      const objectUrl = URL.createObjectURL(file);
-      setAvatarUrl(objectUrl);
-      localStorage.setItem("plpass-organizer-avatar", objectUrl);
-      toast.success("Profile picture updated successfully!");
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        setAvatarUrl(dataUrl);
+        localStorage.setItem("plpass-organizer-avatar", dataUrl);
+        toast.success("Profile picture updated successfully!");
+      };
+      
+      reader.readAsDataURL(file);
     }
   }
 
@@ -126,10 +133,10 @@ export function OrganizerProfilePage() {
     }, 1000);
   }
 
+
   return (
     <div className="space-y-8 p-1">
       <PageHeader
-        eyebrow="Account"
         title="Profile"
         description="Manage your organizer account settings, change password, and update your profile photo."
         actions={
@@ -175,7 +182,7 @@ export function OrganizerProfilePage() {
               <ProfileField label="Full Name" value={user.displayName} icon={User} />
               <ProfileField label="Email Address" value={user.email} icon={Mail} />
               <ProfileField label="Employee ID" value={organizer.employeeNumber} icon={ShieldAlert} />
-              <ProfileField label="Department" value={getNameById(departments, organizer.departmentId)} icon={ShieldAlert} />
+              <ProfileField label="Department" value={departmentDisplayName} icon={ShieldAlert} />
               <ProfileField label="Position" value={organizer.position} icon={ShieldAlert} />
               <ProfileField label="Employment Status" value={organizer.employmentStatus} icon={ShieldAlert} />
             </div>
