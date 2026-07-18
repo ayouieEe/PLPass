@@ -504,7 +504,9 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
     }
   }
 
-  if (!studentId || !expectedStudentIdsForSession(session).includes(studentId)) {
+  const allowManualJoin = Boolean((input as any).allowManualJoin);
+  const isOrganizer = context.actorRole === "organizer";
+  if (!studentId || (!expectedStudentIdsForSession(session).includes(studentId) && !(allowManualJoin && isOrganizer))) {
     if (studentId) {
       addSafeTapAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Student not enrolled", context });
       addSafeAudit(context, `${method}_attendance.not_enrolled`, "attendance_session", session.id, { studentId, method });

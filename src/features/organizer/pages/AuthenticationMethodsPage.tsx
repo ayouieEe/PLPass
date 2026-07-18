@@ -234,7 +234,6 @@ export function AuthenticationMethodsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Organizer"
         title="Authentication Methods"
         description="Manage and monitor the two authentication credentials students use for event check-ins."
       />

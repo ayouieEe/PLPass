@@ -1,20 +1,28 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { APP_ROUTES } from "@/lib/constants/routes";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  createMockExport,
+  endOrganizerSession,
+  loadOrganizerMockState,
+  saveOrganizerMockState,
+  startOrganizerSession,
+  type OrganizerCompletedEvent,
+  type OrganizerAttendanceRow,
+  type OrganizerEvent
+} from "@/features/organizer/data/organizerMockStore";
 
 // Event Records is organized around three lifecycle tabs: Today, Incoming,
 // and Completed. A live session is a full-page state entered after Start Session.
 type EventTab = "today" | "incoming";
-type AttendanceMethod = "QR Code" | "Facial Recognition";
+type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
 type AttendanceStatus = "present" | "late" | "absent";
 
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
@@ -32,18 +40,10 @@ type EventRecord = {
   predictedTurnout: string;
   objectives: string[];
   description?: string;
+  status?: OrganizerEvent["status"];
 };
 
-type AttendanceRow = {
-  id: string;
-  studentId: string;
-  studentName: string;
-  eventCode: string;
-  attendanceMethod: AttendanceMethod;
-  checkInTime: string;
-  attendanceStatus: AttendanceStatus;
-  lateReason?: LateReason;
-};
+type AttendanceRow = OrganizerAttendanceRow;
 
 type CompletedRecord = EventRecord & {
   present: number;
@@ -252,9 +252,9 @@ function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | u
 }
 
 function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/40 p-4">
-      <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`} role="dialog" aria-modal="true">
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}>
         <div className="flex justify-end border-b px-5 py-3">
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal">
             <X className="h-4 w-4" aria-hidden="true" />
@@ -262,14 +262,40 @@ function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: Reac
         </div>
         <div className="max-h-[calc(90vh-58px)] overflow-y-auto p-5">{children}</div>
       </section>
-    </div>,
-    document.body
+    </div>
   );
+}
+
+function eventFromStore(event: OrganizerEvent): EventRecord {
+  return {
+    code: event.code,
+    name: event.name,
+    category: event.category,
+    venue: event.venue,
+    date: event.date,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    predictedTurnout: `${event.predictedTurnout}%`,
+    objectives: event.objectives
+    ,status: event.status
+  };
+}
+
+function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
+  return {
+    ...eventFromStore(event),
+    present: event.present,
+    late: event.late,
+    absent: event.absent,
+    totalRegistered: event.totalRegistered,
+    attendanceRate: `${event.attendanceRate}%`,
+    sentiment: event.sentiment,
+    feedbackComments: event.feedbackComments
+  };
 }
 
 export function EventManagementPage() {
   const location = useLocation();
-  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -278,6 +304,7 @@ export function EventManagementPage() {
     return "today" as const;
   }, [location.search]);
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
+  const [mockState, setMockState] = useState(() => loadOrganizerMockState());
   const [search, setSearch] = useState("");
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
   const [eventModal, setEventModal] = useState<EventRecord | null>(null);
@@ -291,6 +318,8 @@ export function EventManagementPage() {
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
+  const [manualInput, setManualInput] = useState("");
+  const [manualStatus, setManualStatus] = useState<AttendanceStatus>("present");
   const [sessionForm, setSessionForm] = useState({
     venue: "",
     date: "",
@@ -303,11 +332,17 @@ export function EventManagementPage() {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
+  const storeEvents = useMemo(() => mockState.events.map(eventFromStore), [mockState.events]);
+  const storeCompletedEvents = useMemo(() => mockState.completedEvents.map(completedFromStore), [mockState.completedEvents]);
+
   // Completed events = the seeded dummy summaries plus any sessions the
   // organizer has ended during this browser session.
   const completedEvents = useMemo(
-    () => [...completedExtras, ...sessionSummaries].filter((event) => matchesSearch(event, search)),
-    [completedExtras, search]
+    () =>
+      [...completedExtras, ...storeCompletedEvents].filter(
+        (event, index, events) => matchesSearch(event, search) && events.findIndex((item) => item.code === event.code) === index
+      ),
+    [completedExtras, search, storeCompletedEvents]
   );
   const completedCodes = useMemo(() => new Set(completedEvents.map((event) => event.code)), [completedEvents]);
 
@@ -315,28 +350,28 @@ export function EventManagementPage() {
   // haven't been completed, and aren't currently live. New events appear here automatically.
   const todayEvents = useMemo(
     () =>
-      allEvents.filter(
+      storeEvents.filter(
         (event) =>
           !cancelledCodes.includes(event.code) &&
           !completedCodes.has(event.code) &&
           event.code !== activeEvent?.code &&
-          isTodayEvent(event) &&
+          (event.status === "today" || isTodayEvent(event)) &&
           matchesSearch(event, search)
       ),
-    [activeEvent, cancelledCodes, completedCodes, search]
+    [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
   );
 
   const incomingEvents = useMemo(
     () =>
-      allEvents.filter(
+      storeEvents.filter(
         (event) =>
           !cancelledCodes.includes(event.code) &&
           !completedCodes.has(event.code) &&
           event.code !== activeEvent?.code &&
-          !isTodayEvent(event) &&
+          (event.status === "incoming" || !isTodayEvent(event)) &&
           matchesSearch(event, search)
       ),
-    [activeEvent, cancelledCodes, completedCodes, search]
+    [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
   );
 
   const activeCounts = countRows(activeRows);
@@ -354,6 +389,12 @@ export function EventManagementPage() {
 
   function cancelEvent(event: EventRecord) {
     setCancelledCodes((current) => (current.includes(event.code) ? current : [...current, event.code]));
+    setMockState((current) =>
+      saveOrganizerMockState({
+        ...current,
+        events: current.events.map((item) => (item.code === event.code ? { ...item, status: "cancelled" } : item))
+      })
+    );
     toast.warning(`${event.code} has been cancelled.`);
   }
 
@@ -364,6 +405,7 @@ export function EventManagementPage() {
     const updated = { ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime };
     setActiveEvent(updated);
     setActiveRows(buildLiveRows(sessionForm.method, updated.code));
+    setMockState((current) => startOrganizerSession(current, updated.code));
     setStartEvent(null);
     setSelectedEventForSession(null);
     toast.success(`${updated.code} live session started.`);
@@ -390,6 +432,7 @@ export function EventManagementPage() {
       sentiment: { positive: 48, neutral: 35, negative: 17 },
       feedbackComments: ["Session ran a bit long but content was useful.", "Would appreciate printed handouts next time."]
     };
+    setMockState((current) => endOrganizerSession(current, activeEvent.code, activeRows));
     setCompletedExtras((current) => [completed, ...current.filter((event) => event.code !== completed.code)]);
     setCompletedModal(completed);
     setActiveEvent(null);
@@ -400,7 +443,7 @@ export function EventManagementPage() {
   }
 
   function exportReport(label: string) {
-    toast.success(`${label} export is ready. This is a mock export using the dummy data set.`);
+    toast.success(createMockExport(label));
   }
 
   const startSessionToolbar = (
@@ -527,16 +570,7 @@ export function EventManagementPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Event Management"
-        title="Event Records"
-        description="Published events appear here after the Create Event workflow; start a session only when the event is ready to run."
-        actions={
-          <Button type="button" onClick={() => navigate(APP_ROUTES.organizerCreateEvent)}>
-            Create Event
-          </Button>
-        }
-      />
+      <PageHeader eyebrow="Event Management" title="Event Records" description="Published events appear here after the Create Event workflow; start a session only when the event is ready to run." />
 
 
       {activeEvent ? (
@@ -593,6 +627,16 @@ export function EventManagementPage() {
                   <Camera className="h-4 w-4" aria-hidden="true" />
                   Facial Recognition
                 </Button>
+                <Button
+                  type="button"
+                  variant={captureMode === "Manual" ? "default" : "outline"}
+                  className="gap-2"
+                  onClick={() => setCaptureMode("Manual")}
+                  aria-pressed={captureMode === "Manual"}
+                >
+                  <Square className="h-4 w-4" aria-hidden="true" />
+                  Manual
+                </Button>
               </div>
             </div>
 
@@ -631,10 +675,50 @@ export function EventManagementPage() {
                         <p className="mt-1 text-sm text-muted-foreground">Align the student&apos;s face in the frame and verify the match before logging attendance.</p>
                       </div>
                     </div>
+                  ) : captureMode === "Manual" ? (
+                    <div className="rounded-xl border border-dashed border-primary/20 bg-surface p-5">
+                      <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name and record attendance manually.</p>
+                      <div className="mt-4 flex flex-col gap-2">
+                        <input value={manualInput} onChange={(e) => setManualInput(e.target.value)} placeholder="Student ID or name" className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none" />
+                        <div className="flex items-center gap-2">
+                          <select value={manualStatus} onChange={(e) => setManualStatus(e.target.value as AttendanceStatus)} className="rounded-md border bg-background px-2 py-1 text-sm">
+                            <option value="present">Present</option>
+                            <option value="late">Late</option>
+                            <option value="absent">Absent</option>
+                          </select>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              if (!manualInput.trim() || !activeEvent) {
+                                toast.warning("Enter student ID or name first.");
+                                return;
+                              }
+                              const now = new Date();
+                              const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+                              const newRow: AttendanceRow = {
+                                id: `MAN-${Date.now()}`,
+                                studentId: manualInput.trim(),
+                                studentName: manualInput.trim(),
+                                eventCode: activeEvent.code,
+                                attendanceMethod: "Manual",
+                                checkInTime: time,
+                                attendanceStatus: manualStatus
+                              };
+                              setActiveRows((cur) => [newRow, ...cur]);
+                              setManualInput("");
+                              toast.success("Manual attendance recorded.");
+                            }}
+                          >
+                            Record
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                   ) : (
                     <div className="rounded-xl border border-dashed border-primary/20 bg-surface p-5 text-center">
                       <p className="text-sm font-semibold text-foreground">Choose a capture mode</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Tap QR Code or Facial Recognition to preview the mock scanner experience.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Tap QR Code, Facial Recognition, or Manual to preview the mock scanner experience.</p>
                     </div>
                   )}
                 </div>
@@ -682,25 +766,11 @@ export function EventManagementPage() {
           </section>
 
           {activeTab === "today" ? (
-            <section className="rounded-lg border bg-surface p-4">
-              <div className="mb-4 flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-primary" aria-hidden="true" />
-                <div>
-                  <h2 className="text-lg font-semibold">Today's Event</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Published events scheduled for today.</p>
-                </div>
-              </div>
+            <section className="animate-fade-in-up rounded-lg border bg-surface p-4 transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
               <PLPassDataGrid label="Today's events" data={todayEvents} columns={incomingColumns} emptyTitle="No events today" emptyDescription="Events scheduled for today will appear here when the date matches." rowSelection="single" checkboxSelection suppressRowClickSelection onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)} toolbarActions={startSessionToolbar} />
             </section>
           ) : activeTab === "incoming" ? (
-            <section className="rounded-lg border bg-surface p-4">
-              <div className="mb-4 flex items-center gap-2">
-                <CalendarClock className="h-5 w-5 text-primary" aria-hidden="true" />
-                <div>
-                  <h2 className="text-lg font-semibold">Incoming Events</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Published events that have not started yet and are not scheduled for today.</p>
-                </div>
-              </div>
+            <section className="animate-fade-in-up rounded-lg border bg-surface p-4 transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
               <PLPassDataGrid label="Incoming events" data={incomingEvents} columns={incomingColumns} emptyTitle="No incoming events" emptyDescription="Future published events will appear here." rowSelection="single" checkboxSelection suppressRowClickSelection onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)} toolbarActions={startSessionToolbar} />
             </section>
           ) : null}
@@ -800,7 +870,7 @@ export function EventManagementPage() {
       {completedModal ? (
         <CompletedEventModal
           record={completedModal}
-          rows={completedModal.code === "EVT-2026-001" ? attendanceDetails : attendanceDetails.slice(0, 8).map((row) => ({ ...row, eventCode: completedModal.code }))}
+          rows={mockState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
           onClose={() => setCompletedModal(null)}
           onExportReport={exportReport}
         />
@@ -875,16 +945,13 @@ function CompletedEventModal({ record, rows, onClose, onExportReport }: { record
           <p className="text-sm font-semibold">Export this event</p>
           <p className="mt-1 text-sm text-muted-foreground">Generate a single-event attendance or summary report from this view.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium uppercase text-muted-foreground">XLSX / PDF</span>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Attendance Report: ${record.code}`)}>
-              <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance
-            </Button>
-            <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report: ${record.code}`)}>
-              <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary
-            </Button>
-          </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Attendance Report: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance
+          </Button>
+          <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary
+          </Button>
         </div>
       </div>
 

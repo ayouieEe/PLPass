@@ -314,6 +314,17 @@ describe("organizer UI flows", () => {
     expect(screen.getByRole("button", { name: /summary/i })).toBeInTheDocument();
   });
 
+  it("updates a pending correction request after the organizer approves it", async () => {
+    render(<OrganizerCorrectionRequestsPage />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getAllByRole("button", { name: /view more/i })[0]);
+    await user.click(screen.getByRole("button", { name: /approve request/i }));
+    await user.click(screen.getAllByRole("button", { name: /view more/i })[0]);
+
+    expect(await screen.findByText(/approved/i)).toBeInTheDocument();
+  });
+
   it("shows pending, approved, and rejected request tabs", async () => {
     render(<OrganizerCorrectionRequestsPage />);
 

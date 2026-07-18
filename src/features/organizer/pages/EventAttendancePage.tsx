@@ -296,6 +296,7 @@ export function EventAttendancePage() {
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualReason, setManualReason] = useState("");
   const [manualRemarks, setManualRemarks] = useState("");
+  // remove allowManualJoin checkbox — manual tab provides manual input
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -404,7 +405,6 @@ export function EventAttendancePage() {
   return (
     <OrganizerFrame>
       <PageHeader
-        eyebrow="Active Event Session"
         title={event?.title ?? session.title}
         description="Development Simulation for QR check-in, facial verification, and manual override."
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
@@ -428,17 +428,25 @@ export function EventAttendancePage() {
               </Button>
             </div>
           </section>
-          <ManualLookupPanel
-            studentId={manualStudentId}
-            reason={manualReason}
-            remarks={manualRemarks}
-            students={participantStudents.map((student) => ({ id: student.id, label: `${studentName(student)} (${student.studentNumber})` }))}
-            disabled={attendanceMutations.manualAttendanceMutation.isPending}
-            onStudentChange={setManualStudentId}
-            onReasonChange={setManualReason}
-            onRemarksChange={setManualRemarks}
-            onSubmit={submitManualAttendance}
-          />
+          <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
+            <h2 className="font-semibold">Manual entry</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name for quick manual attendance.</p>
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm font-medium">
+                Student (ID or name)
+                <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualStudentId} onChange={(e) => setManualStudentId(e.target.value)} />
+              </label>
+              <label className="block text-sm font-medium">
+                Remarks
+                <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} />
+              </label>
+              <div>
+                <Button type="button" disabled={attendanceMutations.manualAttendanceMutation.isPending} onClick={submitManualAttendance}>
+                  Save manual attendance
+                </Button>
+              </div>
+            </div>
+          </section>
         </div>
         <div className="space-y-4">
           <LatestTapResultCard result={latestTapResult} />

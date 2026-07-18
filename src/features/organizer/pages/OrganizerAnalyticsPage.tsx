@@ -27,6 +27,11 @@ import { StatCard } from "@/components/shared/StatCard";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
+import {
+  createMockExport,
+  lateReasons,
+  loadOrganizerMockState
+} from "@/features/organizer/data/organizerMockStore";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -301,7 +306,7 @@ function DashboardMetricCard({
         : "border-primary/15 bg-primary/5 text-primary";
 
   return (
-    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm">
+    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
@@ -343,10 +348,47 @@ function ChartPanel({
 
 export function OrganizerAnalyticsPage() {
   const [eventFilter, setEventFilter] = useState("all");
-  const eventLookup = useMemo(() => new Map(DUMMY_EVENTS.map((event) => [event.code, event])), []);
+  const [mockState] = useState(() => loadOrganizerMockState());
+  const eventData = useMemo(
+    () =>
+      mockState.events.map((event) => ({
+        code: event.code,
+        title: event.name,
+        category: event.category,
+        venue: event.venue,
+        date: event.date,
+        time: `${event.startTime} - ${event.endTime}`,
+        predictedTurnout: event.predictedTurnout
+      })),
+    [mockState.events]
+  );
+  const sessionSummaryData = useMemo(
+    () =>
+      mockState.completedEvents.map((event) => ({
+        eventCode: event.code,
+        date: event.date,
+        present: event.present,
+        late: event.late,
+        absent: event.absent,
+        totalRegistered: event.totalRegistered,
+        attendanceRate: event.attendanceRate
+      })),
+    [mockState.completedEvents]
+  );
+  const sentimentData = useMemo(
+    () =>
+      mockState.completedEvents.map((event) => ({
+        eventCode: event.code,
+        overall: event.sentiment.positive >= event.sentiment.negative ? "Positive" : "Negative",
+        ...event.sentiment
+      })),
+    [mockState.completedEvents]
+  );
+  const eventLookup = useMemo(() => new Map(eventData.map((event) => [event.code, event])), [eventData]);
 
   const trendData = useMemo(() => {
-    const rows = eventFilter === "all" ? DUMMY_SESSION_SUMMARY : DUMMY_SESSION_SUMMARY.filter((row) => row.eventCode === eventFilter);
+    const sourceRows = sessionSummaryData.length ? sessionSummaryData : DUMMY_SESSION_SUMMARY;
+    const rows = eventFilter === "all" ? sourceRows : sourceRows.filter((row) => row.eventCode === eventFilter);
 
     return rows.map((row) => ({
       label: row.eventCode,
@@ -356,20 +398,21 @@ export function OrganizerAnalyticsPage() {
       late: row.late,
       absent: row.absent
     }));
-  }, [eventFilter]);
+  }, [eventFilter, sessionSummaryData]);
 
   const predictionOverviewData = useMemo(() => {
-    const filteredEvents = eventFilter === "all" ? DUMMY_EVENTS : DUMMY_EVENTS.filter((event) => event.code === eventFilter);
+    const filteredEvents = eventFilter === "all" ? eventData : eventData.filter((event) => event.code === eventFilter);
     return filteredEvents.map((event) => ({
       label: event.code,
       title: event.title,
       predictedAttend: event.predictedTurnout,
       predictedMiss: 100 - event.predictedTurnout
     }));
-  }, [eventFilter]);
+  }, [eventData, eventFilter]);
 
   const sentimentOverview = useMemo(() => {
-    const filteredSentiment = eventFilter === "all" ? DUMMY_SENTIMENT : DUMMY_SENTIMENT.filter((row) => row.eventCode === eventFilter);
+    const sourceSentiment = sentimentData.length ? sentimentData : DUMMY_SENTIMENT;
+    const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row) => row.eventCode === eventFilter);
     const totals = filteredSentiment.reduce(
       (acc, row) => ({
         positive: acc.positive + row.positive,
@@ -385,15 +428,23 @@ export function OrganizerAnalyticsPage() {
       { name: "Neutral", value: Math.round(totals.neutral / count) },
       { name: "Negative", value: Math.round(totals.negative / count) }
     ];
-  }, [eventFilter]);
+  }, [eventFilter, sentimentData]);
 
   const filteredLateReasons = useMemo(() => {
-    if (eventFilter === "all") return DUMMY_LATE_REASON_FREQUENCY;
-    return DUMMY_LATE_REASON_FREQUENCY.map(r => ({ ...r, share: Math.max(5, r.share - 5) }));
-  }, [eventFilter]);
+    const rows = eventFilter === "all" ? mockState.attendanceRows : mockState.attendanceRows.filter((row) => row.eventCode === eventFilter);
+    const lateRows = rows.filter((row) => row.attendanceStatus === "late");
+    if (!lateRows.length) return DUMMY_LATE_REASON_FREQUENCY;
+    return lateReasons.map((reason) => ({
+      category: reason,
+      share: Math.round((lateRows.filter((row) => row.lateReason === reason).length / lateRows.length) * 100)
+    }));
+  }, [eventFilter, mockState.attendanceRows]);
 
-  const activeEvent = eventLookup.get(DUMMY_SUMMARY.activeSessionToday.eventCode);
-  const nextEvent = eventLookup.get(DUMMY_SUMMARY.predictedTurnoutNextEvent.eventCode);
+  const nextEvent = mockState.events
+    .filter((event) => event.status === "incoming" || event.status === "today")
+    .sort((first, second) => first.date.localeCompare(second.date))[0];
+  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? DUMMY_SUMMARY.predictedTurnoutNextEvent.value : eventLookup.get(eventFilter)?.predictedTurnout ?? DUMMY_SUMMARY.predictedTurnoutNextEvent.value;
+  const registeredStudents = mockState.students.length || DUMMY_SUMMARY.totalRegisteredStudents;
   const topLateReason = useMemo(() => {
     const reasons = eventFilter === "all" ? DUMMY_LATE_REASON_FREQUENCY : filteredLateReasons;
     return reasons.length > 0 ? reasons.reduce((max, r) => (r.share > max.share ? r : max)) : DUMMY_LATE_REASON_FREQUENCY[0];
@@ -411,6 +462,10 @@ export function OrganizerAnalyticsPage() {
     const event = eventLookup.get(eventFilter);
     return event ? baseFactors.map(f => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
   }, [eventFilter, eventLookup]);
+
+  function exportAnalyticsReport(label: string) {
+    toast.success(createMockExport(`${label}${eventFilter === "all" ? "" : ` - ${eventFilter}`}`));
+  }
 
   const objectivePerformance = useMemo(() => {
     const baseObjectives = [
@@ -448,7 +503,6 @@ export function OrganizerAnalyticsPage() {
   return (
     <div className="space-y-10">
       <PageHeader
-        eyebrow="Insights"
         title="Analytics insights"
         description="Use the current event data to forecast turnout, review feedback sentiment, and identify late-arrival patterns that can guide venue, timing, and transport planning."
       />
@@ -469,7 +523,7 @@ export function OrganizerAnalyticsPage() {
             <span className="font-medium text-foreground">Event</span>
             <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
               <option value="all">All events</option>
-              {DUMMY_EVENTS.map((event) => (
+              {eventData.map((event) => (
                 <option key={event.code} value={event.code}>
                   {event.code}
                 </option>
@@ -524,17 +578,17 @@ export function OrganizerAnalyticsPage() {
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-3">
-              <article className="rounded-lg border bg-surface p-4 shadow-sm">
+              <article className="animate-fade-in-up-1 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Predicted Turnout</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{DUMMY_SUMMARY.predictedTurnoutNextEvent.value}%</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{selectedPrediction}%</p>
               </article>
-              <article className="rounded-lg border bg-surface p-4 shadow-sm">
+              <article className="animate-fade-in-up-2 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Expected Attendees</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round((DUMMY_SUMMARY.totalRegisteredStudents * DUMMY_SUMMARY.predictedTurnoutNextEvent.value) / 100).toLocaleString()}</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round((registeredStudents * selectedPrediction) / 100).toLocaleString()}</p>
               </article>
-              <article className="rounded-lg border bg-surface p-4 shadow-sm">
+              <article className="animate-fade-in-up-3 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Expected Absentees</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round(DUMMY_SUMMARY.totalRegisteredStudents - (DUMMY_SUMMARY.totalRegisteredStudents * DUMMY_SUMMARY.predictedTurnoutNextEvent.value) / 100).toLocaleString()}</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round(registeredStudents - (registeredStudents * selectedPrediction) / 100).toLocaleString()}</p>
               </article>
             </div>
 
@@ -597,7 +651,7 @@ export function OrganizerAnalyticsPage() {
                 aria-label="Filter attendance trend by event"
               >
                 <option value="all">All events</option>
-                {DUMMY_EVENTS.map((event) => (
+                {eventData.map((event) => (
                   <option key={event.code} value={event.code}>
                     {event.code} - {event.title}
                   </option>
@@ -618,16 +672,16 @@ export function OrganizerAnalyticsPage() {
 
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <article className="rounded-lg border bg-surface p-4 shadow-sm">
+              <article className="animate-fade-in-up-1 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Total Present</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.present ?? 0), 0).toLocaleString()}</p>
               </article>
-              <article className="rounded-lg border bg-surface p-4 shadow-sm">
+              <article className="animate-fade-in-up-2 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Total Late</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.late ?? 0), 0).toLocaleString()}</p>
               </article>
             </div>
-            <article className="rounded-lg border bg-surface p-4 shadow-sm">
+            <article className="animate-fade-in-up-3 rounded-lg border bg-surface p-4 shadow-sm">
               <p className="text-sm font-medium text-muted-foreground">Attendance Summary</p>
               <div className="mt-3 space-y-3">
                 <div className="flex items-center justify-between text-sm">
@@ -772,11 +826,11 @@ export function OrganizerAnalyticsPage() {
             <h3 className="font-semibold text-foreground">Attendance Summary Report</h3>
             <p className="mt-2 text-sm text-muted-foreground">Attendance rates, trends, and session summaries.</p>
             <div className="mt-4 flex gap-2">
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Attendance Summary Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 XLSX
               </button>
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Attendance Summary Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 PDF
               </button>
@@ -787,11 +841,11 @@ export function OrganizerAnalyticsPage() {
             <h3 className="font-semibold text-foreground">Turnout Prediction Report</h3>
             <p className="mt-2 text-sm text-muted-foreground">Predicted turnout, influential factors, and confidence scores.</p>
             <div className="mt-4 flex gap-2">
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Turnout Prediction Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 XLSX
               </button>
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Turnout Prediction Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 PDF
               </button>
@@ -802,11 +856,11 @@ export function OrganizerAnalyticsPage() {
             <h3 className="font-semibold text-foreground">Performance & Sentiment Report</h3>
             <p className="mt-2 text-sm text-muted-foreground">Objective performance ratings and sentiment analysis.</p>
             <div className="mt-4 flex gap-2">
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Performance & Sentiment Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 XLSX
               </button>
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Performance & Sentiment Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 PDF
               </button>
@@ -817,11 +871,11 @@ export function OrganizerAnalyticsPage() {
             <h3 className="font-semibold text-foreground">Late Arrival Patterns Report</h3>
             <p className="mt-2 text-sm text-muted-foreground">Late-arrival reasons, frequency, and category breakdown.</p>
             <div className="mt-4 flex gap-2">
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Late Arrival Patterns Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 XLSX
               </button>
-              <button className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
+              <button type="button" onClick={() => exportAnalyticsReport("Late Arrival Patterns Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
                 <Download className="h-4 w-4" />
                 PDF
               </button>

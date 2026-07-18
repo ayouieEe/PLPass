@@ -351,7 +351,7 @@ export function EventDetailsPage() {
   const canStart = event.status === "approved" || event.status === "pending";
   return (
     <OrganizerFrame>
-      <PageHeader eyebrow="Event Details" title={eventLabel(event)} description={`${event.category} at ${event.venue}`} />
+      <PageHeader title={eventLabel(event)} description={`${event.category} at ${event.venue}`} />
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Total participants" value={String(participants.length)} icon={Users} />
         <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} />

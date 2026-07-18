@@ -1,15 +1,21 @@
-﻿/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { CheckCircle2, Eye, FileDown, Search, X, FileText, FileSpreadsheet, Download } from "lucide-react";
+import { CheckCircle2, Eye, FileDown, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-
-type AttendanceMethod = "QR Code" | "Facial Recognition";
+import {
+  createMockExport,
+  loadOrganizerMockState,
+  type OrganizerCompletedEvent,
+  type OrganizerEvent,
+  type OrganizerAttendanceRow,
+  type AttendanceMethod
+} from "@/features/organizer/data/organizerMockStore";
+type AttendanceMethodLocal = AttendanceMethod;
 type AttendanceStatus = "present" | "late" | "absent";
 type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 
@@ -25,16 +31,7 @@ type EventRecord = {
   objectives: string[];
 };
 
-type AttendanceRow = {
-  id: string;
-  studentId: string;
-  studentName: string;
-  eventCode: string;
-  attendanceMethod: AttendanceMethod;
-  checkInTime: string;
-  attendanceStatus: AttendanceStatus;
-  lateReason?: LateReason;
-};
+type AttendanceRow = OrganizerAttendanceRow;
 
 type CompletedRecord = EventRecord & {
   present: number;
@@ -219,34 +216,60 @@ function commonLateReason(rows: AttendanceRow[]) {
   return top?.count ? top.reason : "None";
 }
 
-function ModalFrame({ children, onClose, width = "max-w-3xl", headerContent }: { children: ReactNode; onClose: () => void; width?: string; headerContent?: ReactNode }) {
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/40 p-4">
-      <section className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`} role="dialog" aria-modal="true">
-        <div className="flex items-start justify-between border-b px-5 py-3">
-          <div className="min-w-0 flex-1">{headerContent}</div>
-          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal" className="shrink-0">
+function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+      <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}>
+        <div className="flex justify-end border-b px-5 py-3">
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal">
             <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
+        <div className="max-h-[calc(90vh-58px)] overflow-y-auto p-5">{children}</div>
       </section>
-    </div>,
-    document.body
+    </div>
   );
 }
 
+function eventFromStore(event: OrganizerEvent): EventRecord {
+  return {
+    code: event.code,
+    name: event.name,
+    category: event.category,
+    venue: event.venue,
+    date: event.date,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    predictedTurnout: `${event.predictedTurnout}%`,
+    objectives: event.objectives
+  };
+}
+
+function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
+  return {
+    ...eventFromStore(event),
+    present: event.present,
+    late: event.late,
+    absent: event.absent,
+    totalRegistered: event.totalRegistered,
+    attendanceRate: `${event.attendanceRate}%`,
+    sentiment: event.sentiment,
+    feedbackComments: event.feedbackComments
+  };
+}
+
 export function EventRecordsPage() {
+  const [mockState] = useState(() => loadOrganizerMockState());
   const [search, setSearch] = useState("");
-  const [completedExtras, setCompletedExtras] = useState<CompletedRecord[]>([]);
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
+  const completedRows = useMemo(() => mockState.completedEvents.map(completedFromStore), [mockState.completedEvents]);
   const pastEvents = useMemo(
-    () => [...completedExtras, ...sessionSummaries].filter((event) => matchesSearch(event, search)),
-    [completedExtras, search]
+    () => completedRows.filter((event) => matchesSearch(event, search)),
+    [completedRows, search]
   );
 
   function exportReport(label: string) {
-    toast.success(`${label} export is ready. This is a mock export using the dummy data set.`);
+    toast.success(createMockExport(label));
   }
 
   const pastColumns: ColumnDef<CompletedRecord>[] = [
@@ -262,14 +285,7 @@ export function EventRecordsPage() {
       id: "actions",
       header: "Actions",
       cell: ({ row }) => (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setCompletedModal(row.original)}
-          className="rounded-full px-3"
-          aria-label={`View details for ${row.original.code}`}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={() => setCompletedModal(row.original)}>
           <Eye className="h-4 w-4" aria-hidden="true" />
           View More
         </Button>
@@ -293,59 +309,25 @@ export function EventRecordsPage() {
 
       <div className="space-y-6">
         <section className="rounded-lg border bg-surface p-4">
-          <div className="mb-4 flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden="true" />
-            <div>
-              <h2 className="text-lg font-semibold">Completed Events</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Completed attendance sessions from the dummy Event Records summary.</p>
-            </div>
-          </div>
           <PLPassDataGrid label="Completed events" data={pastEvents} columns={pastColumns} emptyTitle="No completed events" emptyDescription="Completed events will appear here." />
         </section>
 
         <section className="rounded-lg border bg-surface p-4">
-          <div className="mb-4 flex items-center gap-2 justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Reports</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Export attendance or event summary reports.</p>
-            </div>
-            <span className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium uppercase text-muted-foreground">
-              XLSX / PDF
-            </span>
-          </div>
-
-          <div className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
-              <div className="min-w-0">
-                <p className="font-medium text-foreground">Attendance Report</p>
-                <p className="mt-1 text-sm text-muted-foreground">Account status, credentials, and student profile fields.</p>
-              </div>
-              <div className="flex flex-none gap-2">
-                <button type="button" className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary" onClick={() => exportReport("Attendance Report XLSX")}>
-                  <FileSpreadsheet className="h-4 w-4" aria-hidden="true" />
-                  XLSX
-                </button>
-                <button type="button" className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary" onClick={() => exportReport("Attendance Report PDF")}>
-                  <FileText className="h-4 w-4" aria-hidden="true" />
-                  PDF
-                </button>
+          <h2 className="font-semibold">Reports</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Export attendance or event summary reports.</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border bg-background p-4">
+              <p className="font-semibold">Attendance Report</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => exportReport("Attendance Report XLSX")}><FileDown className="h-4 w-4" aria-hidden="true" />XLSX</Button>
+                <Button type="button" variant="destructive" onClick={() => exportReport("Attendance Report PDF")}><FileDown className="h-4 w-4" aria-hidden="true" />PDF</Button>
               </div>
             </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
-              <div className="min-w-0">
-                <p className="font-medium text-foreground">Event Summary Report</p>
-                <p className="mt-1 text-sm text-muted-foreground">Attendance rates, events joined, and correction request activity.</p>
-              </div>
-              <div className="flex flex-none gap-2">
-                <button type="button" className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary" onClick={() => exportReport("Event Summary Report XLSX")}>
-                  <Download className="h-4 w-4" aria-hidden="true" />
-                  XLSX
-                </button>
-                <button type="button" className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary" onClick={() => exportReport("Event Summary Report PDF")}>
-                  <FileText className="h-4 w-4" aria-hidden="true" />
-                  PDF
-                </button>
+            <div className="rounded-lg border bg-background p-4">
+              <p className="font-semibold">Event Summary Report</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => exportReport("Event Summary Report XLSX")}><FileDown className="h-4 w-4" aria-hidden="true" />XLSX</Button>
+                <Button type="button" variant="destructive" onClick={() => exportReport("Event Summary Report PDF")}><FileDown className="h-4 w-4" aria-hidden="true" />PDF</Button>
               </div>
             </div>
           </div>
@@ -355,7 +337,7 @@ export function EventRecordsPage() {
       {completedModal ? (
         <CompletedEventModal
           record={completedModal}
-          rows={completedModal.code === "EVT-2026-001" ? attendanceDetails : attendanceDetails.slice(0, 8).map((row) => ({ ...row, eventCode: completedModal.code }))}
+          rows={mockState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
           onClose={() => setCompletedModal(null)}
           onExportReport={exportReport}
         />
@@ -395,7 +377,7 @@ function EventDetails({ event }: { event: EventRecord }) {
   );
 }
 
-export function CompletedEventModal({ record, rows, onClose, onExportReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void }) {
+function CompletedEventModal({ record, rows, onClose, onExportReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void }) {
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
@@ -405,34 +387,26 @@ export function CompletedEventModal({ record, rows, onClose, onExportReport }: {
   ];
 
   return (
-    <ModalFrame
-      onClose={onClose}
-      width="max-w-6xl"
-      headerContent={(
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-primary">View More</p>
-          <h2 className="text-2xl font-semibold">{record.code} - {record.name}</h2>
-          <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border/70 bg-surface/95 p-4 shadow-sm backdrop-blur">
-            <div>
-              <p className="text-sm font-semibold">Export this event</p>
-              <p className="mt-1 text-sm text-muted-foreground">Generate a single-event attendance or summary report from this view.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium uppercase text-muted-foreground">XLSX / PDF</span>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Attendance Report: ${record.code}`)}>
-                  <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance
-                </Button>
-                <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report: ${record.code}`)}>
-                  <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary
-                </Button>
-              </div>
-            </div>
-          </div>
+    <ModalFrame onClose={onClose} width="max-w-6xl">
+      <p className="text-sm font-semibold text-primary">View More</p>
+      <h2 className="mt-1 text-2xl font-semibold">{record.code} - {record.name}</h2>
+
+      <div className="mt-5 flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-surface p-4">
+        <div>
+          <p className="text-sm font-semibold">Export this event</p>
+          <p className="mt-1 text-sm text-muted-foreground">Generate a single-event attendance or summary report from this view.</p>
         </div>
-      )}
-    >
-      <div className="mt-1 grid gap-3 sm:grid-cols-4">
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Attendance Report: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance
+          </Button>
+          <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-4">
         <SummaryTile label="Present" value={record.present.toString()} />
         <SummaryTile label="Late" value={record.late.toString()} />
         <SummaryTile label="Absent" value={record.absent.toString()} />
