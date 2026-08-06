@@ -1,7 +1,7 @@
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useStudents } from "@/hooks/useRepositoryQueries";
 import { compareDateValues, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, toValidDate } from "@/lib/utils/date";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { AttendanceRecord, AttendanceSession, CorrectionRequest, Event, Student } from "@/types/domain";
 import type { AttendanceStatus, CorrectionRequestStatus } from "@/types/enums";
 
@@ -102,37 +102,34 @@ export function studentStorageKey(studentId: string, suffix: string) {
 }
 
 export function isDemoStudent(student?: Pick<Student, "id">) {
-  return student?.id === "student-1";
+  void student;
+  return false;
 }
 
 export function loadStudentEventRecords(studentId: string): StudentEventRecord[] {
-  try {
-    const value = localStorage.getItem(studentStorageKey(studentId, "event-records"));
-    return value ? (JSON.parse(value) as StudentEventRecord[]) : [];
-  } catch {
-    return [];
-  }
+  void studentId;
+  return [];
 }
 
 export function saveStudentEventRecords(studentId: string, records: StudentEventRecord[]) {
-  localStorage.setItem(studentStorageKey(studentId, "event-records"), JSON.stringify(records));
+  void studentId;
+  void records;
 }
 
 export function upsertStudentEventRecord(studentId: string, record: StudentEventRecord) {
-  const records = loadStudentEventRecords(studentId).filter((entry) => entry.eventId !== record.eventId);
-  saveStudentEventRecords(studentId, [record, ...records]);
+  void studentId;
+  void record;
 }
 
 export function markStudentFeedbackSubmitted(studentId: string, eventId: string) {
-  const records = loadStudentEventRecords(studentId).map((record) =>
-    record.eventId === eventId ? { ...record, feedbackSubmitted: true } : record
-  );
-  saveStudentEventRecords(studentId, records);
-  localStorage.setItem(studentStorageKey(studentId, `feedback-${eventId}`), "submitted");
+  void studentId;
+  void eventId;
 }
 
 export function isFeedbackSubmitted(studentId: string, eventId: string) {
-  return localStorage.getItem(studentStorageKey(studentId, `feedback-${eventId}`)) === "submitted";
+  void studentId;
+  void eventId;
+  return false;
 }
 
 export function qrUidForStudent(student?: Student) {
@@ -155,32 +152,15 @@ export function ensureStudentIdentityReadiness(student?: Student): StudentIdenti
     faceEnrolledDate: null
   } satisfies StudentIdentityReadiness;
 
-  if (!student || typeof localStorage === "undefined") return fallback;
+  if (!student) return fallback;
 
   const defaultQr = qrUidForStudent(student);
-  const defaultExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const storedQr = localStorage.getItem("plpass-qr-code-val");
-  const storedExpiry = localStorage.getItem("plpass-qr-expiry");
-  const storedFace = localStorage.getItem("plpass-face-enrolled");
-  const storedFaceDate = localStorage.getItem("plpass-face-enrolled-date");
-  const shouldSeedDemo = isDemoStudent(student);
-
-  if (!storedQr && shouldSeedDemo) {
-    localStorage.setItem("plpass-qr-generated", "true");
-    localStorage.setItem("plpass-qr-code-val", defaultQr);
-    localStorage.setItem("plpass-qr-expiry", defaultExpiry);
-  }
-
-  if (!storedFace && shouldSeedDemo) {
-    localStorage.setItem("plpass-face-enrolled", "true");
-    localStorage.setItem("plpass-face-enrolled-date", storedFaceDate ?? student.createdAt);
-  }
 
   return {
-    qrCode: storedQr ?? (shouldSeedDemo ? defaultQr : ""),
-    qrExpiry: storedExpiry ?? (shouldSeedDemo ? defaultExpiry : null),
-    faceEnrolled: (storedFace ?? (shouldSeedDemo ? "true" : "false")) === "true",
-    faceEnrolledDate: storedFaceDate ?? (shouldSeedDemo ? student.createdAt : null)
+    qrCode: defaultQr,
+    qrExpiry: null,
+    faceEnrolled: false,
+    faceEnrolledDate: null
   };
 }
 
@@ -200,71 +180,36 @@ export function getCorrectionRequestTypes(status: StudentEventRecord["status"]):
 }
 
 export function isStudentDemoRecord(record: Pick<StudentEventRecord, "id">) {
-  return record.id.startsWith("student-pdf-record-");
+  void record;
+  return false;
 }
 
 export function loadStudentCorrectionRequests(studentId: string): CorrectionRequest[] {
-  try {
-    const value = localStorage.getItem(studentStorageKey(studentId, "correction-requests"));
-    return value ? (JSON.parse(value) as CorrectionRequest[]) : [];
-  } catch {
-    return [];
-  }
+  void studentId;
+  return [];
 }
 
 export function createStudentCorrectionRequest(
   studentId: string,
   input: Pick<CorrectionRequest, "attendanceRecordId" | "eventId" | "requestedStatus" | "reason">
 ) {
-  const requests = loadStudentCorrectionRequests(studentId);
-  const duplicate = requests.some(
-    (request) =>
-      request.attendanceRecordId === input.attendanceRecordId &&
-      request.requestedStatus === input.requestedStatus &&
-      request.status === "pending"
-  );
-  if (duplicate) {
-    throw new Error("A pending request already exists for this attendance record and request type.");
-  }
-  const created: CorrectionRequest = {
-    id: `student-local-correction-${Date.now()}`,
-    studentId,
-    attendanceRecordId: input.attendanceRecordId,
-    eventId: input.eventId,
-    requestedStatus: input.requestedStatus,
-    reason: input.reason,
-    status: "pending",
-    requestedAt: new Date().toISOString()
-  };
-  localStorage.setItem(studentStorageKey(studentId, "correction-requests"), JSON.stringify([created, ...requests]));
-  return created;
+  void studentId;
+  void input;
+  throw new Error("Correction requests must be submitted through Supabase.");
 }
 
 export function loadStudentSupportRequests(studentId: string): StudentSupportRequest[] {
-  try {
-    const value = localStorage.getItem(studentStorageKey(studentId, "support-requests"));
-    return value ? (JSON.parse(value) as StudentSupportRequest[]) : [];
-  } catch {
-    return [];
-  }
+  void studentId;
+  return [];
 }
 
 export function createStudentSupportRequest(
   studentId: string,
   input: Pick<StudentSupportRequest, "kind" | "title" | "description">
 ) {
-  const requests = loadStudentSupportRequests(studentId);
-  const created: StudentSupportRequest = {
-    id: `student-local-request-${Date.now()}`,
-    studentId,
-    kind: input.kind,
-    title: input.title,
-    description: input.description,
-    status: "pending",
-    submittedAt: new Date().toISOString()
-  };
-  localStorage.setItem(studentStorageKey(studentId, "support-requests"), JSON.stringify([created, ...requests]));
-  return created;
+  void studentId;
+  void input;
+  throw new Error("Support requests need a Supabase-backed table before they can be submitted.");
 }
 
 export function getEventObjectives(event: Event) {
@@ -285,7 +230,7 @@ export function getEventObjectives(event: Event) {
     "EVT-2026-004": [
       "Simulate real front-desk check-in and check-out scenarios",
       "Assess student handling of guest complaints",
-      "Evaluate use of a property management system mock-up"
+      "Evaluate use of a property management system training simulation"
     ],
     "EVT-2026-005": [
       "Introduce sustainable and responsible tourism practices",
@@ -353,108 +298,14 @@ export function sortEventsByDate(events: Event[]) {
   return [...events].sort((first, second) => compareDateValues(first.startsAt, second.startsAt));
 }
 
-const organizerAlignedEventCodes = new Set(["EVT-2026-001", "EVT-2026-002", "EVT-2026-003", "EVT-2026-004", "EVT-2026-005", "EVT-2026-006"]);
-
-const organizerAlignedStudentEvents: Event[] = [
-  { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "Hospitality Career Fair & Industry Talk", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
-  { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Food & Beverage Service Skills Workshop", venue: "PLP HM Training Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
-  { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "AHTOMP General Assembly & Orientation", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
-  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Skills Training", title: "Front Office Operations Simulation Day", venue: "PLP HM Mock Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
-  { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Seminar", title: "Sustainable Tourism Speaker Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
-  { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Competition", title: "AHTOMP Culinary & Mixology Showcase", venue: "PLP HM Culinary Kitchen", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
-];
-
 export function studentVisibleEvents(events: Event[]) {
-  const sourceEvents = events.some((event) => organizerAlignedEventCodes.has(event.code)) ? events : organizerAlignedStudentEvents;
-  const visible = sourceEvents.filter((event) => event.status !== "cancelled" && (event.status === "approved" || event.status === "completed" || isFutureOrNowDate(event.startsAt)));
+  const visible = events.filter((event) => event.status !== "cancelled" && (event.status === "approved" || event.status === "completed" || isFutureOrNowDate(event.startsAt)));
   return sortEventsByDate(visible);
 }
 
 function pdfStudentDemoRecords(studentId: string): StudentEventRecord[] {
-  if (studentId !== "student-1") return [];
-  return [
-    {
-      id: "student-pdf-record-career-fair",
-      eventId: "student-pdf-event-career-fair",
-      eventCode: "EVT-2026-001",
-      eventName: "Hospitality Career Fair & Industry Talk",
-      category: "Career Development",
-      venue: "PLP Pasig Gymnasium",
-      startsAt: "2026-02-10T00:00:00.000Z",
-      endsAt: "2026-02-10T04:00:00.000Z",
-      status: "present",
-      method: "QR",
-      recordedAt: "2026-02-10T00:04:00.000Z",
-      feedbackSubmitted: true
-    },
-    {
-      id: "student-pdf-record-general-assembly",
-      eventId: "student-pdf-event-general-assembly",
-      eventCode: "EVT-2026-003",
-      eventName: "AHTOMP General Assembly & Orientation",
-      category: "General Assembly",
-      venue: "PLP Pasig Auditorium",
-      startsAt: "2026-03-05T01:00:00.000Z",
-      endsAt: "2026-03-05T03:00:00.000Z",
-      status: "late",
-      method: "Facial",
-      recordedAt: "2026-03-05T01:18:00.000Z",
-      lateReason: "Traffic / Commute"
-    },
-    {
-      id: "student-pdf-record-front-office-sim",
-      eventId: "student-pdf-event-front-office-sim",
-      eventCode: "EVT-2026-004",
-      eventName: "Front Office Operations Simulation Day",
-      category: "Skills Training",
-      venue: "PLP HM Mock Hotel Lab",
-      startsAt: "2026-03-19T00:30:00.000Z",
-      endsAt: "2026-03-19T07:30:00.000Z",
-      status: "late",
-      method: "QR",
-      recordedAt: "2026-03-19T00:57:00.000Z"
-    },
-    {
-      id: "student-pdf-record-fnb-workshop",
-      eventId: "student-pdf-event-fnb-workshop",
-      eventCode: "EVT-2026-002",
-      eventName: "Food & Beverage Service Skills Workshop",
-      category: "Skills Training",
-      venue: "PLP HM Training Laboratory",
-      startsAt: "2026-02-24T05:00:00.000Z",
-      endsAt: "2026-02-24T09:00:00.000Z",
-      status: "absent",
-      method: "Facial",
-      recordedAt: "2026-02-24T09:00:00.000Z"
-    },
-    {
-      id: "student-pdf-record-sustainable-tourism",
-      eventId: "student-pdf-event-sustainable-tourism",
-      eventCode: "EVT-2026-005",
-      eventName: "Sustainable Tourism Speaker Series",
-      category: "Seminar",
-      venue: "PLP Multi-Purpose Hall",
-      startsAt: "2026-04-02T05:30:00.000Z",
-      endsAt: "2026-04-02T08:00:00.000Z",
-      status: "present",
-      method: "QR",
-      recordedAt: "2026-04-02T05:34:00.000Z"
-    },
-    {
-      id: "student-pdf-record-culinary-showcase",
-      eventId: "student-pdf-event-culinary-showcase",
-      eventCode: "EVT-2026-006",
-      eventName: "AHTOMP Culinary & Mixology Showcase",
-      category: "Competition",
-      venue: "PLP HM Culinary Kitchen",
-      startsAt: "2026-04-18T01:00:00.000Z",
-      endsAt: "2026-04-18T08:00:00.000Z",
-      status: "present",
-      method: "Facial",
-      recordedAt: "2026-04-18T01:07:00.000Z",
-      feedbackSubmitted: true
-    }
-  ];
+  void studentId;
+  return [];
 }
 
 export function recordsForStudentEvents(input: {
@@ -487,9 +338,8 @@ export function recordsForStudentEvents(input: {
         feedbackSubmitted: record.note?.includes("Feedback submitted") ?? false
       }];
     });
-  const repositoryEventCodes = new Set(repositoryRecords.map((record) => record.eventCode));
-  const fallbackDemoRecords = pdfStudentDemoRecords(input.studentId).filter((record) => !repositoryEventCodes.has(record.eventCode));
-  return [...repositoryRecords, ...fallbackDemoRecords];
+  void pdfStudentDemoRecords;
+  return repositoryRecords;
 }
 
 export function getStudentRecordDate(record: StudentEventRecord) {

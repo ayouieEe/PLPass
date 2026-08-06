@@ -8,16 +8,13 @@ import type {
   Event,
   EventParticipant,
   FacultyProfile,
-  NfcCredential,
-  NfcCredentialRequest,
-  NfcReader,
   Notification,
   OrganizerProfile,
   Report,
   Student,
   User
 } from "@/types/domain";
-import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, NfcCredentialStatus, UserRole, VerificationMethod } from "@/types/enums";
+import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, UserRole, VerificationMethod } from "@/types/enums";
 
 type Row = Record<string, unknown>;
 
@@ -43,16 +40,6 @@ function numberValue(row: Row, keys: string[], fallback = 0) {
   for (const key of keys) {
     const value = row[key];
     if (typeof value === "number") {
-      return value;
-    }
-  }
-  return fallback;
-}
-
-function booleanValue(row: Row, keys: string[], fallback = false) {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "boolean") {
       return value;
     }
   }
@@ -153,23 +140,6 @@ function mapSessionMode(value: string): AttendanceMode {
     return value;
   }
   return "required";
-}
-
-function mapCredentialRequestStatus(value: string): NfcCredentialRequest["status"] {
-  if (value === "resolved") {
-    return "completed";
-  }
-  if (value === "approved" || value === "rejected" || value === "pending" || value === "completed") {
-    return value;
-  }
-  return "pending";
-}
-
-export function maskCredentialIdentifier(value: string | undefined) {
-  if (!value) {
-    return "masked";
-  }
-  return `${value.slice(0, 3)}-${"*".repeat(Math.max(value.length - 6, 4))}-${value.slice(-3)}`;
 }
 
 export function mapProfileToUser(row: Row): User {
@@ -309,7 +279,7 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     sessionId: stringValue(row, ["class_session_id", "event_session_id", "session_id"]),
     studentId: stringValue(row, ["student_id"]),
     status: stringValue(row, ["attendance_status", "status"], "present") as AttendanceStatus,
-    verificationMethod: stringValue(row, ["verification_method"], "nfc") as VerificationMethod,
+    verificationMethod: stringValue(row, ["verification_method"], "manual") as VerificationMethod,
     recordedAt: stringValue(row, ["recorded_at", "time_in", "created_at"], new Date().toISOString()),
     recordedByUserId: optionalString(row, ["recorded_by", "created_by"]),
     note: optionalString(row, ["remarks", "note"]),
@@ -317,31 +287,6 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     timeOut: optionalString(row, ["time_out"])
   };
   return base as AttendanceRecord;
-}
-
-export function mapNfcCredential(row: Row): NfcCredential {
-  return {
-    id: stringValue(row, ["id"]),
-    studentId: stringValue(row, ["student_id"]),
-    nfcUid: maskCredentialIdentifier(stringValue(row, ["credential_identifier", "public_identifier", "id"])),
-    status: stringValue(row, ["nfc_status", "status"], "inactive") as NfcCredentialStatus,
-    issuedAt: stringValue(row, ["issued_at", "created_at"], new Date().toISOString()),
-    replacedByCredentialId: optionalString(row, ["replaced_by_credential_id"])
-  };
-}
-
-export function mapNfcReader(row: Row): NfcReader {
-  return {
-    id: stringValue(row, ["id"]),
-    label: stringValue(row, ["label", "device_name"], "Device"),
-    serialNumber: maskCredentialIdentifier(stringValue(row, ["serial_number", "device_code", "id"])),
-    location: stringValue(row, ["location", "room_id"], "Unassigned"),
-    departmentId: stringValue(row, ["department_id", "college_id"]),
-    status: stringValue(row, ["device_status", "status"], "inactive") as NfcReader["status"],
-    assignedToUserId: optionalString(row, ["assigned_to", "assigned_to_user_id"]),
-    lastSeenAt: optionalString(row, ["last_seen_at"]),
-    isTrusted: booleanValue(row, ["is_trusted"], false)
-  };
 }
 
 export function mapCorrectionRequest(row: Row): CorrectionRequest {
@@ -354,20 +299,6 @@ export function mapCorrectionRequest(row: Row): CorrectionRequest {
     requestedStatus: stringValue(row, ["requested_status"], "present") as AttendanceStatus,
     reason: stringValue(row, ["explanation", "reason"]),
     status: stringValue(row, ["request_status", "status"], "pending") as CorrectionRequest["status"],
-    requestedAt: stringValue(row, ["created_at", "requested_at"], new Date().toISOString()),
-    reviewedByUserId: optionalString(row, ["reviewed_by"]),
-    reviewedAt: optionalString(row, ["reviewed_at"])
-  };
-}
-
-export function mapNfcCredentialRequest(row: Row): NfcCredentialRequest {
-  return {
-    id: stringValue(row, ["id"]),
-    studentId: stringValue(row, ["student_id"]),
-    credentialId: optionalString(row, ["credential_id"]),
-    type: stringValue(row, ["request_type", "type"], "replacement") as NfcCredentialRequest["type"],
-    status: mapCredentialRequestStatus(stringValue(row, ["request_status", "status"], "pending")),
-    reason: stringValue(row, ["reason", "explanation", "review_remarks"]),
     requestedAt: stringValue(row, ["created_at", "requested_at"], new Date().toISOString()),
     reviewedByUserId: optionalString(row, ["reviewed_by"]),
     reviewedAt: optionalString(row, ["reviewed_at"])

@@ -40,170 +40,8 @@ import {
   upsertStudentEventRecord,
   useStudentScope
 } from "@/features/student/studentExperience";
-import type { AttendanceSession, Event } from "@/types/domain";
 
 type RatingState = Record<string, number>;
-const TODAY_DEMO_EVENT_ID = "demo-today-career-clinic";
-const UPCOMING_DEMO_EVENT_ID = "demo-upcoming-ai-ethics-forum";
-const ONGOING_DEMO_EVENT_ID = "demo-today-wellness-check-in";
-
-function todayIsoAt(hour: number, minute = 0) {
-  const date = new Date();
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
-}
-
-function tomorrowIsoAt(hour: number, minute = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
-}
-
-function relativeNowIso(minutes: number) {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-function buildTodayDemoEvent() {
-  const event: Event = {
-    id: TODAY_DEMO_EVENT_ID,
-    code: "EVT-2026-005",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Seminar",
-    title: "Sustainable Tourism Speaker Series",
-    venue: "PLP Multi-Purpose Hall",
-    startsAt: todayIsoAt(13, 30),
-    endsAt: todayIsoAt(16),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-today-career-clinic-session",
-    type: "event",
-    eventId: event.id,
-    title: "Sustainable Tourism Speaker Series Attendance",
-    mode: "required",
-    status: "draft",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: todayIsoAt(13, 45),
-    attendanceWindowStartAt: todayIsoAt(13, 25),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
-}
-
-function buildUpcomingDemoEvent() {
-  const event: Event = {
-    id: UPCOMING_DEMO_EVENT_ID,
-    code: "EVT-2026-006",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Competition",
-    title: "AHTOMP Culinary & Mixology Showcase",
-    venue: "PLP HM Culinary Kitchen",
-    startsAt: tomorrowIsoAt(9),
-    endsAt: tomorrowIsoAt(16),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-upcoming-ai-ethics-forum-session",
-    type: "event",
-    eventId: event.id,
-    title: "AHTOMP Culinary & Mixology Showcase Attendance",
-    mode: "required",
-    status: "draft",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: tomorrowIsoAt(9, 15),
-    attendanceWindowStartAt: tomorrowIsoAt(8, 55),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
-}
-
-function buildOngoingTodayDemoEvent() {
-  const event: Event = {
-    id: ONGOING_DEMO_EVENT_ID,
-    code: "EVT-2026-004",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Skills Training",
-    title: "Front Office Operations Simulation Day",
-    venue: "PLP HM Mock Hotel Lab",
-    startsAt: relativeNowIso(-30),
-    endsAt: relativeNowIso(90),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-today-wellness-check-in-session",
-    type: "event",
-    eventId: event.id,
-    title: "Front Office Operations Simulation Day Attendance",
-    mode: "required",
-    status: "active",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: relativeNowIso(-15),
-    attendanceWindowStartAt: relativeNowIso(-35),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
-}
-
-function buildOrganizerFallbackEvent(id: string | undefined) {
-  const nowRelative = id === "event-4"
-    ? buildOngoingTodayDemoEvent()
-    : id === "event-5"
-      ? buildTodayDemoEvent()
-      : id === "event-6"
-        ? buildUpcomingDemoEvent()
-        : undefined;
-  if (nowRelative) {
-    return {
-      event: { ...nowRelative.event, id: id ?? nowRelative.event.id },
-      session: { ...nowRelative.session, eventId: id ?? nowRelative.event.id }
-    };
-  }
-
-  if (id === "event-1") {
-    const startsAt = tomorrowIsoAt(8);
-    const endsAt = tomorrowIsoAt(12);
-    const event: Event = {
-      id,
-      code: "EVT-2026-001",
-      organizerId: "organizer-1",
-      departmentId: "dept-ccs",
-      category: "Career Development",
-      title: "Hospitality Career Fair & Industry Talk",
-      venue: "PLP Pasig Gymnasium",
-      startsAt,
-      endsAt,
-      status: "approved"
-    };
-    const session: AttendanceSession = {
-      id: "event-1-fallback-session",
-      type: "event",
-      eventId: event.id,
-      title: "Hospitality Career Fair & Industry Talk Attendance",
-      mode: "required",
-      status: "draft",
-      startsAt,
-      endsAt,
-      lateCutoffAt: tomorrowIsoAt(8, 15),
-      attendanceWindowStartAt: tomorrowIsoAt(7, 55),
-      attendanceWindowEndAt: endsAt,
-      createdByUserId: "user-organizer-1"
-    };
-    return { event, session };
-  }
-
-  return undefined;
-}
-
 function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
   const [hovered, setHovered] = useState(0);
   return (
@@ -392,16 +230,9 @@ export function StudentEventDetailsPage() {
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   if (eventQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) return <LoadingState label="Loading event details" />;
   const student = scope.student;
-  const demoEvent = eventId === TODAY_DEMO_EVENT_ID
-    ? buildTodayDemoEvent()
-    : eventId === UPCOMING_DEMO_EVENT_ID
-      ? buildUpcomingDemoEvent()
-      : eventId === ONGOING_DEMO_EVENT_ID
-        ? buildOngoingTodayDemoEvent()
-        : buildOrganizerFallbackEvent(eventId);
-  if ((eventQuery.isError || !eventQuery.data) && !demoEvent) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
+  if (eventQuery.isError || !eventQuery.data) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
 
-  const event = eventQuery.data ?? demoEvent?.event;
+  const event = eventQuery.data;
   if (!event) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
   const objectives = getEventObjectives(event).slice(0, 3);
   const currentEventId = event.id;
@@ -414,7 +245,7 @@ export function StudentEventDetailsPage() {
   const currentRecord = mergeStudentEventRecords([...localRecords, ...repositoryRecords]).find((record) => record.eventId === event.id);
   const correction = (correctionsQuery.data?.items ?? []).find((request) => request.eventId === event.id);
   const feedbackSubmitted = Boolean(currentRecord?.feedbackSubmitted || isFeedbackSubmitted(student.id, currentEventId));
-  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id) ?? demoEvent?.session;
+  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
   const workflow = buildStudentEventWorkflow({
     event,
     session: eventSession,

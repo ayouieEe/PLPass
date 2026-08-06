@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useEffect, useState } from "react";
 import { Camera, Key, LogOut, Mail, ShieldAlert, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";

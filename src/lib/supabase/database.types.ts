@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -14,139 +14,71 @@ export type Database = {
   }
   public: {
     Tables: {
-      attendance_logs: {
-        Row: {
-          action_type: Database["public"]["Enums"]["attendance_action_type"]
-          attendance_record_id: string | null
-          created_at: string
-          device_id: string | null
-          id: string
-          logged_at: string | null
-          method: Database["public"]["Enums"]["verification_method"]
-          recorded_by: string | null
-          remarks: string | null
-          student_id: string | null
-        }
-        Insert: {
-          action_type: Database["public"]["Enums"]["attendance_action_type"]
-          attendance_record_id?: string | null
-          created_at?: string
-          device_id?: string | null
-          id?: string
-          logged_at?: string | null
-          method: Database["public"]["Enums"]["verification_method"]
-          recorded_by?: string | null
-          remarks?: string | null
-          student_id?: string | null
-        }
-        Update: {
-          action_type?: Database["public"]["Enums"]["attendance_action_type"]
-          attendance_record_id?: string | null
-          created_at?: string
-          device_id?: string | null
-          id?: string
-          logged_at?: string | null
-          method?: Database["public"]["Enums"]["verification_method"]
-          recorded_by?: string | null
-          remarks?: string | null
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "attendance_logs_attendance_record_id_fkey"
-            columns: ["attendance_record_id"]
-            isOneToOne: false
-            referencedRelation: "attendance_records"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_logs_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_logs_recorded_by_fkey"
-            columns: ["recorded_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_logs_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       attendance_records: {
         Row: {
-          attendance_status:
-            | Database["public"]["Enums"]["attendance_status"]
-            | null
-          attendance_type: Database["public"]["Enums"]["attendance_type"]
-          class_session_id: string | null
-          created_at: string | null
-          event_session_id: string | null
+          attendance_status: string
+          created_at: string
+          event_session_id: string
           id: string
+          late_reason_category: string | null
+          minutes_late: number | null
+          recorded_at: string
+          recorded_by: string | null
           remarks: string | null
-          student_id: string | null
+          student_id: string
           time_in: string | null
           time_out: string | null
-          verification_method:
-            | Database["public"]["Enums"]["verification_method"]
-            | null
+          updated_at: string
+          verification_attempt_id: string | null
+          verification_method: string
         }
         Insert: {
-          attendance_status?:
-            | Database["public"]["Enums"]["attendance_status"]
-            | null
-          attendance_type: Database["public"]["Enums"]["attendance_type"]
-          class_session_id?: string | null
-          created_at?: string | null
-          event_session_id?: string | null
+          attendance_status: string
+          created_at?: string
+          event_session_id: string
           id?: string
+          late_reason_category?: string | null
+          minutes_late?: number | null
+          recorded_at?: string
+          recorded_by?: string | null
           remarks?: string | null
-          student_id?: string | null
+          student_id: string
           time_in?: string | null
           time_out?: string | null
-          verification_method?:
-            | Database["public"]["Enums"]["verification_method"]
-            | null
+          updated_at?: string
+          verification_attempt_id?: string | null
+          verification_method: string
         }
         Update: {
-          attendance_status?:
-            | Database["public"]["Enums"]["attendance_status"]
-            | null
-          attendance_type?: Database["public"]["Enums"]["attendance_type"]
-          class_session_id?: string | null
-          created_at?: string | null
-          event_session_id?: string | null
+          attendance_status?: string
+          created_at?: string
+          event_session_id?: string
           id?: string
+          late_reason_category?: string | null
+          minutes_late?: number | null
+          recorded_at?: string
+          recorded_by?: string | null
           remarks?: string | null
-          student_id?: string | null
+          student_id?: string
           time_in?: string | null
           time_out?: string | null
-          verification_method?:
-            | Database["public"]["Enums"]["verification_method"]
-            | null
+          updated_at?: string
+          verification_attempt_id?: string | null
+          verification_method?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "attendance_records_class_session_id_fkey"
-            columns: ["class_session_id"]
-            isOneToOne: false
-            referencedRelation: "class_sessions"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "attendance_records_event_session_id_fkey"
             columns: ["event_session_id"]
             isOneToOne: false
             referencedRelation: "event_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_records_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -156,34 +88,50 @@ export type Database = {
             referencedRelation: "students"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "attendance_records_verification_attempt_id_fkey"
+            columns: ["verification_attempt_id"]
+            isOneToOne: true
+            referencedRelation: "verification_attempts"
+            referencedColumns: ["id"]
+          },
         ]
       }
       attendance_request_attachments: {
         Row: {
-          attendance_request_id: string | null
-          created_at: string | null
-          file_name: string
-          file_url: string
+          file_size_bytes: number
           id: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at: string
         }
         Insert: {
-          attendance_request_id?: string | null
-          created_at?: string | null
-          file_name: string
-          file_url: string
+          file_size_bytes: number
           id?: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at?: string
         }
         Update: {
-          attendance_request_id?: string | null
-          created_at?: string | null
-          file_name?: string
-          file_url?: string
+          file_size_bytes?: number
           id?: string
+          mime_type?: string
+          original_file_name?: string
+          request_id?: string
+          storage_bucket?: string
+          storage_object_path?: string
+          uploaded_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "attendance_request_attachments_attendance_request_id_fkey"
-            columns: ["attendance_request_id"]
+            foreignKeyName: "attendance_request_attachments_request_id_fkey"
+            columns: ["request_id"]
             isOneToOne: false
             referencedRelation: "attendance_requests"
             referencedColumns: ["id"]
@@ -192,52 +140,43 @@ export type Database = {
       }
       attendance_requests: {
         Row: {
-          attendance_record_id: string | null
-          created_at: string | null
-          explanation: string | null
+          attendance_record_id: string
+          created_at: string
+          explanation: string
           id: string
-          rejection_reason: string | null
-          request_status:
-            | Database["public"]["Enums"]["request_decision_status"]
-            | null
-          request_type: Database["public"]["Enums"]["attendance_request_type"]
+          request_status: string
+          requested_status: string
+          review_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
-          student_id: string | null
-          submitted_at: string
-          updated_at: string | null
+          student_id: string
+          updated_at: string
         }
         Insert: {
-          attendance_record_id?: string | null
-          created_at?: string | null
-          explanation?: string | null
+          attendance_record_id: string
+          created_at?: string
+          explanation: string
           id?: string
-          rejection_reason?: string | null
-          request_status?:
-            | Database["public"]["Enums"]["request_decision_status"]
-            | null
-          request_type: Database["public"]["Enums"]["attendance_request_type"]
+          request_status?: string
+          requested_status: string
+          review_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          student_id?: string | null
-          submitted_at?: string
-          updated_at?: string | null
+          student_id: string
+          updated_at?: string
         }
         Update: {
-          attendance_record_id?: string | null
-          created_at?: string | null
-          explanation?: string | null
+          attendance_record_id?: string
+          created_at?: string
+          explanation?: string
           id?: string
-          rejection_reason?: string | null
-          request_status?:
-            | Database["public"]["Enums"]["request_decision_status"]
-            | null
-          request_type?: Database["public"]["Enums"]["attendance_request_type"]
+          request_status?: string
+          requested_status?: string
+          review_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          student_id?: string | null
-          submitted_at?: string
-          updated_at?: string | null
+          student_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -301,315 +240,45 @@ export type Database = {
           },
         ]
       }
-      calendar_entries: {
-        Row: {
-          end_datetime: string
-          entry_type: Database["public"]["Enums"]["entry_type"]
-          id: string
-          reference_id: string
-          start_datetime: string
-        }
-        Insert: {
-          end_datetime: string
-          entry_type: Database["public"]["Enums"]["entry_type"]
-          id?: string
-          reference_id: string
-          start_datetime: string
-        }
-        Update: {
-          end_datetime?: string
-          entry_type?: Database["public"]["Enums"]["entry_type"]
-          id?: string
-          reference_id?: string
-          start_datetime?: string
-        }
-        Relationships: []
-      }
-      class_enrollments: {
-        Row: {
-          class_id: string | null
-          enrollment_status:
-            | Database["public"]["Enums"]["enrollment_status"]
-            | null
-          id: string
-          student_id: string | null
-        }
-        Insert: {
-          class_id?: string | null
-          enrollment_status?:
-            | Database["public"]["Enums"]["enrollment_status"]
-            | null
-          id?: string
-          student_id?: string | null
-        }
-        Update: {
-          class_id?: string | null
-          enrollment_status?:
-            | Database["public"]["Enums"]["enrollment_status"]
-            | null
-          id?: string
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_enrollments_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_enrollments_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      class_schedules: {
-        Row: {
-          class_id: string | null
-          day_of_week: number
-          end_time: string
-          id: string
-          start_time: string
-        }
-        Insert: {
-          class_id?: string | null
-          day_of_week: number
-          end_time: string
-          id?: string
-          start_time: string
-        }
-        Update: {
-          class_id?: string | null
-          day_of_week?: number
-          end_time?: string
-          id?: string
-          start_time?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_schedules_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      class_sessions: {
-        Row: {
-          actual_end: string | null
-          actual_start: string | null
-          attendance_window_end: string | null
-          attendance_window_start: string | null
-          class_id: string | null
-          created_at: string
-          created_by: string | null
-          ended_reason: string | null
-          id: string
-          late_cutoff_at: string | null
-          mode: Database["public"]["Enums"]["session_mode"] | null
-          room_id: string | null
-          scheduled_end: string | null
-          scheduled_start: string | null
-          session_date: string
-          session_status: Database["public"]["Enums"]["session_status"] | null
-          updated_at: string | null
-        }
-        Insert: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end?: string | null
-          attendance_window_start?: string | null
-          class_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          ended_reason?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: Database["public"]["Enums"]["session_mode"] | null
-          room_id?: string | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          session_date: string
-          session_status?: Database["public"]["Enums"]["session_status"] | null
-          updated_at?: string | null
-        }
-        Update: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end?: string | null
-          attendance_window_start?: string | null
-          class_id?: string | null
-          created_at?: string
-          created_by?: string | null
-          ended_reason?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: Database["public"]["Enums"]["session_mode"] | null
-          room_id?: string | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          session_date?: string
-          session_status?: Database["public"]["Enums"]["session_status"] | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_sessions_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_sessions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_sessions_room_id_fkey"
-            columns: ["room_id"]
-            isOneToOne: false
-            referencedRelation: "rooms"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      classes: {
-        Row: {
-          class_status: Database["public"]["Enums"]["class_status"] | null
-          faculty_id: string | null
-          id: string
-          room_id: string | null
-          section_id: string | null
-          semester_id: string | null
-          subject_id: string | null
-        }
-        Insert: {
-          class_status?: Database["public"]["Enums"]["class_status"] | null
-          faculty_id?: string | null
-          id?: string
-          room_id?: string | null
-          section_id?: string | null
-          semester_id?: string | null
-          subject_id?: string | null
-        }
-        Update: {
-          class_status?: Database["public"]["Enums"]["class_status"] | null
-          faculty_id?: string | null
-          id?: string
-          room_id?: string | null
-          section_id?: string | null
-          semester_id?: string | null
-          subject_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "classes_faculty_id_fkey"
-            columns: ["faculty_id"]
-            isOneToOne: false
-            referencedRelation: "faculty"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_room_id_fkey"
-            columns: ["room_id"]
-            isOneToOne: false
-            referencedRelation: "rooms"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_section_id_fkey"
-            columns: ["section_id"]
-            isOneToOne: false
-            referencedRelation: "sections"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_subject_id_fkey"
-            columns: ["subject_id"]
-            isOneToOne: false
-            referencedRelation: "subjects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      colleges: {
-        Row: {
-          college_code: string
-          college_name: string
-          id: string
-        }
-        Insert: {
-          college_code: string
-          college_name: string
-          id?: string
-        }
-        Update: {
-          college_code?: string
-          college_name?: string
-          id?: string
-        }
-        Relationships: []
-      }
       credential_requests: {
         Row: {
           created_at: string
-          credential_type: Database["public"]["Enums"]["credential_type"]
+          credential_type: string
           id: string
-          request_type: Database["public"]["Enums"]["credential_request_type"]
-          resolved_at: string | null
+          reason: string
+          request_status: string
+          request_type: string
           review_remarks: string | null
           reviewed_at: string | null
           reviewed_by: string | null
-          status:
-            | Database["public"]["Enums"]["credential_request_status"]
-            | null
-          student_id: string | null
-          updated_at: string | null
+          student_id: string
+          updated_at: string
         }
         Insert: {
           created_at?: string
-          credential_type: Database["public"]["Enums"]["credential_type"]
+          credential_type: string
           id?: string
-          request_type: Database["public"]["Enums"]["credential_request_type"]
-          resolved_at?: string | null
+          reason: string
+          request_status?: string
+          request_type: string
           review_remarks?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          status?:
-            | Database["public"]["Enums"]["credential_request_status"]
-            | null
-          student_id?: string | null
-          updated_at?: string | null
+          student_id: string
+          updated_at?: string
         }
         Update: {
           created_at?: string
-          credential_type?: Database["public"]["Enums"]["credential_type"]
+          credential_type?: string
           id?: string
-          request_type?: Database["public"]["Enums"]["credential_request_type"]
-          resolved_at?: string | null
+          reason?: string
+          request_status?: string
+          request_type?: string
           review_remarks?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
-          status?:
-            | Database["public"]["Enums"]["credential_request_status"]
-            | null
-          student_id?: string | null
-          updated_at?: string | null
+          student_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -628,184 +297,102 @@ export type Database = {
           },
         ]
       }
-      dean_assignments: {
+      departments: {
         Row: {
           created_at: string
-          department_id: string
-          employee_number: string | null
+          department_code: string
+          department_name: string
           id: string
-          office_name: string
-          profile_id: string
           updated_at: string
         }
         Insert: {
           created_at?: string
-          department_id: string
-          employee_number?: string | null
+          department_code: string
+          department_name: string
           id?: string
-          office_name?: string
-          profile_id: string
           updated_at?: string
         }
         Update: {
           created_at?: string
-          department_id?: string
-          employee_number?: string | null
+          department_code?: string
+          department_name?: string
           id?: string
-          office_name?: string
-          profile_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      event_categories: {
+        Row: {
+          category_name: string
+          created_at: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          category_name: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          category_name?: string
+          created_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      event_feedback: {
+        Row: {
+          attendance_record_id: string
+          comment: string | null
+          event_id: string
+          id: string
+          sentiment_label: string | null
+          sentiment_score: number | null
+          student_id: string
+          submitted_at: string
+          updated_at: string
+        }
+        Insert: {
+          attendance_record_id: string
+          comment?: string | null
+          event_id: string
+          id?: string
+          sentiment_label?: string | null
+          sentiment_score?: number | null
+          student_id: string
+          submitted_at?: string
+          updated_at?: string
+        }
+        Update: {
+          attendance_record_id?: string
+          comment?: string | null
+          event_id?: string
+          id?: string
+          sentiment_label?: string | null
+          sentiment_score?: number | null
+          student_id?: string
+          submitted_at?: string
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "dean_assignments_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
+            foreignKeyName: "event_feedback_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: true
+            referencedRelation: "attendance_records"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "dean_assignments_profile_id_fkey"
-            columns: ["profile_id"]
+            foreignKeyName: "event_feedback_event_id_fkey"
+            columns: ["event_id"]
             isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      departments: {
-        Row: {
-          college_id: string | null
-          department_code: string
-          department_name: string
-          id: string
-        }
-        Insert: {
-          college_id?: string | null
-          department_code: string
-          department_name: string
-          id?: string
-        }
-        Update: {
-          college_id?: string | null
-          department_code?: string
-          department_name?: string
-          id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "departments_college_id_fkey"
-            columns: ["college_id"]
-            isOneToOne: false
-            referencedRelation: "colleges"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      devices: {
-        Row: {
-          device_name: string
-          device_type: Database["public"]["Enums"]["device_type"]
-          id: string
-          location: string | null
-          status: Database["public"]["Enums"]["device_status"] | null
-        }
-        Insert: {
-          device_name: string
-          device_type: Database["public"]["Enums"]["device_type"]
-          id?: string
-          location?: string | null
-          status?: Database["public"]["Enums"]["device_status"] | null
-        }
-        Update: {
-          device_name?: string
-          device_type?: Database["public"]["Enums"]["device_type"]
-          id?: string
-          location?: string | null
-          status?: Database["public"]["Enums"]["device_status"] | null
-        }
-        Relationships: []
-      }
-      enrollment_request_logs: {
-        Row: {
-          action: string
-          created_at: string | null
-          enrollment_request_id: string | null
-          id: string
-          performed_by: string | null
-          remarks: string | null
-        }
-        Insert: {
-          action: string
-          created_at?: string | null
-          enrollment_request_id?: string | null
-          id?: string
-          performed_by?: string | null
-          remarks?: string | null
-        }
-        Update: {
-          action?: string
-          created_at?: string | null
-          enrollment_request_id?: string | null
-          id?: string
-          performed_by?: string | null
-          remarks?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "enrollment_request_logs_enrollment_request_id_fkey"
-            columns: ["enrollment_request_id"]
-            isOneToOne: false
-            referencedRelation: "enrollment_requests"
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "enrollment_request_logs_performed_by_fkey"
-            columns: ["performed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      enrollment_requests: {
-        Row: {
-          created_at: string | null
-          id: string
-          request_type: string
-          semester_id: string | null
-          status: Database["public"]["Enums"]["request_decision_status"] | null
-          student_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          request_type: string
-          semester_id?: string | null
-          status?: Database["public"]["Enums"]["request_decision_status"] | null
-          student_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          request_type?: string
-          semester_id?: string | null
-          status?: Database["public"]["Enums"]["request_decision_status"] | null
-          student_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "enrollment_requests_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "enrollment_requests_student_id_fkey"
+            foreignKeyName: "event_feedback_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"
@@ -813,87 +400,104 @@ export type Database = {
           },
         ]
       }
-      event_approvals: {
+      event_feedback_ratings: {
         Row: {
-          created_at: string | null
-          decision: Database["public"]["Enums"]["approval_status"] | null
-          event_id: string | null
+          created_at: string
+          feedback_id: string
           id: string
-          remarks: string | null
-          reviewed_by: string | null
+          objective_id: string
+          rating: number
         }
         Insert: {
-          created_at?: string | null
-          decision?: Database["public"]["Enums"]["approval_status"] | null
-          event_id?: string | null
+          created_at?: string
+          feedback_id: string
           id?: string
-          remarks?: string | null
-          reviewed_by?: string | null
+          objective_id: string
+          rating: number
         }
         Update: {
-          created_at?: string | null
-          decision?: Database["public"]["Enums"]["approval_status"] | null
-          event_id?: string | null
+          created_at?: string
+          feedback_id?: string
           id?: string
-          remarks?: string | null
-          reviewed_by?: string | null
+          objective_id?: string
+          rating?: number
         }
         Relationships: [
           {
-            foreignKeyName: "event_approvals_event_id_fkey"
+            foreignKeyName: "event_feedback_ratings_feedback_id_fkey"
+            columns: ["feedback_id"]
+            isOneToOne: false
+            referencedRelation: "event_feedback"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_feedback_ratings_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "event_objectives"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_objectives: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          objective_order: number
+          objective_text: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          objective_order: number
+          objective_text: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          objective_order?: number
+          objective_text?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_objectives_event_id_fkey"
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "event_approvals_reviewed_by_fkey"
-            columns: ["reviewed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
         ]
-      }
-      event_categories: {
-        Row: {
-          category_name: string
-          id: string
-        }
-        Insert: {
-          category_name: string
-          id?: string
-        }
-        Update: {
-          category_name?: string
-          id?: string
-        }
-        Relationships: []
       }
       event_participants: {
         Row: {
-          event_id: string | null
+          event_id: string
           id: string
-          participant_status:
-            | Database["public"]["Enums"]["participant_status"]
-            | null
-          student_id: string | null
+          participant_status: string
+          registered_at: string
+          student_id: string
+          updated_at: string
         }
         Insert: {
-          event_id?: string | null
+          event_id: string
           id?: string
-          participant_status?:
-            | Database["public"]["Enums"]["participant_status"]
-            | null
-          student_id?: string | null
+          participant_status?: string
+          registered_at?: string
+          student_id: string
+          updated_at?: string
         }
         Update: {
-          event_id?: string | null
+          event_id?: string
           id?: string
-          participant_status?:
-            | Database["public"]["Enums"]["participant_status"]
-            | null
-          student_id?: string | null
+          participant_status?: string
+          registered_at?: string
+          student_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -912,90 +516,63 @@ export type Database = {
           },
         ]
       }
-      event_session_participants: {
-        Row: {
-          event_session_id: string | null
-          id: string
-          student_id: string | null
-        }
-        Insert: {
-          event_session_id?: string | null
-          id?: string
-          student_id?: string | null
-        }
-        Update: {
-          event_session_id?: string | null
-          id?: string
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_session_participants_event_session_id_fkey"
-            columns: ["event_session_id"]
-            isOneToOne: false
-            referencedRelation: "event_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_session_participants_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       event_sessions: {
         Row: {
           actual_end: string | null
           actual_start: string | null
-          attendance_window_end: string | null
-          attendance_window_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
           created_at: string
-          created_by: string | null
+          created_by: string
           ended_reason: string | null
-          event_id: string | null
+          event_id: string
           id: string
           late_cutoff_at: string | null
-          mode: Database["public"]["Enums"]["session_mode"] | null
-          scheduled_end: string | null
-          scheduled_start: string | null
-          session_status: Database["public"]["Enums"]["session_status"] | null
-          updated_at: string | null
+          mode: string
+          scheduled_end: string
+          scheduled_start: string
+          session_name: string
+          session_status: string
+          updated_at: string
+          venue: string
         }
         Insert: {
           actual_end?: string | null
           actual_start?: string | null
-          attendance_window_end?: string | null
-          attendance_window_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
           created_at?: string
-          created_by?: string | null
+          created_by: string
           ended_reason?: string | null
-          event_id?: string | null
+          event_id: string
           id?: string
           late_cutoff_at?: string | null
-          mode?: Database["public"]["Enums"]["session_mode"] | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          session_status?: Database["public"]["Enums"]["session_status"] | null
-          updated_at?: string | null
+          mode?: string
+          scheduled_end: string
+          scheduled_start: string
+          session_name: string
+          session_status?: string
+          updated_at?: string
+          venue: string
         }
         Update: {
           actual_end?: string | null
           actual_start?: string | null
-          attendance_window_end?: string | null
-          attendance_window_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
           created_at?: string
-          created_by?: string | null
+          created_by?: string
           ended_reason?: string | null
-          event_id?: string | null
+          event_id?: string
           id?: string
           late_cutoff_at?: string | null
-          mode?: Database["public"]["Enums"]["session_mode"] | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          session_status?: Database["public"]["Enums"]["session_status"] | null
-          updated_at?: string | null
+          mode?: string
+          scheduled_end?: string
+          scheduled_start?: string
+          session_name?: string
+          session_status?: string
+          updated_at?: string
+          venue?: string
         }
         Relationships: [
           {
@@ -1014,30 +591,60 @@ export type Database = {
           },
         ]
       }
-      event_target_groups: {
+      event_summary_snapshots: {
         Row: {
-          event_id: string | null
+          absent_count: number
+          attendance_rate: number
+          average_sentiment_score: number | null
+          captured_at: string
+          event_id: string
           id: string
-          reference_id: string
-          target_type: Database["public"]["Enums"]["target_type"]
+          late_count: number
+          negative_percent: number
+          neutral_percent: number
+          positive_percent: number
+          present_count: number
+          source: string
+          total_registered: number
+          updated_at: string
         }
         Insert: {
-          event_id?: string | null
+          absent_count: number
+          attendance_rate: number
+          average_sentiment_score?: number | null
+          captured_at?: string
+          event_id: string
           id?: string
-          reference_id: string
-          target_type: Database["public"]["Enums"]["target_type"]
+          late_count: number
+          negative_percent: number
+          neutral_percent: number
+          positive_percent: number
+          present_count: number
+          source?: string
+          total_registered: number
+          updated_at?: string
         }
         Update: {
-          event_id?: string | null
+          absent_count?: number
+          attendance_rate?: number
+          average_sentiment_score?: number | null
+          captured_at?: string
+          event_id?: string
           id?: string
-          reference_id?: string
-          target_type?: Database["public"]["Enums"]["target_type"]
+          late_count?: number
+          negative_percent?: number
+          neutral_percent?: number
+          positive_percent?: number
+          present_count?: number
+          source?: string
+          total_registered?: number
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "event_target_groups_event_id_fkey"
+            foreignKeyName: "event_summary_snapshots_event_id_fkey"
             columns: ["event_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "events"
             referencedColumns: ["id"]
           },
@@ -1045,50 +652,58 @@ export type Database = {
       }
       events: {
         Row: {
-          approval_status: Database["public"]["Enums"]["approval_status"] | null
-          category_id: string | null
+          approval_reason: string | null
+          approval_status: string
+          category_id: string
+          created_at: string
+          department_id: string | null
           description: string | null
+          ends_at: string
           event_code: string
-          event_date: string | null
-          event_name: string
-          event_status: Database["public"]["Enums"]["event_status"] | null
+          event_status: string
           id: string
-          organizer_id: string | null
-          scheduled_end: string | null
-          scheduled_start: string | null
-          venue: string | null
+          organizer_id: string
+          predicted_turnout_percent: number | null
+          starts_at: string
+          title: string
+          updated_at: string
+          venue: string
         }
         Insert: {
-          approval_status?:
-            | Database["public"]["Enums"]["approval_status"]
-            | null
-          category_id?: string | null
+          approval_reason?: string | null
+          approval_status?: string
+          category_id: string
+          created_at?: string
+          department_id?: string | null
           description?: string | null
+          ends_at: string
           event_code: string
-          event_date?: string | null
-          event_name: string
-          event_status?: Database["public"]["Enums"]["event_status"] | null
+          event_status?: string
           id?: string
-          organizer_id?: string | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          venue?: string | null
+          organizer_id: string
+          predicted_turnout_percent?: number | null
+          starts_at: string
+          title: string
+          updated_at?: string
+          venue: string
         }
         Update: {
-          approval_status?:
-            | Database["public"]["Enums"]["approval_status"]
-            | null
-          category_id?: string | null
+          approval_reason?: string | null
+          approval_status?: string
+          category_id?: string
+          created_at?: string
+          department_id?: string | null
           description?: string | null
+          ends_at?: string
           event_code?: string
-          event_date?: string | null
-          event_name?: string
-          event_status?: Database["public"]["Enums"]["event_status"] | null
+          event_status?: string
           id?: string
-          organizer_id?: string | null
-          scheduled_end?: string | null
-          scheduled_start?: string | null
-          venue?: string | null
+          organizer_id?: string
+          predicted_turnout_percent?: number | null
+          starts_at?: string
+          title?: string
+          updated_at?: string
+          venue?: string
         }
         Relationships: [
           {
@@ -1096,6 +711,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "event_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
           {
@@ -1109,121 +731,87 @@ export type Database = {
       }
       facial_profiles: {
         Row: {
-          face_embedding: string | null
-          face_image_url: string | null
-          facial_status: Database["public"]["Enums"]["facial_status"] | null
+          consent_recorded_at: string
+          created_at: string
+          enrolled_at: string
+          enrollment_reference: string
+          facial_status: string
           id: string
-          student_id: string | null
+          last_verified_at: string | null
+          student_id: string
+          updated_at: string
         }
         Insert: {
-          face_embedding?: string | null
-          face_image_url?: string | null
-          facial_status?: Database["public"]["Enums"]["facial_status"] | null
+          consent_recorded_at: string
+          created_at?: string
+          enrolled_at?: string
+          enrollment_reference: string
+          facial_status?: string
           id?: string
-          student_id?: string | null
+          last_verified_at?: string | null
+          student_id: string
+          updated_at?: string
         }
         Update: {
-          face_embedding?: string | null
-          face_image_url?: string | null
-          facial_status?: Database["public"]["Enums"]["facial_status"] | null
+          consent_recorded_at?: string
+          created_at?: string
+          enrolled_at?: string
+          enrollment_reference?: string
+          facial_status?: string
           id?: string
-          student_id?: string | null
+          last_verified_at?: string | null
+          student_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "facial_profiles_student_id_fkey"
             columns: ["student_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      faculty: {
-        Row: {
-          department_id: string | null
-          employee_id: string | null
-          employment_type: Database["public"]["Enums"]["employment_type"] | null
-          faculty_status: Database["public"]["Enums"]["faculty_status"] | null
-          id: string
-          profile_id: string | null
-        }
-        Insert: {
-          department_id?: string | null
-          employee_id?: string | null
-          employment_type?:
-            | Database["public"]["Enums"]["employment_type"]
-            | null
-          faculty_status?: Database["public"]["Enums"]["faculty_status"] | null
-          id?: string
-          profile_id?: string | null
-        }
-        Update: {
-          department_id?: string | null
-          employee_id?: string | null
-          employment_type?:
-            | Database["public"]["Enums"]["employment_type"]
-            | null
-          faculty_status?: Database["public"]["Enums"]["faculty_status"] | null
-          id?: string
-          profile_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "faculty_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "faculty_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
       }
       generated_reports: {
         Row: {
-          created_at: string | null
-          error_message: string | null
-          expires_at: string | null
-          file_url: string | null
-          filters: Json | null
-          format: Database["public"]["Enums"]["report_format"]
+          created_at: string
           generated_at: string | null
-          generated_by: string | null
+          generated_by: string
           id: string
+          report_format: string
+          report_name: string
           report_status: string
-          report_type: string
+          scope: string
+          storage_bucket: string | null
+          storage_object_path: string | null
+          updated_at: string
         }
         Insert: {
-          created_at?: string | null
-          error_message?: string | null
-          expires_at?: string | null
-          file_url?: string | null
-          filters?: Json | null
-          format: Database["public"]["Enums"]["report_format"]
+          created_at?: string
           generated_at?: string | null
-          generated_by?: string | null
+          generated_by: string
           id?: string
+          report_format: string
+          report_name: string
           report_status?: string
-          report_type: string
+          scope: string
+          storage_bucket?: string | null
+          storage_object_path?: string | null
+          updated_at?: string
         }
         Update: {
-          created_at?: string | null
-          error_message?: string | null
-          expires_at?: string | null
-          file_url?: string | null
-          filters?: Json | null
-          format?: Database["public"]["Enums"]["report_format"]
+          created_at?: string
           generated_at?: string | null
-          generated_by?: string | null
+          generated_by?: string
           id?: string
+          report_format?: string
+          report_name?: string
           report_status?: string
-          report_type?: string
+          scope?: string
+          storage_bucket?: string | null
+          storage_object_path?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1235,208 +823,50 @@ export type Database = {
           },
         ]
       }
-      ml_absenteeism_predictions: {
+      ml_predictions: {
         Row: {
-          created_at: string | null
+          event_id: string | null
+          explanation: string
+          generated_at: string
           id: string
-          risk_level: Database["public"]["Enums"]["risk_level"] | null
-          risk_score: number | null
-          semester_id: string | null
+          pattern_label: string
+          prediction_type: string
+          risk_level: string
+          score: number
           student_id: string | null
         }
         Insert: {
-          created_at?: string | null
+          event_id?: string | null
+          explanation: string
+          generated_at?: string
           id?: string
-          risk_level?: Database["public"]["Enums"]["risk_level"] | null
-          risk_score?: number | null
-          semester_id?: string | null
+          pattern_label: string
+          prediction_type?: string
+          risk_level: string
+          score: number
           student_id?: string | null
         }
         Update: {
-          created_at?: string | null
+          event_id?: string | null
+          explanation?: string
+          generated_at?: string
           id?: string
-          risk_level?: Database["public"]["Enums"]["risk_level"] | null
-          risk_score?: number | null
-          semester_id?: string | null
+          pattern_label?: string
+          prediction_type?: string
+          risk_level?: string
+          score?: number
           student_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "ml_absenteeism_predictions_semester_id_fkey"
-            columns: ["semester_id"]
+            foreignKeyName: "ml_predictions_event_id_fkey"
+            columns: ["event_id"]
             isOneToOne: false
-            referencedRelation: "semesters"
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "ml_absenteeism_predictions_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ml_attendance_anomalies: {
-        Row: {
-          actual_rate: number | null
-          anomaly_level: Database["public"]["Enums"]["anomaly_level"] | null
-          created_at: string | null
-          expected_rate: number | null
-          id: string
-          semester_id: string | null
-          student_id: string | null
-        }
-        Insert: {
-          actual_rate?: number | null
-          anomaly_level?: Database["public"]["Enums"]["anomaly_level"] | null
-          created_at?: string | null
-          expected_rate?: number | null
-          id?: string
-          semester_id?: string | null
-          student_id?: string | null
-        }
-        Update: {
-          actual_rate?: number | null
-          anomaly_level?: Database["public"]["Enums"]["anomaly_level"] | null
-          created_at?: string | null
-          expected_rate?: number | null
-          id?: string
-          semester_id?: string | null
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ml_attendance_anomalies_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ml_attendance_anomalies_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ml_participation_clusters: {
-        Row: {
-          cluster_name: string | null
-          cluster_no: number | null
-          created_at: string | null
-          id: string
-          semester_id: string | null
-          student_id: string | null
-        }
-        Insert: {
-          cluster_name?: string | null
-          cluster_no?: number | null
-          created_at?: string | null
-          id?: string
-          semester_id?: string | null
-          student_id?: string | null
-        }
-        Update: {
-          cluster_name?: string | null
-          cluster_no?: number | null
-          created_at?: string | null
-          id?: string
-          semester_id?: string | null
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ml_participation_clusters_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ml_participation_clusters_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ml_runs: {
-        Row: {
-          created_at: string | null
-          id: string
-          model_type: Database["public"]["Enums"]["model_type"]
-          parameters: Json | null
-          semester_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          model_type: Database["public"]["Enums"]["model_type"]
-          parameters?: Json | null
-          semester_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          model_type?: Database["public"]["Enums"]["model_type"]
-          parameters?: Json | null
-          semester_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ml_runs_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      nfc_credentials: {
-        Row: {
-          hash_token: string
-          id: string
-          issued_at: string | null
-          issued_by: string | null
-          last_successful_check_in_at: string | null
-          nfc_status: Database["public"]["Enums"]["nfc_status"] | null
-          student_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          hash_token: string
-          id?: string
-          issued_at?: string | null
-          issued_by?: string | null
-          last_successful_check_in_at?: string | null
-          nfc_status?: Database["public"]["Enums"]["nfc_status"] | null
-          student_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          hash_token?: string
-          id?: string
-          issued_at?: string | null
-          issued_by?: string | null
-          last_successful_check_in_at?: string | null
-          nfc_status?: Database["public"]["Enums"]["nfc_status"] | null
-          student_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "nfc_credentials_issued_by_fkey"
-            columns: ["issued_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "nfc_credentials_student_id_fkey"
+            foreignKeyName: "ml_predictions_student_id_fkey"
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"
@@ -1447,44 +877,38 @@ export type Database = {
       notifications: {
         Row: {
           action_url: string | null
-          created_at: string | null
+          created_at: string
           id: string
           message: string
-          notification_status:
-            | Database["public"]["Enums"]["notification_status"]
-            | null
+          notification_status: string
+          notification_type: string
           read_at: string | null
-          recipient_id: string | null
+          recipient_id: string
           reference_id: string | null
-          reference_type: string | null
           title: string
         }
         Insert: {
           action_url?: string | null
-          created_at?: string | null
+          created_at?: string
           id?: string
           message: string
-          notification_status?:
-            | Database["public"]["Enums"]["notification_status"]
-            | null
+          notification_status?: string
+          notification_type: string
           read_at?: string | null
-          recipient_id?: string | null
+          recipient_id: string
           reference_id?: string | null
-          reference_type?: string | null
           title: string
         }
         Update: {
           action_url?: string | null
-          created_at?: string | null
+          created_at?: string
           id?: string
           message?: string
-          notification_status?:
-            | Database["public"]["Enums"]["notification_status"]
-            | null
+          notification_status?: string
+          notification_type?: string
           read_at?: string | null
-          recipient_id?: string | null
+          recipient_id?: string
           reference_id?: string | null
-          reference_type?: string | null
           title?: string
         }
         Relationships: [
@@ -1499,34 +923,37 @@ export type Database = {
       }
       organizers: {
         Row: {
+          created_at: string
           department_id: string | null
-          employee_id: string | null
+          employee_id: string
           id: string
-          organizer_status:
-            | Database["public"]["Enums"]["organizer_status"]
-            | null
-          position: string | null
-          profile_id: string | null
+          organization_name: string
+          organizer_status: string
+          position: string
+          profile_id: string
+          updated_at: string
         }
         Insert: {
+          created_at?: string
           department_id?: string | null
-          employee_id?: string | null
+          employee_id: string
           id?: string
-          organizer_status?:
-            | Database["public"]["Enums"]["organizer_status"]
-            | null
-          position?: string | null
-          profile_id?: string | null
+          organization_name?: string
+          organizer_status?: string
+          position?: string
+          profile_id: string
+          updated_at?: string
         }
         Update: {
+          created_at?: string
           department_id?: string | null
-          employee_id?: string | null
+          employee_id?: string
           id?: string
-          organizer_status?:
-            | Database["public"]["Enums"]["organizer_status"]
-            | null
-          position?: string | null
-          profile_id?: string | null
+          organization_name?: string
+          organizer_status?: string
+          position?: string
+          profile_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1539,7 +966,7 @@ export type Database = {
           {
             foreignKeyName: "organizers_profile_id_fkey"
             columns: ["profile_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -1547,8 +974,8 @@ export type Database = {
       }
       profiles: {
         Row: {
-          account_status: Database["public"]["Enums"]["account_status"] | null
-          created_at: string | null
+          account_status: string
+          created_at: string
           department_id: string | null
           email: string
           employee_id: string | null
@@ -1557,13 +984,13 @@ export type Database = {
           last_name: string
           middle_name: string | null
           profile_picture: string | null
-          role: Database["public"]["Enums"]["user_role"]
+          role: string
           student_id: string | null
-          updated_at: string | null
+          updated_at: string
         }
         Insert: {
-          account_status?: Database["public"]["Enums"]["account_status"] | null
-          created_at?: string | null
+          account_status?: string
+          created_at?: string
           department_id?: string | null
           email: string
           employee_id?: string | null
@@ -1572,13 +999,13 @@ export type Database = {
           last_name: string
           middle_name?: string | null
           profile_picture?: string | null
-          role: Database["public"]["Enums"]["user_role"]
+          role: string
           student_id?: string | null
-          updated_at?: string | null
+          updated_at?: string
         }
         Update: {
-          account_status?: Database["public"]["Enums"]["account_status"] | null
-          created_at?: string | null
+          account_status?: string
+          created_at?: string
           department_id?: string | null
           email?: string
           employee_id?: string | null
@@ -1587,9 +1014,9 @@ export type Database = {
           last_name?: string
           middle_name?: string | null
           profile_picture?: string | null
-          role?: Database["public"]["Enums"]["user_role"]
+          role?: string
           student_id?: string | null
-          updated_at?: string | null
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1603,22 +1030,28 @@ export type Database = {
       }
       programs: {
         Row: {
-          department_id: string | null
+          created_at: string
+          department_id: string
           id: string
           program_code: string
           program_name: string
+          updated_at: string
         }
         Insert: {
-          department_id?: string | null
+          created_at?: string
+          department_id: string
           id?: string
           program_code: string
           program_name: string
+          updated_at?: string
         }
         Update: {
-          department_id?: string | null
+          created_at?: string
+          department_id?: string
           id?: string
           program_code?: string
           program_name?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1632,22 +1065,40 @@ export type Database = {
       }
       qr_credentials: {
         Row: {
-          hash_token: string
+          created_at: string
+          credential_status: string
+          expires_at: string | null
           id: string
-          qr_status: Database["public"]["Enums"]["qr_status"] | null
-          student_id: string | null
+          issued_at: string
+          last_successful_check_in_at: string | null
+          revoked_at: string | null
+          student_id: string
+          token_hash: string
+          updated_at: string
         }
         Insert: {
-          hash_token: string
+          created_at?: string
+          credential_status?: string
+          expires_at?: string | null
           id?: string
-          qr_status?: Database["public"]["Enums"]["qr_status"] | null
-          student_id?: string | null
+          issued_at?: string
+          last_successful_check_in_at?: string | null
+          revoked_at?: string | null
+          student_id: string
+          token_hash: string
+          updated_at?: string
         }
         Update: {
-          hash_token?: string
+          created_at?: string
+          credential_status?: string
+          expires_at?: string | null
           id?: string
-          qr_status?: Database["public"]["Enums"]["qr_status"] | null
-          student_id?: string | null
+          issued_at?: string
+          last_successful_check_in_at?: string | null
+          revoked_at?: string | null
+          student_id?: string
+          token_hash?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -1659,50 +1110,35 @@ export type Database = {
           },
         ]
       }
-      rooms: {
-        Row: {
-          building: string | null
-          capacity: number | null
-          id: string
-          room_code: string
-        }
-        Insert: {
-          building?: string | null
-          capacity?: number | null
-          id?: string
-          room_code: string
-        }
-        Update: {
-          building?: string | null
-          capacity?: number | null
-          id?: string
-          room_code?: string
-        }
-        Relationships: []
-      }
       sections: {
         Row: {
           academic_year: string
+          created_at: string
           id: string
-          program_id: string | null
+          program_id: string
           section_name: string
           semester: string
+          updated_at: string
           year_level: number
         }
         Insert: {
           academic_year: string
+          created_at?: string
           id?: string
-          program_id?: string | null
+          program_id: string
           section_name: string
           semester: string
+          updated_at?: string
           year_level: number
         }
         Update: {
           academic_year?: string
+          created_at?: string
           id?: string
-          program_id?: string | null
+          program_id?: string
           section_name?: string
           semester?: string
+          updated_at?: string
           year_level?: number
         }
         Relationships: [
@@ -1718,182 +1154,85 @@ export type Database = {
       semesters: {
         Row: {
           academic_year: string
-          end_date: string | null
+          created_at: string
+          end_date: string
           id: string
           semester_name: string
-          start_date: string | null
-          status: Database["public"]["Enums"]["semester_status"] | null
+          start_date: string
+          status: string
+          updated_at: string
         }
         Insert: {
           academic_year: string
-          end_date?: string | null
+          created_at?: string
+          end_date: string
           id?: string
           semester_name: string
-          start_date?: string | null
-          status?: Database["public"]["Enums"]["semester_status"] | null
+          start_date: string
+          status?: string
+          updated_at?: string
         }
         Update: {
           academic_year?: string
-          end_date?: string | null
+          created_at?: string
+          end_date?: string
           id?: string
           semester_name?: string
-          start_date?: string | null
-          status?: Database["public"]["Enums"]["semester_status"] | null
+          start_date?: string
+          status?: string
+          updated_at?: string
         }
         Relationships: []
       }
-      session_audit_logs: {
-        Row: {
-          action: string
-          created_at: string | null
-          id: string
-          new_value: Json | null
-          old_value: Json | null
-          performed_by: string | null
-          session_id: string
-          session_type: Database["public"]["Enums"]["entry_type"]
-        }
-        Insert: {
-          action: string
-          created_at?: string | null
-          id?: string
-          new_value?: Json | null
-          old_value?: Json | null
-          performed_by?: string | null
-          session_id: string
-          session_type: Database["public"]["Enums"]["entry_type"]
-        }
-        Update: {
-          action?: string
-          created_at?: string | null
-          id?: string
-          new_value?: Json | null
-          old_value?: Json | null
-          performed_by?: string | null
-          session_id?: string
-          session_type?: Database["public"]["Enums"]["entry_type"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "session_audit_logs_performed_by_fkey"
-            columns: ["performed_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      session_students: {
-        Row: {
-          class_session_id: string | null
-          id: string
-          student_id: string | null
-        }
-        Insert: {
-          class_session_id?: string | null
-          id?: string
-          student_id?: string | null
-        }
-        Update: {
-          class_session_id?: string | null
-          id?: string
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "session_students_class_session_id_fkey"
-            columns: ["class_session_id"]
-            isOneToOne: false
-            referencedRelation: "class_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "session_students_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      student_flags: {
-        Row: {
-          created_at: string | null
-          flag_type: Database["public"]["Enums"]["flag_type"]
-          id: string
-          resolved: boolean | null
-          severity: Database["public"]["Enums"]["severity_level"] | null
-          student_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          flag_type: Database["public"]["Enums"]["flag_type"]
-          id?: string
-          resolved?: boolean | null
-          severity?: Database["public"]["Enums"]["severity_level"] | null
-          student_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          flag_type?: Database["public"]["Enums"]["flag_type"]
-          id?: string
-          resolved?: boolean | null
-          severity?: Database["public"]["Enums"]["severity_level"] | null
-          student_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "student_flags_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       students: {
         Row: {
-          college_id: string | null
+          created_at: string
+          department_id: string
           id: string
-          profile_id: string | null
-          program_id: string | null
-          section_id: string | null
+          profile_id: string
+          program_id: string
+          section_id: string
           student_id: string
-          student_status: Database["public"]["Enums"]["student_status"] | null
-          year_level: number | null
+          student_status: string
+          updated_at: string
+          year_level: number
         }
         Insert: {
-          college_id?: string | null
+          created_at?: string
+          department_id: string
           id?: string
-          profile_id?: string | null
-          program_id?: string | null
-          section_id?: string | null
+          profile_id: string
+          program_id: string
+          section_id: string
           student_id: string
-          student_status?: Database["public"]["Enums"]["student_status"] | null
-          year_level?: number | null
+          student_status?: string
+          updated_at?: string
+          year_level: number
         }
         Update: {
-          college_id?: string | null
+          created_at?: string
+          department_id?: string
           id?: string
-          profile_id?: string | null
-          program_id?: string | null
-          section_id?: string | null
+          profile_id?: string
+          program_id?: string
+          section_id?: string
           student_id?: string
-          student_status?: Database["public"]["Enums"]["student_status"] | null
-          year_level?: number | null
+          student_status?: string
+          updated_at?: string
+          year_level?: number
         }
         Relationships: [
           {
-            foreignKeyName: "students_college_id_fkey"
-            columns: ["college_id"]
+            foreignKeyName: "students_department_id_fkey"
+            columns: ["department_id"]
             isOneToOne: false
-            referencedRelation: "colleges"
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "students_profile_id_fkey"
             columns: ["profile_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
@@ -1913,26 +1252,73 @@ export type Database = {
           },
         ]
       }
-      subjects: {
+      verification_attempts: {
         Row: {
+          accepted: boolean
+          attempted_at: string
+          event_session_id: string
+          facial_profile_id: string | null
+          failure_code: string | null
           id: string
-          subject_code: string
-          subject_name: string
-          units: number | null
+          message: string
+          qr_credential_id: string | null
+          student_id: string | null
+          verification_method: string
         }
         Insert: {
+          accepted: boolean
+          attempted_at?: string
+          event_session_id: string
+          facial_profile_id?: string | null
+          failure_code?: string | null
           id?: string
-          subject_code: string
-          subject_name: string
-          units?: number | null
+          message: string
+          qr_credential_id?: string | null
+          student_id?: string | null
+          verification_method: string
         }
         Update: {
+          accepted?: boolean
+          attempted_at?: string
+          event_session_id?: string
+          facial_profile_id?: string | null
+          failure_code?: string | null
           id?: string
-          subject_code?: string
-          subject_name?: string
-          units?: number | null
+          message?: string
+          qr_credential_id?: string | null
+          student_id?: string | null
+          verification_method?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "verification_attempts_event_session_id_fkey"
+            columns: ["event_session_id"]
+            isOneToOne: false
+            referencedRelation: "event_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_attempts_facial_profile_id_fkey"
+            columns: ["facial_profile_id"]
+            isOneToOne: false
+            referencedRelation: "facial_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_attempts_qr_credential_id_fkey"
+            columns: ["qr_credential_id"]
+            isOneToOne: false
+            referencedRelation: "qr_credentials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "verification_attempts_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -1942,62 +1328,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      account_status: "active" | "inactive" | "suspended"
-      anomaly_level: "normal" | "warning" | "critical"
-      approval_status: "pending" | "approved" | "declined"
-      attendance_action_type: "time_in" | "time_out"
-      attendance_request_type: "excuse" | "correction"
-      attendance_status: "present" | "late" | "absent" | "excused"
-      attendance_type: "class" | "event"
-      class_status: "active" | "inactive" | "completed"
-      credential_request_status:
-        | "pending"
-        | "approved"
-        | "rejected"
-        | "resolved"
-      credential_request_type:
-        | "lost"
-        | "damaged"
-        | "replacement"
-        | "activation_issue"
-      credential_type: "nfc" | "qr" | "facial"
-      device_status: "active" | "inactive"
-      device_type: "nfc" | "camera" | "qr_scanner"
-      employment_type: "full_time" | "part_time"
-      enrollment_status: "enrolled" | "dropped" | "removed"
-      entry_type: "class" | "event"
-      event_status:
-        | "draft"
-        | "scheduled"
-        | "ongoing"
-        | "completed"
-        | "cancelled"
-      facial_status: "activated" | "inactive"
-      faculty_status: "active" | "on_leave" | "resigned"
-      flag_type: "absenteeism" | "anomaly" | "disciplinary"
-      model_type: "random_forest" | "linear_regression" | "kmeans"
-      nfc_status:
-        | "activated"
-        | "damaged"
-        | "inactive"
-        | "replaced"
-        | "lost"
-        | "blocked"
-      notification_status: "unread" | "read" | "archived"
-      organizer_status: "active" | "inactive"
-      participant_status: "invited" | "confirmed" | "removed"
-      qr_status: "activated" | "inactive"
-      report_format: "pdf" | "xlsx"
-      request_decision_status: "pending" | "approved" | "rejected"
-      risk_level: "low" | "medium" | "high"
-      semester_status: "upcoming" | "active" | "completed"
-      session_mode: "f2f" | "online"
-      session_status: "scheduled" | "ongoing" | "completed" | "cancelled"
-      severity_level: "low" | "medium" | "high"
-      student_status: "enrolled" | "loa" | "dropped" | "archived"
-      target_type: "college" | "program" | "section" | "student"
-      user_role: "admin" | "faculty" | "organizer" | "student"
-      verification_method: "nfc" | "qr" | "facial" | "manual" | "online"
+      [_ in never]: never
     }
     CompositeTypes: {
       [_ in never]: never
@@ -2124,61 +1455,6 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {
-      account_status: ["active", "inactive", "suspended"],
-      anomaly_level: ["normal", "warning", "critical"],
-      approval_status: ["pending", "approved", "declined"],
-      attendance_action_type: ["time_in", "time_out"],
-      attendance_request_type: ["excuse", "correction"],
-      attendance_status: ["present", "late", "absent", "excused"],
-      attendance_type: ["class", "event"],
-      class_status: ["active", "inactive", "completed"],
-      credential_request_status: [
-        "pending",
-        "approved",
-        "rejected",
-        "resolved",
-      ],
-      credential_request_type: [
-        "lost",
-        "damaged",
-        "replacement",
-        "activation_issue",
-      ],
-      credential_type: ["nfc", "qr", "facial"],
-      device_status: ["active", "inactive"],
-      device_type: ["nfc", "camera", "qr_scanner"],
-      employment_type: ["full_time", "part_time"],
-      enrollment_status: ["enrolled", "dropped", "removed"],
-      entry_type: ["class", "event"],
-      event_status: ["draft", "scheduled", "ongoing", "completed", "cancelled"],
-      facial_status: ["activated", "inactive"],
-      faculty_status: ["active", "on_leave", "resigned"],
-      flag_type: ["absenteeism", "anomaly", "disciplinary"],
-      model_type: ["random_forest", "linear_regression", "kmeans"],
-      nfc_status: [
-        "activated",
-        "damaged",
-        "inactive",
-        "replaced",
-        "lost",
-        "blocked",
-      ],
-      notification_status: ["unread", "read", "archived"],
-      organizer_status: ["active", "inactive"],
-      participant_status: ["invited", "confirmed", "removed"],
-      qr_status: ["activated", "inactive"],
-      report_format: ["pdf", "xlsx"],
-      request_decision_status: ["pending", "approved", "rejected"],
-      risk_level: ["low", "medium", "high"],
-      semester_status: ["upcoming", "active", "completed"],
-      session_mode: ["f2f", "online"],
-      session_status: ["scheduled", "ongoing", "completed", "cancelled"],
-      severity_level: ["low", "medium", "high"],
-      student_status: ["enrolled", "loa", "dropped", "archived"],
-      target_type: ["college", "program", "section", "student"],
-      user_role: ["admin", "faculty", "organizer", "student"],
-      verification_method: ["nfc", "qr", "facial", "manual", "online"],
-    },
+    Enums: {},
   },
 } as const

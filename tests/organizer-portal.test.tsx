@@ -9,9 +9,9 @@ import { EventManagementPage } from "@/features/organizer/pages/EventManagementP
 import { CompletedEventModal } from "@/features/organizer/pages/EventRecordsPage";
 import { AuthenticationMethodsPage } from "@/features/organizer/pages/AuthenticationMethodsPage";
 import { OrganizerCorrectionRequestsPage } from "@/features/organizer/pages/OrganizerCorrectionRequestsPage";
-import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/mocks/testHelpers";
-import { developmentErrorToggle } from "@/services/mock/developmentErrorToggle";
-import { resetMockRepositoryState } from "@/services/mock/repositories";
+import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/test-support/testHelpers";
+import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
+import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
 
 vi.mock("@/components/data-display/PLPassDataGrid", () => ({
@@ -62,7 +62,7 @@ afterEach(() => {
   window.localStorage.clear();
   queryClient.clear();
   developmentErrorToggle.reset();
-  resetMockRepositoryState();
+  resetSimulatedRepositoryState();
   setRoute("/");
 });
 
@@ -303,7 +303,7 @@ describe("organizer UI flows", () => {
   it("shows export report actions inside the completed event modal", () => {
     render(
       <CompletedEventModal
-        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] } as any}
+        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] }}
         rows={[]}
         onClose={() => {}}
       />
@@ -366,6 +366,6 @@ describe("organizer UI flows", () => {
 });
 
 async function resetCorrectionRequestState() {
-  resetMockRepositoryState();
+  resetSimulatedRepositoryState();
   await waitFor(() => expect(true).toBe(true));
 }

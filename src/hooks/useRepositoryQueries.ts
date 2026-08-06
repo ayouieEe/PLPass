@@ -6,16 +6,16 @@ import type {
   CreateCorrectionRequestInput,
   CreateEventInput,
   CreateEventSessionInput,
-  CreateNfcCredentialRequestInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
   ManualAttendanceInput,
   ReviewCorrectionRequestInput,
   UpdateSystemSettingsInput
 } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type { EventStatus, NfcCredentialStatus, NfcReaderStatus } from "@/types/enums";
-import type { ListQuery } from "@/types/filters";
+import type { RepositoryContext } from "@/services/repositoryUtils";
+import type { AttendanceAttempt } from "@/types/domain";
+import type { EventStatus } from "@/types/enums";
+import type { ListQuery, PaginatedResult } from "@/types/filters";
 
 const queryDefaults = {
   pageIndex: 0,
@@ -268,7 +268,7 @@ export function useAttendanceSimulationMutations(context?: RepositoryContext) {
     await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
-    await queryClient.invalidateQueries({ queryKey: ["nfcTapAttempts"] });
+    await queryClient.invalidateQueries({ queryKey: ["attendanceAttempts"] });
     await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
     await queryClient.invalidateQueries({ queryKey: ["mlPredictions"] });
   };
@@ -293,77 +293,26 @@ export function useAttendanceRecord(recordId: string | undefined, context?: Repo
   });
 }
 
-export function useNfcCredentials(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useAttendanceAttempts(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
-    queryKey: ["nfcCredentials", listQuery, context],
-    queryFn: () => repositories.nfcCredentials.listNfcCredentials(listQuery, context)
+    queryKey: ["attendanceAttempts", listQuery, context],
+    queryFn: () => repositories.attendanceAttempts.listAttendanceAttempts(listQuery, context)
   });
 }
 
-export function useNfcCredentialStatusMutation(context?: RepositoryContext) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { credentialId: string; status: NfcCredentialStatus }) =>
-      repositories.nfcCredentials.updateCredentialStatus(input.credentialId, input.status, context),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["nfcCredentials"] });
-      await queryClient.invalidateQueries({ queryKey: ["nfcCredentialForStudent"] });
-    }
-  });
-}
-
-export function useNfcCredentialForStudent(studentId: string | undefined, context?: RepositoryContext) {
-  return useQuery({
-    queryKey: ["nfcCredentialForStudent", studentId, context],
-    queryFn: () => repositories.nfcCredentials.getCredentialForStudent(studentId ?? "", context),
-    enabled: Boolean(studentId)
-  });
-}
-
-export function useNfcCredentialRequests(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useNfcTapAttempts(query?: Partial<ListQuery>, _context?: RepositoryContext) {
+  void _context;
   const listQuery = queryWithDefaults(query);
-  const queryClient = useQueryClient();
-  const listQueryResult = useQuery({
-    queryKey: ["nfcCredentialRequests", listQuery, context],
-    queryFn: () => repositories.nfcCredentialRequests.listNfcCredentialRequests(listQuery, context)
-  });
-  const createMutation = useMutation({
-    mutationFn: (input: CreateNfcCredentialRequestInput) =>
-      repositories.nfcCredentialRequests.createNfcCredentialRequest(input, context),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["nfcCredentialRequests"] });
-      await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
-    }
-  });
-
-  return { ...listQueryResult, createMutation };
-}
-
-export function useNfcReaders(query?: Partial<ListQuery>, context?: RepositoryContext) {
-  const listQuery = queryWithDefaults(query);
-  return useQuery({
-    queryKey: ["nfcReaders", listQuery, context],
-    queryFn: () => repositories.nfcReaders.listNfcReaders(listQuery, context)
-  });
-}
-
-export function useNfcReaderStatusMutation(context?: RepositoryContext) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { readerId: string; status: NfcReaderStatus }) =>
-      repositories.nfcReaders.updateReaderStatus(input.readerId, input.status, context),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["nfcReaders"] });
-    }
-  });
-}
-
-export function useNfcTapAttempts(query?: Partial<ListQuery>, context?: RepositoryContext) {
-  const listQuery = queryWithDefaults(query);
-  return useQuery({
-    queryKey: ["nfcTapAttempts", listQuery, context],
-    queryFn: () => repositories.nfcReaders.listNfcTapAttempts(listQuery, context)
+  return useQuery<PaginatedResult<AttendanceAttempt>>({
+    queryKey: ["nfcTapAttempts", listQuery],
+    queryFn: async () => ({
+      items: [],
+      total: 0,
+      pageIndex: listQuery.pageIndex,
+      pageSize: listQuery.pageSize,
+      pageCount: 0
+    })
   });
 }
 

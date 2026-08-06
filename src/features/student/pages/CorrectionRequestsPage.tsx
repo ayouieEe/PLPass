@@ -208,7 +208,7 @@ export function CorrectionRequestsPage() {
   }
 
   if (scope.isError || !scope.student) {
-    return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
+    return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
   }
 
   if (

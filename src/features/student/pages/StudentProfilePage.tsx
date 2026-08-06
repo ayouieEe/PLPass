@@ -134,7 +134,7 @@ export function StudentProfilePage() {
     navigate(APP_ROUTES.login, { replace: true });
   }
 
-  // Handle mock avatar change
+  // Handle avatar change
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];

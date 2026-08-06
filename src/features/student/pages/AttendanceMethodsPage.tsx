@@ -73,7 +73,7 @@ export function AttendanceMethodsPage() {
   const readiness = useMemo(() => [Boolean(qrCodeVal), isFaceEnrolled].filter(Boolean).length, [isFaceEnrolled, qrCodeVal]);
 
   if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
-  if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in mock account does not have a student profile fixture." />;
+  if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
 
   const student = scope.student;
 

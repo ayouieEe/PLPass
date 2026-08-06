@@ -6,12 +6,8 @@ import type {
   EventStatus,
   FacultyEmploymentStatus,
   MlPredictionType,
-  NfcCredentialRequestStatus,
-  NfcCredentialRequestType,
-  NfcCredentialStatus,
   NotificationStatus,
   NotificationType,
-  NfcReaderStatus,
   ReportStatus,
   RiskLevel,
   SessionStatus,
@@ -165,44 +161,9 @@ export type AttendanceRecord = {
   note?: string;
 };
 
-export type NfcCredential = {
-  id: ID;
-  studentId: ID;
-  nfcUid: string;
-  status: NfcCredentialStatus;
-  issuedAt: ISODateString;
-  replacedByCredentialId?: ID;
-};
-
-export type NfcCredentialRequest = {
-  id: ID;
-  studentId: ID;
-  credentialId?: ID;
-  type: NfcCredentialRequestType;
-  status: NfcCredentialRequestStatus;
-  reason: string;
-  requestedAt: ISODateString;
-  reviewedByUserId?: ID;
-  reviewedAt?: ISODateString;
-};
-
-export type NfcReader = {
-  id: ID;
-  label: string;
-  serialNumber: string;
-  location: string;
-  departmentId: ID;
-  status: NfcReaderStatus;
-  assignedToUserId?: ID;
-  lastSeenAt?: ISODateString;
-  isTrusted: boolean;
-};
-
-export type NfcTapAttempt = {
+export type AttendanceAttempt = {
   id: ID;
   sessionId: ID;
-  readerId: ID;
-  nfcUid: string;
   studentId?: ID;
   accepted: boolean;
   attemptedAt: ISODateString;

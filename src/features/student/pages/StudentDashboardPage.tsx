@@ -43,90 +43,14 @@ type DashboardEvent = Event & {
   dashboardStatus: "Ongoing" | "Upcoming";
 };
 
-function relativeNowIso(minutes: number) {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-function dateOffsetIso(days: number, hour: number, minute = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
-}
-
-function fallbackDashboardEvent(code: string): Event {
-  const events: Record<string, Event> = {
-    "EVT-2026-001": {
-      id: "event-1",
-      code: "EVT-2026-001",
-      organizerId: "organizer-1",
-      departmentId: "dept-ccs",
-      category: "Career Development",
-      title: "Hospitality Career Fair & Industry Talk",
-      venue: "PLP Pasig Gymnasium",
-      startsAt: dateOffsetIso(2, 8),
-      endsAt: dateOffsetIso(2, 12),
-      status: "approved"
-    },
-    "EVT-2026-004": {
-      id: "event-4",
-      code: "EVT-2026-004",
-      organizerId: "organizer-1",
-      departmentId: "dept-ccs",
-      category: "Skills Training",
-      title: "Front Office Operations Simulation Day",
-      venue: "PLP HM Mock Hotel Lab",
-      startsAt: relativeNowIso(-30),
-      endsAt: relativeNowIso(90),
-      status: "approved"
-    },
-    "EVT-2026-005": {
-      id: "event-5",
-      code: "EVT-2026-005",
-      organizerId: "organizer-1",
-      departmentId: "dept-ccs",
-      category: "Seminar",
-      title: "Sustainable Tourism Speaker Series",
-      venue: "PLP Multi-Purpose Hall",
-      startsAt: relativeNowIso(120),
-      endsAt: relativeNowIso(270),
-      status: "approved"
-    },
-    "EVT-2026-006": {
-      id: "event-6",
-      code: "EVT-2026-006",
-      organizerId: "organizer-1",
-      departmentId: "dept-ccs",
-      category: "Competition",
-      title: "AHTOMP Culinary & Mixology Showcase",
-      venue: "PLP HM Culinary Kitchen",
-      startsAt: dateOffsetIso(1, 9),
-      endsAt: dateOffsetIso(1, 16),
-      status: "approved"
-    }
-  };
-  return events[code];
-}
-
 function dashboardEventList(events: Event[]): DashboardEvent[] {
-  const byCode = new Map(events.map((event) => [event.code, event]));
-  const schedule = [
-    { code: "EVT-2026-004", startsAt: relativeNowIso(-30), endsAt: relativeNowIso(90), dashboardStatus: "Ongoing" as const },
-    { code: "EVT-2026-005", startsAt: relativeNowIso(120), endsAt: relativeNowIso(270), dashboardStatus: "Upcoming" as const },
-    { code: "EVT-2026-006", startsAt: dateOffsetIso(1, 9), endsAt: dateOffsetIso(1, 16), dashboardStatus: "Upcoming" as const },
-    { code: "EVT-2026-001", startsAt: dateOffsetIso(2, 8), endsAt: dateOffsetIso(2, 12), dashboardStatus: "Upcoming" as const }
-  ];
-
-  return schedule.map(({ code, startsAt, endsAt, dashboardStatus }) => {
-    const event = byCode.get(code) ?? fallbackDashboardEvent(code);
-    return {
+  const now = Date.now();
+  return events
+    .filter((event) => new Date(event.endsAt ?? event.startsAt).getTime() >= now)
+    .map((event) => ({
       ...event,
-      startsAt,
-      endsAt,
-      status: "approved",
-      dashboardStatus
-    };
-  });
+      dashboardStatus: new Date(event.startsAt).getTime() <= now ? "Ongoing" : "Upcoming"
+    }));
 }
 
 function buildMonthGrid(anchor: Date) {

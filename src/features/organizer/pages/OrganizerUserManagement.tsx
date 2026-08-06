@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
@@ -22,14 +23,15 @@ import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import {
   approveOrganizerCorrectionRequest,
-  createMockExport,
-  loadOrganizerMockState,
+  createUiExport,
+  loadOrganizerUiState,
   regenerateOrganizerQr,
   rejectOrganizerCorrectionRequest,
   updateOrganizerFacialStatus,
-  type OrganizerMockState,
+  type AttendanceMethod,
+  type OrganizerUiState,
   type OrganizerStudent
-} from "@/features/organizer/data/organizerMockStore";
+} from "@/features/organizer/data/organizerUiStore";
 type StudentStatus = "Active" | "Suspended";
 type CredentialStatus = "Ready" | "Needs Review" | "Missing" | "Generated" | "Regeneration Requested" | "Activated" | "Inactive" | "Damaged";
 type CorrectionStatus = "Pending" | "Approved" | "Rejected";
@@ -62,379 +64,7 @@ type StudentAccount = {
   participationHistory: ParticipationRecord[];
   correctionRequests: CorrectionRequest[];
 };
-const STUDENTS: StudentAccount[] = [
-  {
-    id: "STU-1001",
-    schoolId: "2022-10871",
-    name: "Uriel Garcia",
-    email: "uriel.garcia@plpasig.edu.ph",
-    section: "HM2A",
-    status: "Active",
-    attendanceRate: 92,
-    eventsJoined: 5,
-    qrStatus: "Needs Review",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Late", method: "Facial" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Present", method: "QR" }
-    ],
-    correctionRequests: [
-      { id: "REQ-504", eventCode: "EVT-2026-002", type: "Correction - Wrong Status", status: "Approved" },
-      { id: "REQ-508", eventCode: "EVT-2026-002", type: "Correction - Wrong Status", status: "Pending" }
-    ]
-  },
-  {
-    id: "STU-1002",
-    schoolId: "2023-10232",
-    name: "Ximena Garcia",
-    email: "ximena.garcia@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 86,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1006",
-    schoolId: "2023-10236",
-    name: "Gwen Castillo",
-    email: "gwen.castillo@plpasig.edu.ph",
-    section: "HM2A",
-    status: "Active",
-    attendanceRate: 74,
-    eventsJoined: 3,
-    qrStatus: "Ready",
-    facialStatus: "Missing",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Absent", method: "Manual" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Late", method: "QR" }
-    ],
-    correctionRequests: [
-      { id: "REQ-501", eventCode: "EVT-2026-002", type: "Excused Absence", status: "Approved" },
-      { id: "REQ-505", eventCode: "EVT-2026-004", type: "Correction - Wrong Status", status: "Approved" }
-    ]
-  },
-  {
-    id: "STU-1011",
-    schoolId: "2022-10881",
-    name: "Odessa Navarro",
-    email: "odessa.navarro@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 81,
-    eventsJoined: 4,
-    qrStatus: "Needs Review",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "Facial" }
-    ],
-    correctionRequests: [
-      { id: "REQ-502", eventCode: "EVT-2026-003", type: "Correction - Wrong Time-In", status: "Pending" },
-      { id: "REQ-506", eventCode: "EVT-2026-004", type: "Correction - Wrong Time-In", status: "Rejected" }
-    ]
-  },
-  {
-    id: "STU-1019",
-    schoolId: "2022-10889",
-    name: "Denise Torres",
-    email: "denise.torres@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Suspended",
-    attendanceRate: 58,
-    eventsJoined: 2,
-    qrStatus: "Ready",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Late", method: "Manual" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1003",
-    schoolId: "2022-10873",
-    name: "Angel Bautista",
-    email: "angel.bautista@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 89,
-    eventsJoined: 5,
-    qrStatus: "Ready",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1004",
-    schoolId: "2023-10234",
-    name: "Rhea Ramos",
-    email: "rhea.ramos@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 78,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "Facial" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "Facial" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1005",
-    schoolId: "2022-10875",
-    name: "Ivy Reyes",
-    email: "ivy.reyes@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 83,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "Facial" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1007",
-    schoolId: "2022-10877",
-    name: "Leo Villanueva",
-    email: "leo.villanueva@plpasig.edu.ph",
-    section: "HM3A",
-    status: "Active",
-    attendanceRate: 69,
-    eventsJoined: 3,
-    qrStatus: "Ready",
-    facialStatus: "Missing",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Absent", method: "Manual" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1008",
-    schoolId: "2023-10238",
-    name: "Mika Bautista",
-    email: "mika.bautista@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 76,
-    eventsJoined: 4,
-    qrStatus: "Needs Review",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Absent", method: "Manual" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1009",
-    schoolId: "2022-10879",
-    name: "Leo Ocampo",
-    email: "leo.ocampo@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 72,
-    eventsJoined: 3,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Absent", method: "Manual" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1010",
-    schoolId: "2023-10240",
-    name: "Yuri Flores",
-    email: "yuri.flores@plpasig.edu.ph",
-    section: "HM2A",
-    status: "Active",
-    attendanceRate: 85,
-    eventsJoined: 5,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "Facial" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1012",
-    schoolId: "2023-10242",
-    name: "Ivy Bautista",
-    email: "ivy.bautista@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 80,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1013",
-    schoolId: "2022-10883",
-    name: "Francis Salazar",
-    email: "francis.salazar@plpasig.edu.ph",
-    section: "HM3B",
-    status: "Active",
-    attendanceRate: 88,
-    eventsJoined: 5,
-    qrStatus: "Needs Review",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1014",
-    schoolId: "2023-10244",
-    name: "Kyla Cruz",
-    email: "kyla.cruz@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 79,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "Facial" },
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Present", method: "Facial" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1015",
-    schoolId: "2022-10885",
-    name: "Carlo Ramos",
-    email: "carlo.ramos@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 73,
-    eventsJoined: 3,
-    qrStatus: "Needs Review",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Absent", method: "Manual" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1016",
-    schoolId: "2023-10246",
-    name: "Mika Salazar",
-    email: "mika.salazar@plpasig.edu.ph",
-    section: "HM2B",
-    status: "Active",
-    attendanceRate: 67,
-    eventsJoined: 3,
-    qrStatus: "Needs Review",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Absent", method: "Manual" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "QR" }
-    ],
-    correctionRequests: [
-      { id: "REQ-503", eventCode: "EVT-2026-005", type: "Correction - Wrong Status", status: "Pending" },
-      { id: "REQ-507", eventCode: "EVT-2026-006", type: "Excused Absence", status: "Approved" }
-    ]
-  },
-  {
-    id: "STU-1017",
-    schoolId: "2022-10887",
-    name: "Rhea Fernandez",
-    email: "rhea.fernandez@plpasig.edu.ph",
-    section: "HM3A",
-    status: "Active",
-    attendanceRate: 84,
-    eventsJoined: 4,
-    qrStatus: "Ready",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-001", eventTitle: "Hospitality Career Fair", date: "2026-02-10", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Late", method: "QR" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1018",
-    schoolId: "2023-10248",
-    name: "Harold Torres",
-    email: "harold.torres@plpasig.edu.ph",
-    section: "HM4A",
-    status: "Active",
-    attendanceRate: 91,
-    eventsJoined: 5,
-    qrStatus: "Ready",
-    facialStatus: "Ready",
-    participationHistory: [
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-003", eventTitle: "AHTOMP General Assembly", date: "2026-03-05", status: "Present", method: "QR" },
-      { eventCode: "EVT-2026-006", eventTitle: "Culinary & Mixology Showcase", date: "2026-04-18", status: "Present", method: "Facial" }
-    ],
-    correctionRequests: []
-  },
-  {
-    id: "STU-1020",
-    schoolId: "2023-10250",
-    name: "Mika Villanueva",
-    email: "mika.villanueva@plpasig.edu.ph",
-    section: "HM3B",
-    status: "Active",
-    attendanceRate: 70,
-    eventsJoined: 3,
-    qrStatus: "Needs Review",
-    facialStatus: "Needs Review",
-    participationHistory: [
-      { eventCode: "EVT-2026-002", eventTitle: "F&B Service Skills Workshop", date: "2026-02-24", status: "Late", method: "QR" },
-      { eventCode: "EVT-2026-004", eventTitle: "Front Office Simulation Day", date: "2026-03-19", status: "Present", method: "Facial" },
-      { eventCode: "EVT-2026-005", eventTitle: "Sustainable Tourism Speaker Series", date: "2026-04-02", status: "Absent", method: "Manual" }
-    ],
-    correctionRequests: []
-  }
-];
+const STUDENTS: StudentAccount[] = [];
 
 function titleCaseStatus(status: "present" | "late" | "absent"): "Present" | "Late" | "Absent" {
   if (status === "present") return "Present";
@@ -442,11 +72,14 @@ function titleCaseStatus(status: "present" | "late" | "absent"): "Present" | "La
   return "Absent";
 }
 
-function compactMethod(method: "QR Code" | "Facial Recognition"): "QR" | "Facial" {
+function compactMethod(method: AttendanceMethod): "QR" | "Facial" | "Manual" {
+  if (method === "Manual") {
+    return "Manual";
+  }
   return method === "QR Code" ? "QR" : "Facial";
 }
 
-function buildStudentAccounts(state: OrganizerMockState): StudentAccount[] {
+function buildStudentAccounts(state: OrganizerUiState): StudentAccount[] {
   const eventsByCode = new Map(state.events.map((event) => [event.code, event]));
 
   return state.students.map((student: OrganizerStudent) => {
@@ -796,11 +429,11 @@ function StudentDetailModal({
 }
 
 export function OrganizerUserManagementPage() {
-  const [mockState, setMockState] = useState(() => loadOrganizerMockState());
+  const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [query, setQuery] = useState("");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const studentAccounts = useMemo(() => buildStudentAccounts(mockState), [mockState]);
+  const studentAccounts = useMemo(() => buildStudentAccounts(uiState), [uiState]);
   const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
 
@@ -826,26 +459,26 @@ export function OrganizerUserManagementPage() {
   const totalCorrectionRequests = studentAccounts.reduce((sum, student) => sum + student.correctionRequests.length, 0);
 
   function exportReport(label: string) {
-    toast.success(createMockExport(label));
+    toast.success(createUiExport(label));
   }
 
   function regenerateQrCredential(studentId: string) {
-    setMockState((current) => regenerateOrganizerQr(current, studentId));
+    setUiState((current) => regenerateOrganizerQr(current, studentId));
     toast.success("QR credential regenerated locally.");
   }
 
   function markFacialReady(studentId: string) {
-    setMockState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
+    setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
     toast.success("Facial credential marked ready locally.");
   }
 
   function approveCorrection(requestId: string) {
-    setMockState((current) => approveOrganizerCorrectionRequest(current, requestId, "Approved from organizer user management."));
+    setUiState((current) => approveOrganizerCorrectionRequest(current, requestId, "Approved from organizer user management."));
     toast.success(`${requestId} approved locally.`);
   }
 
   function rejectCorrection(requestId: string) {
-    setMockState((current) => rejectOrganizerCorrectionRequest(current, requestId, "Rejected from organizer user management."));
+    setUiState((current) => rejectOrganizerCorrectionRequest(current, requestId, "Rejected from organizer user management."));
     toast.warning(`${requestId} rejected locally.`);
   }
   const studentColumns = useMemo<ColDef<StudentAccount>[]>(

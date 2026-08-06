@@ -1,5 +1,6 @@
 import {
   attendanceRecordFixtures,
+  attendanceAttemptFixtures,
   attendanceSessionFixtures,
   auditLogFixtures,
   classFixtures,
@@ -10,10 +11,6 @@ import {
   eventParticipantFixtures,
   facultyProfileFixtures,
   mlPredictionFixtures,
-  nfcCredentialRequestFixtures,
-  nfcCredentialFixtures,
-  nfcReaderFixtures,
-  nfcTapAttemptFixtures,
   notificationFixtures,
   organizerProfileFixtures,
   programFixtures,
@@ -23,7 +20,7 @@ import {
   systemSettingsFixture,
   adminProfileFixtures,
   userFixtures
-} from "@/mocks/fixtures";
+} from "@/test-support/fixtures";
 import type {
   AddRosterStudentInput,
   AcademicManagementRepository,
@@ -40,13 +37,10 @@ import type {
   CreateCorrectionRequestInput,
   CreateEventInput,
   CreateEventSessionInput,
-  CreateNfcCredentialRequestInput,
   EndAttendanceSessionInput,
   EventManagementRepository,
   ManualAttendanceInput,
-  NfcCredentialRequestRepository,
-  NfcCredentialRepository,
-  NfcReaderRepository,
+  AttendanceAttemptRepository,
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
@@ -56,14 +50,14 @@ import type {
   UserManagementRepository
 } from "@/services/contracts";
 import {
-  applyMockMode,
+  applySimulationMode,
   assertRole,
   defaultRepositoryContext,
   matchesSearch,
   paginate,
   RepositoryError,
   type RepositoryContext
-} from "@/services/mock/mockRepositoryUtils";
+} from "@/test-support/simulatedRepositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -71,14 +65,12 @@ import type {
   CorrectionRequest,
   Event,
   EventParticipant,
-  NfcCredential,
-  NfcCredentialRequest,
   Notification,
   Report,
   Student,
   User
 } from "@/types/domain";
-import type { AttendanceStatus, EventStatus, NfcCredentialStatus, NfcReaderStatus, VerificationMethod } from "@/types/enums";
+import type { AttendanceStatus, EventStatus, VerificationMethod } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
 function contextOrDefault(context?: RepositoryContext) {
@@ -86,7 +78,7 @@ function contextOrDefault(context?: RepositoryContext) {
 }
 
 async function beforeRead(repositoryName: string, context?: RepositoryContext, roles: RepositoryContext["actorRole"][] = ["admin", "faculty", "organizer", "student"]) {
-  await applyMockMode(repositoryName);
+  await applySimulationMode(repositoryName);
   assertRole(contextOrDefault(context), roles);
 }
 
@@ -267,14 +259,18 @@ let attendanceRecordState = attendanceRecordFixtures.map((entry) => ({ ...entry 
 let correctionRequestState = correctionRequestFixtures.map((entry) => ({ ...entry }));
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
-let nfcCredentialState = nfcCredentialFixtures.map((entry) => ({ ...entry }));
-let nfcCredentialRequestState: NfcCredentialRequest[] = nfcCredentialRequestFixtures.map((entry) => ({ ...entry }));
-let nfcReaderState = nfcReaderFixtures.map((entry) => ({ ...entry }));
-let nfcTapAttemptState = nfcTapAttemptFixtures.map((entry) => ({ ...entry }));
+let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let systemSettingsState = { ...systemSettingsFixture };
 
-export function resetMockRepositoryState() {
+const developmentCredentialStudentIds: Record<string, string> = {
+  "PLPASS-DEMO-1001": "student-1",
+  "PLPASS-DEMO-1002": "student-6",
+  "PLPASS-DEMO-1004": "student-4",
+  "PLPASS-DEMO-2001": "student-7"
+};
+
+export function resetSimulatedRepositoryState() {
   classRosterState = classRosterFixtures.map((entry) => ({ ...entry }));
   eventParticipantState = eventParticipantFixtures.map((entry) => ({ ...entry }));
   attendanceSessionState = attendanceSessionFixtures.map((entry) => ({ ...entry }));
@@ -282,10 +278,7 @@ export function resetMockRepositoryState() {
   correctionRequestState = correctionRequestFixtures.map((entry) => ({ ...entry }));
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
-  nfcCredentialState = nfcCredentialFixtures.map((entry) => ({ ...entry }));
-  nfcCredentialRequestState = nfcCredentialRequestFixtures.map((entry) => ({ ...entry }));
-  nfcReaderState = nfcReaderFixtures.map((entry) => ({ ...entry }));
-  nfcTapAttemptState = nfcTapAttemptFixtures.map((entry) => ({ ...entry }));
+  attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   systemSettingsState = { ...systemSettingsFixture };
 }
@@ -315,7 +308,7 @@ function expectedStudentIdsForSession(session: AttendanceSession) {
 }
 
 function countAttempts(sessionId: string, message: string) {
-  return nfcTapAttemptState.filter((attempt) => attempt.sessionId === sessionId && attempt.message === message).length;
+  return attendanceAttemptState.filter((attempt) => attempt.sessionId === sessionId && attempt.message === message).length;
 }
 
 function sessionSummary(sessionId: string) {
@@ -325,7 +318,7 @@ function sessionSummary(sessionId: string) {
     late: records.filter((record) => record.status === "late").length,
     absent: records.filter((record) => record.status === "absent").length,
     duplicateAttempts: countAttempts(sessionId, "Already recorded"),
-    failedAttempts: nfcTapAttemptState.filter((attempt) => attempt.sessionId === sessionId && !attempt.accepted).length
+    failedAttempts: attendanceAttemptState.filter((attempt) => attempt.sessionId === sessionId && !attempt.accepted).length
   };
 }
 
@@ -344,27 +337,24 @@ function addSafeAudit(context: RepositoryContext, action: string, targetType: st
   ];
 }
 
-function addSafeTapAttempt(input: {
+function addSafeAttendanceAttempt(input: {
   sessionId: string;
   studentId?: string;
   accepted: boolean;
   attemptedAt: string;
   message: string;
-  context: RepositoryContext;
+  context?: RepositoryContext;
 }) {
-  const reader = nfcReaderState.find((entry) => entry.assignedToUserId === input.context.actorUserId) ?? nfcReaderState[0];
-  nfcTapAttemptState = [
+  attendanceAttemptState = [
     {
-      id: `tap-simulated-${Date.now()}`,
+      id: `attempt-simulated-${Date.now()}`,
       sessionId: input.sessionId,
-      readerId: reader.id,
-      nfcUid: "SIMULATED-CODE",
       studentId: input.studentId,
       accepted: input.accepted,
       attemptedAt: input.attemptedAt,
       message: input.message
     },
-    ...nfcTapAttemptState
+    ...attendanceAttemptState
   ];
 }
 
@@ -426,7 +416,7 @@ function completeAttendanceRecord(input: {
 }): AttendanceSimulationResult {
   const existing = attendanceRecordState.find((record) => record.sessionId === input.session.id && record.studentId === input.studentId && record.status !== "excused");
   if (existing) {
-    addSafeTapAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: false, attemptedAt: input.occurredAt, message: "Already recorded", context: input.context });
+    addSafeAttendanceAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: false, attemptedAt: input.occurredAt, message: "Already recorded", context: input.context });
     addSafeAudit(input.context, `${input.method}_attendance.duplicate`, "attendance_session", input.session.id, { studentId: input.studentId, method: input.method });
     return resultFor({
       resultStatus: "Already Recorded",
@@ -452,7 +442,7 @@ function completeAttendanceRecord(input: {
     note: input.note
   };
   attendanceRecordState = [record, ...attendanceRecordState];
-  addSafeTapAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: true, attemptedAt: input.occurredAt, message: "Attendance accepted", context: input.context });
+  addSafeAttendanceAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: true, attemptedAt: input.occurredAt, message: "Attendance accepted", context: input.context });
   addSafeAudit(input.context, `${input.method}_attendance.recorded`, "attendance_record", record.id, { sessionId: input.session.id, studentId: input.studentId, status });
   return resultFor({
     resultStatus: status === "present" ? "Present" : "Late",
@@ -484,18 +474,13 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
   let studentId: string | undefined;
   let note: string | undefined;
   if ("credentialCode" in input) {
-    const credential = nfcCredentialState.find((entry) => entry.nfcUid === input.credentialCode.trim());
-    if (!credential) {
-      addSafeTapAttempt({ sessionId: session.id, accepted: false, attemptedAt: occurredAt, message: "Invalid credential", context });
+    const credentialStudentId = developmentCredentialStudentIds[input.credentialCode.trim()];
+    if (!credentialStudentId) {
+      addSafeAttendanceAttempt({ sessionId: session.id, accepted: false, attemptedAt: occurredAt, message: "Invalid credential", context });
       addSafeAudit(context, `${method}_attendance.invalid`, "attendance_session", session.id, { method });
-      return resultFor({ resultStatus: "Invalid Sticker", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The scanned development sticker was not found." });
+      return resultFor({ resultStatus: "Invalid Credential", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The scanned development credential was not found." });
     }
-    studentId = credential.studentId;
-    if (credential.status !== "activated") {
-      addSafeTapAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Blocked credential", context });
-      addSafeAudit(context, `${method}_attendance.blocked`, "attendance_session", session.id, { studentId, status: credential.status, method });
-      return resultFor({ resultStatus: "Blocked Sticker", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The development sticker is not active.", studentId });
-    }
+    studentId = credentialStudentId;
   } else {
     studentId = input.studentId;
     note = `${input.reason}: ${input.remarks}`;
@@ -504,18 +489,18 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
     }
   }
 
-  const allowManualJoin = Boolean((input as any).allowManualJoin);
+  const allowManualJoin = "allowManualJoin" in input && Boolean(input.allowManualJoin);
   const isOrganizer = context.actorRole === "organizer";
   if (!studentId || (!expectedStudentIdsForSession(session).includes(studentId) && !(allowManualJoin && isOrganizer))) {
     if (studentId) {
-      addSafeTapAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Student not enrolled", context });
+      addSafeAttendanceAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Student not enrolled", context });
       addSafeAudit(context, `${method}_attendance.not_enrolled`, "attendance_session", session.id, { studentId, method });
     }
     return resultFor({ resultStatus: "Student Not Enrolled", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The student is not part of this class or event.", studentId });
   }
 
   if (!validateSessionWindow(session, occurredAt)) {
-    addSafeTapAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Outside attendance window", context });
+    addSafeAttendanceAttempt({ sessionId: session.id, studentId, accepted: false, attemptedAt: occurredAt, message: "Outside attendance window", context });
     addSafeAudit(context, `${method}_attendance.outside_window`, "attendance_session", session.id, { studentId, method });
     return resultFor({ resultStatus: "Outside Attendance Window", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The attendance attempt is outside the configured window.", studentId });
   }
@@ -523,9 +508,9 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
   return completeAttendanceRecord({ session, studentId, method, occurredAt, context, note });
 }
 
-export const mockAuthenticationRepository: AuthenticationRepository = {
+export const simulatedAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
-    await applyMockMode("authentication");
+    await applySimulationMode("authentication");
     return userFixtures
       .filter((user) => user.role === "organizer" || user.role === "student")
       .map((user) => ({
@@ -536,7 +521,7 @@ export const mockAuthenticationRepository: AuthenticationRepository = {
       }));
   },
   async getSession(context = defaultRepositoryContext) {
-    await applyMockMode("authentication");
+    await applySimulationMode("authentication");
     const user = getOrThrow(userFixtures, context.actorUserId, "User");
     return {
       userId: user.id,
@@ -547,7 +532,7 @@ export const mockAuthenticationRepository: AuthenticationRepository = {
   }
 };
 
-export const mockUserManagementRepository: UserManagementRepository = {
+export const simulatedUserManagementRepository: UserManagementRepository = {
   async listUsers(query, context) {
     await beforeRead("userManagement", context, ["admin"]);
     return paginateOrThrowEmpty(filterUsers(query), query);
@@ -619,7 +604,7 @@ export const mockUserManagementRepository: UserManagementRepository = {
   }
 };
 
-export const mockAcademicManagementRepository: AcademicManagementRepository = {
+export const simulatedAcademicManagementRepository: AcademicManagementRepository = {
   async listDepartments(query, context) {
     await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
     return paginateOrThrowEmpty(departmentFixtures.filter((department) => matchesSearch([department.code, department.name], query?.search)), query);
@@ -669,7 +654,7 @@ export const mockAcademicManagementRepository: AcademicManagementRepository = {
   }
 };
 
-export const mockClassRosterRepository: ClassRosterRepository = {
+export const simulatedClassRosterRepository: ClassRosterRepository = {
   async listClassRosters(query, context) {
     await beforeRead("classRosters", context, ["admin", "faculty"]);
     const currentContext = contextOrDefault(context);
@@ -722,7 +707,7 @@ export const mockClassRosterRepository: ClassRosterRepository = {
   }
 };
 
-export const mockEventManagementRepository: EventManagementRepository = {
+export const simulatedEventManagementRepository: EventManagementRepository = {
   async listEvents(query, context) {
     await beforeRead("eventManagement", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -825,7 +810,7 @@ export const mockEventManagementRepository: EventManagementRepository = {
   }
 };
 
-export const mockAttendanceSessionRepository: AttendanceSessionRepository = {
+export const simulatedAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query, context) {
     await beforeRead("attendanceSessions", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -922,7 +907,7 @@ export const mockAttendanceSessionRepository: AttendanceSessionRepository = {
     await beforeRead("attendanceSessions", context, ["faculty", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (!input.reason.trim()) {
-      throw new RepositoryError("A reason is required to end this mock session.", "VALIDATION_ERROR");
+      throw new RepositoryError("A reason is required to end this session.", "VALIDATION_ERROR");
     }
     const session = getOrThrow(attendanceSessionState, input.sessionId, "Attendance session");
     if (!isSessionInFacultyScope(session, currentContext)) {
@@ -943,7 +928,7 @@ export const mockAttendanceSessionRepository: AttendanceSessionRepository = {
         verificationMethod: "manual" as const,
         recordedAt: endedAt,
         recordedByUserId: currentContext.actorUserId,
-        note: "Generated absence at mock session completion"
+        note: "Generated absence at session completion"
       }));
     attendanceRecordState = [...generatedAbsences, ...attendanceRecordState];
     const updated = { ...session, status: "completed" as const, endsAt: endedAt };
@@ -967,7 +952,7 @@ export const mockAttendanceSessionRepository: AttendanceSessionRepository = {
   }
 };
 
-export const mockAttendanceRecordRepository: AttendanceRecordRepository = {
+export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
   async listAttendanceRecords(query, context) {
     await beforeRead("attendanceRecords", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -1009,121 +994,23 @@ export const mockAttendanceRecordRepository: AttendanceRecordRepository = {
   }
 };
 
-export const mockNfcCredentialRepository: NfcCredentialRepository = {
-  async listNfcCredentials(query, context) {
-    await beforeRead("nfcCredentials", context, ["admin", "faculty"]);
-    return paginateOrThrowEmpty(
-      nfcCredentialState.filter(
-        (credential) =>
-          matchesSearch([credential.nfcUid, credential.status, credential.studentId], query?.search) &&
-          (!query?.credentialStatus || credential.status === query.credentialStatus)
-      ),
-      query
-    );
-  },
-  async getCredentialForStudent(studentId, context): Promise<NfcCredential | null> {
-    await beforeRead("nfcCredentials", context, ["admin", "faculty", "student"]);
-    const currentContext = contextOrDefault(context);
-    const student = studentFixtures.find((entry) => entry.id === studentId);
-    if (currentContext.actorRole === "student" && student?.userId !== currentContext.actorUserId) {
-      throw new RepositoryError("Students can only read their own NFC credential.", "PERMISSION_DENIED");
-    }
-    return nfcCredentialState.find((credential) => credential.studentId === studentId && credential.status === "activated") ?? null;
-  },
-  async updateCredentialStatus(credentialId, status: NfcCredentialStatus, context) {
-    await beforeRead("nfcCredentials", context, ["admin"]);
-    const credential = getOrThrow(nfcCredentialState, credentialId, "NFC credential");
-    const updated = { ...credential, status };
-    nfcCredentialState = nfcCredentialState.map((entry) => (entry.id === credentialId ? updated : entry));
-    return updated;
-  }
-};
-
-export const mockNfcCredentialRequestRepository: NfcCredentialRequestRepository = {
-  async listNfcCredentialRequests(query, context) {
-    await beforeRead("nfcCredentialRequests", context, ["admin", "student"]);
+export const simulatedAttendanceAttemptRepository: AttendanceAttemptRepository = {
+  async listAttendanceAttempts(query, context) {
+    await beforeRead("attendanceAttempts", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const student = getStudentForContext(currentContext);
-    const items = nfcCredentialRequestState.filter(
-      (request) =>
-        matchesSearch([request.type, request.status, request.reason], query?.search) &&
-        (currentContext.actorRole !== "student" || request.studentId === student?.id)
-    );
-    return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
-  },
-  async createNfcCredentialRequest(input: CreateNfcCredentialRequestInput, context) {
-    await beforeRead("nfcCredentialRequests", context, ["student"]);
-    const currentContext = contextOrDefault(context);
-    const student = getStudentForContext(currentContext);
-    if (!student || input.studentId !== student.id) {
-      throw new RepositoryError("Students can only create NFC requests for their own profile.", "PERMISSION_DENIED");
-    }
-    if (!input.reason.trim() || input.reason.trim().length < 10) {
-      throw new RepositoryError("NFC request reason must be at least 10 characters.", "VALIDATION_ERROR");
-    }
-    const duplicate = nfcCredentialRequestState.some(
-      (request) => request.studentId === input.studentId && request.type === input.type && request.status === "pending"
-    );
-    if (duplicate) {
-      throw new RepositoryError("A pending request of this type already exists.", "VALIDATION_ERROR");
-    }
-    const created: NfcCredentialRequest = {
-      id: `nfc-request-created-${Date.now()}`,
-      studentId: input.studentId,
-      credentialId: input.credentialId,
-      type: input.type,
-      status: "pending",
-      reason: input.reason,
-      requestedAt: new Date().toISOString()
-    };
-    nfcCredentialRequestState = [created, ...nfcCredentialRequestState];
-    auditLogState = [
-      {
-        id: `audit-nfc-request-${Date.now()}`,
-        actorUserId: currentContext.actorUserId,
-        action: "nfc_request.created",
-        targetType: "nfc_credential_request",
-        targetId: created.id,
-        timestamp: new Date().toISOString(),
-        metadata: { requestType: created.type }
-      },
-      ...auditLogState
-    ];
-    return created;
-  }
-};
-
-export const mockNfcReaderRepository: NfcReaderRepository = {
-  async listNfcReaders(query, context) {
-    await beforeRead("nfcReaders", context, ["admin", "faculty", "organizer"]);
-    return paginateOrThrowEmpty(
-      nfcReaderState.filter((reader) => matchesSearch([reader.label, reader.serialNumber, reader.status], query?.search)),
-      query
-    );
-  },
-  async listNfcTapAttempts(query, context) {
-    await beforeRead("nfcReaders", context, ["admin", "faculty", "organizer", "student"]);
-    const currentContext = contextOrDefault(context);
-    const student = getStudentForContext(currentContext);
-    const items = nfcTapAttemptState.filter(
+    const items = attendanceAttemptState.filter(
         (attempt) =>
-          matchesSearch([attempt.nfcUid, attempt.message], query?.search) &&
+          matchesSearch([attempt.message], query?.search) &&
           (!query?.classId || attendanceSessionFixtures.find((session) => session.id === attempt.sessionId)?.classId === query.classId) &&
           (!query?.eventId || attendanceSessionFixtures.find((session) => session.id === attempt.sessionId)?.eventId === query.eventId) &&
           (currentContext.actorRole !== "student" || attempt.studentId === student?.id)
       );
     return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
-  },
-  async updateReaderStatus(readerId, status: NfcReaderStatus, context) {
-    await beforeRead("nfcReaders", context, ["admin"]);
-    const reader = getOrThrow(nfcReaderState, readerId, "credential reader");
-    const updated = { ...reader, status };
-    nfcReaderState = nfcReaderState.map((entry) => (entry.id === readerId ? updated : entry));
-    return updated;
   }
 };
 
-export const mockCorrectionRequestRepository: CorrectionRequestRepository = {
+export const simulatedCorrectionRequestRepository: CorrectionRequestRepository = {
   async listCorrectionRequests(query, context) {
     await beforeRead("correctionRequests", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -1229,7 +1116,7 @@ export const mockCorrectionRequestRepository: CorrectionRequestRepository = {
   }
 };
 
-export const mockReportRepository: ReportRepository = {
+export const simulatedReportRepository: ReportRepository = {
   async listReports(query, context) {
     await beforeRead("reports", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -1249,7 +1136,7 @@ export const mockReportRepository: ReportRepository = {
   }
 };
 
-export const mockNotificationRepository: NotificationRepository = {
+export const simulatedNotificationRepository: NotificationRepository = {
   async listNotifications(query, context) {
     await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -1289,14 +1176,14 @@ export const mockNotificationRepository: NotificationRepository = {
   }
 };
 
-export const mockAuditLogRepository: AuditLogRepository = {
+export const simulatedAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
     await beforeRead("auditLogs", context, ["admin"]);
     return paginate(auditLogState.filter((log) => matchesSearch([log.action, log.targetType, log.targetId], query?.search)), query);
   }
 };
 
-export const mockAnalyticsMlRepository: AnalyticsMlRepository = {
+export const simulatedAnalyticsMlRepository: AnalyticsMlRepository = {
   async listMlPredictions(query, context) {
     await beforeRead("analyticsMl", context, ["admin", "faculty", "organizer"]);
     const currentContext = contextOrDefault(context);
@@ -1316,7 +1203,7 @@ export const mockAnalyticsMlRepository: AnalyticsMlRepository = {
   }
 };
 
-export const mockSystemSettingsRepository: SystemSettingsRepository = {
+export const simulatedSystemSettingsRepository: SystemSettingsRepository = {
   async getSettings(context) {
     await beforeRead("systemSettings", context, ["admin"]);
     return { ...systemSettingsState };
@@ -1344,21 +1231,19 @@ export const mockSystemSettingsRepository: SystemSettingsRepository = {
   }
 };
 
-export const mockRepositoryRegistry: RepositoryRegistry = {
-  authentication: mockAuthenticationRepository,
-  userManagement: mockUserManagementRepository,
-  academicManagement: mockAcademicManagementRepository,
-  classRosters: mockClassRosterRepository,
-  eventManagement: mockEventManagementRepository,
-  attendanceSessions: mockAttendanceSessionRepository,
-  attendanceRecords: mockAttendanceRecordRepository,
-  nfcCredentials: mockNfcCredentialRepository,
-  nfcCredentialRequests: mockNfcCredentialRequestRepository,
-  nfcReaders: mockNfcReaderRepository,
-  correctionRequests: mockCorrectionRequestRepository,
-  reports: mockReportRepository,
-  notifications: mockNotificationRepository,
-  auditLogs: mockAuditLogRepository,
-  analyticsMl: mockAnalyticsMlRepository,
-  systemSettings: mockSystemSettingsRepository
+export const simulatedRepositoryRegistry: RepositoryRegistry = {
+  authentication: simulatedAuthenticationRepository,
+  userManagement: simulatedUserManagementRepository,
+  academicManagement: simulatedAcademicManagementRepository,
+  classRosters: simulatedClassRosterRepository,
+  eventManagement: simulatedEventManagementRepository,
+  attendanceSessions: simulatedAttendanceSessionRepository,
+  attendanceRecords: simulatedAttendanceRecordRepository,
+  attendanceAttempts: simulatedAttendanceAttemptRepository,
+  correctionRequests: simulatedCorrectionRequestRepository,
+  reports: simulatedReportRepository,
+  notifications: simulatedNotificationRepository,
+  auditLogs: simulatedAuditLogRepository,
+  analyticsMl: simulatedAnalyticsMlRepository,
+  systemSettings: simulatedSystemSettingsRepository
 };

@@ -61,7 +61,7 @@ import {
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -192,7 +192,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
 }
@@ -364,7 +364,7 @@ export function EventDetailsPage() {
           <StatusBadge label={`Event: ${event.status}`} tone={statusTone(event.status)} />
           <span className="text-sm text-muted-foreground">{formatDate(event.startsAt)} {formatTime(event.startsAt)} - {formatTime(event.endsAt)}</span>
         </div>
-        <p className="mt-3 text-sm text-muted-foreground">Attendance mode is selected when a mock session is started. Face-to-face uses NFC as planned primary method with QR and manual fallback placeholders. Online mode shows an online verification placeholder.</p>
+        <p className="mt-3 text-sm text-muted-foreground">Attendance mode is selected when an event session is started. Face-to-face uses QR, facial, and manual verification options. Online mode shows an online verification placeholder.</p>
       </section>
       {canStart ? (
         <form className="space-y-4 rounded-lg border bg-surface p-5" onSubmit={form.handleSubmit(startSession)}>
@@ -376,11 +376,11 @@ export function EventDetailsPage() {
             <TimePickerField control={form.control} name="expectedEndTime" label="Expected end time" />
             <SelectField control={form.control} name="attendanceMode" label="Attendance mode" options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]} />
           </div>
-          <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">Face-to-face: NFC planned primary method; QR and manual are planned fallback methods. Online: online verification placeholder only.</div>
-          <SubmitButton isSubmitting={mutations.createEventSessionMutation.isPending}>Start mock event session</SubmitButton>
+          <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">Face-to-face: QR, facial, and manual verification options. Online: online verification placeholder only.</div>
+          <SubmitButton isSubmitting={mutations.createEventSessionMutation.isPending}>Start event session</SubmitButton>
         </form>
       ) : (
-        <EmptyState title="Start Session unavailable" description="This event status does not allow starting a mock attendance session." />
+        <EmptyState title="Start Session unavailable" description="This event status does not allow starting a attendance session." />
       )}
       <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-3">
         {["participants", "sessions", "summary", "information"].map((item) => <Button key={item} type="button" variant={tab === item ? "default" : "outline"} onClick={() => setTab(item)}>{item}</Button>)}
@@ -395,7 +395,7 @@ export function EventDetailsPage() {
               ["Event code", event.code],
               ["Event name", event.title],
               ["Category", event.category],
-              ["Description", "Development mock event details"],
+              ["Description", "Event details"],
               ["Venue", event.venue],
               ["Date", formatDate(event.startsAt)],
               ["Start time", formatTime(event.startsAt)],

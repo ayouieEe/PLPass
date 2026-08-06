@@ -5,7 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Clock3, Download, Filter, MessageSquareQuote, Plus, Search, Sparkles, Target, TrendingUp, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useForm } from "react-hook-form";
-import { DUMMY_EVENTS, DUMMY_LATE_REASON_FREQUENCY, DUMMY_SENTIMENT, DUMMY_SESSION_SUMMARY, DUMMY_SUMMARY } from "./OrganizerDashboardPage";
+import { EMPTY_EVENTS, EMPTY_LATE_REASON_FREQUENCY, EMPTY_SENTIMENT, EMPTY_SESSION_SUMMARY, EMPTY_SUMMARY } from "./OrganizerDashboardPage";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -28,10 +28,10 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import {
-  createMockExport,
+  createUiExport,
   lateReasons,
-  loadOrganizerMockState
-} from "@/features/organizer/data/organizerMockStore";
+  loadOrganizerUiState
+} from "@/features/organizer/data/organizerUiStore";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -66,7 +66,7 @@ import {
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -197,7 +197,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
 }
@@ -348,10 +348,10 @@ function ChartPanel({
 
 export function OrganizerAnalyticsPage() {
   const [eventFilter, setEventFilter] = useState("all");
-  const [mockState] = useState(() => loadOrganizerMockState());
+  const [uiState] = useState(() => loadOrganizerUiState());
   const eventData = useMemo(
     () =>
-      mockState.events.map((event) => ({
+      uiState.events.map((event) => ({
         code: event.code,
         title: event.name,
         category: event.category,
@@ -360,11 +360,11 @@ export function OrganizerAnalyticsPage() {
         time: `${event.startTime} - ${event.endTime}`,
         predictedTurnout: event.predictedTurnout
       })),
-    [mockState.events]
+    [uiState.events]
   );
   const sessionSummaryData = useMemo(
     () =>
-      mockState.completedEvents.map((event) => ({
+      uiState.completedEvents.map((event) => ({
         eventCode: event.code,
         date: event.date,
         present: event.present,
@@ -373,21 +373,21 @@ export function OrganizerAnalyticsPage() {
         totalRegistered: event.totalRegistered,
         attendanceRate: event.attendanceRate
       })),
-    [mockState.completedEvents]
+    [uiState.completedEvents]
   );
   const sentimentData = useMemo(
     () =>
-      mockState.completedEvents.map((event) => ({
+      uiState.completedEvents.map((event) => ({
         eventCode: event.code,
         overall: event.sentiment.positive >= event.sentiment.negative ? "Positive" : "Negative",
         ...event.sentiment
       })),
-    [mockState.completedEvents]
+    [uiState.completedEvents]
   );
   const eventLookup = useMemo(() => new Map(eventData.map((event) => [event.code, event])), [eventData]);
 
   const trendData = useMemo(() => {
-    const sourceRows = sessionSummaryData.length ? sessionSummaryData : DUMMY_SESSION_SUMMARY;
+    const sourceRows = sessionSummaryData.length ? sessionSummaryData : EMPTY_SESSION_SUMMARY;
     const rows = eventFilter === "all" ? sourceRows : sourceRows.filter((row) => row.eventCode === eventFilter);
 
     return rows.map((row) => ({
@@ -411,7 +411,7 @@ export function OrganizerAnalyticsPage() {
   }, [eventData, eventFilter]);
 
   const sentimentOverview = useMemo(() => {
-    const sourceSentiment = sentimentData.length ? sentimentData : DUMMY_SENTIMENT;
+    const sourceSentiment = sentimentData.length ? sentimentData : EMPTY_SENTIMENT;
     const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row) => row.eventCode === eventFilter);
     const totals = filteredSentiment.reduce(
       (acc, row) => ({
@@ -431,23 +431,25 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter, sentimentData]);
 
   const filteredLateReasons = useMemo(() => {
-    const rows = eventFilter === "all" ? mockState.attendanceRows : mockState.attendanceRows.filter((row) => row.eventCode === eventFilter);
+    const rows = eventFilter === "all" ? uiState.attendanceRows : uiState.attendanceRows.filter((row) => row.eventCode === eventFilter);
     const lateRows = rows.filter((row) => row.attendanceStatus === "late");
-    if (!lateRows.length) return DUMMY_LATE_REASON_FREQUENCY;
+    if (!lateRows.length) return EMPTY_LATE_REASON_FREQUENCY;
     return lateReasons.map((reason) => ({
       category: reason,
       share: Math.round((lateRows.filter((row) => row.lateReason === reason).length / lateRows.length) * 100)
     }));
-  }, [eventFilter, mockState.attendanceRows]);
+  }, [eventFilter, uiState.attendanceRows]);
 
-  const nextEvent = mockState.events
+  const nextEvent = uiState.events
     .filter((event) => event.status === "incoming" || event.status === "today")
     .sort((first, second) => first.date.localeCompare(second.date))[0];
-  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? DUMMY_SUMMARY.predictedTurnoutNextEvent.value : eventLookup.get(eventFilter)?.predictedTurnout ?? DUMMY_SUMMARY.predictedTurnoutNextEvent.value;
-  const registeredStudents = mockState.students.length || DUMMY_SUMMARY.totalRegisteredStudents;
+  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value : eventLookup.get(eventFilter)?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value;
+  const registeredStudents = uiState.students.length || EMPTY_SUMMARY.totalRegisteredStudents;
   const topLateReason = useMemo(() => {
-    const reasons = eventFilter === "all" ? DUMMY_LATE_REASON_FREQUENCY : filteredLateReasons;
-    return reasons.length > 0 ? reasons.reduce((max, r) => (r.share > max.share ? r : max)) : DUMMY_LATE_REASON_FREQUENCY[0];
+    const reasons = eventFilter === "all" ? EMPTY_LATE_REASON_FREQUENCY : filteredLateReasons;
+    return reasons.length > 0
+      ? reasons.reduce((max, r) => (r.share > max.share ? r : max))
+      : EMPTY_SUMMARY.topLateArrivalReason;
   }, [eventFilter, filteredLateReasons]);
   
   const predictionFactors = useMemo(() => {
@@ -464,7 +466,7 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter, eventLookup]);
 
   function exportAnalyticsReport(label: string) {
-    toast.success(createMockExport(`${label}${eventFilter === "all" ? "" : ` - ${eventFilter}`}`));
+    toast.success(createUiExport(`${label}${eventFilter === "all" ? "" : ` - ${eventFilter}`}`));
   }
 
   const objectivePerformance = useMemo(() => {
@@ -795,7 +797,11 @@ export function OrganizerAnalyticsPage() {
             <article className="rounded-xl border bg-surface p-4 shadow-sm">
               <h3 className="text-base font-semibold text-foreground">Late-arrival categories</h3>
               <div className="mt-4 space-y-3">
-              {filteredLateReasons.map((reason) => (
+                {filteredLateReasons.length === 0 ? (
+                  <p className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
+                    No late-arrival records available from Supabase yet.
+                  </p>
+                ) : filteredLateReasons.map((reason) => (
                   <div key={reason.category} className="rounded-lg border bg-background p-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">{reason.category}</p>

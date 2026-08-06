@@ -162,12 +162,8 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
       return { data, error };
     },
     async readFacultyRecord(userId) {
-      const { data, error } = await supabase
-        .from("faculty")
-        .select("id, profile_id, employee_id, department_id, faculty_status")
-        .eq("profile_id", userId)
-        .maybeSingle();
-      return { data, error };
+      void userId;
+      return { data: null, error: null };
     },
     async readOrganizerRecord(userId) {
       const { data, error } = await supabase
@@ -178,12 +174,8 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
       return { data, error };
     },
     async readDeanAssignments(userId) {
-      const { data, error } = await supabase
-        .from("dean_assignments")
-        .select("id, department_id")
-        .eq("profile_id", userId)
-        .limit(100);
-      return { data, error };
+      void userId;
+      return { data: [], error: null };
     }
   };
 }

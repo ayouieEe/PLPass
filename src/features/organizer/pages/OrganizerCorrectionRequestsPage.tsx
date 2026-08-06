@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, Check, CheckCircle2, Eye, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
@@ -8,12 +9,12 @@ import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import {
   approveOrganizerCorrectionRequest,
-  createMockExport,
-  loadOrganizerMockState,
+  createUiExport,
+  loadOrganizerUiState,
   rejectOrganizerCorrectionRequest,
   type OrganizerCorrectionRequest,
-  type OrganizerMockState
-} from "@/features/organizer/data/organizerMockStore";
+  type OrganizerUiState
+} from "@/features/organizer/data/organizerUiStore";
 
 type RequestStatus = "pending" | "approved" | "rejected";
 type RequestType = "Excuse" | "Correction";
@@ -71,127 +72,9 @@ function InfoTile({ label, value }: { label: string; value: string | React.React
   );
 }
 
-const mockRequests: CorrectionRequest[] = [
-  {
-    id: "req-001",
-    requestId: "REQ-2026-001",
-    studentName: "Maria Santos",
-    studentNumber: "HM-2024-1501",
-    eventCode: "EVT-2026-001",
-    eventName: "Hospitality Career Fair & Industry Talk",
-    requestType: "Excuse",
-    dateSubmitted: "2026-01-15",
-    status: "pending",
-    recordedAttendanceStatus: "absent",
-    requestedStatus: "present"
-  },
-  {
-    id: "req-002",
-    requestId: "REQ-2026-002",
-    studentName: "John Reyes",
-    studentNumber: "HM-2024-1502",
-    eventCode: "EVT-2026-002",
-    eventName: "Food & Beverage Service Skills Workshop",
-    requestType: "Correction",
-    dateSubmitted: "2026-01-16",
-    status: "pending",
-    recordedAttendanceStatus: "late",
-    requestedStatus: "present"
-  },
-  {
-    id: "req-003",
-    requestId: "REQ-2026-003",
-    studentName: "Ana Cruz",
-    studentNumber: "HM-2024-1503",
-    eventCode: "EVT-2026-003",
-    eventName: "AHTOMP General Assembly & Orientation",
-    requestType: "Excuse",
-    dateSubmitted: "2026-01-10",
-    status: "approved",
-    recordedAttendanceStatus: "absent",
-    requestedStatus: "present"
-  },
-  {
-    id: "req-004",
-    requestId: "REQ-2026-004",
-    studentName: "Robert Tañ",
-    studentNumber: "HM-2024-1504",
-    eventCode: "EVT-2026-001",
-    eventName: "Hospitality Career Fair & Industry Talk",
-    requestType: "Correction",
-    dateSubmitted: "2026-01-12",
-    status: "rejected",
-    recordedAttendanceStatus: "late",
-    requestedStatus: "present"
-  }
-];
+const uiRequests: CorrectionRequest[] = [];
 
-const mockRequestDetails: Record<string, RequestDetails> = {
-  "req-001": {
-    id: "req-001",
-    requestId: "REQ-2026-001",
-    studentName: "Maria Santos",
-    studentNumber: "HM-2024-1501",
-    eventCode: "EVT-2026-001",
-    eventName: "Hospitality Career Fair & Industry Talk",
-    requestType: "Excuse",
-    dateSubmitted: "2026-01-15",
-    status: "pending",
-    recordedAttendanceStatus: "absent",
-    requestedStatus: "present",
-    explanation: "I had a doctor's appointment on that day. I was sick with fever and my parent took me to the clinic. I submitted a medical certificate but my attendance was still marked as absent.",
-    supportingAttachment: "medical-cert-2026-01-15.pdf",
-    attachmentFileName: "Medical Certificate - Dr. Santos"
-  },
-  "req-002": {
-    id: "req-002",
-    requestId: "REQ-2026-002",
-    studentName: "John Reyes",
-    studentNumber: "HM-2024-1502",
-    eventCode: "EVT-2026-002",
-    eventName: "Food & Beverage Service Skills Workshop",
-    requestType: "Correction",
-    dateSubmitted: "2026-01-16",
-    status: "pending",
-    recordedAttendanceStatus: "late",
-    requestedStatus: "present",
-    explanation: "I checked in at 1:05 PM which is only 5 minutes after the official 1:00 PM start time. I was there on time and participated in the entire session. I believe this should be marked as present, not late."
-  },
-  "req-003": {
-    id: "req-003",
-    requestId: "REQ-2026-003",
-    studentName: "Ana Cruz",
-    studentNumber: "HM-2024-1503",
-    eventCode: "EVT-2026-003",
-    eventName: "AHTOMP General Assembly & Orientation",
-    requestType: "Excuse",
-    dateSubmitted: "2026-01-10",
-    status: "approved",
-    recordedAttendanceStatus: "absent",
-    requestedStatus: "present",
-    explanation: "I had a family emergency on that day and had to attend immediately. I submitted a letter from my guardian explaining the situation.",
-    supportingAttachment: "guardian-letter-2026-01-10.pdf",
-    attachmentFileName: "Guardian Authorization Letter",
-    decision: "approved",
-    decisionRemarks: "Approved. Supporting documentation confirms family emergency. Attendance status updated to present."
-  },
-  "req-004": {
-    id: "req-004",
-    requestId: "REQ-2026-004",
-    studentName: "Robert Tañ",
-    studentNumber: "HM-2024-1504",
-    eventCode: "EVT-2026-001",
-    eventName: "Hospitality Career Fair & Industry Talk",
-    requestType: "Correction",
-    dateSubmitted: "2026-01-12",
-    status: "rejected",
-    recordedAttendanceStatus: "late",
-    requestedStatus: "present",
-    explanation: "I arrived at 8:45 AM which is 45 minutes after start time due to traffic.",
-    decision: "rejected",
-    decisionRemarks: "Rejected. Arrival time confirms late attendance. No supporting documentation provided. Status remains late."
-  }
-};
+const requestDetails: Record<string, RequestDetails> = {};
 
 function requestStatusFromStore(status: OrganizerCorrectionRequest["status"]): RequestStatus {
   if (status === "Approved") return "approved";
@@ -203,7 +86,7 @@ function requestTypeFromStore(type: OrganizerCorrectionRequest["requestType"]): 
   return type === "Excused Absence" ? "Excuse" : "Correction";
 }
 
-function buildRequestsFromStore(state: OrganizerMockState): CorrectionRequest[] {
+function buildRequestsFromStore(state: OrganizerUiState): CorrectionRequest[] {
   return state.correctionRequests.map((request) => {
     const student = state.students.find((item) => item.name === request.studentName);
     const event = state.events.find((item) => item.code === request.eventCode);
@@ -226,12 +109,12 @@ function buildRequestsFromStore(state: OrganizerMockState): CorrectionRequest[] 
 }
 
 export function OrganizerCorrectionRequestsPage() {
-  const [mockState, setMockState] = useState(() => loadOrganizerMockState());
+  const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
-  const requests = useMemo(() => buildRequestsFromStore(mockState), [mockState]);
+  const requests = useMemo(() => buildRequestsFromStore(uiState), [uiState]);
 
   const filteredRequests = requests.filter(
     (request) =>
@@ -243,8 +126,8 @@ export function OrganizerCorrectionRequestsPage() {
   );
 
   function buildRequestDetails(request: CorrectionRequest): RequestDetails {
-    const baseDetails = mockRequestDetails[request.id];
-    const storeRequest = mockState.correctionRequests.find((item) => item.id === request.id);
+    const baseDetails = requestDetails[request.id];
+    const storeRequest = uiState.correctionRequests.find((item) => item.id === request.id);
     return {
       ...baseDetails,
       ...request,
@@ -271,7 +154,7 @@ export function OrganizerCorrectionRequestsPage() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || `Approved. Attendance status updated to ${selectedRequest.requestedStatus}.`;
 
-    setMockState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    setUiState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
     setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
     toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
   }
@@ -280,14 +163,14 @@ export function OrganizerCorrectionRequestsPage() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || "Rejected. Original attendance status retained.";
 
-    setMockState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    setUiState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
     setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
     toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
   }
 
   function exportTabReport() {
     const label = statusFilter === "all" ? "All correction requests" : `${statusFilter} correction requests`;
-    toast.success(createMockExport(label));
+    toast.success(createUiExport(label));
   }
 
   const columns: Array<ColumnDef<CorrectionRequest>> = [

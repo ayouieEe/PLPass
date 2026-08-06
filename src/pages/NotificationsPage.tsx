@@ -40,7 +40,7 @@ export function NotificationsPage() {
       <PageHeader
         eyebrow="Account"
         title="Notifications"
-        description="User-scoped development notifications from the mock repository."
+        description="User-scoped notifications from the active data source."
         actions={
           <>
             <Button type="button" variant="outline" onClick={() => notifications.refetch()}>

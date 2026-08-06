@@ -8,13 +8,13 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
-  createMockExport,
-  loadOrganizerMockState,
+  createUiExport,
+  loadOrganizerUiState,
   type OrganizerCompletedEvent,
   type OrganizerEvent,
   type OrganizerAttendanceRow,
   type AttendanceMethod
-} from "@/features/organizer/data/organizerMockStore";
+} from "@/features/organizer/data/organizerUiStore";
 type AttendanceMethodLocal = AttendanceMethod;
 type AttendanceStatus = "present" | "late" | "absent";
 type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
@@ -49,118 +49,11 @@ type CompletedRecord = EventRecord & {
 
 const lateReasons: LateReason[] = ["Traffic / Commute", "Class or Academic Conflict", "Personal / Health", "Weather / Force Majeure", "Other"];
 
-const allEvents: EventRecord[] = [
-  {
-    code: "EVT-2026-001",
-    name: "Hospitality Career Fair & Industry Talk",
-    category: "Career Development",
-    venue: "PLP Pasig Gymnasium",
-    date: "2026-02-10",
-    startTime: "08:00 AM",
-    endTime: "12:00 PM",
-    predictedTurnout: "82%",
-    objectives: [
-      "Connect HM students with at least 5 partner hotels/restaurants for potential internship slots",
-      "Improve student awareness of current industry hiring standards",
-      "Gather student interest data for AHTOMP's placement program"
-    ]
-  },
-  {
-    code: "EVT-2026-002",
-    name: "Food & Beverage Service Skills Workshop",
-    category: "Skills Training",
-    venue: "PLP HM Training Laboratory",
-    date: "2026-02-24",
-    startTime: "01:00 PM",
-    endTime: "05:00 PM",
-    predictedTurnout: "76%",
-    objectives: [
-      "Demonstrate proper fine-dining table service techniques",
-      "Improve student confidence in guest interaction scenarios"
-    ]
-  },
-  {
-    code: "EVT-2026-003",
-    name: "AHTOMP General Assembly & Orientation",
-    category: "General Assembly",
-    venue: "PLP Pasig Auditorium",
-    date: "2026-03-05",
-    startTime: "09:00 AM",
-    endTime: "11:00 AM",
-    predictedTurnout: "91%",
-    objectives: [
-      "Orient new HM students on AHTOMP's programs and membership benefits",
-      "Present the academic year's event calendar"
-    ]
-  },
-  {
-    code: "EVT-2026-004",
-    name: "Front Office Operations Simulation Day",
-    category: "Skills Training",
-    venue: "PLP HM Mock Hotel Lab",
-    date: "2026-03-19",
-    startTime: "08:30 AM",
-    endTime: "03:30 PM",
-    predictedTurnout: "69%",
-    objectives: [
-      "Simulate real front-desk check-in/check-out scenarios",
-      "Assess student handling of guest complaints",
-      "Evaluate use of a property management system mock-up"
-    ]
-  },
-  {
-    code: "EVT-2026-005",
-    name: "Sustainable Tourism Speaker Series",
-    category: "Seminar",
-    venue: "PLP Multi-Purpose Hall",
-    date: "2026-04-02",
-    startTime: "01:30 PM",
-    endTime: "04:00 PM",
-    predictedTurnout: "58%",
-    objectives: [
-      "Introduce sustainable and responsible tourism practices",
-      "Encourage student-led sustainability initiatives on campus"
-    ]
-  },
-  {
-    code: "EVT-2026-006",
-    name: "AHTOMP Culinary & Mixology Showcase",
-    category: "Competition",
-    venue: "PLP HM Culinary Kitchen",
-    date: "2026-04-18",
-    startTime: "09:00 AM",
-    endTime: "04:00 PM",
-    predictedTurnout: "88%",
-    objectives: [
-      "Showcase student culinary and beverage-crafting competencies",
-      "Foster friendly competition among HM sections"
-    ]
-  }
-];
+const allEvents: EventRecord[] = [];
 
-const sessionSummaries: CompletedRecord[] = [
-  { ...allEvents[0], present: 142, late: 18, absent: 12, totalRegistered: 172, attendanceRate: "82.6%", sentiment: { positive: 78, neutral: 18, negative: 4 }, feedbackComments: ["Very well organized compared to past AHTOMP events."] },
-  { ...allEvents[1], present: 97, late: 14, absent: 23, totalRegistered: 134, attendanceRate: "72.8%", sentiment: { positive: 64, neutral: 27, negative: 9 }, feedbackComments: ["Great networking opportunity with hotel partners.", "The speakers were very informative and approachable."] },
-  { ...allEvents[2], present: 203, late: 9, absent: 8, totalRegistered: 220, attendanceRate: "92.7%", sentiment: { positive: 71, neutral: 22, negative: 7 }, feedbackComments: ["Venue was a bit cramped for the number of attendees."] }
-];
+const sessionSummaries: CompletedRecord[] = [];
 
-const attendanceDetails: AttendanceRow[] = [
-  { id: "ATT-6001", studentId: "STU-1002", studentName: "Ximena Garcia", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:38 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
-  { id: "ATT-6002", studentId: "STU-1003", studentName: "Angel Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:44 AM", attendanceStatus: "present" },
-  { id: "ATT-6003", studentId: "STU-1004", studentName: "Rhea Ramos", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:50 AM", attendanceStatus: "late", lateReason: "Class or Academic Conflict" },
-  { id: "ATT-6004", studentId: "STU-1005", studentName: "Ivy Reyes", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:03 AM", attendanceStatus: "late", lateReason: "Personal / Health" },
-  { id: "ATT-6005", studentId: "STU-1006", studentName: "Gwen Castillo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", attendanceStatus: "absent" },
-  { id: "ATT-6006", studentId: "STU-1007", studentName: "Leo Villanueva", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:34 AM", attendanceStatus: "late", lateReason: "Other" },
-  { id: "ATT-6007", studentId: "STU-1008", studentName: "Mika Bautista", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:17 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6008", studentId: "STU-1009", studentName: "Leo Ocampo", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "-", attendanceStatus: "absent" },
-  { id: "ATT-6009", studentId: "STU-1010", studentName: "Yuri Flores", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:32 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6010", studentId: "STU-1011", studentName: "Odessa Navarro", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:16 AM", attendanceStatus: "late", lateReason: "Other" },
-  { id: "ATT-6011", studentId: "STU-1012", studentName: "Ivy Bautista", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "07:37 AM", attendanceStatus: "present" },
-  { id: "ATT-6012", studentId: "STU-1013", studentName: "Francis Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "07:40 AM", attendanceStatus: "present" },
-  { id: "ATT-6013", studentId: "STU-1014", studentName: "Kyla Cruz", eventCode: "EVT-2026-001", attendanceMethod: "Facial Recognition", checkInTime: "08:38 AM", attendanceStatus: "late", lateReason: "Traffic / Commute" },
-  { id: "ATT-6014", studentId: "STU-1015", studentName: "Carlo Ramos", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:30 AM", attendanceStatus: "late", lateReason: "Weather / Force Majeure" },
-  { id: "ATT-6015", studentId: "STU-1016", studentName: "Mika Salazar", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:37 AM", attendanceStatus: "late", lateReason: "Personal / Health" }
-];
+const attendanceDetails: AttendanceRow[] = [];
 
 function statusTone(status: AttendanceStatus | "Upcoming" | "Active" | "Completed") {
   if (status === "present" || status === "Active" || status === "Completed") {
@@ -259,17 +152,17 @@ function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
 }
 
 export function EventRecordsPage() {
-  const [mockState] = useState(() => loadOrganizerMockState());
+  const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
-  const completedRows = useMemo(() => mockState.completedEvents.map(completedFromStore), [mockState.completedEvents]);
+  const completedRows = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
   const pastEvents = useMemo(
     () => completedRows.filter((event) => matchesSearch(event, search)),
     [completedRows, search]
   );
 
   function exportReport(label: string) {
-    toast.success(createMockExport(label));
+    toast.success(createUiExport(label));
   }
 
   const pastColumns: ColumnDef<CompletedRecord>[] = [
@@ -337,7 +230,7 @@ export function EventRecordsPage() {
       {completedModal ? (
         <CompletedEventModal
           record={completedModal}
-          rows={mockState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
+          rows={uiState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
           onClose={() => setCompletedModal(null)}
           onExportReport={exportReport}
         />
@@ -377,7 +270,7 @@ function EventDetails({ event }: { event: EventRecord }) {
   );
 }
 
-function CompletedEventModal({ record, rows, onClose, onExportReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void }) {
+export function CompletedEventModal({ record, rows, onClose, onExportReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void }) {
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },

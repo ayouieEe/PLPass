@@ -38,11 +38,6 @@ import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
 import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
 import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
 import type { ReportHistoryRecord } from "@/features/reports/types";
-import {
-  loadOrganizerMockState,
-  publishOrganizerEvent,
-  type OrganizerEvent
-} from "@/features/organizer/data/organizerMockStore";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -59,11 +54,12 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useReports
+  useReports,
+  useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -100,30 +96,6 @@ const VENUE_OPTIONS = [
   { label: "AVR 1", value: "AVR 1" },
   { label: "AVR 2", value: "AVR 2" },
   { label: "AVR 4", value: "AVR 4" }
-];
-
-const DUMMY_STUDENTS: Student[] = [
-  // BSHM Students (Hospitality Management)
-  { id: "STU-1001", userId: "user-student-1", studentNumber: "2022-10871", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1002", userId: "user-student-2", studentNumber: "2023-10232", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1006", userId: "user-student-3", studentNumber: "2023-10236", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1011", userId: "user-student-4", studentNumber: "2022-10881", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1019", userId: "user-student-5", studentNumber: "2022-10889", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1003", userId: "user-student-6", studentNumber: "2022-10873", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1004", userId: "user-student-7", studentNumber: "2023-10234", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1005", userId: "user-student-8", studentNumber: "2022-10875", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1007", userId: "user-student-9", studentNumber: "2022-10877", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1008", userId: "user-student-10", studentNumber: "2023-10238", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1009", userId: "user-student-11", studentNumber: "2022-10879", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1010", userId: "user-student-12", studentNumber: "2023-10240", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1012", userId: "user-student-13", studentNumber: "2023-10242", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1013", userId: "user-student-14", studentNumber: "2022-10883", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1014", userId: "user-student-15", studentNumber: "2023-10244", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1015", userId: "user-student-16", studentNumber: "2022-10885", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1016", userId: "user-student-17", studentNumber: "2023-10246", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 2, section: "HM2B", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1017", userId: "user-student-18", studentNumber: "2022-10887", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1018", userId: "user-student-19", studentNumber: "2023-10248", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 4, section: "HM4A", createdAt: "2026-06-26T08:00:00.000Z" },
-  { id: "STU-1020", userId: "user-student-20", studentNumber: "2023-10250", status: "enrolled", programId: "program-bshm", departmentId: "dept-hm", yearLevel: 3, section: "HM3B", createdAt: "2026-06-26T08:00:00.000Z" }
 ];
 
 const PROGRAM_CODES = {
@@ -235,7 +207,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
 }
@@ -329,7 +301,7 @@ function buildAttendanceFactors(selectedStudents: Student[], category: string, s
   const categoryLabel = category.trim() || "Event category";
   const timeLabel = startTime ? `${startTime} start time` : "Start time";
 return [
-    { label: selectedStudents.length ? `${selectedStudents.length} selected dummy students` : "No selected dummy students yet", importance: 32 },
+    { label: selectedStudents.length ? `${selectedStudents.length} selected Supabase students` : "No selected Supabase students yet", importance: 32 },
     { label: dominantYear ? `Year ${dominantYear} participation profile` : "Year level profile", importance: 22 },
     { label: dominantSection ? `Section ${dominantSection} concentration` : "Section concentration", importance: 18 },
     { label: categoryLabel, importance: 14 },
@@ -391,8 +363,9 @@ export function CreateEventPage() {
   const [notificationStatuses, setNotificationStatuses] = useState<{ studentId: string; studentNumber: string; status: "pending" | "sent" | "failed" }[]>([]);
   const [isPublishing, setIsPublishing] = useState(false);
   
-  // Filter hardcoded students based on search and filters
-  const filteredStudents = DUMMY_STUDENTS.filter((student) => {
+  const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  const supabaseStudents = studentsQuery.data?.items ?? [];
+  const filteredStudents = supabaseStudents.filter((student) => {
     const matchesSearch = !search || student.studentNumber.includes(search) || student.id.includes(search) || student.section.includes(search);
     const matchesProgram = !programId || student.programId === programId;
     const matchesYear = !yearLevel || student.yearLevel === Number(yearLevel);
@@ -402,6 +375,7 @@ export function CreateEventPage() {
   
   const students = filteredStudents;
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
+  const eventMutations = useEventMutations(scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
@@ -434,10 +408,10 @@ export function CreateEventPage() {
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
   }
-  if (catalog.programs.isLoading) {
+  if (catalog.programs.isLoading || studentsQuery.isLoading) {
     return <LoadingState label="Loading participant selector" />;
   }
-  const selectedStudents = selectedIds.map((id) => DUMMY_STUDENTS.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const selectedStudents = selectedIds.map((id) => supabaseStudents.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
   const programById = new Map(Object.entries(PROGRAM_CODES));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
@@ -472,70 +446,48 @@ export function CreateEventPage() {
     setSessionStarted(false);
     setStartSessionOpen(false);
   }
-  function onSubmit(values: EventFormValues) {
+  async function onSubmit(values: EventFormValues) {
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
-    setIsPublishing(true);
-    const event: OrganizerEvent = {
-      code: values.code,
-      name: values.title,
-      category: values.category,
-      venue: values.venue,
-      date: values.date,
-      startTime: values.startTime,
-      endTime: values.endTime,
-      predictedTurnout: predictedPercentage,
-      objectives: [values.objective1, values.objective2, values.objective3],
-      status: "incoming"
-    };
 
-    publishOrganizerEvent(loadOrganizerMockState(), event, selectedIds);
+    setIsPublishing(true);
     try {
-      // Mock notification: show summary modal and simulate sending emails to selected students
+      await eventMutations.createEventMutation.mutateAsync({
+        code: values.code,
+        title: values.title,
+        category: values.category,
+        venue: values.venue,
+        date: values.date,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        attendanceMode: "face-to-face",
+        participantStudentIds: selectedIds,
+        description: values.description,
+        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n")
+      });
+
       setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
       setNotificationModalOpen(true);
-      // simulate sends sequentially to avoid flooding UI
       selectedStudents.forEach((student, index) => {
         setTimeout(() => {
           setNotificationStatuses((current) => current.map((entry) => (entry.studentId === student.id ? { ...entry, status: "sent" } : entry)));
         }, 400 + index * 200);
       });
-      // close modal and navigate after all simulated sends complete
       setTimeout(() => {
         setNotificationModalOpen(false);
         setIsPublishing(false);
         form.reset();
         setSelectedIds([]);
-        toast.success(`Published ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""} — notifications simulated`);
+        toast.success(`Published event with ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""}.`);
         navigate(APP_ROUTES.organizerEvents);
       }, 400 + selectedStudents.length * 200 + 300);
     } catch (err) {
-      // If the Supabase repository intentionally defers live creation, fall back to simulated publish
-      const isDeferred = err instanceof Error && /deferred/i.test(err.message || "");
-      if (isDeferred) {
-        setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
-        setNotificationModalOpen(true);
-        selectedStudents.forEach((student, index) => {
-          setTimeout(() => {
-            setNotificationStatuses((current) => current.map((entry) => (entry.studentId === student.id ? { ...entry, status: "sent" } : entry)));
-          }, 400 + index * 200);
-        });
-        setTimeout(() => {
-          setNotificationModalOpen(false);
-          toast.success(`Notified ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""} (simulated)`);
-        }, 400 + selectedStudents.length * 200 + 300);
-        // Clear mutation error state so the ErrorState UI doesn't persist
-        try {
-          setIsPublishing(false);
-        } catch {}
-        return;
-      }
-      throw err;
+      setIsPublishing(false);
+      toast.error(err instanceof Error ? err.message : "Failed to publish event.");
     }
-  }
-  return (
+  }  return (
     <OrganizerFrame>
       <PageHeader
         title="Create Event"
@@ -589,7 +541,7 @@ export function CreateEventPage() {
             </div>
             <p className="mt-1 text-sm text-muted-foreground">Live Random Forest Prediction</p>
             <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-              Based on the current dummy student list
+              Based on the current Supabase student list
               {dominantSelectedYear ? `, mostly Year ${dominantSelectedYear}` : ""}
               {dominantSelectedSection ? ` from ${dominantSelectedSection}` : ""}.
             </div>
@@ -640,11 +592,11 @@ export function CreateEventPage() {
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
               <option value="">All year levels</option>
-              {Array.from(new Set(DUMMY_STUDENTS.map((s) => s.yearLevel))).sort().map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+              {Array.from(new Set(supabaseStudents.map((s) => s.yearLevel))).sort().map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
               <option value="">All sections</option>
-              {Array.from(new Set(DUMMY_STUDENTS.map((s) => s.section))).sort().map((item) => <option key={item} value={item}>{item}</option>)}
+              {Array.from(new Set(supabaseStudents.map((s) => s.section))).sort().map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
           {participantError ? <p className="text-sm text-danger">{participantError}</p> : null}
