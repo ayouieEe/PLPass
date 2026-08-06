@@ -60,7 +60,7 @@ import {
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -191,7 +191,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
 }

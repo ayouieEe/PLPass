@@ -3,6 +3,7 @@ import type {
   AcademicManagementRepository,
   AnalyticsMlRepository,
   AttendanceRecordRepository,
+  AttendanceAttemptRepository,
   AttendanceSessionRepository,
   AuditLogRepository,
   AuthenticationRepository,
@@ -10,9 +11,6 @@ import type {
   CorrectionRequestRepository,
   EndAttendanceSessionInput,
   EventManagementRepository,
-  NfcCredentialRepository,
-  NfcCredentialRequestRepository,
-  NfcReaderRepository,
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
@@ -26,22 +24,16 @@ import {
   mapAttendanceRecord,
   mapAttendanceSession,
   mapAuditLog,
-  mapClass,
-  mapClassRoster,
   mapCorrectionRequest,
   mapEvent,
   mapEventParticipant,
-  mapFaculty,
-  mapNfcCredential,
-  mapNfcCredentialRequest,
-  mapNfcReader,
   mapNotification,
   mapOrganizer,
   mapProfileToUser,
   mapReport,
   mapStudent
 } from "@/lib/supabase/mappers";
-import { RepositoryError } from "@/services/mock/mockRepositoryUtils";
+import { RepositoryError } from "@/services/repositoryUtils";
 import type {
   AdminProfile,
   Department,
@@ -51,21 +43,15 @@ import type {
   Student,
   SystemSettings
 } from "@/types/domain";
-import type { EventStatus, NfcCredentialStatus, NfcReaderStatus } from "@/types/enums";
+import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
 type Row = Record<string, unknown>;
 type TableName = keyof Database["public"]["Tables"];
 
 const defaultPageSize = 20;
-const classReadSelect = "*, subjects(subject_code, subject_name), rooms(room_code), sections(section_name, year_level, program_id, programs(department_id)), class_schedules(day_of_week, start_time, end_time)";
 const eventReadSelect = "*, event_categories(category_name)";
-const nfcCredentialReadSelect = "id, student_id, nfc_status, issued_at, last_successful_check_in_at";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level)";
-
-function deferredLiveMutation(message = "This Supabase mutation needs a reviewed live schema workflow before it is enabled."): never {
-  throw new RepositoryError(message, "VALIDATION_ERROR");
-}
 
 function queryOrDefault(query?: ListQuery): ListQuery {
   return {
@@ -213,19 +199,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
   async listFacultyProfiles(query) {
-    const rows = await selectRows("faculty", query, "*, profiles(*)");
-    return pageResult(
-      rows.items.map((row) => {
-        const faculty = mapFaculty(row);
-        const profile = row.profiles as Row | undefined;
-        return {
-          ...faculty,
-          displayName: profile ? mapProfileToUser(profile).displayName : undefined
-        };
-      }),
-      rows.total,
-      query
-    );
+    return emptyPage(query);
   },
   async listOrganizerProfiles(query) {
     const rows = await selectRows("organizers", query);
@@ -262,52 +236,30 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     return pageResult(rows.items.map((row): Semester => ({ id: String(row.id ?? ""), label: String(row.label ?? row.semester_name ?? ""), schoolYear: String(row.school_year ?? ""), startsAt: String(row.starts_at ?? row.start_date ?? ""), endsAt: String(row.ends_at ?? row.end_date ?? ""), isActive: Boolean(row.is_active) })), rows.total, query);
   },
   async listClasses(query) {
-    const facultyId = (query as { facultyId?: string })?.facultyId;
-    const sectionId = (query as { sectionId?: string })?.sectionId;
-    const rows = await selectRowsFiltered("classes", query, classReadSelect, {
-      faculty_id: facultyId,
-      section_id: sectionId
-    });
-    return pageResult(rows.items.map(mapClass), rows.total, query);
+    return emptyPage(query);
   },
   async getClassById(classId) {
-    return mapClass(await selectSingleRowWithColumns("classes", classId, classReadSelect));
+    void classId;
+    throw new RepositoryError("Class attendance is not part of the event-only PLPass schema.", "NOT_FOUND");
   }
 };
 
 export const supabaseClassRosterRepository: ClassRosterRepository = {
   async listClassRosters(query) {
-    const rows = await selectRows("class_enrollments", query);
-    return pageResult(rows.items.map(mapClassRoster), rows.total, query);
+    return emptyPage(query);
   },
   async listStudentsForClass(classId, query) {
-    const client = getSupabaseBrowserClient();
-    const { data: enrollmentRows, error: enrollmentError } = await client
-      .from("class_enrollments")
-      .select("student_id")
-      .eq("class_id", classId);
-    throwIfSupabaseError(enrollmentError);
-    const studentIds = (enrollmentRows ?? []).map((row) => String((row as Row).student_id ?? ""));
-    if (studentIds.length === 0) {
-      return emptyPage<Student>(query);
-    }
-
-    const listQuery = queryOrDefault(query);
-    const { data, error, count } = await client
-      .from("students")
-      .select(studentReadSelect, { count: "exact" })
-      .in("id", studentIds)
-      .range(listQuery.pageIndex * listQuery.pageSize, listQuery.pageIndex * listQuery.pageSize + listQuery.pageSize - 1);
-    throwIfSupabaseError(error);
-    return pageResult(((data ?? []) as Row[]).map(mapStudent), count ?? studentIds.length, query);
+    void classId;
+    return emptyPage<Student>(query);
   },
   async addStudentToClass(input: AddRosterStudentInput) {
-    return mapClassRoster(await insertRow("class_enrollments", { class_id: input.classId, student_id: input.studentId }));
+    void input;
+    throw new RepositoryError("Class rosters are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
   },
   async removeStudentFromClass(classId, studentId) {
-    const client = getSupabaseBrowserClient();
-    const { error } = await client.from("class_enrollments").delete().eq("class_id", classId).eq("student_id", studentId);
-    throwIfSupabaseError(error);
+    void classId;
+    void studentId;
+    throw new RepositoryError("Class rosters are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
   }
 };
 
@@ -323,8 +275,64 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const rows = await selectRows("event_participants", query);
     return pageResult(rows.items.filter((row) => String(row.event_id ?? "") === eventId).map(mapEventParticipant), rows.total, query);
   },
-  async createEvent() {
-    deferredLiveMutation("Live event creation is deferred until the Supabase event schema has reviewed category/date/session mappings.");
+  async createEvent(input) {
+    const client = getSupabaseBrowserClient();
+    const profile = await currentProfile();
+    const { data: organizer, error: organizerError } = await client
+      .from("organizers")
+      .select("id")
+      .eq("profile_id", String(profile.id))
+      .maybeSingle();
+    throwIfSupabaseError(organizerError);
+    if (!organizer) {
+      throw new RepositoryError("The signed-in account is not linked to an organizer profile.", "PERMISSION_DENIED");
+    }
+
+    const { data: category, error: categoryError } = await client
+      .from("event_categories")
+      .select("id")
+      .eq("category_name", input.category)
+      .maybeSingle();
+    throwIfSupabaseError(categoryError);
+    if (!category) {
+      throw new RepositoryError("Select an event category that exists in Supabase.", "VALIDATION_ERROR");
+    }
+
+    const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
+    const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
+    const { data: eventRow, error: eventError } = await client
+      .from("events")
+      .insert({
+        event_code: input.code,
+        title: input.title,
+        category_id: category.id,
+        venue: input.venue,
+        starts_at: scheduledStart,
+        ends_at: scheduledEnd,
+        description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
+        event_status: "scheduled",
+        approval_status: "pending",
+        organizer_id: organizer.id
+      })
+      .select(eventReadSelect)
+      .single();
+    throwIfSupabaseError(eventError);
+
+    if (input.participantStudentIds.length > 0) {
+      const { error: participantError } = await client.from("event_participants").insert(
+        input.participantStudentIds.map((studentId) => ({
+          event_id: eventRow.id,
+          student_id: studentId,
+          participant_status: "invited" as const
+        }))
+      );
+      if (participantError) {
+        await client.from("events").delete().eq("id", eventRow.id);
+        throwIfSupabaseError(participantError);
+      }
+    }
+
+    return mapEvent(eventRow as Row);
   },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason) {
     const approvalStatus = status === "approved" ? "approved" : "declined";
@@ -335,152 +343,91 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const [classRows, eventRows] = await Promise.all([
-      selectRows("class_sessions", query).catch(() => emptyPage<Row>(query)),
-      selectRows("event_sessions", query).catch(() => emptyPage<Row>(query))
-    ]);
-    const items = [...classRows.items.map((row) => mapAttendanceSession(row, "class")), ...eventRows.items.map((row) => mapAttendanceSession(row, "event"))];
-    return pageResult(items, classRows.total + eventRows.total, query);
+    const rows = await selectRows("event_sessions", query);
+    return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
   },
 
   async getAttendanceSessionById(sessionId) {
-    try {
-      return mapAttendanceSession(await selectSingleRow("class_sessions", sessionId), "class");
-    } catch (error) {
-      if (error instanceof RepositoryError && error.code === "NOT_FOUND") {
-        return mapAttendanceSession(await selectSingleRow("event_sessions", sessionId), "event");
-      }
-      throw error;
-    }
+    return mapAttendanceSession(await selectSingleRow("event_sessions", sessionId), "event");
   },
   async createClassSession(input) {
-  const client = getSupabaseBrowserClient();
-  const { data: roomRow, error: roomError } = await client
-    .from("rooms")
-    .select("id")
-    .eq("room_code", input.room)
-    .maybeSingle();
-  throwIfSupabaseError(roomError);
-  const roomId = roomRow ? (roomRow as Row).id : null;
-
-  const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-  const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
-  const dbMode = input.mode === "optional" ? "online" : "f2f";
-
-  const inserted = await insertRow("class_sessions", {
-    class_id: input.classId,
-    room_id: roomId,
-    session_date: input.date,
-    mode: dbMode,
-    session_status: "ongoing",
-    scheduled_start: scheduledStart,
-    scheduled_end: scheduledEnd,
-    actual_start: new Date().toISOString()
-  });
-  return mapAttendanceSession(inserted, "class");
+    void input;
+    throw new RepositoryError("Class sessions are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
 },
-  async createEventSession() {
-    deferredLiveMutation("Live event session creation is deferred until Phase 10 session-start workflows are reviewed.");
+  async createEventSession(input) {
+    const profile = await currentProfile();
+    const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
+    const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
+    const inserted = await insertRow("event_sessions", {
+      event_id: input.eventId,
+      created_by: String(profile.id),
+      session_name: `${input.date} attendance`,
+      venue: input.venue,
+      mode: input.attendanceMode === "online" ? "online" : "f2f",
+      session_status: "ongoing",
+      scheduled_start: scheduledStart,
+      scheduled_end: scheduledEnd,
+      attendance_window_start_at: scheduledStart,
+      attendance_window_end_at: scheduledEnd,
+      late_cutoff_at: new Date(new Date(scheduledStart).getTime() + 15 * 60_000).toISOString(),
+      actual_start: new Date().toISOString()
+    });
+
+    return mapAttendanceSession(inserted, "event");
   },
   async endAttendanceSession(input: EndAttendanceSessionInput) {
-    const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
-    const table = session.type === "class" ? "class_sessions" : "event_sessions";
-    return mapAttendanceSession(await updateRow(table, input.sessionId, { session_status: "completed", actual_end: new Date().toISOString(), ended_reason: input.reason }), session.type);
+    await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
+    return mapAttendanceSession(await updateRow("event_sessions", input.sessionId, { session_status: "completed", actual_end: new Date().toISOString(), ended_reason: input.reason }), "event");
   }
 };
 
 export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
   async listAttendanceRecords(query) {
-  const classId = (query as { classId?: string })?.classId;
-  const sessionId = (query as { sessionId?: string })?.sessionId;
-
-  if (sessionId) {
-    const rows = await selectRowsFiltered("attendance_records", query, "*", { class_session_id: sessionId });
+    const sessionId = (query as { sessionId?: string })?.sessionId;
+    const rows = sessionId
+      ? await selectRowsFiltered("attendance_records", query, "*", { event_session_id: sessionId })
+      : await selectRows("attendance_records", query);
     return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
-  }
-
-  if (classId) {
-    const sessions = await selectRowsFiltered("class_sessions", { pageIndex: 0, pageSize: 500 }, "id", { class_id: classId });
-    const sessionIds = sessions.items.map((row) => String(row.id));
-    if (sessionIds.length === 0) {
-      return pageResult([], 0, query);
-    }
-    const client = getSupabaseBrowserClient();
-    const listQuery = queryOrDefault(query);
-    const { data, error, count } = await client
-      .from("attendance_records")
-      .select("*", { count: "exact" })
-      .in("class_session_id", sessionIds)
-      .range(listQuery.pageIndex * listQuery.pageSize, listQuery.pageIndex * listQuery.pageSize + listQuery.pageSize - 1);
-    throwIfSupabaseError(error);
-    return pageResult(((data ?? []) as Row[]).map(mapAttendanceRecord), count ?? 0, query);
-  }
-
-  const rows = await selectRows("attendance_records", query);
-  return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
-},
+  },
   async getAttendanceRecordById(recordId) {
     return mapAttendanceRecord(await selectSingleRow("attendance_records", recordId));
   },
   async simulateCredentialAttendance() {
-    throw new RepositoryError("Live NFC and QR attendance writes are intentionally deferred to Phase 10.", "VALIDATION_ERROR");
+    throw new RepositoryError("QR and facial attendance require the secure Supabase verifier function before they can be enabled.", "VALIDATION_ERROR");
   },
-  async simulateManualAttendance() {
-    throw new RepositoryError("Live manual attendance writes are intentionally deferred to Phase 10.", "VALIDATION_ERROR");
+  async simulateManualAttendance(input) {
+    const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
+    if (session.status !== "active") throw new RepositoryError("This attendance session is not active.", "VALIDATION_ERROR");
+    const client = getSupabaseBrowserClient();
+    const { data: existing, error: existingError } = await client.from("attendance_records").select("*").eq("event_session_id", input.sessionId).eq("student_id", input.studentId).maybeSingle();
+    throwIfSupabaseError(existingError);
+    if (existing) {
+      const record = mapAttendanceRecord(existing as Row);
+      return { resultStatus: "Already Recorded", attendanceStatus: record.status, verificationMethod: "manual", recordedAt: record.recordedAt, safeMessage: "Attendance was already recorded.", attendanceRecord: record, summary: { present: 0, late: 0, absent: 0, duplicateAttempts: 1, failedAttempts: 0 } };
+    }
+    const recordedAt = input.occurredAt ?? new Date().toISOString();
+    const status = session.lateCutoffAt && new Date(recordedAt) > new Date(session.lateCutoffAt) ? "late" : "present";
+    const row = await insertRow("attendance_records", { event_session_id: input.sessionId, student_id: input.studentId, attendance_status: status, verification_method: "manual", time_in: recordedAt, recorded_at: recordedAt, remarks: [input.reason, input.remarks].filter(Boolean).join(": ") });
+    const record = mapAttendanceRecord(row);
+    return { resultStatus: status === "late" ? "Late" : "Present", attendanceStatus: status, verificationMethod: "manual", recordedAt, safeMessage: `Attendance recorded as ${status}.`, attendanceRecord: record, summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } };
   }
 };
 
-export const supabaseNfcCredentialRepository: NfcCredentialRepository = {
-  async listNfcCredentials(query) {
-    const rows = await selectRows("nfc_credentials", query, nfcCredentialReadSelect);
-    return pageResult(rows.items.map(mapNfcCredential), rows.total, query);
-  },
-  async getCredentialForStudent(studentId) {
-    const rows = await selectRows("nfc_credentials", { pageIndex: 0, pageSize: 10 }, nfcCredentialReadSelect);
-    return rows.items.map(mapNfcCredential).find((credential) => credential.studentId === studentId && credential.status === "activated") ?? null;
-  },
-  async updateCredentialStatus(credentialId, status: NfcCredentialStatus) {
-    return mapNfcCredential(await updateRow("nfc_credentials", credentialId, { nfc_status: status }));
-  }
-};
-
-export const supabaseNfcCredentialRequestRepository: NfcCredentialRequestRepository = {
-  async listNfcCredentialRequests(query) {
-    const rows = await selectRows("credential_requests", query);
-    return pageResult(rows.items.map(mapNfcCredentialRequest), rows.total, query);
-  },
-  async createNfcCredentialRequest() {
-    deferredLiveMutation("Live credential request creation is deferred until credential request reason and credential linkage fields are reviewed.");
-  }
-};
-
-export const supabaseNfcReaderRepository: NfcReaderRepository = {
-  async listNfcReaders(query) {
-    const rows = await selectRows("devices", query);
-    return pageResult(rows.items.map(mapNfcReader), rows.total, query);
-  },
-  async listNfcTapAttempts(query) {
-    const rows = await selectRows("attendance_logs", query);
+export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = {
+  async listAttendanceAttempts(query) {
+    const rows = await selectRows("verification_attempts", query);
     return pageResult(
       rows.items.map((row) => ({
         id: String(row.id ?? ""),
-        sessionId: String(row.attendance_record_id ?? ""),
-        readerId: String(row.device_id ?? ""),
-        nfcUid: "SIMULATED-CODE",
+        sessionId: String(row.event_session_id ?? ""),
         studentId: typeof row.student_id === "string" ? row.student_id : undefined,
-        accepted: row.action_type === "time_in",
-        attemptedAt: String(row.logged_at ?? new Date().toISOString()),
-        message: String(row.method ?? "Attendance log")
+        accepted: Boolean(row.accepted),
+        attemptedAt: String(row.attempted_at ?? new Date().toISOString()),
+        message: String(row.message ?? "Verification attempt")
       })),
       rows.total,
       query
     );
-  },
-  async updateReaderStatus(readerId, status: NfcReaderStatus) {
-    if (status === "maintenance") {
-      deferredLiveMutation("The live devices.status enum does not include maintenance.");
-    }
-    return mapNfcReader(await updateRow("devices", readerId, { status }));
   }
 };
 
@@ -489,11 +436,33 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
     const rows = await selectRows("attendance_requests", query);
     return pageResult(rows.items.map(mapCorrectionRequest), rows.total, query);
   },
-  async createCorrectionRequest() {
-    deferredLiveMutation("Live correction request creation is deferred until correction reason/status fields are reviewed.");
+  async createCorrectionRequest(input) {
+    const inserted = await insertRow("attendance_requests", {
+      student_id: input.studentId,
+      attendance_record_id: input.attendanceRecordId,
+      explanation: input.reason,
+      requested_status: input.requestedStatus,
+      request_status: "pending"
+    });
+    return mapCorrectionRequest(inserted);
   },
-  async reviewCorrectionRequest() {
-    deferredLiveMutation("Live correction request review is deferred until review metadata fields are reviewed.");
+  async reviewCorrectionRequest(input) {
+    const profile = await currentProfile();
+    const request = await selectSingleRow("attendance_requests", input.requestId);
+    const updated = await updateRow("attendance_requests", input.requestId, {
+      request_status: input.status,
+      review_reason: input.reason ?? (input.status === "rejected" ? "Rejected by reviewer" : "Approved by reviewer"),
+      reviewed_by: String(profile.id),
+      reviewed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+    if (input.status === "approved" && request.attendance_record_id) {
+      await updateRow("attendance_records", String(request.attendance_record_id), {
+        attendance_status: String(request.requested_status ?? "present"),
+        remarks: input.reason ?? "Approved attendance correction"
+      });
+    }
+    return mapCorrectionRequest(updated);
   }
 };
 
@@ -523,23 +492,15 @@ export const supabaseNotificationRepository: NotificationRepository = {
 
 export const supabaseAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query) {
-    const [auditRows, sessionRows] = await Promise.all([
-      selectRows("audit_logs", query).catch(() => emptyPage<Row>(query)),
-      selectRows("session_audit_logs", query).catch(() => emptyPage<Row>(query))
-    ]);
-    const items = [...auditRows.items, ...sessionRows.items].map(mapAuditLog);
-    return pageResult(items, auditRows.total + sessionRows.total, query);
+    const rows = await selectRows("audit_logs", query);
+    return pageResult(rows.items.map(mapAuditLog), rows.total, query);
   }
 };
 
 export const supabaseAnalyticsMlRepository: AnalyticsMlRepository = {
   async listMlPredictions(query) {
-    const [risk, anomalies, clusters] = await Promise.all([
-      selectRows("ml_absenteeism_predictions", query).catch(() => emptyPage<Row>(query)),
-      selectRows("ml_attendance_anomalies", query).catch(() => emptyPage<Row>(query)),
-      selectRows("ml_participation_clusters", query).catch(() => emptyPage<Row>(query))
-    ]);
-    const rows = [...risk.items, ...anomalies.items, ...clusters.items];
+    const result = await selectRows("ml_predictions", query);
+    const rows = result.items;
     return pageResult(
       rows.map((row, index): MlPrediction => ({
         id: String(row.id ?? `ml-${index}`),
@@ -553,7 +514,7 @@ export const supabaseAnalyticsMlRepository: AnalyticsMlRepository = {
         generatedAt: String(row.generated_at ?? row.created_at ?? new Date().toISOString()),
         explanation: String(row.explanation ?? "Supabase ML result mapped for review only.")
       })),
-      risk.total + anomalies.total + clusters.total,
+      result.total,
       query
     );
   }
@@ -587,9 +548,7 @@ export const supabaseRepositoryRegistry: RepositoryRegistry = {
   eventManagement: supabaseEventManagementRepository,
   attendanceSessions: supabaseAttendanceSessionRepository,
   attendanceRecords: supabaseAttendanceRecordRepository,
-  nfcCredentials: supabaseNfcCredentialRepository,
-  nfcCredentialRequests: supabaseNfcCredentialRequestRepository,
-  nfcReaders: supabaseNfcReaderRepository,
+  attendanceAttempts: supabaseAttendanceAttemptRepository,
   correctionRequests: supabaseCorrectionRequestRepository,
   reports: supabaseReportRepository,
   notifications: supabaseNotificationRepository,

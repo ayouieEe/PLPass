@@ -29,7 +29,6 @@ import {
   isFeedbackSubmitted,
   buildStudentEventWorkflow,
   correctionRequestTypeLabels,
-  createStudentCorrectionRequest,
   eventFromStudentRecord,
   getCorrectionRequestTypes,
   getEventObjectives,
@@ -288,23 +287,13 @@ export function MyAttendancePage() {
 
     try {
       const reason = attachmentName ? `${explanation.trim()} Attachment: ${attachmentName}` : explanation.trim();
-      if (selectedRecord.id.startsWith("student-pdf-record-")) {
-        createStudentCorrectionRequest(student.id, {
-          attendanceRecordId: selectedRecord.id,
-          eventId: selectedRecord.eventId,
-          requestedStatus: requestType,
-          reason
-        });
-        setLocalRevision((value) => value + 1);
-      } else {
-        await correctionsQuery.createMutation.mutateAsync({
-          studentId: student.id,
-          attendanceRecordId: selectedRecord.id,
-          eventId: selectedRecord.eventId,
-          requestedStatus: requestType,
-          reason
-        });
-      }
+      await correctionsQuery.createMutation.mutateAsync({
+        studentId: student.id,
+        attendanceRecordId: selectedRecord.id,
+        eventId: selectedRecord.eventId,
+        requestedStatus: requestType,
+        reason
+      });
       toast.success("Correction request submitted.");
       setExplanation("");
       setAttachmentName("");

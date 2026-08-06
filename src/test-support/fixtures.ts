@@ -1,5 +1,6 @@
 import type {
   AdminProfile,
+  AttendanceAttempt,
   AttendanceRecord,
   AttendanceSession,
   AuditLog,
@@ -11,10 +12,6 @@ import type {
   EventParticipant,
   FacultyProfile,
   MlPrediction,
-  NfcCredential,
-  NfcCredentialRequest,
-  NfcReader,
-  NfcTapAttempt,
   Notification,
   OrganizerProfile,
   Program,
@@ -113,7 +110,7 @@ export const eventFixtures: Event[] = [
   { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "CCS Orientation", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
   { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "Business Forum", venue: "PLP HM Training Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
   { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "CCS Orientation", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
-  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "Business Forum", venue: "PLP HM Mock Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
+  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "Business Forum", venue: "PLP HM Simulation Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
   { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Seminar", title: "Sustainable Tourism Speaker Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
   { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Competition", title: "AHTOMP Culinary & Mixology Showcase", venue: "PLP HM Culinary Kitchen", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
 ];
@@ -149,11 +146,11 @@ export const attendanceSessionFixtures: AttendanceSession[] = [
 ];
 
 export const attendanceRecordFixtures: AttendanceRecord[] = [
-  { id: "record-1", sessionId: "session-1", studentId: "student-1", status: "present", verificationMethod: "nfc", recordedAt: "2026-06-24T00:01:00.000Z" },
-  { id: "record-2", sessionId: "session-1", studentId: "student-2", status: "late", verificationMethod: "nfc", recordedAt: "2026-06-24T00:18:00.000Z" },
-  { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No tap received" },
+  { id: "record-1", sessionId: "session-1", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-06-24T00:01:00.000Z" },
+  { id: "record-2", sessionId: "session-1", studentId: "student-2", status: "late", verificationMethod: "qr", recordedAt: "2026-06-24T00:18:00.000Z" },
+  { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No check-in received" },
   { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "excused", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
-  { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "nfc", recordedAt: "2026-06-26T00:02:00.000Z" },
+  { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "facial", recordedAt: "2026-06-26T00:02:00.000Z" },
   { id: "record-6", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-02-10T00:04:00.000Z", note: "Feedback submitted" },
   { id: "record-7", sessionId: "session-4", studentId: "student-1", status: "absent", verificationMethod: "manual", recordedAt: "2026-02-24T09:00:00.000Z", note: "No attendance scan received" },
   { id: "record-8", sessionId: "session-5", studentId: "student-1", status: "late", verificationMethod: "manual", recordedAt: "2026-03-05T01:18:00.000Z", note: "Late reason: Traffic / Commute" },
@@ -163,32 +160,10 @@ export const attendanceRecordFixtures: AttendanceRecord[] = [
   { id: "record-12", sessionId: "session-5", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-03-05T01:04:00.000Z" }
 ];
 
-export const nfcCredentialFixtures: NfcCredential[] = [
-  { id: "nfc-1", studentId: "student-1", nfcUid: "PLPASS-DEMO-1001", status: "activated", issuedAt: now },
-  { id: "nfc-2", studentId: "student-2", nfcUid: "PLPASS-DEMO-BLOCKED", status: "blocked", issuedAt: now },
-  { id: "nfc-3", studentId: "student-3", nfcUid: "PLPASS-DEMO-DAMAGED", status: "damaged", issuedAt: now },
-  { id: "nfc-4", studentId: "student-4", nfcUid: "PLPASS-DEMO-OLD", status: "replaced", issuedAt: now, replacedByCredentialId: "nfc-5" },
-  { id: "nfc-5", studentId: "student-4", nfcUid: "PLPASS-DEMO-1004", status: "activated", issuedAt: now },
-  { id: "nfc-6", studentId: "student-5", nfcUid: "PLPASS-DEMO-INACTIVE", status: "inactive", issuedAt: now },
-  { id: "nfc-7", studentId: "student-6", nfcUid: "PLPASS-DEMO-1002", status: "activated", issuedAt: now },
-  { id: "nfc-8", studentId: "student-7", nfcUid: "PLPASS-DEMO-2001", status: "activated", issuedAt: now }
-];
-
-export const nfcCredentialRequestFixtures: NfcCredentialRequest[] = [
-  { id: "nfc-request-1", studentId: "student-1", credentialId: "nfc-1", type: "replacement", status: "completed", reason: "Sticker corners were peeling.", requestedAt: now, reviewedByUserId: "user-admin-1", reviewedAt: now },
-  { id: "nfc-request-2", studentId: "student-2", credentialId: "nfc-2", type: "damaged", status: "pending", reason: "Sticker stopped responding at the reader.", requestedAt: now }
-];
-
-export const nfcReaderFixtures: NfcReader[] = [
-  { id: "reader-1", label: "Dean Laptop Reader", serialNumber: "USB-NFC-001", location: "Dean Office", departmentId: "dept-ccs", status: "active", assignedToUserId: "user-admin-1", lastSeenAt: now, isTrusted: true },
-  { id: "reader-2", label: "Faculty Reader A", serialNumber: "USB-NFC-002", location: "Room 302", departmentId: "dept-ccs", status: "active", assignedToUserId: "user-faculty-1", lastSeenAt: now, isTrusted: true },
-  { id: "reader-3", label: "Organizer Backup Reader", serialNumber: "USB-NFC-003", location: "Events Desk", departmentId: "dept-cba", status: "maintenance", assignedToUserId: "user-organizer-1", isTrusted: false }
-];
-
-export const nfcTapAttemptFixtures: NfcTapAttempt[] = [
-  { id: "tap-1", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", studentId: "student-1", accepted: false, attemptedAt: now, message: "Student not enrolled" },
-  { id: "tap-2", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", studentId: "student-2", accepted: false, attemptedAt: now, message: "Credential blocked" },
-  { id: "tap-3", sessionId: "session-2", readerId: "reader-2", nfcUid: "SIMULATED-CODE", accepted: false, attemptedAt: now, message: "Invalid credential" }
+export const attendanceAttemptFixtures: AttendanceAttempt[] = [
+  { id: "attempt-1", sessionId: "session-2", studentId: "student-1", accepted: false, attemptedAt: now, message: "Student not enrolled" },
+  { id: "attempt-2", sessionId: "session-2", studentId: "student-2", accepted: false, attemptedAt: now, message: "Credential blocked" },
+  { id: "attempt-3", sessionId: "session-2", accepted: false, attemptedAt: now, message: "Invalid credential" }
 ];
 
 export const correctionRequestFixtures: CorrectionRequest[] = [
@@ -250,10 +225,7 @@ export const plpassFixtures = {
   eventParticipants: eventParticipantFixtures,
   attendanceSessions: attendanceSessionFixtures,
   attendanceRecords: attendanceRecordFixtures,
-  nfcCredentials: nfcCredentialFixtures,
-  nfcCredentialRequests: nfcCredentialRequestFixtures,
-  nfcReaders: nfcReaderFixtures,
-  nfcTapAttempts: nfcTapAttemptFixtures,
+  attendanceAttempts: attendanceAttemptFixtures,
   correctionRequests: correctionRequestFixtures,
   reports: reportFixtures,
   notifications: notificationFixtures,

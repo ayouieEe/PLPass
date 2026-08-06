@@ -13,45 +13,9 @@ import {
   shouldSignOutAfterAuthFailure,
   toSafeAuthErrorMessage
 } from "@/app/providers/supabaseSessionResolver";
-import { getDataSource, isSupabaseDataSource } from "@/lib/config/dataSource";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const storageKey = "plpass-development-session";
 const supabaseRestoreTimeoutMs = 8000;
-
-function isDevelopmentSession(value: unknown): value is DevelopmentSession {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Partial<DevelopmentSession>;
-  return (
-    typeof candidate.userId === "string" &&
-    typeof candidate.displayName === "string" &&
-    typeof candidate.email === "string" &&
-    candidate.isAuthenticated === true &&
-    (candidate.role === "organizer" || candidate.role === "student")
-  );
-}
-
-function readStoredSession(): DevelopmentSession | null {
-  const rawSession = window.localStorage.getItem(storageKey);
-  if (!rawSession) {
-    return null;
-  }
-
-  try {
-    const parsedSession: unknown = JSON.parse(rawSession);
-    if (isDevelopmentSession(parsedSession)) {
-      return parsedSession;
-    }
-    window.localStorage.removeItem(storageKey);
-    return null;
-  } catch {
-    window.localStorage.removeItem(storageKey);
-    return null;
-  }
-}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -72,17 +36,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<DevelopmentSession | null>(null);
   const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [authError, setAuthError] = useState<string | undefined>();
-  const isSupabaseMode = isSupabaseDataSource();
-
   useEffect(() => {
     let isMounted = true;
     async function restoreSession() {
-      if (getDataSource() !== "supabase") {
-        setSession(readStoredSession());
-        setIsSessionRestored(true);
-        return;
-      }
-
       let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
         supabase = getSupabaseBrowserClient();
@@ -126,16 +82,6 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  const signIn = useCallback((nextSession: DevelopmentSession) => {
-    setAuthError(undefined);
-    const sessionToStore = { ...nextSession, isAuthenticated: true };
-    queryClient.clear();
-    if (!isSupabaseMode) {
-      window.localStorage.setItem(storageKey, JSON.stringify(sessionToStore));
-    }
-    setSession(sessionToStore);
-  }, [isSupabaseMode]);
-
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setAuthError(undefined);
     queryClient.clear();
@@ -169,16 +115,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
 
   const logout = useCallback(() => {
     queryClient.clear();
-    window.localStorage.removeItem(storageKey);
-    if (isSupabaseMode) {
-      void getSupabaseBrowserClient().auth.signOut();
-    }
+    void getSupabaseBrowserClient().auth.signOut();
     setSession(null);
-  }, [isSupabaseMode]);
+  }, []);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, isSupabaseMode, authError, signIn, signInWithPassword, logout }),
-    [authError, isSessionRestored, isSupabaseMode, logout, session, signIn, signInWithPassword]
+    () => ({ session, isSessionRestored, authError, signInWithPassword, logout }),
+    [authError, isSessionRestored, logout, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

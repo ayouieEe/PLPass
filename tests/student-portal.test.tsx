@@ -3,9 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
-import { studentTestContext, studentTwoTestContext } from "@/mocks/testHelpers";
-import { developmentErrorToggle } from "@/services/mock/developmentErrorToggle";
-import { resetMockRepositoryState } from "@/services/mock/repositories";
+import { studentTestContext, studentTwoTestContext } from "@/test-support/testHelpers";
+import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
+import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
 
 const studentSession = JSON.stringify({
@@ -36,7 +36,7 @@ afterEach(() => {
   window.localStorage.clear();
   queryClient.clear();
   developmentErrorToggle.reset();
-  resetMockRepositoryState();
+  resetSimulatedRepositoryState();
   setRoute("/");
 });
 

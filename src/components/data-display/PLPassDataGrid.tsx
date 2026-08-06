@@ -113,7 +113,6 @@ export function PLPassDataGrid<TData extends object>({
   enableQuickFilter = false,
   enableColumnVisibility = false,
   rowSelection,
-  checkboxSelection = false,
   suppressRowClickSelection = false,
   onSelectionChange,
   height,

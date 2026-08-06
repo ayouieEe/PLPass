@@ -1,8 +1,8 @@
-export type MockErrorMode = "none" | "empty" | "not_found" | "permission_denied" | "validation_error" | "server_error";
+export type SimulatedErrorMode = "none" | "empty" | "not_found" | "permission_denied" | "validation_error" | "server_error";
 
 type ToggleState = {
-  globalMode: MockErrorMode;
-  repositoryModes: Partial<Record<string, MockErrorMode>>;
+  globalMode: SimulatedErrorMode;
+  repositoryModes: Partial<Record<string, SimulatedErrorMode>>;
 };
 
 const state: ToggleState = {
@@ -14,7 +14,7 @@ function canActivateErrorSimulation() {
   return import.meta.env.MODE === "test";
 }
 
-function resolveAllowedMode(mode: MockErrorMode): MockErrorMode {
+function resolveAllowedMode(mode: SimulatedErrorMode): SimulatedErrorMode {
   if (mode === "none" || canActivateErrorSimulation()) {
     return mode;
   }
@@ -23,13 +23,13 @@ function resolveAllowedMode(mode: MockErrorMode): MockErrorMode {
 }
 
 export const developmentErrorToggle = {
-  getMode(repositoryName: string): MockErrorMode {
+  getMode(repositoryName: string): SimulatedErrorMode {
     return state.repositoryModes[repositoryName] ?? state.globalMode;
   },
-  setGlobalMode(mode: MockErrorMode) {
+  setGlobalMode(mode: SimulatedErrorMode) {
     state.globalMode = resolveAllowedMode(mode);
   },
-  setRepositoryMode(repositoryName: string, mode: MockErrorMode) {
+  setRepositoryMode(repositoryName: string, mode: SimulatedErrorMode) {
     state.repositoryModes[repositoryName] = resolveAllowedMode(mode);
   },
   reset() {

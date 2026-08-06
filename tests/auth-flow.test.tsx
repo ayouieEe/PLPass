@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
-import { resetMockRepositoryState } from "@/services/mock/repositories";
+import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import type { UserRole } from "@/types/roles";
 
 const storedSessions: Partial<Record<UserRole, string>> = {
@@ -38,7 +38,7 @@ function storeSession(role: UserRole) {
 afterEach(() => {
   window.localStorage.clear();
   queryClient.clear();
-  resetMockRepositoryState();
+  resetSimulatedRepositoryState();
   setRoute("/");
 });
 

@@ -28,12 +28,12 @@ import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import {
   lateReasons,
-  loadOrganizerMockState,
+  loadOrganizerUiState,
   type OrganizerCompletedEvent,
   type OrganizerEvent
-} from "@/features/organizer/data/organizerMockStore";
+} from "@/features/organizer/data/organizerUiStore";
 
-export type DummyEvent = {
+export type DashboardEventSummary = {
   code: string;
   title: string;
   category: string;
@@ -43,62 +43,7 @@ export type DummyEvent = {
   predictedTurnout: number;
 };
 
-export const DUMMY_EVENTS: DummyEvent[] = [
-  {
-    code: "EVT-2026-001",
-    title: "Hospitality Career Fair & Industry Talk",
-    category: "Career Development",
-    venue: "PLP Pasig Gymnasium",
-    date: "2026-02-10",
-    time: "08:00 AM - 12:00 PM",
-    predictedTurnout: 82
-  },
-  {
-    code: "EVT-2026-002",
-    title: "Food & Beverage Service Skills Workshop",
-    category: "Skills Training",
-    venue: "PLP HM Training Laboratory",
-    date: "2026-02-24",
-    time: "01:00 PM - 05:00 PM",
-    predictedTurnout: 76
-  },
-  {
-    code: "EVT-2026-003",
-    title: "AHTOMP General Assembly & Orientation",
-    category: "General Assembly",
-    venue: "PLP Pasig Auditorium",
-    date: "2026-03-05",
-    time: "09:00 AM - 11:00 AM",
-    predictedTurnout: 91
-  },
-  {
-    code: "EVT-2026-004",
-    title: "Front Office Operations Simulation Day",
-    category: "Skills Training",
-    venue: "PLP HM Mock Hotel Lab",
-    date: "2026-03-19",
-    time: "08:30 AM - 03:30 PM",
-    predictedTurnout: 69
-  },
-  {
-    code: "EVT-2026-005",
-    title: "Sustainable Tourism Speaker Series",
-    category: "Seminar",
-    venue: "PLP Multi-Purpose Hall",
-    date: "2026-04-02",
-    time: "01:30 PM - 04:00 PM",
-    predictedTurnout: 58
-  },
-  {
-    code: "EVT-2026-006",
-    title: "AHTOMP Culinary & Mixology Showcase",
-    category: "Competition",
-    venue: "PLP HM Culinary Kitchen",
-    date: "2026-04-18",
-    time: "09:00 AM - 04:00 PM",
-    predictedTurnout: 88
-  }
-];
+export const EMPTY_EVENTS: DashboardEventSummary[] = [];
 
 export type SessionSummary = {
   eventCode: string;
@@ -110,14 +55,7 @@ export type SessionSummary = {
   attendanceRate: number;
 };
 
-export const DUMMY_SESSION_SUMMARY: SessionSummary[] = [
-  { eventCode: "EVT-2026-001", date: "2026-02-10", present: 142, late: 18, absent: 12, totalRegistered: 172, attendanceRate: 82.6 },
-  { eventCode: "EVT-2026-002", date: "2026-02-24", present: 97, late: 14, absent: 23, totalRegistered: 134, attendanceRate: 72.8 },
-  { eventCode: "EVT-2026-003", date: "2026-03-05", present: 203, late: 9, absent: 8, totalRegistered: 220, attendanceRate: 92.7 },
-  { eventCode: "EVT-2026-004", date: "2026-03-19", present: 88, late: 21, absent: 35, totalRegistered: 144, attendanceRate: 61.1 },
-  { eventCode: "EVT-2026-005", date: "2026-04-02", present: 61, late: 11, absent: 38, totalRegistered: 110, attendanceRate: 55.5 },
-  { eventCode: "EVT-2026-006", date: "2026-04-18", present: 168, late: 16, absent: 6, totalRegistered: 190, attendanceRate: 88.4 }
-];
+export const EMPTY_SESSION_SUMMARY: SessionSummary[] = [];
 
 export type SentimentSummary = {
   eventCode: string;
@@ -127,29 +65,16 @@ export type SentimentSummary = {
   negative: number;
 };
 
-export const DUMMY_SENTIMENT: SentimentSummary[] = [
-  { eventCode: "EVT-2026-001", overall: "Positive", positive: 78, neutral: 18, negative: 4 },
-  { eventCode: "EVT-2026-002", overall: "Positive", positive: 64, neutral: 27, negative: 9 },
-  { eventCode: "EVT-2026-003", overall: "Positive", positive: 71, neutral: 22, negative: 7 },
-  { eventCode: "EVT-2026-004", overall: "Neutral", positive: 48, neutral: 35, negative: 17 },
-  { eventCode: "EVT-2026-005", overall: "Neutral", positive: 39, neutral: 41, negative: 20 },
-  { eventCode: "EVT-2026-006", overall: "Positive", positive: 85, neutral: 12, negative: 3 }
-];
+export const EMPTY_SENTIMENT: SentimentSummary[] = [];
 
-export const DUMMY_LATE_REASON_FREQUENCY = [
-  { category: "Traffic / Commute", share: 40 },
-  { category: "Class or Academic Conflict", share: 24 },
-  { category: "Personal / Health", share: 16 },
-  { category: "Weather / Force Majeure", share: 12 },
-  { category: "Other", share: 8 }
-] as const;
+export const EMPTY_LATE_REASON_FREQUENCY: Array<{ category: string; share: number }> = [];
 
-export const DUMMY_SUMMARY = {
-  totalEvents: 6,
-  activeSessionToday: { count: 1, eventCode: "EVT-2026-004" },
-  totalRegisteredStudents: 970,
-  predictedTurnoutNextEvent: { eventCode: "EVT-2026-005", value: 58 },
-  topLateArrivalReason: { category: "Traffic / Commute", share: 40 }
+export const EMPTY_SUMMARY = {
+  totalEvents: 0,
+  activeSessionToday: { count: 0, eventCode: "" },
+  totalRegisteredStudents: 0,
+  predictedTurnoutNextEvent: { eventCode: "", value: 0 },
+  topLateArrivalReason: { category: "No Supabase late records yet", share: 0 }
 };
 
 const SENTIMENT_COLORS: Record<string, string> = {
@@ -170,7 +95,7 @@ function formatDate(date: string) {
   }).format(new Date(`${date}T00:00:00`));
 }
 
-function dashboardEventFromStore(event: OrganizerEvent): DummyEvent {
+function dashboardEventFromStore(event: OrganizerEvent): DashboardEventSummary {
   return {
     code: event.code,
     title: event.name,
@@ -287,10 +212,10 @@ function LateReasonLabels({ data }: { data: Array<{ category: string; share: num
 
 export function OrganizerDashboardPage() {
   const [eventFilter, setEventFilter] = useState<string>("all");
-  const [mockState] = useState(() => loadOrganizerMockState());
+  const [uiState] = useState(() => loadOrganizerUiState());
 
-  const dashboardEvents = useMemo(() => mockState.events.map(dashboardEventFromStore), [mockState.events]);
-  const completedSummaries = useMemo(() => mockState.completedEvents.map(sessionSummaryFromStore), [mockState.completedEvents]);
+  const dashboardEvents = useMemo(() => uiState.events.map(dashboardEventFromStore), [uiState.events]);
+  const completedSummaries = useMemo(() => uiState.completedEvents.map(sessionSummaryFromStore), [uiState.completedEvents]);
 
   const trendData = useMemo(() => {
     const rows =
@@ -320,7 +245,7 @@ export function OrganizerDashboardPage() {
   );
 
   const sentimentOverview = useMemo(() => {
-    const rows = mockState.completedEvents.length ? mockState.completedEvents.map((event) => event.sentiment) : DUMMY_SENTIMENT;
+    const rows = uiState.completedEvents.length ? uiState.completedEvents.map((event) => event.sentiment) : EMPTY_SENTIMENT;
     const totals = rows.reduce(
       (acc, row) => ({
         positive: acc.positive + row.positive,
@@ -336,21 +261,21 @@ export function OrganizerDashboardPage() {
       { name: "Neutral", value: Math.round(totals.neutral / count) },
       { name: "Negative", value: Math.round(totals.negative / count) }
     ];
-  }, [mockState.completedEvents]);
+  }, [uiState.completedEvents]);
 
   const activeStoreEvent =
-    mockState.events.find((event) => event.status === "active") ??
-    mockState.events.find((event) => event.status === "today") ??
-    mockState.events.find((event) => event.status === "incoming");
+    uiState.events.find((event) => event.status === "active") ??
+    uiState.events.find((event) => event.status === "today") ??
+    uiState.events.find((event) => event.status === "incoming");
   const activeEvent = activeStoreEvent ? dashboardEventFromStore(activeStoreEvent) : undefined;
-  const nextStoreEvent = mockState.events
+  const nextStoreEvent = uiState.events
     .filter((event) => event.status === "incoming" || event.status === "today")
     .sort((first, second) => first.date.localeCompare(second.date))[0];
   const nextEvent = nextStoreEvent ? dashboardEventFromStore(nextStoreEvent) : undefined;
-  const activeSessionCount = mockState.events.filter((event) => event.status === "active" || event.status === "today").length;
-  const totalEvents = mockState.events.filter((event) => event.status !== "cancelled").length;
+  const activeSessionCount = uiState.events.filter((event) => event.status === "active" || event.status === "today").length;
+  const totalEvents = uiState.events.filter((event) => event.status !== "cancelled").length;
   const lateReasonData = useMemo(() => {
-    const lateRows = mockState.attendanceRows.filter((row) => row.attendanceStatus === "late");
+    const lateRows = uiState.attendanceRows.filter((row) => row.attendanceStatus === "late");
     return lateReasons.map((reason) => {
       const count = lateRows.filter((row) => row.lateReason === reason).length;
       return {
@@ -358,8 +283,8 @@ export function OrganizerDashboardPage() {
         share: lateRows.length ? Math.round((count / lateRows.length) * 100) : 0
       };
     });
-  }, [mockState.attendanceRows]);
-  const topLateReason = lateReasonData.reduce((top, item) => (item.share > top.share ? item : top), lateReasonData[0] ?? DUMMY_SUMMARY.topLateArrivalReason);
+  }, [uiState.attendanceRows]);
+  const topLateReason = lateReasonData.reduce((top, item) => (item.share > top.share ? item : top), lateReasonData[0] ?? EMPTY_SUMMARY.topLateArrivalReason);
 
   return (
     <div className="space-y-6">
@@ -399,7 +324,7 @@ export function OrganizerDashboardPage() {
         <div className="animate-fade-in-up-3">
           <DashboardMetricCard
             title="Registered Students"
-            value={mockState.students.length.toLocaleString()}
+            value={uiState.students.length.toLocaleString()}
             detail="Total student registrations across tracked event sessions."
             icon={Users}
           />

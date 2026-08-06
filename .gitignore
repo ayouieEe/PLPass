@@ -1,5 +1,8 @@
 node_modules
+supabase/.temp/
 dist
+tmp/
+*.log
 .env
 .env.*
 !.env.example

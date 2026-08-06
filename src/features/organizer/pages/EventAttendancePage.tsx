@@ -60,7 +60,7 @@ import {
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSimulationResult } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -191,7 +191,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
 }
@@ -350,7 +350,7 @@ export function EventAttendancePage() {
           studentName: studentName(students.find((student) => student.id === records[0].studentId)),
           studentNumber: students.find((student) => student.id === records[0].studentId)?.studentNumber,
           status: records[0].status === "excused" ? "manual" as const : records[0].status,
-          message: "Most recent mock attendance record.",
+          message: "Most recent attendance record.",
           timestamp: formatTime(records[0].recordedAt),
           resultLabel: records[0].status,
           method: records[0].verificationMethod
@@ -376,7 +376,7 @@ export function EventAttendancePage() {
       setLatestResult(result);
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
-      toast.error("Attendance simulation failed", { description: "The mock repository rejected the scan." });
+      toast.error("Attendance simulation failed", { description: "The attendance service rejected the scan." });
     }
   }
   async function submitManualAttendance() {
@@ -452,7 +452,7 @@ export function EventAttendancePage() {
           <LatestTapResultCard result={latestTapResult} />
           <div className="rounded-lg border bg-surface p-4">
             <h2 className="font-semibold">Recent activity</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed Development Simulation attempts refresh through mock repositories.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed Development Simulation attempts refresh through the active data source.</p>
           </div>
           <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
           <div className="grid gap-3 md:grid-cols-2">
@@ -479,7 +479,7 @@ export function EventAttendancePage() {
           <LiveAttendanceList records={liveRecords} />
         </div>
       </section>
-      <ConfirmModal open={endOpen} title="End mock event session" description="A reason is required when ending early or overtime." confirmLabel="End session" tone="danger" onCancel={() => setEndOpen(false)} onConfirm={confirmEnd}>
+      <ConfirmModal open={endOpen} title="End event session" description="A reason is required when ending early or overtime." confirmLabel="End session" tone="danger" onCancel={() => setEndOpen(false)} onConfirm={confirmEnd}>
         <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={endReason} onChange={(event) => setEndReason(event.target.value)}>
           <option value="">Select reason</option>
           {["Event ended early", "Event extended overtime", "Venue issue", "Schedule adjustment", "Emergency", "Other"].map((reason) => <option key={reason} value={reason}>{reason}</option>)}

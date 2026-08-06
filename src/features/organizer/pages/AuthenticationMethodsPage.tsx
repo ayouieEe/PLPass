@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Camera, FileDown, QrCode, RefreshCw, ScanLine, UserRound } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -26,19 +27,7 @@ type FacialRow = {
   lastScan: string;
 };
 
-const USER_MANAGEMENT_STUDENTS = [
-  { id: "STU-1001", name: "Uriel Garcia", qrStatus: "Needs Review", facialStatus: "Ready" },
-  { id: "STU-1002", name: "Ximena Garcia", qrStatus: "Ready", facialStatus: "Needs Review" },
-  { id: "STU-1003", name: "Angel Bautista", qrStatus: "Ready", facialStatus: "Needs Review" },
-  { id: "STU-1004", name: "Rhea Ramos", qrStatus: "Ready", facialStatus: "Ready" },
-  { id: "STU-1005", name: "Ivy Reyes", qrStatus: "Ready", facialStatus: "Ready" },
-  { id: "STU-1006", name: "Gwen Castillo", qrStatus: "Ready", facialStatus: "Missing" },
-  { id: "STU-1007", name: "Leo Villanueva", qrStatus: "Ready", facialStatus: "Missing" },
-  { id: "STU-1008", name: "Mika Bautista", qrStatus: "Needs Review", facialStatus: "Needs Review" },
-  { id: "STU-1009", name: "Leo Ocampo", qrStatus: "Ready", facialStatus: "Ready" },
-  { id: "STU-1011", name: "Odessa Navarro", qrStatus: "Needs Review", facialStatus: "Ready" },
-  { id: "STU-1019", name: "Denise Torres", qrStatus: "Ready", facialStatus: "Needs Review" }
-] as const;
+const USER_MANAGEMENT_STUDENTS: Array<{ id: string; name: string; qrStatus: string; facialStatus: string }> = [];
 
 type RegenerationRequest = {
   id: string;
@@ -89,10 +78,7 @@ export function AuthenticationMethodsPage() {
       lastScan: student.facialStatus === "Ready" ? "2026-07-04" : student.facialStatus === "Needs Review" ? "2026-06-30" : "-"
     }))
   );
-  const [regenerationRequests, setRegenerationRequests] = useState<RegenerationRequest[]>([
-    { id: "REQ-001", studentName: "Ximena Garcia", dateRequested: "2026-07-05", reason: "QR will not scan", status: "Pending" },
-    { id: "REQ-002", studentName: "Odessa Navarro", dateRequested: "2026-07-06", reason: "QR lost", status: "Approved" }
-  ]);
+  const [regenerationRequests, setRegenerationRequests] = useState<RegenerationRequest[]>([]);
   const facialStatuses: Array<{ label: FacialStatus; detail: string }> = [
     { label: "Activated", detail: "Student can use facial recognition for check-in." },
     { label: "Damaged", detail: "Face template is corrupted and needs re-enrollment." },
@@ -129,7 +115,7 @@ export function AuthenticationMethodsPage() {
     setActiveModal({
       type: "qr",
       title: "Regenerate QR credential",
-      description: `This mock action will issue a fresh QR credential for ${studentName}.`,
+      description: `This preview action will issue a fresh QR credential for ${studentName}.`,
       confirmLabel: "Confirm regeneration",
       cancelLabel: "Cancel",
       studentName
@@ -152,7 +138,7 @@ export function AuthenticationMethodsPage() {
     setActiveModal({
       type: "request",
       title: "Are you sure?",
-      description: `Approve the pending request ${requestId}? This mock flow updates the request status.`,
+      description: `Approve the pending request ${requestId}? This review flow updates the request status.`,
       confirmLabel: "Approve request",
       cancelLabel: "Cancel",
       requestId
@@ -270,7 +256,7 @@ export function AuthenticationMethodsPage() {
         {activeModal?.type === "qr" && activeModal.studentName ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
-              <p className="font-medium text-foreground">Mock QR preview</p>
+              <p className="font-medium text-foreground">QR credential preview</p>
               <span className="rounded-full border border-border bg-background px-2 py-1 text-xs font-semibold uppercase tracking-wide text-foreground">
                 {activeModal.title.includes("Regenerate") ? "New credential" : "Current credential"}
               </span>
@@ -288,7 +274,7 @@ export function AuthenticationMethodsPage() {
             <p>
               {activeModal.title.includes("Regenerate")
                 ? "A fresh QR code will be generated and assigned to this student for the next event." 
-                : "This mock view shows the student’s current QR credential details before attendance check-in."}
+                : "This preview shows the student’s current QR credential details before attendance check-in."}
             </p>
           </div>
         ) : null}
@@ -296,7 +282,7 @@ export function AuthenticationMethodsPage() {
         {activeModal?.type === "facial" && activeModal.studentName ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
-              <p className="font-medium text-foreground">Mock facial preview</p>
+              <p className="font-medium text-foreground">Facial profile preview</p>
               <span className="rounded-full border border-border bg-background px-2 py-1 text-xs font-semibold uppercase tracking-wide text-foreground">
                 {activeModal.title.includes("Re-enroll") ? "Enrollment refresh" : "Current profile"}
               </span>
@@ -314,14 +300,14 @@ export function AuthenticationMethodsPage() {
             <p>
               {activeModal.title.includes("Re-enroll")
                 ? "A fresh facial profile will be captured and linked to the student’s account for future check-ins."
-                : "This mock view shows the stored facial profile and recent verification activity for the student."}
+                : "This preview shows the stored facial profile and recent verification activity for the student."}
             </p>
           </div>
         ) : null}
 
         {activeModal?.type === "request" ? (
           <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Mock request review</p>
+            <p className="font-medium text-foreground">Request review</p>
             <p className="mt-1">The request will be approved and reflected in the organizer review queue.</p>
           </div>
         ) : null}

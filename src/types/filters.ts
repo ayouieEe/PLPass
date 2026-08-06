@@ -1,6 +1,5 @@
 import type {
   AttendanceStatus,
-  NfcCredentialStatus,
   NotificationStatus,
   NotificationType,
   SessionStatus,
@@ -41,7 +40,6 @@ export type EntityFilter = {
 export type AttendanceFilter = {
   attendanceStatus?: AttendanceStatus;
   sessionStatus?: SessionStatus;
-  credentialStatus?: NfcCredentialStatus;
 };
 
 export type NotificationFilter = {

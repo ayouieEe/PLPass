@@ -1,5 +1,5 @@
 import type { AuthError, PostgrestError } from "@supabase/supabase-js";
-import { RepositoryError } from "@/services/mock/mockRepositoryUtils";
+import { RepositoryError } from "@/services/repositoryUtils";
 
 export function mapSupabaseError(error: AuthError | PostgrestError | Error | null | undefined): RepositoryError {
   if (!error) {

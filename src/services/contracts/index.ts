@@ -12,10 +12,7 @@ import type {
   EventParticipant,
   FacultyProfile,
   MlPrediction,
-  NfcCredential,
-  NfcCredentialRequest,
-  NfcReader,
-  NfcTapAttempt,
+  AttendanceAttempt,
   Notification,
   OrganizerProfile,
   Program,
@@ -27,8 +24,8 @@ import type {
   DevelopmentAccount
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
-import type { RepositoryContext } from "@/services/mock/mockRepositoryUtils";
-import type { AttendanceMode, EventStatus, NfcCredentialRequestType, NfcCredentialStatus, NfcReaderStatus, VerificationMethod } from "@/types/enums";
+import type { RepositoryContext } from "@/services/repositoryUtils";
+import type { AttendanceMode, EventStatus, VerificationMethod } from "@/types/enums";
 
 export type CreateCorrectionRequestInput = Pick<
   CorrectionRequest,
@@ -81,7 +78,7 @@ export type EndAttendanceSessionInput = {
 export type AttendanceScanInput = {
   sessionId: string;
   credentialCode: string;
-  method: Extract<VerificationMethod, "nfc" | "qr">;
+  method: Extract<VerificationMethod, "qr" | "facial">;
   occurredAt?: string;
 };
 
@@ -98,8 +95,8 @@ export type AttendanceSimulationResultStatus =
   | "Present"
   | "Late"
   | "Already Recorded"
-  | "Invalid Sticker"
-  | "Blocked Sticker"
+  | "Invalid Credential"
+  | "Blocked Credential"
   | "Student Not Enrolled"
   | "No Active Session"
   | "Outside Attendance Window";
@@ -126,13 +123,6 @@ export type ReviewCorrectionRequestInput = {
   requestId: string;
   status: Extract<CorrectionRequest["status"], "approved" | "rejected">;
   reason?: string;
-};
-
-export type CreateNfcCredentialRequestInput = {
-  studentId: string;
-  credentialId?: string;
-  type: NfcCredentialRequestType;
-  reason: string;
 };
 
 export type UpdateSystemSettingsInput = Partial<
@@ -201,21 +191,8 @@ export interface AttendanceRecordRepository {
   simulateManualAttendance(input: ManualAttendanceInput, context?: RepositoryContext): Promise<AttendanceSimulationResult>;
 }
 
-export interface NfcCredentialRepository {
-  listNfcCredentials(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<NfcCredential>>;
-  getCredentialForStudent(studentId: string, context?: RepositoryContext): Promise<NfcCredential | null>;
-  updateCredentialStatus(credentialId: string, status: NfcCredentialStatus, context?: RepositoryContext): Promise<NfcCredential>;
-}
-
-export interface NfcCredentialRequestRepository {
-  listNfcCredentialRequests(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<NfcCredentialRequest>>;
-  createNfcCredentialRequest(input: CreateNfcCredentialRequestInput, context?: RepositoryContext): Promise<NfcCredentialRequest>;
-}
-
-export interface NfcReaderRepository {
-  listNfcReaders(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<NfcReader>>;
-  listNfcTapAttempts(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<NfcTapAttempt>>;
-  updateReaderStatus(readerId: string, status: NfcReaderStatus, context?: RepositoryContext): Promise<NfcReader>;
+export interface AttendanceAttemptRepository {
+  listAttendanceAttempts(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AttendanceAttempt>>;
 }
 
 export interface CorrectionRequestRepository {
@@ -255,9 +232,7 @@ export type RepositoryRegistry = {
   eventManagement: EventManagementRepository;
   attendanceSessions: AttendanceSessionRepository;
   attendanceRecords: AttendanceRecordRepository;
-  nfcCredentials: NfcCredentialRepository;
-  nfcCredentialRequests: NfcCredentialRequestRepository;
-  nfcReaders: NfcReaderRepository;
+  attendanceAttempts: AttendanceAttemptRepository;
   correctionRequests: CorrectionRequestRepository;
   reports: ReportRepository;
   notifications: NotificationRepository;

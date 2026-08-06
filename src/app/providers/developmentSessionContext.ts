@@ -13,9 +13,7 @@ export type DevelopmentSession = {
 export type DevelopmentSessionContextValue = {
   session: DevelopmentSession | null;
   isSessionRestored: boolean;
-  isSupabaseMode: boolean;
   authError?: string;
-  signIn: (session: DevelopmentSession) => void;
   signInWithPassword: (email: string, password: string) => Promise<DevelopmentSession | null>;
   logout: () => void;
 };

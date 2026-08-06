@@ -1,6 +1,5 @@
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { UserRole } from "@/types/enums";
-import { developmentErrorToggle, type MockErrorMode } from "@/services/mock/developmentErrorToggle";
 
 export type RepositoryContext = {
   actorUserId: string;
@@ -27,40 +26,9 @@ export const defaultRepositoryContext: RepositoryContext = {
   actorRole: "admin"
 };
 
-export async function mockDelay(ms = 120) {
-  await new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-export async function applyMockMode(repositoryName: string) {
-  const mode = developmentErrorToggle.getMode(repositoryName);
-  await mockDelay();
-
-  if (mode === "none") {
-    return;
-  }
-
-  throw createModeError(mode);
-}
-
-export function createModeError(mode: Exclude<MockErrorMode, "none">): RepositoryError {
-  if (mode === "empty") {
-    return new RepositoryError("No records matched the mock repository request.", "EMPTY_RESULT");
-  }
-  if (mode === "not_found") {
-    return new RepositoryError("The requested mock record was not found.", "NOT_FOUND");
-  }
-  if (mode === "permission_denied") {
-    return new RepositoryError("The current development role cannot access this mock resource.", "PERMISSION_DENIED");
-  }
-  if (mode === "validation_error") {
-    return new RepositoryError("The mock repository rejected the request as invalid.", "VALIDATION_ERROR");
-  }
-  return new RepositoryError("The mock repository simulated a server error.", "SERVER_ERROR");
-}
-
 export function assertRole(context: RepositoryContext, allowedRoles: UserRole[]) {
   if (!allowedRoles.includes(context.actorRole)) {
-    throw new RepositoryError("Permission denied for this development role.", "PERMISSION_DENIED");
+    throw new RepositoryError("Permission denied for this role.", "PERMISSION_DENIED");
   }
 }
 

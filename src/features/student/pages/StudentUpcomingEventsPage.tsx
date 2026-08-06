@@ -35,7 +35,7 @@ import {
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
-import type { AttendanceSession, Event } from "@/types/domain";
+import type { Event } from "@/types/domain";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 type EventListTab = "ongoing" | "upcoming";
@@ -59,107 +59,6 @@ function buildCalendarGrid(monthCursor: Date) {
     cells.push(null);
   }
   return cells;
-}
-
-function tomorrowIsoAt(hour: number, minute = 0) {
-  const date = new Date();
-  date.setDate(date.getDate() + 1);
-  date.setHours(hour, minute, 0, 0);
-  return date.toISOString();
-}
-
-function relativeNowIso(minutes: number) {
-  return new Date(Date.now() + minutes * 60_000).toISOString();
-}
-
-function buildTodayDemoEvent() {
-  const event: Event = {
-    id: "demo-today-career-clinic",
-    code: "EVT-2026-005",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Seminar",
-    title: "Sustainable Tourism Speaker Series",
-    venue: "PLP Multi-Purpose Hall",
-    startsAt: relativeNowIso(90),
-    endsAt: relativeNowIso(210),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-today-career-clinic-session",
-    type: "event",
-    eventId: event.id,
-    title: "Sustainable Tourism Speaker Series Attendance",
-    mode: "required",
-    status: "draft",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: relativeNowIso(105),
-    attendanceWindowStartAt: relativeNowIso(85),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
-}
-
-function buildOngoingTodayDemoEvent() {
-  const event: Event = {
-    id: "demo-today-wellness-check-in",
-    code: "EVT-2026-004",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Skills Training",
-    title: "Front Office Operations Simulation Day",
-    venue: "PLP HM Mock Hotel Lab",
-    startsAt: relativeNowIso(-30),
-    endsAt: relativeNowIso(90),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-today-wellness-check-in-session",
-    type: "event",
-    eventId: event.id,
-    title: "Front Office Operations Simulation Day Attendance",
-    mode: "required",
-    status: "active",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: relativeNowIso(-15),
-    attendanceWindowStartAt: relativeNowIso(-35),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
-}
-
-function buildUpcomingDemoEvent() {
-  const event: Event = {
-    id: "demo-upcoming-ai-ethics-forum",
-    code: "EVT-2026-006",
-    organizerId: "organizer-1",
-    departmentId: "dept-ccs",
-    category: "Competition",
-    title: "AHTOMP Culinary & Mixology Showcase",
-    venue: "PLP HM Culinary Kitchen",
-    startsAt: tomorrowIsoAt(9),
-    endsAt: tomorrowIsoAt(16),
-    status: "approved"
-  };
-  const session: AttendanceSession = {
-    id: "demo-upcoming-ai-ethics-forum-session",
-    type: "event",
-    eventId: event.id,
-    title: "AHTOMP Culinary & Mixology Showcase Attendance",
-    mode: "required",
-    status: "draft",
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    lateCutoffAt: tomorrowIsoAt(9, 15),
-    attendanceWindowStartAt: tomorrowIsoAt(8, 55),
-    attendanceWindowEndAt: event.endsAt,
-    createdByUserId: "user-organizer-1"
-  };
-  return { event, session };
 }
 
 function startOfLocalDay(date: Date) {
@@ -255,53 +154,17 @@ export function StudentUpcomingEventsPage() {
   const todayStart = startOfLocalDay(today);
   const tomorrowStart = todayStart + 86_400_000;
   const actionableWorkflows = allWorkflows.filter(({ workflow }) => isEventStillInStudentEventsFlow(workflow.state));
-  const todayDemo = buildTodayDemoEvent();
-  const ongoingDemo = buildOngoingTodayDemoEvent();
-  const upcomingDemo = buildUpcomingDemoEvent();
-  const ongoingFallbackWorkflow = {
-    event: ongoingDemo.event,
-    workflow: buildStudentEventWorkflow({
-      event: ongoingDemo.event,
-      session: ongoingDemo.session,
-      feedbackSubmitted: false
-    })
-  };
-  const scheduledFallbackWorkflow = {
-    event: todayDemo.event,
-    workflow: buildStudentEventWorkflow({
-      event: todayDemo.event,
-      session: todayDemo.session,
-      feedbackSubmitted: false
-    })
-  };
-  const upcomingFallbackWorkflow = {
-    event: upcomingDemo.event,
-    workflow: buildStudentEventWorkflow({
-      event: upcomingDemo.event,
-      session: upcomingDemo.session,
-      feedbackSubmitted: false
-    })
-  };
-
-  // "Ongoing" tab — the event(s) whose attendance window is active right now, only.
   const ongoingWorkflowsFromRepository = actionableWorkflows.filter(({ event }) => isOngoingEvent(event));
-  const ongoingWorkflows = ongoingWorkflowsFromRepository.length ? ongoingWorkflowsFromRepository : [ongoingFallbackWorkflow];
+  const ongoingWorkflows = ongoingWorkflowsFromRepository;
 
   // "Upcoming" tab — only events that have not started yet. Anything already
   // underway belongs in the Ongoing tab, and anything already finished has no
   // place in either list.
   const now = Date.now();
   const upcomingWorkflowsFromRepository = actionableWorkflows.filter(({ event }) => new Date(event.startsAt).getTime() > now);
-  const hasScheduledToday = upcomingWorkflowsFromRepository.some(({ event }) => {
-    const startsAt = new Date(event.startsAt).getTime();
-    return startsAt >= todayStart && startsAt < tomorrowStart;
-  });
-  const hasFutureUpcoming = upcomingWorkflowsFromRepository.some(({ event }) => new Date(event.startsAt).getTime() >= tomorrowStart);
-  const upcomingWorkflows = [
-    ...upcomingWorkflowsFromRepository,
-    ...(hasScheduledToday ? [] : [scheduledFallbackWorkflow]),
-    ...(hasFutureUpcoming ? [] : [upcomingFallbackWorkflow])
-  ]
+  void todayStart;
+  void tomorrowStart;
+  const upcomingWorkflows = upcomingWorkflowsFromRepository
     .filter(({ event }) => new Date(event.startsAt).getTime() > now)
     .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime());
 

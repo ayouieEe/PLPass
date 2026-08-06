@@ -16,15 +16,6 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export const EVENT_STATUSES = ["pending", "approved", "rejected", "completed", "cancelled"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 
-export const NFC_CREDENTIAL_STATUSES = ["activated", "inactive", "lost", "damaged", "replaced", "blocked"] as const;
-export type NfcCredentialStatus = (typeof NFC_CREDENTIAL_STATUSES)[number];
-
-export const NFC_CREDENTIAL_REQUEST_TYPES = ["lost", "damaged", "replacement"] as const;
-export type NfcCredentialRequestType = (typeof NFC_CREDENTIAL_REQUEST_TYPES)[number];
-
-export const NFC_CREDENTIAL_REQUEST_STATUSES = ["pending", "approved", "rejected", "completed"] as const;
-export type NfcCredentialRequestStatus = (typeof NFC_CREDENTIAL_REQUEST_STATUSES)[number];
-
 export const CORRECTION_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type CorrectionRequestStatus = (typeof CORRECTION_REQUEST_STATUSES)[number];
 
@@ -37,7 +28,7 @@ export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
 export const NOTIFICATION_TYPES = ["attendance", "correction", "system", "report"] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
-export const VERIFICATION_METHODS = ["nfc", "qr", "manual", "online"] as const;
+export const VERIFICATION_METHODS = ["qr", "facial", "manual", "online"] as const;
 export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
 
 export const ATTENDANCE_SESSION_TYPES = ["class", "event"] as const;
@@ -54,6 +45,3 @@ export type RiskLevel = (typeof RISK_LEVELS)[number];
 
 export const SORT_DIRECTIONS = ["asc", "desc"] as const;
 export type SortDirection = (typeof SORT_DIRECTIONS)[number];
-
-export const NFC_READER_STATUSES = ["active", "inactive", "maintenance"] as const;
-export type NfcReaderStatus = (typeof NFC_READER_STATUSES)[number];
