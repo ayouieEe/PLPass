@@ -10,6 +10,9 @@ export {
 } from "@/services/repositoryUtils";
 
 export async function simulatedDelay(ms = 120) {
+  if (import.meta.env.MODE === "test") {
+    return;
+  }
   await new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 

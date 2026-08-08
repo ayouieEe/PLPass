@@ -36,6 +36,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
         )}
         role="dialog"
         aria-modal="true"
+        aria-label={title}
       >
         <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent" />
         <div className="flex items-start justify-between gap-4 border-b p-5">

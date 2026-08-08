@@ -27,7 +27,10 @@ type FacialRow = {
   lastScan: string;
 };
 
-const USER_MANAGEMENT_STUDENTS: Array<{ id: string; name: string; qrStatus: string; facialStatus: string }> = [];
+const USER_MANAGEMENT_STUDENTS: Array<{ id: string; name: string; qrStatus: string; facialStatus: string }> = [
+  { id: "2023-00001", name: "John Doe", qrStatus: "Ready", facialStatus: "Ready" },
+  { id: "2023-00002", name: "Jane Smith", qrStatus: "Needs Review", facialStatus: "Needs Review" }
+];
 
 type RegenerationRequest = {
   id: string;

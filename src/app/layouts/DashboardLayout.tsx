@@ -58,7 +58,7 @@ export function DashboardLayout({
   const isDark = theme === "dark";
   const notificationContext = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const unreadCount = useNotificationUnreadCount(notificationContext);
-  const currentTitle = title ?? `${role[0].toUpperCase()}${role.slice(1)} portal`;
+  const currentTitle = title ?? `${role[0].toUpperCase()}${role.slice(1)} dashboard`;
   const currentDescription = description ?? "PLPass authenticated workspace";
   const currentBreadcrumbs = breadcrumbs ?? [];
 

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useStudents } from "@/hooks/useRepositoryQueries";
 import { compareDateValues, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, toValidDate } from "@/lib/utils/date";
@@ -85,7 +86,10 @@ export const lateReasonOptions = [
 
 export function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const studentQuery = useStudents({ pageSize: 1 }, context);
 
   return {
@@ -107,29 +111,47 @@ export function isDemoStudent(student?: Pick<Student, "id">) {
 }
 
 export function loadStudentEventRecords(studentId: string): StudentEventRecord[] {
-  void studentId;
+  try {
+    const raw = localStorage.getItem(studentStorageKey(studentId, "event-records"));
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
   return [];
 }
 
 export function saveStudentEventRecords(studentId: string, records: StudentEventRecord[]) {
-  void studentId;
-  void records;
+  try {
+    localStorage.setItem(studentStorageKey(studentId, "event-records"), JSON.stringify(records));
+  } catch {
+    // ignore
+  }
 }
 
 export function upsertStudentEventRecord(studentId: string, record: StudentEventRecord) {
-  void studentId;
-  void record;
+  const current = loadStudentEventRecords(studentId);
+  const updated = current.filter((item) => item.id !== record.id && item.eventId !== record.eventId);
+  updated.push(record);
+  saveStudentEventRecords(studentId, updated);
 }
 
 export function markStudentFeedbackSubmitted(studentId: string, eventId: string) {
-  void studentId;
-  void eventId;
+  try {
+    const submitted = new Set<string>(JSON.parse(localStorage.getItem(studentStorageKey(studentId, "feedback-submitted")) || "[]"));
+    submitted.add(eventId);
+    localStorage.setItem(studentStorageKey(studentId, "feedback-submitted"), JSON.stringify(Array.from(submitted)));
+  } catch {
+    // ignore
+  }
 }
 
 export function isFeedbackSubmitted(studentId: string, eventId: string) {
-  void studentId;
-  void eventId;
-  return false;
+  try {
+    const submitted: string[] = JSON.parse(localStorage.getItem(studentStorageKey(studentId, "feedback-submitted")) || "[]");
+    return submitted.includes(eventId);
+  } catch {
+    return false;
+  }
 }
 
 export function qrUidForStudent(student?: Student) {
@@ -199,7 +221,12 @@ export function createStudentCorrectionRequest(
 }
 
 export function loadStudentSupportRequests(studentId: string): StudentSupportRequest[] {
-  void studentId;
+  try {
+    const raw = localStorage.getItem(studentStorageKey(studentId, "support-requests"));
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
   return [];
 }
 
@@ -207,8 +234,25 @@ export function createStudentSupportRequest(
   studentId: string,
   input: Pick<StudentSupportRequest, "kind" | "title" | "description">
 ) {
-  void studentId;
-  void input;
+  if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+    const list = loadStudentSupportRequests(studentId);
+    const newReq: StudentSupportRequest = {
+      id: `req-${Date.now()}`,
+      studentId,
+      kind: input.kind,
+      title: input.title,
+      description: input.description,
+      status: "pending",
+      submittedAt: new Date().toISOString()
+    };
+    const updated = [newReq, ...list];
+    try {
+      localStorage.setItem(studentStorageKey(studentId, "support-requests"), JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+    return newReq;
+  }
   throw new Error("Support requests need a Supabase-backed table before they can be submitted.");
 }
 

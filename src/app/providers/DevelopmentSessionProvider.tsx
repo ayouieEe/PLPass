@@ -39,6 +39,34 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let isMounted = true;
     async function restoreSession() {
+      if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+        const stored = window.localStorage.getItem("plpass-development-session");
+        if (stored) {
+          try {
+            const nextSession = JSON.parse(stored) as DevelopmentSession;
+            if (nextSession.role !== "student" && nextSession.role !== "organizer") {
+              if (isMounted) {
+                setSession(null);
+                setIsSessionRestored(true);
+              }
+              return;
+            }
+            if (isMounted) {
+              setSession(nextSession);
+              setIsSessionRestored(true);
+            }
+            return;
+          } catch {
+            // fallback to null session
+          }
+        }
+        if (isMounted) {
+          setSession(null);
+          setIsSessionRestored(true);
+        }
+        return;
+      }
+
       let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
         supabase = getSupabaseBrowserClient();
@@ -116,6 +144,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const logout = useCallback(() => {
     queryClient.clear();
     void getSupabaseBrowserClient().auth.signOut();
+    window.localStorage.removeItem("plpass-development-session");
     setSession(null);
   }, []);
 

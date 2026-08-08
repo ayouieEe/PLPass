@@ -9,6 +9,9 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useEvents } from "@/hooks/useRepositoryQueries";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   createUiExport,
   endOrganizerSession,
@@ -222,11 +225,39 @@ export function EventManagementPage() {
     method: defaultAttendanceMethod
   });
 
+  const { session } = useDevelopmentSession();
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
+  const eventsQuery = useEvents({ pageSize: 100 }, context);
+
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
-  const storeEvents = useMemo(() => uiState.events.map(eventFromStore), [uiState.events]);
+  const repositoryEvents = useMemo<EventRecord[]>(() => {
+    return (eventsQuery.data?.items ?? []).map((event) => {
+      const rec: EventRecord = {
+        code: event.code,
+        name: event.title,
+        category: event.category,
+        venue: event.venue,
+        date: formatDisplayDate(event.startsAt, "YYYY-MM-DD"),
+        startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
+        endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
+        predictedTurnout: "85%",
+        objectives: ["Objective 1"]
+      };
+      rec.status = "today";
+      return rec;
+    });
+  }, [eventsQuery.data?.items]);
+
+  const storeEvents = useMemo(
+    () => [...repositoryEvents, ...uiState.events.map(eventFromStore)],
+    [repositoryEvents, uiState.events]
+  );
   const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
 
   // Completed events = the repository summaries plus any sessions the

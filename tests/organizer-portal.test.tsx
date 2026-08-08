@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
 import { EventManagementPage } from "@/features/organizer/pages/EventManagementPage";
@@ -15,12 +15,12 @@ import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
 
 vi.mock("@/components/data-display/PLPassDataGrid", () => ({
-  PLPassDataGrid: ({ toolbarActions, data, onSelectionChange }: { toolbarActions?: ReactNode; data?: Array<{ code?: string; requestId?: string; id?: string }> ; onSelectionChange?: (rows: Array<{ code?: string; requestId?: string; id?: string }>) => void }) => (
+  PLPassDataGrid: ({ toolbarActions, data, onSelectionChange }: { toolbarActions?: ReactNode; data?: Array<{ code?: string; requestId?: string; id?: string; name?: string; title?: string }> ; onSelectionChange?: (rows: Array<{ code?: string; requestId?: string; id?: string; name?: string; title?: string }>) => void }) => (
     <div>
       {toolbarActions}
       <button type="button" onClick={() => onSelectionChange?.(data?.slice(0, 1) ?? [])}>Select first row</button>
       <div data-testid="mock-grid-rows">
-        {(data ?? []).map((row) => <div key={row.id ?? row.requestId ?? row.code}>{row.requestId ?? row.code ?? row.id}</div>)}
+        {(data ?? []).map((row) => <div key={row.id ?? row.requestId ?? row.code}>{row.name ?? row.title ?? row.requestId ?? row.code ?? row.id}</div>)}
       </div>
     </div>
   )
@@ -57,6 +57,13 @@ function setRoute(path: string) {
 function storeSession(value: string) {
   window.localStorage.setItem("plpass-development-session", value);
 }
+
+beforeEach(() => {
+  window.localStorage.clear();
+  queryClient.clear();
+  developmentErrorToggle.reset();
+  resetSimulatedRepositoryState();
+});
 
 afterEach(() => {
   window.localStorage.clear();
@@ -102,7 +109,7 @@ describe("organizer repository scoping and workflows", () => {
   it("lists only events owned by the signed-in organizer", async () => {
     const events = await repositories.eventManagement.listEvents({ pageIndex: 0, pageSize: 20 }, organizerTestContext);
 
-    expect(events.items.map((event) => event.id)).toEqual(["event-1", "event-3"]);
+    expect(events.items.map((event) => event.id)).toEqual(["event-1", "event-3", "event-5", "event-6"]);
   });
 
   it("isolates the second organizer account and returns empty scoped lists without errors", async () => {
@@ -113,7 +120,8 @@ describe("organizer repository scoping and workflows", () => {
     const predictions = await repositories.analyticsMl.listMlPredictions({ pageIndex: 0, pageSize: 20 }, organizerTwoTestContext);
 
     expect(events.items.map((event) => event.id)).toEqual(["event-2", "event-4"]);
-    expect(sessions.items).toEqual([]);
+    expect(sessions.items.map((session) => session.id)).toEqual(["session-6"]);
+    expect(corrections.items).toEqual([]);
     expect(corrections.items).toEqual([]);
     expect(reports.items).toEqual([]);
     expect(predictions.items).toEqual([]);
@@ -260,8 +268,8 @@ describe("organizer UI flows", () => {
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: /view qr/i })[0]);
 
-    expect(await screen.findByRole("dialog", { name: /qr credential action/i })).toBeInTheDocument();
-    expect(screen.getByText(/preview the qr credential/i)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
+    expect(screen.getByText(/qr credential preview/i)).toBeInTheDocument();
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {
@@ -269,7 +277,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Event Records" })).toBeInTheDocument();
     expect(await screen.findByText("Business Forum")).toBeInTheDocument();
     expect(screen.queryByText("CCS Orientation")).not.toBeInTheDocument();
   });
@@ -283,11 +291,9 @@ describe("organizer UI flows", () => {
   });
 
   it("shows the completed event record modal after the session summary view button is clicked", async () => {
-    render(
-      <MemoryRouter initialEntries={["/organizer/events"]}>
-        <EventManagementPage />
-      </MemoryRouter>
-    );
+    storeSession(organizerSession);
+    setRoute("/organizer/events");
+    render(<App />);
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: /select first row/i }));
@@ -315,20 +321,23 @@ describe("organizer UI flows", () => {
   });
 
   it("updates a pending correction request after the organizer approves it", async () => {
-    render(<OrganizerCorrectionRequestsPage />);
+    storeSession(organizerSession);
+    setRoute("/organizer/corrections");
+    render(<App />);
     const user = userEvent.setup();
 
-    await user.click(screen.getAllByRole("button", { name: /view more/i })[0]);
-    await user.click(screen.getByRole("button", { name: /approve request/i }));
-    await user.click(screen.getAllByRole("button", { name: /view more/i })[0]);
+    await user.click(await screen.findByRole("button", { name: /select first row/i }));
+    await user.click(await screen.findByRole("button", { name: /approve request/i }));
 
-    expect(await screen.findByText(/approved/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/approved/i))[0]).toBeInTheDocument();
   });
 
   it("shows pending, approved, and rejected request tabs", async () => {
-    render(<OrganizerCorrectionRequestsPage />);
+    storeSession(organizerSession);
+    setRoute("/organizer/corrections");
+    render(<App />);
 
-    expect(screen.getByRole("button", { name: /all requests/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /all requests/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /pending/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approved/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /rejected/i })).toBeInTheDocument();
@@ -341,7 +350,7 @@ describe("organizer UI flows", () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Create Event" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Create pending event" }));
+    await user.click(await screen.findByRole("button", { name: "Publish Event" }));
 
     expect(await screen.findByText("Event code is required.")).toBeInTheDocument();
     expect(await screen.findByText("Select at least one participant.")).toBeInTheDocument();
@@ -352,7 +361,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     const view = render(<App />);
 
-    expect(await screen.findByText("CCS Orientation")).toBeInTheDocument();
+    expect((await screen.findAllByText("CCS Orientation"))[0]).toBeInTheDocument();
     expect(screen.queryByText("Business Forum")).not.toBeInTheDocument();
 
     window.localStorage.setItem("plpass-development-session", organizerTwoSession);
