@@ -7,6 +7,11 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import type { PriorityLevel } from "@/types/enums";
 import {
   createUiExport,
   loadOrganizerUiState,
@@ -19,7 +24,18 @@ type AttendanceMethodLocal = AttendanceMethod;
 type AttendanceStatus = "present" | "late" | "absent";
 type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 
+function priorityTone(level: PriorityLevel) {
+  if (level === "Business-Critical") {
+    return "danger" as const;
+  }
+  if (level === "Time-Sensitive") {
+    return "warning" as const;
+  }
+  return "muted" as const;
+}
+
 type EventRecord = {
+  id?: string;
   code: string;
   name: string;
   category: string;
@@ -29,6 +45,8 @@ type EventRecord = {
   endTime: string;
   predictedTurnout: string;
   objectives: string[];
+  priorityLevel?: PriorityLevel;
+  impactScore?: number | null;
 };
 
 type AttendanceRow = OrganizerAttendanceRow;
@@ -48,12 +66,6 @@ type CompletedRecord = EventRecord & {
 };
 
 const lateReasons: LateReason[] = ["Traffic / Commute", "Class or Academic Conflict", "Personal / Health", "Weather / Force Majeure", "Other"];
-
-const allEvents: EventRecord[] = [];
-
-const sessionSummaries: CompletedRecord[] = [];
-
-const attendanceDetails: AttendanceRow[] = [];
 
 function statusTone(status: AttendanceStatus | "Upcoming" | "Active" | "Completed") {
   if (status === "present" || status === "Active" || status === "Completed") {
@@ -80,33 +92,11 @@ function matchesSearch(event: EventRecord, search: string) {
   return [event.code, event.name, event.venue, event.category].some((item) => normalized(item).includes(query));
 }
 
-function buildLiveRows(method: AttendanceMethod, eventCode: string): AttendanceRow[] {
-  return attendanceDetails.slice(0, 10).map((row, index) => ({
-    ...row,
-    id: `LIVE-${index + 1}`,
-    eventCode,
-    attendanceMethod: index % 2 === 0 ? method : method === "QR Code" ? "Facial Recognition" : "QR Code"
-  }));
-}
-
-function countRows(rows: AttendanceRow[]) {
-  const present = rows.filter((row) => row.attendanceStatus === "present").length;
-  const late = rows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
-  const rate = rows.length ? Math.round(((present + late) / rows.length) * 100) : 0;
-  return { present, late, absent, rate };
-}
-
 function lateBreakdown(rows: AttendanceRow[]) {
   return lateReasons.map((reason) => ({
     reason,
     count: rows.filter((row) => row.lateReason === reason).length
   }));
-}
-
-function commonLateReason(rows: AttendanceRow[]) {
-  const [top] = lateBreakdown(rows).sort((a, b) => b.count - a.count);
-  return top?.count ? top.reason : "None";
 }
 
 function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
@@ -124,6 +114,9 @@ function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: Reac
   );
 }
 
+// Local-only completed events (older UI store demo data) are still merged in
+// so nothing that previously worked disappears; real Supabase-backed
+// completed events are the primary source now.
 function eventFromStore(event: OrganizerEvent): EventRecord {
   return {
     code: event.code,
@@ -151,11 +144,112 @@ function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
   };
 }
 
+// Completed events synced from Supabase. Attendance counts start at zero
+// here and are filled in by real attendance_records data once
+// useAttendanceSummaries resolves (see repositoryCompletedEventsWithAttendance
+// below) — the event itself, its priority, and its schedule are all real
+// from the moment this runs.
+function completedFromRepositoryEvent(event: {
+  id: string;
+  code: string;
+  title: string;
+  category: string;
+  venue: string;
+  startsAt: string;
+  endsAt: string;
+  priorityLevel: PriorityLevel;
+  impactScore: number | null;
+  predictedTurnout: number | null;
+}): CompletedRecord {
+  return {
+    id: event.id,
+    code: event.code,
+    name: event.title,
+    category: event.category,
+    venue: event.venue,
+    date: event.startsAt.slice(0, 10),
+    startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
+    endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
+    predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
+    objectives: [],
+    priorityLevel: event.priorityLevel,
+    impactScore: event.impactScore,
+    present: 0,
+    late: 0,
+    absent: 0,
+    totalRegistered: 0,
+    attendanceRate: "N/A",
+    sentiment: { positive: 0, neutral: 0, negative: 0 },
+    feedbackComments: []
+  };
+}
+
 export function EventRecordsPage() {
   const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
-  const completedRows = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
+
+  const { session } = useDevelopmentSession();
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
+  const eventsQuery = useEvents({ pageSize: 100 }, context);
+
+  const repositoryCompletedEvents = useMemo<CompletedRecord[]>(() => {
+    return (eventsQuery.data?.items ?? [])
+      .filter((event) => event.status === "completed")
+      .map((event) =>
+        completedFromRepositoryEvent({
+          id: event.id,
+          code: event.code,
+          title: event.title,
+          category: event.category,
+          venue: event.venue,
+          startsAt: event.startsAt,
+          endsAt: event.endsAt,
+          priorityLevel: event.priorityLevel,
+          impactScore: event.impactScore,
+          predictedTurnout: event.predictedTurnout
+        })
+      );
+  }, [eventsQuery.data?.items]);
+
+  // Real attendance/late/absent/rate + attendee rows for every completed
+  // event, fetched in one batched query keyed by event id.
+  const completedEventIds = useMemo(
+    () => repositoryCompletedEvents.map((event) => event.id).filter((id): id is string => Boolean(id)),
+    [repositoryCompletedEvents]
+  );
+  const attendanceSummariesQuery = useAttendanceSummaries(completedEventIds);
+
+  const repositoryCompletedEventsWithAttendance = useMemo<CompletedRecord[]>(() => {
+    return repositoryCompletedEvents.map((event) => {
+      const summary = event.id ? attendanceSummariesQuery.data?.[event.id] : undefined;
+      if (!summary) {
+        return event;
+      }
+      return {
+        ...event,
+        present: summary.present,
+        late: summary.late,
+        absent: summary.absent,
+        totalRegistered: summary.totalRegistered,
+        attendanceRate: `${summary.attendanceRate}%`
+      };
+    });
+  }, [repositoryCompletedEvents, attendanceSummariesQuery.data]);
+
+  const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
+
+ const completedRows = useMemo(
+  () =>
+    [...repositoryCompletedEventsWithAttendance, ...storeCompletedEvents].filter(
+      (event, index, events) => events.findIndex((item) => item.code === event.code) === index
+    ),
+  [repositoryCompletedEventsWithAttendance, storeCompletedEvents]
+);
+
   const pastEvents = useMemo(
     () => completedRows.filter((event) => matchesSearch(event, search)),
     [completedRows, search]
@@ -170,6 +264,16 @@ export function EventRecordsPage() {
     { accessorKey: "name", header: "Event Name" },
     { accessorKey: "venue", header: "Venue" },
     { accessorKey: "date", header: "Date" },
+    {
+      id: "priority",
+      header: "Priority",
+      cell: ({ row }) =>
+        row.original.priorityLevel ? (
+          <StatusBadge label={row.original.priorityLevel} tone={priorityTone(row.original.priorityLevel)} />
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )
+    },
     { accessorKey: "present", header: "Present" },
     { accessorKey: "late", header: "Late" },
     { accessorKey: "absent", header: "Absent" },
@@ -228,13 +332,17 @@ export function EventRecordsPage() {
       </div>
 
       {completedModal ? (
-        <CompletedEventModal
-          record={completedModal}
-          rows={uiState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
-          onClose={() => setCompletedModal(null)}
-          onExportReport={exportReport}
-        />
-      ) : null}
+  <CompletedEventModal
+    record={completedModal}
+    rows={
+      completedModal.id
+        ? attendanceSummariesQuery.data?.[completedModal.id]?.rows ?? []
+        : uiState.attendanceRows.filter((row) => row.eventCode === completedModal.code)
+    }
+    onClose={() => setCompletedModal(null)}
+    onExportReport={exportReport}
+  />
+) : null}
     </div>
   );
 }
@@ -282,7 +390,10 @@ export function CompletedEventModal({ record, rows, onClose, onExportReport }: {
   return (
     <ModalFrame onClose={onClose} width="max-w-6xl">
       <p className="text-sm font-semibold text-primary">View More</p>
-      <h2 className="mt-1 text-2xl font-semibold">{record.code} - {record.name}</h2>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <h2 className="text-2xl font-semibold">{record.code} - {record.name}</h2>
+        {record.priorityLevel ? <StatusBadge label={record.priorityLevel} tone={priorityTone(record.priorityLevel)} /> : null}
+      </div>
 
       <div className="mt-5 flex flex-wrap items-start justify-between gap-3 rounded-lg border bg-surface p-4">
         <div>
@@ -334,13 +445,17 @@ export function CompletedEventModal({ record, rows, onClose, onExportReport }: {
         <section className="rounded-lg border bg-background p-4">
           <h3 className="font-semibold">Post-Event Objective Results</h3>
           <div className="mt-3 space-y-3">
-            {record.objectives.map((objective, index) => (
-              <div key={objective} className="rounded-lg border bg-surface p-3">
-                <p className="text-sm font-medium">{objective}</p>
-                <p className="mt-2 text-sm text-muted-foreground">Average Rating: <span className="font-semibold text-foreground">{index === 0 ? "4.7" : index === 1 ? "4.4" : "4.2"}</span></p>
-                <p className="text-sm text-muted-foreground">Number of Responses: <span className="font-semibold text-foreground">{Math.max(record.present - 4 - index, 0)}</span></p>
-              </div>
-            ))}
+            {record.objectives.length ? (
+              record.objectives.map((objective, index) => (
+                <div key={objective} className="rounded-lg border bg-surface p-3">
+                  <p className="text-sm font-medium">{objective}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">Average Rating: <span className="font-semibold text-foreground">{index === 0 ? "4.7" : index === 1 ? "4.4" : "4.2"}</span></p>
+                  <p className="text-sm text-muted-foreground">Number of Responses: <span className="font-semibold text-foreground">{Math.max(record.present - 4 - index, 0)}</span></p>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No objective feedback data yet.</p>
+            )}
           </div>
         </section>
 
@@ -352,7 +467,11 @@ export function CompletedEventModal({ record, rows, onClose, onExportReport }: {
             <SummaryTile label="Negative" value={`${record.sentiment.negative}%`} />
           </div>
           <div className="mt-4 space-y-2">
-            {record.feedbackComments.map((comment) => <p key={comment} className="rounded-lg border bg-surface p-3 text-sm text-muted-foreground">{comment}</p>)}
+            {record.feedbackComments.length ? (
+              record.feedbackComments.map((comment) => <p key={comment} className="rounded-lg border bg-surface p-3 text-sm text-muted-foreground">{comment}</p>)
+            ) : (
+              <p className="text-sm text-muted-foreground">No feedback comments yet.</p>
+            )}
           </div>
         </section>
       </div>

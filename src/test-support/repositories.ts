@@ -413,6 +413,7 @@ function completeAttendanceRecord(input: {
   occurredAt: string;
   context: RepositoryContext;
   note?: string;
+  statusOverride?: Extract<AttendanceStatus, "present" | "late">;
 }): AttendanceSimulationResult {
   const existing = attendanceRecordState.find((record) => record.sessionId === input.session.id && record.studentId === input.studentId && record.status !== "excused");
   if (existing) {
@@ -430,7 +431,7 @@ function completeAttendanceRecord(input: {
     });
   }
 
-  const status = attendanceStatusForTime(input.session, input.occurredAt);
+  const status = input.statusOverride ?? attendanceStatusForTime(input.session, input.occurredAt);
   const record: AttendanceRecord = {
     id: `record-simulated-${Date.now()}`,
     sessionId: input.session.id,
@@ -473,6 +474,7 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
 
   let studentId: string | undefined;
   let note: string | undefined;
+  const statusOverride = "statusOverride" in input ? input.statusOverride : undefined;
   if ("credentialCode" in input) {
     const credentialStudentId = developmentCredentialStudentIds[input.credentialCode.trim()];
     if (!credentialStudentId) {
@@ -505,7 +507,7 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
     return resultFor({ resultStatus: "Outside Attendance Window", sessionId: session.id, method, recordedAt: occurredAt, safeMessage: "The attendance attempt is outside the configured window.", studentId });
   }
 
-  return completeAttendanceRecord({ session, studentId, method, occurredAt, context, note });
+  return completeAttendanceRecord({ session, studentId, method, occurredAt, context, note, statusOverride });
 }
 
 export const simulatedAuthenticationRepository: AuthenticationRepository = {

@@ -98,6 +98,20 @@ const VENUE_OPTIONS = [
   { label: "AVR 4", value: "AVR 4" }
 ];
 
+const PRIORITY_OPTIONS = [
+  { label: "Time-Sensitive", value: "Time-Sensitive" },
+  { label: "Business-Critical", value: "Business-Critical" },
+  { label: "Flexible", value: "Flexible" }
+];
+
+const CATEGORY_OPTIONS = [
+  { label: "Career Development", value: "Career Development" },
+  { label: "Skills Training", value: "Skills Training" },
+  { label: "General Assembly", value: "General Assembly" },
+  { label: "Seminar", value: "Seminar" },
+  { label: "Competition", value: "Competition" }
+];
+
 const PROGRAM_CODES = {
   "program-bshm": "BSHM"
 };
@@ -118,7 +132,9 @@ const eventFormSchema = z
     objective1: z.string().min(3, "Objective 1 is required."),
     objective2: z.string().min(3, "Objective 2 is required."),
     objective3: z.string().min(3, "Objective 3 is required."),
-    remarks: z.string().optional()
+    remarks: z.string().optional(),
+    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"]).default("Flexible"),
+    impactScore: z.number().min(0).max(10).nullable().optional()
   })
   .refine((value) => {
     const startMinutes = timeToMinutes(value.startTime);
@@ -393,7 +409,9 @@ export function CreateEventPage() {
       objective1: "",
       objective2: "",
       objective3: "",
-      remarks: ""
+      remarks: "",
+      priorityLevel: "Flexible",
+      impactScore: null
     }
   });
   const sessionForm = useForm<SessionFormValues>({
@@ -468,7 +486,9 @@ export function CreateEventPage() {
         attendanceMode: "face-to-face",
         participantStudentIds: selectedIds,
         description: values.description,
-        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n")
+        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n"),
+        priorityLevel: values.priorityLevel,
+        impactScore: values.impactScore ?? null
       });
 
       setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
@@ -506,13 +526,26 @@ export function CreateEventPage() {
             <div className="grid gap-4 md:grid-cols-2">
               <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
               <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
-              <TextField control={form.control} name="category" label="Category" placeholder="e.g. Career Talk" />
+              <SelectField
+                control={form.control}
+                name="category"
+                label="Category"
+                placeholder="Select a category"
+                options={CATEGORY_OPTIONS}
+              />
               <SelectField
                 control={form.control}
                 name="venue"
                 label="Venue"
                 placeholder="Select a venue"
                 options={VENUE_OPTIONS}
+              />
+              <SelectField
+                control={form.control}
+                name="priorityLevel"
+                label="Priority Level"
+                placeholder="Select priority"
+                options={PRIORITY_OPTIONS}
               />
               <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().slice(0, 10)} />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />

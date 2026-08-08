@@ -5,7 +5,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Clock3, Download, Filter, MessageSquareQuote, Plus, Search, Sparkles, Target, TrendingUp, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useForm } from "react-hook-form";
-import { EMPTY_EVENTS, EMPTY_LATE_REASON_FREQUENCY, EMPTY_SENTIMENT, EMPTY_SESSION_SUMMARY, EMPTY_SUMMARY } from "./OrganizerDashboardPage";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -98,6 +97,30 @@ type EventWithCount = Event & { participantCount: number };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+
+const EMPTY_EVENTS: Array<{ code: string; title: string; category: string; venue: string; date: string; time: string; predictedTurnout: number }> = [];
+
+const EMPTY_LATE_REASON_FREQUENCY: Array<{ category: string; share: number }> = [
+  { category: "Traffic / Commute", share: 0 },
+  { category: "Class / Academic Conflict", share: 0 },
+  { category: "Personal / Health", share: 0 },
+  { category: "Weather / Force Majeure", share: 0 },
+  { category: "Other", share: 0 }
+];
+
+const EMPTY_SENTIMENT: Array<{ eventCode: string; positive: number; neutral: number; negative: number; overall: string }> = [
+  { eventCode: "N/A", positive: 0, neutral: 0, negative: 0, overall: "Neutral" }
+];
+
+const EMPTY_SESSION_SUMMARY: Array<{ eventCode: string; date: string; present: number; late: number; absent: number; totalRegistered: number; attendanceRate: number }> = [
+  { eventCode: "N/A", date: "N/A", present: 0, late: 0, absent: 0, totalRegistered: 0, attendanceRate: 0 }
+];
+
+const EMPTY_SUMMARY = {
+  predictedTurnoutNextEvent: { value: 0 },
+  totalRegisteredStudents: 0,
+  topLateArrivalReason: { category: "No late arrivals", share: 0 }
+};
 
 const eventFormSchema = z
   .object({
@@ -391,9 +414,9 @@ export function OrganizerAnalyticsPage() {
 
   const trendData = useMemo(() => {
     const sourceRows = sessionSummaryData.length ? sessionSummaryData : EMPTY_SESSION_SUMMARY;
-    const rows = eventFilter === "all" ? sourceRows : sourceRows.filter((row) => row.eventCode === eventFilter);
+    const rows = eventFilter === "all" ? sourceRows : sourceRows.filter((row: { eventCode: string; date: string; present: number; late: number; absent: number; totalRegistered: number; attendanceRate: number }) => row.eventCode === eventFilter);
 
-    return rows.map((row) => ({
+    return rows.map((row: { eventCode: string; date: string; present: number; late: number; absent: number; attendanceRate: number }) => ({
       label: row.eventCode,
       attendanceRate: row.attendanceRate,
       date: row.date,
@@ -415,9 +438,9 @@ export function OrganizerAnalyticsPage() {
 
   const sentimentOverview = useMemo(() => {
     const sourceSentiment = sentimentData.length ? sentimentData : EMPTY_SENTIMENT;
-    const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row) => row.eventCode === eventFilter);
+    const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row: { eventCode: string; positive: number; neutral: number; negative: number }) => row.eventCode === eventFilter);
     const totals = filteredSentiment.reduce(
-      (acc, row) => ({
+      (acc: { positive: number; neutral: number; negative: number }, row: { positive: number; neutral: number; negative: number }) => ({
         positive: acc.positive + row.positive,
         neutral: acc.neutral + row.neutral,
         negative: acc.negative + row.negative
@@ -434,12 +457,12 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter, sentimentData]);
 
   const filteredLateReasons = useMemo(() => {
-    const rows = eventFilter === "all" ? uiState.attendanceRows : uiState.attendanceRows.filter((row) => row.eventCode === eventFilter);
-    const lateRows = rows.filter((row) => row.attendanceStatus === "late");
+    const rows = eventFilter === "all" ? uiState.attendanceRows : uiState.attendanceRows.filter((row: { eventCode: string; attendanceStatus: string; lateReason?: string }) => row.eventCode === eventFilter);
+    const lateRows = rows.filter((row: { attendanceStatus: string }) => row.attendanceStatus === "late");
     if (!lateRows.length) return EMPTY_LATE_REASON_FREQUENCY;
-    return lateReasons.map((reason) => ({
+    return lateReasons.map((reason: string) => ({
       category: reason,
-      share: Math.round((lateRows.filter((row) => row.lateReason === reason).length / lateRows.length) * 100)
+      share: Math.round((lateRows.filter((row: { lateReason?: string }) => row.lateReason === reason).length / lateRows.length) * 100)
     }));
   }, [eventFilter, uiState.attendanceRows]);
 
@@ -451,7 +474,7 @@ export function OrganizerAnalyticsPage() {
   const topLateReason = useMemo(() => {
     const reasons = eventFilter === "all" ? EMPTY_LATE_REASON_FREQUENCY : filteredLateReasons;
     return reasons.length > 0
-      ? reasons.reduce((max, r) => (r.share > max.share ? r : max))
+      ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
       : EMPTY_SUMMARY.topLateArrivalReason;
   }, [eventFilter, filteredLateReasons]);
   
@@ -679,11 +702,11 @@ export function OrganizerAnalyticsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <article className="animate-fade-in-up-1 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Total Present</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.present ?? 0), 0).toLocaleString()}</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc: number, row: { present?: number }) => acc + (row.present ?? 0), 0).toLocaleString()}</p>
               </article>
               <article className="animate-fade-in-up-2 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
                 <p className="text-sm font-medium text-muted-foreground">Total Late</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.late ?? 0), 0).toLocaleString()}</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc: number, row: { late?: number }) => acc + (row.late ?? 0), 0).toLocaleString()}</p>
               </article>
             </div>
             <article className="animate-fade-in-up-3 rounded-lg border bg-surface p-4 shadow-sm">
@@ -691,11 +714,11 @@ export function OrganizerAnalyticsPage() {
               <div className="mt-3 space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span>Total Absent</span>
-                  <span className="font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.absent ?? 0), 0).toLocaleString()}</span>
+                  <span className="font-semibold text-foreground">{trendData.reduce((acc: number, row: { absent?: number }) => acc + (row.absent ?? 0), 0).toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span>Overall Attendance Rate</span>
-                  <span className="font-semibold text-foreground">{Math.round(trendData.reduce((acc, row) => acc + (row.attendanceRate ?? 0), 0) / Math.max(trendData.length, 1))}%</span>
+                  <span className="font-semibold text-foreground">{Math.round(trendData.reduce((acc: number, row: { attendanceRate?: number }) => acc + (row.attendanceRate ?? 0), 0) / Math.max(trendData.length, 1))}%</span>
                 </div>
               </div>
             </article>
@@ -804,7 +827,7 @@ export function OrganizerAnalyticsPage() {
                   <p className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
                     No late-arrival records available from Supabase yet.
                   </p>
-                ) : filteredLateReasons.map((reason) => (
+                ) : filteredLateReasons.map((reason: { category: string; share: number }) => (
                   <div key={reason.category} className="rounded-lg border bg-background p-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-foreground">{reason.category}</p>

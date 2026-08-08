@@ -232,9 +232,20 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     return pageResult(rows.items.map((row): Program => ({ id: String(row.id ?? ""), departmentId: String(row.department_id ?? ""), code: String(row.program_code ?? row.code ?? ""), name: String(row.name ?? row.program_name ?? "") })), rows.total, query);
   },
   async listSemesters(query) {
-    const rows = await selectRows("semesters", query);
-    return pageResult(rows.items.map((row): Semester => ({ id: String(row.id ?? ""), label: String(row.label ?? row.semester_name ?? ""), schoolYear: String(row.school_year ?? ""), startsAt: String(row.starts_at ?? row.start_date ?? ""), endsAt: String(row.ends_at ?? row.end_date ?? ""), isActive: Boolean(row.is_active) })), rows.total, query);
-  },
+  const rows = await selectRows("semesters", query);
+  return pageResult(
+    rows.items.map((row): Semester => ({
+      id: String(row.id ?? ""),
+      label: String(row.semester_name ?? ""),
+      schoolYear: String(row.academic_year ?? ""),
+      startsAt: String(row.start_date ?? ""),
+      endsAt: String(row.end_date ?? ""),
+      isActive: row.status === "active"
+    })),
+    rows.total,
+    query
+  );
+},
   async listClasses(query) {
     return emptyPage(query);
   },
@@ -298,6 +309,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       throw new RepositoryError("Select an event category that exists in Supabase.", "VALIDATION_ERROR");
     }
 
+    const CATEGORY_OPTIONS = [
+  { label: "Career Development", value: "Career Development" },
+  { label: "Skills Training", value: "Skills Training" },
+  { label: "General Assembly", value: "General Assembly" },
+  { label: "Seminar", value: "Seminar" },
+  { label: "Competition", value: "Competition" }
+];
+
     const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
     const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
     const { data: eventRow, error: eventError } = await client
@@ -312,7 +331,9 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
         description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
         event_status: "scheduled",
         approval_status: "pending",
-        organizer_id: organizer.id
+        organizer_id: organizer.id,
+        priority_level: input.priorityLevel,
+        impact_score: input.impactScore ?? null
       })
       .select(eventReadSelect)
       .single();
@@ -338,8 +359,13 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const approvalStatus = status === "approved" ? "approved" : "declined";
     void reason;
     return mapEvent(await updateRow("events", eventId, { approval_status: approvalStatus }));
+  },
+  async completeEvent(eventId) {
+    return mapEvent(await updateRow("events", eventId, { event_status: "completed" }));
   }
 };
+
+
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
@@ -354,31 +380,43 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
     void input;
     throw new RepositoryError("Class sessions are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
 },
-  async createEventSession(input) {
-    const profile = await currentProfile();
-    const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-    const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
-    const inserted = await insertRow("event_sessions", {
-      event_id: input.eventId,
-      created_by: String(profile.id),
-      session_name: `${input.date} attendance`,
-      venue: input.venue,
-      mode: input.attendanceMode === "online" ? "online" : "f2f",
-      session_status: "ongoing",
-      scheduled_start: scheduledStart,
-      scheduled_end: scheduledEnd,
-      attendance_window_start_at: scheduledStart,
-      attendance_window_end_at: scheduledEnd,
-      late_cutoff_at: new Date(new Date(scheduledStart).getTime() + 15 * 60_000).toISOString(),
-      actual_start: new Date().toISOString()
-    });
+ async createEventSession(input) {
+  const profile = await currentProfile();
+  const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
+  const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
+  const inserted = await insertRow("event_sessions", {
+    event_id: input.eventId,
+    created_by: String(profile.id),
+    session_name: `${input.date} attendance`,
+    venue: input.venue,
+    mode: input.attendanceMode === "online" ? "online" : "f2f",
+    session_status: "ongoing",
+    scheduled_start: scheduledStart,
+    scheduled_end: scheduledEnd,
+    attendance_window_start_at: scheduledStart,
+    attendance_window_end_at: scheduledEnd,
+    late_cutoff_at: new Date(new Date(scheduledStart).getTime() + 15 * 60_000).toISOString(),
+    actual_start: new Date().toISOString()
+  });
 
-    return mapAttendanceSession(inserted, "event");
-  },
+  await updateRow("events", input.eventId, { event_status: "ongoing" });
+
+  return mapAttendanceSession(inserted, "event");
+},
   async endAttendanceSession(input: EndAttendanceSessionInput) {
-    await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
-    return mapAttendanceSession(await updateRow("event_sessions", input.sessionId, { session_status: "completed", actual_end: new Date().toISOString(), ended_reason: input.reason }), "event");
+  const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
+  const updatedSession = await updateRow("event_sessions", input.sessionId, {
+    session_status: "completed",
+    actual_end: new Date().toISOString(),
+    ended_reason: input.reason
+  });
+
+  if (session.eventId) {
+    await updateRow("events", session.eventId, { event_status: "completed" });
   }
+
+  return mapAttendanceSession(updatedSession, "event");
+}
 };
 
 export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
@@ -405,9 +443,21 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       const record = mapAttendanceRecord(existing as Row);
       return { resultStatus: "Already Recorded", attendanceStatus: record.status, verificationMethod: "manual", recordedAt: record.recordedAt, safeMessage: "Attendance was already recorded.", attendanceRecord: record, summary: { present: 0, late: 0, absent: 0, duplicateAttempts: 1, failedAttempts: 0 } };
     }
-    const recordedAt = input.occurredAt ?? new Date().toISOString();
-    const status = session.lateCutoffAt && new Date(recordedAt) > new Date(session.lateCutoffAt) ? "late" : "present";
-    const row = await insertRow("attendance_records", { event_session_id: input.sessionId, student_id: input.studentId, attendance_status: status, verification_method: "manual", time_in: recordedAt, recorded_at: recordedAt, remarks: [input.reason, input.remarks].filter(Boolean).join(": ") });
+    const sessionStart = new Date(session.startsAt).getTime();
+    const fallbackRecordedAt = new Date(sessionStart + 2 * 60_000).toISOString();
+    const recordedAt = input.occurredAt ?? fallbackRecordedAt;
+    const lateCutoff = new Date(session.lateCutoffAt ?? new Date(sessionStart + 15 * 60_000).toISOString()).getTime();
+    const status = input.statusOverride ?? (new Date(recordedAt).getTime() <= lateCutoff ? "present" : "late");
+    const row = await insertRow("attendance_records", {
+      event_session_id: input.sessionId,
+      student_id: input.studentId,
+      attendance_status: status,
+      verification_method: "manual",
+      time_in: recordedAt,
+      recorded_at: recordedAt,
+      remarks: [input.reason, input.remarks].filter(Boolean).join(": "),
+      late_reason_category: status === "late" ? (input.lateReason ?? "Other") : null
+    });
     const record = mapAttendanceRecord(row);
     return { resultStatus: status === "late" ? "Late" : "Present", attendanceStatus: status, verificationMethod: "manual", recordedAt, safeMessage: `Attendance recorded as ${status}.`, attendanceRecord: record, summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } };
   }
