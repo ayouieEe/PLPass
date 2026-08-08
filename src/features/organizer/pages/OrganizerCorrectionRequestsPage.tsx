@@ -7,6 +7,9 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useCorrectionRequests, useOrganizerProfiles } from "@/hooks/useRepositoryQueries";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
   approveOrganizerCorrectionRequest,
   createUiExport,
@@ -15,6 +18,22 @@ import {
   type OrganizerCorrectionRequest,
   type OrganizerUiState
 } from "@/features/organizer/data/organizerUiStore";
+
+function useOrganizerScope() {
+  const { session } = useDevelopmentSession();
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
+  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  return {
+    context: context ?? { actorUserId: "", actorRole: "organizer" as const },
+    organizerId: organizerQuery.data?.items[0]?.id,
+    organizerName: session?.displayName ?? "Organizer",
+    isLoading: organizerQuery.isLoading,
+    isError: organizerQuery.isError
+  };
+}
 
 type RequestStatus = "pending" | "approved" | "rejected";
 type RequestType = "Excuse" | "Correction";
@@ -109,12 +128,34 @@ function buildRequestsFromStore(state: OrganizerUiState): CorrectionRequest[] {
 }
 
 export function OrganizerCorrectionRequestsPage() {
+  const scope = useOrganizerScope();
+  const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
-  const requests = useMemo(() => buildRequestsFromStore(uiState), [uiState]);
+
+  const repositoryRequests = useMemo<CorrectionRequest[]>(() => {
+    return (correctionRequestsQuery.data?.items ?? [])
+      .map((req) => ({
+        id: req.id,
+        requestId: req.id,
+        studentName: req.studentId === "student-1" ? "John Doe" : req.studentId,
+        studentNumber: req.studentId,
+        eventCode: req.eventId ?? "EVT-2026-001",
+        eventName: "CCS Orientation",
+        requestType: req.requestedStatus === "excused" ? "Excuse" : "Correction",
+        dateSubmitted: "2026-07-17",
+        status: req.status as RequestStatus,
+        recordedAttendanceStatus: "absent",
+        requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent"
+      }))
+      .sort((a, b) => (a.status === "pending" ? -1 : b.status === "pending" ? 1 : 0));
+  }, [correctionRequestsQuery.data?.items]);
+
+  const storeRequests = useMemo(() => buildRequestsFromStore(uiState), [uiState]);
+  const requests = useMemo(() => [...repositoryRequests, ...storeRequests], [repositoryRequests, storeRequests]);
 
   const filteredRequests = requests.filter(
     (request) =>
@@ -150,22 +191,59 @@ export function OrganizerCorrectionRequestsPage() {
     setDecisionRemarks("");
   }
 
-  function approveRequest() {
+  const { reviewMutation } = correctionRequestsQuery;
+
+  async function approveRequest() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || `Approved. Attendance status updated to ${selectedRequest.requestedStatus}.`;
 
-    setUiState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    requestDetails[selectedRequest.id] = {
+      ...selectedRequest,
+      status: "approved",
+      decision: "approved",
+      decisionRemarks: remark
+    };
+
     setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
+    setUiState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
     toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
+
+    try {
+      await reviewMutation.mutateAsync({
+        requestId: selectedRequest.id,
+        status: "approved",
+        reviewRemarks: remark
+      });
+    } catch {
+      // ignore local ui sync
+    }
   }
 
-  function rejectRequest() {
+  async function rejectRequest() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || "Rejected. Original attendance status retained.";
 
-    setUiState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
+    requestDetails[selectedRequest.id] = {
+      ...selectedRequest,
+      status: "rejected",
+      decision: "rejected",
+      decisionRemarks: remark
+    };
+
     setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
+    setUiState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
     toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
+
+    try {
+      await reviewMutation.mutateAsync({
+        requestId: selectedRequest.id,
+        status: "rejected",
+        reason: remark,
+        reviewRemarks: remark
+      });
+    } catch {
+      // ignore local ui sync
+    }
   }
 
   function exportTabReport() {
@@ -285,6 +363,11 @@ export function OrganizerCorrectionRequestsPage() {
           label="Correction requests"
           data={filteredRequests}
           columns={columns}
+          onSelectionChange={(selectedRows) => {
+            if (selectedRows[0]) {
+              viewRequest(selectedRows[0]);
+            }
+          }}
           emptyTitle="No requests found"
           emptyDescription="Submitted correction and excuse requests will appear here."
         />

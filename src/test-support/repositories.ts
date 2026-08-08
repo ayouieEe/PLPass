@@ -774,7 +774,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       venue: input.venue.trim(),
       startsAt: `${input.date}T${input.startTime}:00.000Z`,
       endsAt: `${input.date}T${input.endTime}:00.000Z`,
-      status: "approved"
+      status: "pending"
     };
     const participants: EventParticipant[] = input.participantStudentIds.map((studentId) => ({
       id: `participant-${created.id}-${studentId}`,

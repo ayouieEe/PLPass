@@ -9,12 +9,18 @@ export type SupabaseConfig = {
 let browserClient: SupabaseClient<Database> | null = null;
 
 export function getSupabaseConfig(): SupabaseConfig {
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const url =
+    import.meta.env.NEXT_PUBLIC_SUPABASE_URL ||
+    import.meta.env.VITE_SUPABASE_URL;
+  const anonKey =
+    import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
   if (!url || !anonKey) {
     throw new Error(
-      "Supabase configuration is missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local."
+      "Supabase configuration is missing. Set NEXT_PUBLIC_SUPABASE_URL (or VITE_SUPABASE_URL) and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or VITE_SUPABASE_ANON_KEY) in .env.local."
     );
   }
 
