@@ -506,20 +506,14 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter]);
 
   return (
-    <div className="space-y-10">
-      <PageHeader
-        title="Analytics insights"
-        description="Use the current event data to forecast turnout, review feedback sentiment, and identify late-arrival patterns that can guide venue, timing, and transport planning."
-      />
+    <div className="space-y-6">
+      <PageHeader title="Analytics Insights" />
 
-      <section className="rounded-xl border bg-surface p-6 shadow-sm space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Analytics filters</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Apply the same scope across prediction, attendance, feedback, and late-arrival analysis.</p>
-          </div>
-          <span className="flex items-center gap-2 rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-sm font-medium text-primary">
-            <Filter className="h-4 w-4" />
+      <section className="rounded-xl border bg-surface p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-foreground">Analytics Filters</h2>
+          <span className="flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
+            <Filter className="h-3.5 w-3.5" />
             Global filters
           </span>
         </div>

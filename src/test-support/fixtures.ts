@@ -52,8 +52,10 @@ export const departmentFixtures: Department[] = [
 
 export const programFixtures: Program[] = [
   { id: "program-bsit", departmentId: "dept-ccs", code: "BSIT", name: "Bachelor of Science in Information Technology" },
+  { id: "program-bscs", departmentId: "dept-ccs", code: "BSCS", name: "Bachelor of Science in Computer Science" },
   { id: "program-bsa", departmentId: "dept-cba", code: "BSA", name: "Bachelor of Science in Accountancy" },
-  { id: "program-bsed", departmentId: "dept-cte", code: "BSED", name: "Bachelor of Secondary Education" }
+  { id: "program-bsed", departmentId: "dept-cte", code: "BSED", name: "Bachelor of Secondary Education" },
+  { id: "program-bshm", departmentId: "dept-hm", code: "BSHM", name: "Bachelor of Science in Hospitality Management" }
 ];
 
 export const semesterFixtures: Semester[] = [
@@ -63,8 +65,8 @@ export const semesterFixtures: Semester[] = [
 
 export const studentFixtures: Student[] = Array.from({ length: 12 }, (_, index) => {
   const number = index + 1;
-  const programId = number <= 6 ? "program-bsit" : number <= 9 ? "program-bsa" : "program-bsed";
-  const departmentId = programId === "program-bsit" ? "dept-ccs" : programId === "program-bsa" ? "dept-cba" : "dept-cte";
+  const programId = number <= 3 ? "program-bsit" : number <= 6 ? "program-bscs" : number <= 9 ? "program-bsa" : number <= 10 ? "program-bsed" : "program-bshm";
+  const departmentId = programId === "program-bsit" || programId === "program-bscs" ? "dept-ccs" : programId === "program-bsa" ? "dept-cba" : programId === "program-bsed" ? "dept-cte" : "dept-hm";
   return {
     id: `student-${number}`,
     userId: `user-student-${number}`,
@@ -84,8 +86,8 @@ export const facultyProfileFixtures: FacultyProfile[] = [
 ];
 
 export const organizerProfileFixtures: OrganizerProfile[] = [
-  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "Student Affairs", departmentId: "dept-hm", position: "Events Coordinator", employmentStatus: "active" },
-  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "Academic Events", departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
+  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "PLP Student Affairs", departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
+  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "PLP Academic Events", departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
 ];
 
 export const adminProfileFixtures: AdminProfile[] = [
@@ -107,12 +109,12 @@ export const classRosterFixtures: ClassRoster[] = [
 ];
 
 export const eventFixtures: Event[] = [
-  { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "CCS Orientation", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
-  { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "Business Forum", venue: "PLP HM Training Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
-  { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "CCS Orientation", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
-  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "Front Office Operations Simulation Day", venue: "PLP HM Simulation Hotel Lab", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
-  { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Seminar", title: "Sustainable Tourism Speaker Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
-  { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Competition", title: "AHTOMP Culinary & Mixology Showcase", venue: "PLP HM Culinary Kitchen", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
+  { id: "event-1", code: "EVT-2026-001", organizerId: "organizer-1", departmentId: "dept-ccs", category: "Career Development", title: "PLP Career & Leadership Orientation", venue: "PLP Pasig Gymnasium", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", status: "completed" },
+  { id: "event-2", code: "EVT-2026-002", organizerId: "organizer-2", departmentId: "dept-cba", category: "Skills Training", title: "PLP Business & Innovation Forum", venue: "PLP Multi-Purpose Laboratory", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", status: "completed" },
+  { id: "event-3", code: "EVT-2026-003", organizerId: "organizer-1", departmentId: "dept-ccs", category: "General Assembly", title: "PLP Student General Assembly", venue: "PLP Pasig Auditorium", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", status: "completed" },
+  { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "PLP Tech & Leadership Simulation Day", venue: "PLP AVR Auditorium", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
+  { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-cte", category: "Seminar", title: "PLP Campus Sustainability Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
+  { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-hm", category: "Competition", title: "PLP Inter-College Skills & Talent Showcase", venue: "PLP Main Activity Center", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
 ];
 
 export const eventParticipantFixtures: EventParticipant[] = [
@@ -137,12 +139,12 @@ export const eventParticipantFixtures: EventParticipant[] = [
 export const attendanceSessionFixtures: AttendanceSession[] = [
   { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", lateCutoffAt: "2026-06-24T00:15:00.000Z", attendanceWindowStartAt: "2026-06-23T23:55:00.000Z", attendanceWindowEndAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-faculty-1" },
   { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", endsAt: "2026-06-26T01:30:00.000Z", lateCutoffAt: "2026-06-26T00:15:00.000Z", attendanceWindowStartAt: "2026-06-25T23:55:00.000Z", attendanceWindowEndAt: "2026-06-26T01:30:00.000Z", createdByUserId: "user-faculty-1" },
-  { id: "session-3", type: "event", eventId: "event-1", title: "Hospitality Career Fair & Industry Talk Attendance", mode: "required", status: "completed", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", lateCutoffAt: "2026-02-10T00:15:00.000Z", attendanceWindowStartAt: "2026-02-09T23:55:00.000Z", attendanceWindowEndAt: "2026-02-10T04:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-4", type: "event", eventId: "event-1", title: "Food & Beverage Service Skills Workshop Attendance", mode: "required", status: "completed", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", lateCutoffAt: "2026-02-24T05:15:00.000Z", attendanceWindowStartAt: "2026-02-24T04:55:00.000Z", attendanceWindowEndAt: "2026-02-24T09:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-5", type: "event", eventId: "event-3", title: "AHTOMP General Assembly & Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", lateCutoffAt: "2026-03-05T01:15:00.000Z", attendanceWindowStartAt: "2026-03-05T00:55:00.000Z", attendanceWindowEndAt: "2026-03-05T03:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-6", type: "event", eventId: "event-4", title: "Front Office Operations Simulation Day Attendance", mode: "required", status: "completed", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", lateCutoffAt: "2026-03-19T00:45:00.000Z", attendanceWindowStartAt: "2026-03-19T00:25:00.000Z", attendanceWindowEndAt: "2026-03-19T07:30:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-7", type: "event", eventId: "event-5", title: "Sustainable Tourism Speaker Series Attendance", mode: "required", status: "completed", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", lateCutoffAt: "2026-04-02T05:45:00.000Z", attendanceWindowStartAt: "2026-04-02T05:25:00.000Z", attendanceWindowEndAt: "2026-04-02T08:00:00.000Z", createdByUserId: "user-organizer-1" },
-  { id: "session-8", type: "event", eventId: "event-6", title: "AHTOMP Culinary & Mixology Showcase Attendance", mode: "required", status: "completed", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", lateCutoffAt: "2026-04-18T01:15:00.000Z", attendanceWindowStartAt: "2026-04-18T00:55:00.000Z", attendanceWindowEndAt: "2026-04-18T08:00:00.000Z", createdByUserId: "user-organizer-1" }
+  { id: "session-3", type: "event", eventId: "event-1", title: "PLP Career & Leadership Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", lateCutoffAt: "2026-02-10T00:15:00.000Z", attendanceWindowStartAt: "2026-02-09T23:55:00.000Z", attendanceWindowEndAt: "2026-02-10T04:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-4", type: "event", eventId: "event-2", title: "PLP Business & Innovation Forum Attendance", mode: "required", status: "completed", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", lateCutoffAt: "2026-02-24T05:15:00.000Z", attendanceWindowStartAt: "2026-02-24T04:55:00.000Z", attendanceWindowEndAt: "2026-02-24T09:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-5", type: "event", eventId: "event-3", title: "PLP Student General Assembly & Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", lateCutoffAt: "2026-03-05T01:15:00.000Z", attendanceWindowStartAt: "2026-03-05T00:55:00.000Z", attendanceWindowEndAt: "2026-03-05T03:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-6", type: "event", eventId: "event-4", title: "PLP Tech & Leadership Simulation Day Attendance", mode: "required", status: "completed", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", lateCutoffAt: "2026-03-19T00:45:00.000Z", attendanceWindowStartAt: "2026-03-19T00:25:00.000Z", attendanceWindowEndAt: "2026-03-19T07:30:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-7", type: "event", eventId: "event-5", title: "PLP Campus Sustainability Series Attendance", mode: "required", status: "completed", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", lateCutoffAt: "2026-04-02T05:45:00.000Z", attendanceWindowStartAt: "2026-04-02T05:25:00.000Z", attendanceWindowEndAt: "2026-04-02T08:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-8", type: "event", eventId: "event-6", title: "PLP Inter-College Skills & Talent Showcase Attendance", mode: "required", status: "completed", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", lateCutoffAt: "2026-04-18T01:15:00.000Z", attendanceWindowStartAt: "2026-04-18T00:55:00.000Z", attendanceWindowEndAt: "2026-04-18T08:00:00.000Z", createdByUserId: "user-organizer-1" }
 ];
 
 export const attendanceRecordFixtures: AttendanceRecord[] = [
@@ -200,7 +202,7 @@ export const mlPredictionFixtures: MlPrediction[] = [
 
 export const systemSettingsFixture: SystemSettings = {
   id: "settings-1",
-  institutionName: "PLPass Development College",
+  institutionName: "Pamantasan ng Lungsod ng Pasig",
   currentSchoolYear: "2026-2027",
   currentSemesterId: "sem-2026-1",
   attendanceLateCutoffMinutes: 15,

@@ -303,62 +303,47 @@ export function OrganizerCorrectionRequestsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Excused / Correction Requests"
-        description="Review and process student attendance correction and excuse requests."
-      />
+    <div className="space-y-4">
+      <PageHeader title="Correction Requests" />
 
-      <section className="rounded-lg border bg-surface p-4">
-        <div className="mb-4 flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-primary" aria-hidden="true" />
-          <div>
-            <h2 className="text-lg font-semibold">{statusFilter === "all" ? "All Requests" : `${statusFilter.charAt(0).toUpperCase()}${statusFilter.slice(1)} Requests`}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Submitted correction and excuse requests from students.</p>
-          </div>
-        </div>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+      <section className="rounded-lg border bg-surface p-4 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
             {(["all", "pending", "approved", "rejected"] as const).map((tab) => (
               <Button
                 key={tab}
                 type="button"
                 variant={statusFilter === tab ? "default" : "outline"}
                 size="sm"
+                className="capitalize"
                 onClick={() => setStatusFilter(tab)}
               >
-                {tab === "all" ? "All Requests" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab}
               </Button>
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium uppercase text-muted-foreground">XLSX / PDF</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 w-64 md:w-80">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <input
+                id="correction-search"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Search request, student, or event..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
             <Button
               type="button"
-              variant="default"
+              variant="outline"
               size="sm"
-              className="min-w-[120px] rounded-lg px-4 shadow-sm"
               onClick={exportTabReport}
             >
-              Export Report
+              Export
             </Button>
           </div>
         </div>
-        <div className="mb-4 max-w-xl">
-          <label className="text-sm font-medium" htmlFor="correction-search">
-            Search requests
-          </label>
-          <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background px-3 py-2">
-            <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <input
-              id="correction-search"
-              className="w-full bg-transparent text-sm outline-none"
-              placeholder="Search by request ID, student name, or event code"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </div>
+
         <PLPassDataGrid
           label="Correction requests"
           data={filteredRequests}
@@ -368,8 +353,8 @@ export function OrganizerCorrectionRequestsPage() {
               viewRequest(selectedRows[0]);
             }
           }}
-          emptyTitle="No requests found"
-          emptyDescription="Submitted correction and excuse requests will appear here."
+          emptyTitle="No requests"
+          emptyDescription="No requests matching current filter."
         />
       </section>
 

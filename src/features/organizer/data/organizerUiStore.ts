@@ -9,6 +9,8 @@ export type OrganizerStudent = {
   id: string;
   name: string;
   schoolId: string;
+  program: string;
+  yearLevel: number | string;
   section: string;
   email: string;
   qrStatus: CredentialStatus;
@@ -82,6 +84,8 @@ export const lateReasons: LateReason[] = [
   "Weather / Force Majeure",
   "Other"
 ];
+
+export const defaultOrganizerStudents: OrganizerStudent[] = [];
 
 const emptyOrganizerUiState: OrganizerUiState = {
   students: [],
