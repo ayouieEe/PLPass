@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useHeader } from "@/app/providers/HeaderContext";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -286,6 +287,7 @@ export function EventAttendancePage() {
   const { sessionId } = useParams();
   const scope = useOrganizerScope();
   const navigate = useNavigate();
+  const { setHeaderOverride } = useHeader();
   const sessionQuery = useAttendanceSession(sessionId, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
@@ -305,6 +307,20 @@ export function EventAttendancePage() {
   const [methodFilter, setMethodFilter] = useState("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
+
+  const session = sessionQuery.data;
+  const event = eventsQuery.data?.items.find((item) => item.id === session?.eventId);
+
+  useEffect(() => {
+    if (session) {
+      setHeaderOverride({
+        title: `${event?.code ?? session.title} - Attendance`,
+        breadcrumbs: ["Organizer", "Sessions", "Attendance"],
+        description: `Live attendance session at ${session.venue}`
+      });
+    }
+  }, [session, event, setHeaderOverride]);
+
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -315,8 +331,6 @@ export function EventAttendancePage() {
   if (sessionQuery.isError || !sessionQuery.data) {
     return <ErrorState title="Session unavailable" message="This event session was not found or is outside the signed-in organizer scope." />;
   }
-  const session = sessionQuery.data;
-  const event = eventsQuery.data?.items.find((item) => item.id === session.eventId);
   const records = (recordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
   const students = studentsQuery.data?.items ?? [];
   const participants = participantQuery.data?.items ?? [];

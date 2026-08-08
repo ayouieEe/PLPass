@@ -51,7 +51,7 @@ type TableName = keyof Database["public"]["Tables"];
 
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
-const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level)";
+const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level), programs(program_code, program_name)";
 
 function queryOrDefault(query?: ListQuery): ListQuery {
   return {
