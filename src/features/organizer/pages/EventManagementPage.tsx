@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessionMutations, useAttendanceSimulationMutations, useAttendanceRecords, useStudents, useEventMutations } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { PriorityLevel } from "@/types/enums";
 import {
@@ -334,7 +334,7 @@ export function EventManagementPage() {
  const eventsQuery = useEvents({ pageSize: 100 }, context);
 const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
 const { completeEventMutation } = useEventMutations(context);
-const { manualAttendanceMutation } = useAttendanceSimulationMutations(context);
+const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
 const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
 
 const attendanceRecordsQuery = useAttendanceRecords(

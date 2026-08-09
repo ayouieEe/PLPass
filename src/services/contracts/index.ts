@@ -7,6 +7,7 @@ import type {
   Class,
   ClassRoster,
   CorrectionRequest,
+  CredentialRequest,
   Department,
   Event,
   EventParticipant,
@@ -19,9 +20,12 @@ import type {
   Report,
   Semester,
   Student,
+  StudentCredentialStatus,
   SystemSettings,
   User,
-  DevelopmentAccount
+  DevelopmentAccount,
+  EventFeedback,
+  EventObjective
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -95,7 +99,17 @@ export type ManualAttendanceInput = {
   allowManualJoin?: boolean;
 };
 
-export type AttendanceSimulationResultStatus =
+export type SubmitLateReasonInput = {
+  attendanceRecordId: string;
+  reason: string;
+};
+
+export type CreateCredentialRequestInput = Pick<
+  CredentialRequest,
+  "studentId" | "credentialType" | "requestType" | "reason"
+>;
+
+export type AttendanceSubmissionResultStatus =
   | "Present"
   | "Late"
   | "Already Recorded"
@@ -105,8 +119,8 @@ export type AttendanceSimulationResultStatus =
   | "No Active Session"
   | "Outside Attendance Window";
 
-export type AttendanceSimulationResult = {
-  resultStatus: AttendanceSimulationResultStatus;
+export type AttendanceSubmissionResult = {
+  resultStatus: AttendanceSubmissionResultStatus;
   studentDisplayName?: string;
   studentNumber?: string;
   attendanceStatus?: AttendanceRecord["status"];
@@ -127,6 +141,17 @@ export type ReviewCorrectionRequestInput = {
   requestId: string;
   status: Extract<CorrectionRequest["status"], "approved" | "rejected">;
   reason?: string;
+};
+
+export type SubmitEventFeedbackInput = {
+  eventId: string;
+  studentId: string;
+  attendanceRecordId: string;
+  comment?: string;
+  ratings: Array<{
+    objectiveId: string;
+    rating: number;
+  }>;
 };
 
 export type UpdateSystemSettingsInput = Partial<
@@ -192,8 +217,9 @@ export interface AttendanceSessionRepository {
 export interface AttendanceRecordRepository {
   listAttendanceRecords(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AttendanceRecord>>;
   getAttendanceRecordById(recordId: string, context?: RepositoryContext): Promise<AttendanceRecord>;
-  simulateCredentialAttendance(input: AttendanceScanInput, context?: RepositoryContext): Promise<AttendanceSimulationResult>;
-  simulateManualAttendance(input: ManualAttendanceInput, context?: RepositoryContext): Promise<AttendanceSimulationResult>;
+  recordCredentialAttendance(input: AttendanceScanInput, context?: RepositoryContext): Promise<AttendanceSubmissionResult>;
+  recordManualAttendance(input: ManualAttendanceInput, context?: RepositoryContext): Promise<AttendanceSubmissionResult>;
+  submitLateReason(input: SubmitLateReasonInput, context?: RepositoryContext): Promise<AttendanceRecord>;
 }
 
 export interface AttendanceAttemptRepository {
@@ -204,6 +230,21 @@ export interface CorrectionRequestRepository {
   listCorrectionRequests(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<CorrectionRequest>>;
   createCorrectionRequest(input: CreateCorrectionRequestInput, context?: RepositoryContext): Promise<CorrectionRequest>;
   reviewCorrectionRequest(input: ReviewCorrectionRequestInput, context?: RepositoryContext): Promise<CorrectionRequest>;
+}
+
+export interface CredentialRequestRepository {
+  listCredentialRequests(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<CredentialRequest>>;
+  createCredentialRequest(input: CreateCredentialRequestInput, context?: RepositoryContext): Promise<CredentialRequest>;
+}
+
+export interface StudentCredentialRepository {
+  getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
+}
+
+export interface EventFeedbackRepository {
+  listEventObjectives(eventId: string, context?: RepositoryContext): Promise<EventObjective[]>;
+  listStudentFeedback(studentId: string, context?: RepositoryContext): Promise<EventFeedback[]>;
+  submitEventFeedback(input: SubmitEventFeedbackInput, context?: RepositoryContext): Promise<EventFeedback>;
 }
 
 export interface ReportRepository {
@@ -239,6 +280,9 @@ export type RepositoryRegistry = {
   attendanceRecords: AttendanceRecordRepository;
   attendanceAttempts: AttendanceAttemptRepository;
   correctionRequests: CorrectionRequestRepository;
+  credentialRequests: CredentialRequestRepository;
+  studentCredentials: StudentCredentialRepository;
+  eventFeedback: EventFeedbackRepository;
   reports: ReportRepository;
   notifications: NotificationRepository;
   auditLogs: AuditLogRepository;

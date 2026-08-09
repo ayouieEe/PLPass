@@ -12,7 +12,8 @@ import {
   MapPin,
   Radio,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  TriangleAlert
 } from "lucide-react";
 import { NavLink, useSearchParams } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -21,17 +22,17 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentEventFeedback } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   buildStudentEventWorkflow,
   countdownLabel,
   eventResourceLabel,
-  getEventObjectives,
+  getEventConflictLabel,
+  getEventResource,
   getStudentEventRecords,
-  hasEventResource,
-  isFeedbackSubmitted,
+  getStudentEventConflictMap,
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
@@ -92,6 +93,7 @@ export function StudentUpcomingEventsPage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("");
@@ -127,12 +129,14 @@ export function StudentUpcomingEventsPage() {
 
   const student = scope.student;
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
+  const conflictMap = getStudentEventConflictMap(events);
   const eventRecords = getStudentEventRecords({
     studentId: student.id,
     records: recordsQuery.data?.items ?? [],
     sessions: sessionsQuery.data?.items ?? [],
     events: eventsQuery.data?.items ?? []
   });
+  const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
 
   const allWorkflows = events.map((event) => {
     const record = eventRecords.find((entry) => entry.eventId === event.id);
@@ -144,7 +148,7 @@ export function StudentUpcomingEventsPage() {
         event,
         session,
         record,
-        feedbackSubmitted: Boolean(record?.feedbackSubmitted || isFeedbackSubmitted(student.id, event.id)),
+        feedbackSubmitted: Boolean(record?.feedbackSubmitted || submittedFeedbackEventIds.has(event.id)),
         correctionStatus: correction?.status
       })
     };
@@ -313,7 +317,10 @@ export function StudentUpcomingEventsPage() {
       {activeTab === "ongoing" ? (
         workflows.length ? (
           <div className="grid gap-4">
-            {workflows.map(({ event, workflow }) => (
+            {workflows.map(({ event, workflow }) => {
+              const conflict = conflictMap.get(event.id);
+              const eventResource = getEventResource(event);
+              return (
               <article
                 key={event.id}
                 className="relative overflow-hidden rounded-2xl border border-primary/30 bg-surface shadow-sm ring-1 ring-primary/10"
@@ -349,15 +356,31 @@ export function StudentUpcomingEventsPage() {
                         {event.venue}
                       </p>
                     </div>
+                    {event.description ? (
+                      <div className="mt-5 rounded-xl border bg-background/80 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Organizer notes</p>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
+                      </div>
+                    ) : null}
                     <div className="mt-5 flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
                       <Radio className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
                       <div>
                         <p className="text-sm font-semibold text-primary">Active attendance window</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Present your QR UID to the organizer. The organizer records Time In and Time Out.
+                          Present your Supabase QR credential to the organizer. The organizer records Time In and Time Out.
                         </p>
                       </div>
                     </div>
+
+                    {conflict ? (
+                      <div className="mt-3 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4">
+                        <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
+                        <div>
+                          <p className="text-sm font-semibold text-warning">Schedule conflict detected</p>
+                          <p className="mt-1 text-sm text-muted-foreground">{getEventConflictLabel(conflict)}</p>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       <div className="rounded-xl border bg-background p-4 transition hover:border-primary/30">
@@ -365,14 +388,9 @@ export function StudentUpcomingEventsPage() {
                           <Layers className="h-3.5 w-3.5" />
                           Objectives
                         </p>
-                        <ul className="mt-2.5 space-y-1.5 text-sm text-muted-foreground">
-                          {getEventObjectives(event).slice(0, 3).map((objective) => (
-                            <li key={objective} className="flex gap-2">
-                              <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-muted-foreground/50" />
-                              {objective}
-                            </li>
-                          ))}
-                        </ul>
+                        <p className="mt-2.5 text-sm text-muted-foreground">
+                          Open event details to view objectives configured by the organizer in Supabase.
+                        </p>
                       </div>
 
                       <div className="rounded-xl border bg-background p-4 transition hover:border-primary/30">
@@ -381,18 +399,20 @@ export function StudentUpcomingEventsPage() {
                           Resources
                         </p>
                         <p className="mt-2.5 text-sm font-semibold">{eventResourceLabel(event)}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {hasEventResource(event) ? "Attachment or external link from organizer" : "Organizer has not attached a resource."}
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-3 w-full justify-center"
-                          disabled={!hasEventResource(event)}
-                        >
-                          <Download className="mr-2 h-3.5 w-3.5" />
-                          Open / Download
-                        </Button>
+                        <p className="mt-1 text-xs text-muted-foreground">{eventResource.description}</p>
+                        {eventResource.url ? (
+                          <Button asChild variant="outline" size="sm" className="mt-3 w-full justify-center">
+                            <a href={eventResource.url} target="_blank" rel="noreferrer">
+                              <Download className="mr-2 h-3.5 w-3.5" />
+                              Open / Download
+                            </a>
+                          </Button>
+                        ) : (
+                          <Button variant="outline" size="sm" className="mt-3 w-full justify-center" disabled>
+                            <Download className="mr-2 h-3.5 w-3.5" />
+                            No resource link
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -416,7 +436,8 @@ export function StudentUpcomingEventsPage() {
                   </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <EmptyState
@@ -510,15 +531,16 @@ export function StudentUpcomingEventsPage() {
                     <div className="flex flex-1 flex-col gap-1 overflow-hidden">
                       {visibleEvents.map(({ event }) => {
                         const isActive = isOngoingEvent(event);
+                        const hasConflict = conflictMap.has(event.id);
                         return (
                           <span
                             key={event.id}
                             className={`flex items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${
-                              isActive ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
+                              hasConflict ? "bg-warning/15 text-warning" : isActive ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
                             }`}
                           >
                             <span
-                              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? "bg-warning" : "bg-primary"}`}
+                              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${hasConflict || isActive ? "bg-warning" : "bg-primary"}`}
                             />
                             <span className="truncate">{event.title}</span>
                           </span>
@@ -581,6 +603,7 @@ export function StudentUpcomingEventsPage() {
                 .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime())
                 .map(({ event, workflow }) => {
                   const isActive = isOngoingEvent(event);
+                  const conflict = conflictMap.get(event.id);
                   return (
                     <NavLink
                       key={event.id}
@@ -610,6 +633,12 @@ export function StudentUpcomingEventsPage() {
                       </div>
                       <div className="mt-3 border-t pt-2.5">
                         <StatusBadge label={`My attendance: ${workflow.attendanceLabel}`} tone={workflow.stateTone} />
+                        {conflict ? (
+                          <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                            <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
+                            {getEventConflictLabel(conflict)}
+                          </p>
+                        ) : null}
                       </div>
                     </NavLink>
                   );
@@ -620,8 +649,8 @@ export function StudentUpcomingEventsPage() {
       ) : workflows.length ? (
         <section className="grid gap-4 lg:grid-cols-2">
           {workflows.map(({ event, workflow }) => {
-            const objectives = getEventObjectives(event);
             const timingBadge = eventTimingBadge(event);
+            const conflict = conflictMap.get(event.id);
             return (
               <article
                 key={event.id}
@@ -657,17 +686,28 @@ export function StudentUpcomingEventsPage() {
                     {event.venue}
                   </p>
                 </div>
+                {event.description ? (
+                  <div className="mt-4 rounded-xl border bg-background p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Organizer notes</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
+                  </div>
+                ) : null}
+
+                {conflict ? (
+                  <div className="mt-4 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
+                    <div>
+                      <p className="text-sm font-semibold text-warning">Schedule conflict</p>
+                      <p className="mt-0.5 text-sm text-muted-foreground">{getEventConflictLabel(conflict)}</p>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-5 flex-1 rounded-xl border bg-background p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Objectives</p>
-                  <ul className="mt-2.5 space-y-1.5 text-sm text-muted-foreground">
-                    {objectives.slice(0, 3).map((objective) => (
-                      <li key={objective} className="flex gap-2">
-                        <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-muted-foreground/50" />
-                        {objective}
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="mt-2.5 text-sm text-muted-foreground">
+                    Open event details to view objectives configured by the organizer in Supabase.
+                  </p>
                 </div>
 
                 <div className="mt-5 flex items-center justify-between gap-3 border-t pt-4">

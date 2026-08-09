@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PLPass Supabase Table Connections</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f8f4;
+      --panel: #ffffff;
+      --panel-soft: #f0f7f2;
+      --text: #18221b;
+      --muted: #617067;
+      --border: #cad9cf;
+      --primary: #177245;
+      --primary-soft: rgba(23, 114, 69, 0.12);
+      --line: rgba(23, 114, 69, 0.38);
+      --line-active: #0f8f55;
+      --shadow: 0 14px 35px rgba(20, 50, 30, 0.10);
+      --foundation: #1f7a4f;
+      --event: #2b6cb0;
+      --attendance: #b7791f;
+      --analytics: #805ad5;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1511;
+        --panel: #17201a;
+        --panel-soft: #111a15;
+        --text: #edf7ef;
+        --muted: #a3b4aa;
+        --border: #2e4235;
+        --primary: #55d38e;
+        --primary-soft: rgba(85, 211, 142, 0.14);
+        --line: rgba(85, 211, 142, 0.32);
+        --line-active: #77e3a8;
+        --shadow: 0 14px 35px rgba(0, 0, 0, 0.32);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(23, 114, 69, 0.14), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    header {
+      padding: 28px clamp(18px, 4vw, 48px) 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.7rem, 3vw, 2.6rem);
+      letter-spacing: -0.04em;
+    }
+
+    .subhead {
+      max-width: 960px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 0 clamp(18px, 4vw, 48px) 20px;
+    }
+
+    .chip,
+    .toolbar button {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .toolbar button.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    .chip {
+      cursor: default;
+      color: var(--muted);
+    }
+
+    main {
+      padding: 0 clamp(18px, 4vw, 48px) 44px;
+    }
+
+    .diagram-shell {
+      position: relative;
+      min-height: 980px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: color-mix(in srgb, var(--panel) 72%, transparent);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .diagram-bg-label {
+      position: absolute;
+      inset: auto 24px 20px auto;
+      color: color-mix(in srgb, var(--muted) 55%, transparent);
+      font-size: 0.82rem;
+      z-index: 0;
+    }
+
+    .erd-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .erd-svg path {
+      fill: none;
+      stroke: var(--line);
+      stroke-width: 1.4;
+      transition: opacity 160ms ease, stroke 160ms ease, stroke-width 160ms ease;
+    }
+
+    .erd-svg path.dimmed {
+      opacity: 0.08;
+    }
+
+    .erd-svg path.active {
+      stroke: var(--line-active);
+      stroke-width: 2.8;
+      opacity: 1;
+    }
+
+    .lanes {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(245px, 1fr));
+      gap: 18px;
+      padding: 22px;
+      align-items: start;
+    }
+
+    .lane {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      min-width: 0;
+    }
+
+    .lane-title {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+      backdrop-filter: blur(10px);
+      padding: 12px 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .lane-title span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 0.78rem;
+      letter-spacing: 0;
+    }
+
+    .table-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--panel);
+      overflow: hidden;
+      box-shadow: 0 8px 18px rgba(20, 50, 30, 0.05);
+      transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, opacity 160ms ease;
+    }
+
+    .table-card.dimmed {
+      opacity: 0.28;
+    }
+
+    .table-card.active,
+    .table-card.related {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-soft), 0 10px 24px rgba(20, 50, 30, 0.10);
+    }
+
+    .table-card.active {
+      transform: translateY(-2px);
+    }
+
+    .table-button {
+      width: 100%;
+      display: block;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      text-align: left;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .table-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 12px 14px;
+      background: var(--panel-soft);
+      border-left: 5px solid var(--primary);
+    }
+
+    .table-name {
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      word-break: break-word;
+    }
+
+    .table-kind {
+      flex: none;
+      border-radius: 999px;
+      padding: 2px 7px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .columns {
+      padding: 10px 14px 12px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .column {
+      display: flex;
+      gap: 6px;
+      align-items: baseline;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .column strong {
+      flex: none;
+      color: var(--text);
+      font-size: 0.72rem;
+      min-width: 30px;
+    }
+
+    .column code {
+      font: inherit;
+      color: inherit;
+      word-break: break-word;
+    }
+
+    .details {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+      gap: 16px;
+    }
+
+    .detail-card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .detail-card h2 {
+      margin: 0 0 8px;
+      font-size: 1.05rem;
+    }
+
+    .detail-card p,
+    .detail-card li {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .detail-card ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
+    .relationship-list {
+      max-height: 320px;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      padding-right: 4px;
+    }
+
+    .relationship-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 9px 10px;
+      background: var(--panel-soft);
+      font-size: 0.84rem;
+    }
+
+    .relationship-item strong {
+      color: var(--text);
+    }
+
+    @media (max-width: 1180px) {
+      .lanes {
+        grid-template-columns: repeat(2, minmax(245px, 1fr));
+      }
+
+      .diagram-shell {
+        min-height: 1500px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .lanes,
+      .details {
+        grid-template-columns: 1fr;
+      }
+
+      .diagram-shell {
+        min-height: 2600px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PLPass Supabase table connections</h1>
+    <p class="subhead">
+      Current event-only schema based on the committed Supabase migrations. Dropped classroom/NFC tables are excluded.
+      Click a table to highlight its incoming and outgoing foreign-key relationships.
+    </p>
+  </header>
+
+  <section class="toolbar" aria-label="Diagram controls">
+    <button type="button" class="active" data-filter="all">All tables</button>
+    <button type="button" data-filter="foundation">Foundation</button>
+    <button type="button" data-filter="event">Events</button>
+    <button type="button" data-filter="attendance">Attendance</button>
+    <button type="button" data-filter="analytics">Reports & analytics</button>
+    <span class="chip" id="schema-counts"></span>
+  </section>
+
+  <main>
+    <section class="diagram-shell" id="diagram-shell" aria-label="Supabase entity relationship diagram">
+      <svg class="erd-svg" id="erd-svg" aria-hidden="true"></svg>
+      <div class="lanes" id="lanes"></div>
+      <div class="diagram-bg-label">public schema + auth.users reference</div>
+    </section>
+
+    <section class="details">
+      <article class="detail-card" id="selection-details">
+        <h2>How to read this</h2>
+        <p>
+          Arrows point from the child table to the parent table it references. For example,
+          <strong>students.profile_id → profiles.id</strong> means every student profile connects back to a base user profile.
+        </p>
+        <ul>
+          <li><strong>PK</strong> means primary key.</li>
+          <li><strong>FK</strong> means foreign key.</li>
+          <li><strong>UQ</strong> means unique relationship or unique field.</li>
+        </ul>
+      </article>
+
+      <article class="detail-card">
+        <h2>Relationship list</h2>
+        <div class="relationship-list" id="relationship-list"></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const groups = [
+      { id: "foundation", label: "Foundation", subtitle: "Identity, academic structure", color: "var(--foundation)" },
+      { id: "event", label: "Events", subtitle: "Organizer events and sessions", color: "var(--event)" },
+      { id: "attendance", label: "Attendance", subtitle: "Verification and requests", color: "var(--attendance)" },
+      { id: "analytics", label: "Reports & analytics", subtitle: "Notifications, logs, ML, feedback", color: "var(--analytics)" }
+    ];
+
+    const tables = [
+      { name: "auth.users", group: "foundation", kind: "Supabase Auth", columns: [["PK", "id"]] },
+      { name: "departments", group: "foundation", kind: "lookup", columns: [["PK", "id"], ["UQ", "code"], ["", "name"]] },
+      { name: "programs", group: "foundation", kind: "lookup", columns: [["PK", "id"], ["FK", "department_id"], ["UQ", "code"], ["", "name"]] },
+      { name: "sections", group: "foundation", kind: "lookup", columns: [["PK", "id"], ["FK", "program_id"], ["", "year_level"], ["", "name"]] },
+      { name: "semesters", group: "foundation", kind: "lookup", columns: [["PK", "id"], ["", "school_year"], ["", "term"], ["", "starts_at / ends_at"]] },
+      { name: "profiles", group: "foundation", kind: "identity", columns: [["PK/FK", "id → auth.users"], ["FK", "department_id"], ["", "role"], ["", "email"], ["", "full_name"]] },
+      { name: "students", group: "foundation", kind: "role", columns: [["PK", "id"], ["FK/UQ", "profile_id"], ["FK", "program_id"], ["FK", "department_id"], ["FK", "section_id"], ["UQ", "student_number"]] },
+      { name: "organizers", group: "foundation", kind: "role", columns: [["PK", "id"], ["FK/UQ", "profile_id"], ["FK", "department_id"], ["", "organization_name"]] },
+      { name: "event_categories", group: "foundation", kind: "lookup", columns: [["PK", "id"], ["UQ", "name"]] },
+
+      { name: "events", group: "event", kind: "core", columns: [["PK", "id"], ["FK", "organizer_id"], ["FK", "department_id"], ["FK", "category_id"], ["UQ", "code"], ["", "title / venue"], ["", "starts_at / ends_at"], ["", "status"]] },
+      { name: "event_participants", group: "event", kind: "join", columns: [["PK", "id"], ["FK", "event_id"], ["FK", "student_id"], ["UQ", "event_id + student_id"]] },
+      { name: "event_sessions", group: "event", kind: "session", columns: [["PK", "id"], ["FK", "event_id"], ["FK", "created_by"], ["", "status"], ["", "attendance window"]] },
+      { name: "event_objectives", group: "event", kind: "feedback", columns: [["PK", "id"], ["FK", "event_id"], ["", "objective_text"], ["", "display_order"]] },
+
+      { name: "qr_credentials", group: "attendance", kind: "credential", columns: [["PK", "id"], ["FK", "student_id"], ["UQ", "credential_code"], ["", "status"], ["", "expires_at"]] },
+      { name: "facial_profiles", group: "attendance", kind: "credential", columns: [["PK", "id"], ["FK/UQ", "student_id"], ["", "status"], ["", "enrolled_at"]] },
+      { name: "verification_attempts", group: "attendance", kind: "scan", columns: [["PK", "id"], ["FK", "event_session_id"], ["FK", "student_id"], ["FK", "qr_credential_id"], ["FK", "facial_profile_id"], ["", "method / result"]] },
+      { name: "attendance_records", group: "attendance", kind: "record", columns: [["PK", "id"], ["FK", "event_session_id"], ["FK", "student_id"], ["FK/UQ", "verification_attempt_id"], ["FK", "recorded_by"], ["", "verification_method"], ["", "attendance_status"]] },
+      { name: "attendance_requests", group: "attendance", kind: "request", columns: [["PK", "id"], ["FK", "student_id"], ["FK", "attendance_record_id"], ["FK", "reviewed_by"], ["", "requested_status"], ["", "request_status"]] },
+      { name: "attendance_request_attachments", group: "attendance", kind: "attachment", columns: [["PK", "id"], ["FK", "request_id"], ["", "file_path"], ["", "uploaded_at"]] },
+      { name: "credential_requests", group: "attendance", kind: "request", columns: [["PK", "id"], ["FK", "student_id"], ["FK", "reviewed_by"], ["", "request_type"], ["", "request_status"]] },
+
+      { name: "event_feedback", group: "analytics", kind: "feedback", columns: [["PK", "id"], ["FK", "event_id"], ["FK", "student_id"], ["FK", "attendance_record_id"], ["", "overall_sentiment"], ["", "comment"]] },
+      { name: "event_feedback_ratings", group: "analytics", kind: "feedback", columns: [["PK", "id"], ["FK", "feedback_id"], ["FK", "objective_id"], ["", "rating"]] },
+      { name: "event_summary_snapshots", group: "analytics", kind: "summary", columns: [["PK", "id"], ["FK/UQ", "event_id"], ["", "present / late / absent"], ["", "sentiment counts"]] },
+      { name: "notifications", group: "analytics", kind: "message", columns: [["PK", "id"], ["FK", "recipient_id"], ["", "title"], ["", "status"]] },
+      { name: "generated_reports", group: "analytics", kind: "report", columns: [["PK", "id"], ["FK", "generated_by"], ["", "report_type"], ["", "file_path"]] },
+      { name: "audit_logs", group: "analytics", kind: "log", columns: [["PK", "id"], ["FK", "actor_user_id"], ["", "action"], ["", "entity_type / entity_id"]] },
+      { name: "ml_predictions", group: "analytics", kind: "prediction", columns: [["PK", "id"], ["FK", "student_id"], ["FK", "event_id"], ["", "risk_level"], ["", "confidence_score"]] }
+    ];
+
+    const relationships = [
+      ["profiles", "id", "auth.users", "id"],
+      ["profiles", "department_id", "departments", "id"],
+      ["programs", "department_id", "departments", "id"],
+      ["sections", "program_id", "programs", "id"],
+      ["students", "profile_id", "profiles", "id"],
+      ["students", "program_id", "programs", "id"],
+      ["students", "department_id", "departments", "id"],
+      ["students", "section_id", "sections", "id"],
+      ["organizers", "profile_id", "profiles", "id"],
+      ["organizers", "department_id", "departments", "id"],
+
+      ["events", "organizer_id", "organizers", "id"],
+      ["events", "department_id", "departments", "id"],
+      ["events", "category_id", "event_categories", "id"],
+      ["event_participants", "event_id", "events", "id"],
+      ["event_participants", "student_id", "students", "id"],
+      ["event_sessions", "event_id", "events", "id"],
+      ["event_sessions", "created_by", "profiles", "id"],
+      ["event_objectives", "event_id", "events", "id"],
+
+      ["qr_credentials", "student_id", "students", "id"],
+      ["facial_profiles", "student_id", "students", "id"],
+      ["verification_attempts", "event_session_id", "event_sessions", "id"],
+      ["verification_attempts", "student_id", "students", "id"],
+      ["verification_attempts", "qr_credential_id", "qr_credentials", "id"],
+      ["verification_attempts", "facial_profile_id", "facial_profiles", "id"],
+      ["attendance_records", "event_session_id", "event_sessions", "id"],
+      ["attendance_records", "student_id", "students", "id"],
+      ["attendance_records", "verification_attempt_id", "verification_attempts", "id"],
+      ["attendance_records", "recorded_by", "profiles", "id"],
+      ["attendance_requests", "student_id", "students", "id"],
+      ["attendance_requests", "attendance_record_id", "attendance_records", "id"],
+      ["attendance_requests", "reviewed_by", "profiles", "id"],
+      ["attendance_request_attachments", "request_id", "attendance_requests", "id"],
+      ["credential_requests", "student_id", "students", "id"],
+      ["credential_requests", "reviewed_by", "profiles", "id"],
+
+      ["event_feedback", "event_id", "events", "id"],
+      ["event_feedback", "student_id", "students", "id"],
+      ["event_feedback", "attendance_record_id", "attendance_records", "id"],
+      ["event_feedback_ratings", "feedback_id", "event_feedback", "id"],
+      ["event_feedback_ratings", "objective_id", "event_objectives", "id"],
+      ["event_summary_snapshots", "event_id", "events", "id"],
+      ["notifications", "recipient_id", "profiles", "id"],
+      ["generated_reports", "generated_by", "profiles", "id"],
+      ["audit_logs", "actor_user_id", "profiles", "id"],
+      ["ml_predictions", "student_id", "students", "id"],
+      ["ml_predictions", "event_id", "events", "id"]
+    ].map(([from, fromColumn, to, toColumn], index) => ({ id: `rel-${index}`, from, fromColumn, to, toColumn }));
+
+    const lanes = document.getElementById("lanes");
+    const svg = document.getElementById("erd-svg");
+    const shell = document.getElementById("diagram-shell");
+    const details = document.getElementById("selection-details");
+    const relationshipList = document.getElementById("relationship-list");
+    const counts = document.getElementById("schema-counts");
+    const filters = [...document.querySelectorAll("[data-filter]")];
+    let activeTable = null;
+    let activeFilter = "all";
+
+    counts.textContent = `${tables.length} active tables · ${relationships.length} foreign-key links`;
+
+    function groupFor(tableName) {
+      return tables.find((table) => table.name === tableName)?.group;
+    }
+
+    function renderTables() {
+      lanes.innerHTML = "";
+      groups.forEach((group) => {
+        const lane = document.createElement("section");
+        lane.className = "lane";
+        lane.dataset.group = group.id;
+        lane.innerHTML = `<div class="lane-title" style="border-left: 5px solid ${group.color}">${group.label}<span>${group.subtitle}</span></div>`;
+
+        tables
+          .filter((table) => table.group === group.id)
+          .forEach((table) => {
+            const card = document.createElement("article");
+            card.className = "table-card";
+            card.id = `table-${cssSafe(table.name)}`;
+            card.dataset.table = table.name;
+            card.dataset.group = table.group;
+            card.innerHTML = `
+              <button type="button" class="table-button" aria-label="Highlight ${table.name}">
+                <div class="table-head" style="border-left-color: ${group.color}">
+                  <span class="table-name">${table.name}</span>
+                  <span class="table-kind">${table.kind}</span>
+                </div>
+                <div class="columns">
+                  ${table.columns.map(([tag, column]) => `<div class="column"><strong>${tag}</strong><code>${column}</code></div>`).join("")}
+                </div>
+              </button>
+            `;
+            card.querySelector("button").addEventListener("click", () => {
+              activeTable = activeTable === table.name ? null : table.name;
+              updateState();
+            });
+            lane.appendChild(card);
+          });
+
+        lanes.appendChild(lane);
+      });
+    }
+
+    function cssSafe(value) {
+      return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+    }
+
+    function isVisible(table) {
+      return activeFilter === "all" || table.group === activeFilter;
+    }
+
+    function relatedTables(tableName) {
+      const related = new Set();
+      relationships.forEach((rel) => {
+        if (rel.from === tableName) related.add(rel.to);
+        if (rel.to === tableName) related.add(rel.from);
+      });
+      return related;
+    }
+
+    function selectedRelationships(tableName) {
+      if (!tableName) return relationships;
+      return relationships.filter((rel) => rel.from === tableName || rel.to === tableName);
+    }
+
+    function updateDetails() {
+      if (!activeTable) {
+        details.innerHTML = `
+          <h2>How to read this</h2>
+          <p>Arrows point from the child table to the parent table it references. Click a table to see just its direct relationships.</p>
+          <ul>
+            <li><strong>PK</strong> means primary key.</li>
+            <li><strong>FK</strong> means foreign key.</li>
+            <li><strong>UQ</strong> means unique relationship or unique field.</li>
+          </ul>
+        `;
+      } else {
+        const table = tables.find((item) => item.name === activeTable);
+        const incoming = relationships.filter((rel) => rel.to === activeTable);
+        const outgoing = relationships.filter((rel) => rel.from === activeTable);
+        details.innerHTML = `
+          <h2>${activeTable}</h2>
+          <p><strong>${table.kind}</strong> table in the ${groupFor(activeTable)} area.</p>
+          <ul>
+            <li>${outgoing.length} outgoing FK reference${outgoing.length === 1 ? "" : "s"}.</li>
+            <li>${incoming.length} incoming FK reference${incoming.length === 1 ? "" : "s"}.</li>
+          </ul>
+        `;
+      }
+
+      const list = selectedRelationships(activeTable).filter((rel) => {
+        if (activeFilter === "all") return true;
+        return groupFor(rel.from) === activeFilter || groupFor(rel.to) === activeFilter;
+      });
+      relationshipList.innerHTML = list.map((rel) => `
+        <div class="relationship-item">
+          <strong>${rel.from}.${rel.fromColumn}</strong> → <strong>${rel.to}.${rel.toColumn}</strong>
+        </div>
+      `).join("") || `<p class="subhead">No relationships in this filter.</p>`;
+    }
+
+    function updateState() {
+      const related = activeTable ? relatedTables(activeTable) : new Set();
+      document.querySelectorAll(".table-card").forEach((card) => {
+        const tableName = card.dataset.table;
+        const table = tables.find((item) => item.name === tableName);
+        const visible = isVisible(table);
+        const active = activeTable === tableName;
+        const isRelated = related.has(tableName);
+        card.hidden = !visible;
+        card.classList.toggle("active", active);
+        card.classList.toggle("related", isRelated);
+        card.classList.toggle("dimmed", Boolean(activeTable) && !active && !isRelated);
+      });
+      updateDetails();
+      drawLines();
+    }
+
+    function drawLines() {
+      const shellRect = shell.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${shellRect.width} ${shellRect.height}`);
+      svg.innerHTML = "";
+      const activeRelationships = selectedRelationships(activeTable);
+
+      relationships.forEach((rel) => {
+        const fromCard = document.getElementById(`table-${cssSafe(rel.from)}`);
+        const toCard = document.getElementById(`table-${cssSafe(rel.to)}`);
+        if (!fromCard || !toCard || fromCard.hidden || toCard.hidden) return;
+
+        const from = fromCard.getBoundingClientRect();
+        const to = toCard.getBoundingClientRect();
+        const fromX = from.left + from.width / 2 - shellRect.left;
+        const fromY = from.top + from.height / 2 - shellRect.top;
+        const toX = to.left + to.width / 2 - shellRect.left;
+        const toY = to.top + to.height / 2 - shellRect.top;
+        const dx = Math.max(40, Math.abs(toX - fromX) * 0.35);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", `M ${fromX} ${fromY} C ${fromX + Math.sign(toX - fromX || 1) * dx} ${fromY}, ${toX - Math.sign(toX - fromX || 1) * dx} ${toY}, ${toX} ${toY}`);
+        path.dataset.relationship = rel.id;
+        const active = activeRelationships.some((item) => item.id === rel.id);
+        path.classList.toggle("active", Boolean(activeTable) && active);
+        path.classList.toggle("dimmed", Boolean(activeTable) && !active);
+        svg.appendChild(path);
+      });
+    }
+
+    filters.forEach((button) => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        filters.forEach((item) => item.classList.toggle("active", item === button));
+        if (activeTable && activeFilter !== "all" && groupFor(activeTable) !== activeFilter) {
+          activeTable = null;
+        }
+        updateState();
+      });
+    });
+
+    window.addEventListener("resize", () => requestAnimationFrame(drawLines));
+    renderTables();
+    updateState();
+    requestAnimationFrame(drawLines);
+  </script>
+</body>
+</html>

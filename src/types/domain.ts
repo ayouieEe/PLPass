@@ -2,6 +2,7 @@ import type {
   AttendanceMode,
   AttendanceSessionType,
   AttendanceStatus,
+  CredentialRequestStatus,
   CorrectionRequestStatus,
   EventStatus,
   FacultyEmploymentStatus,
@@ -129,6 +130,7 @@ export type Event = {
   departmentId?: ID;
   category: string;
   title: string;
+  description?: string;
   venue: string;
   startsAt: ISODateString;
   endsAt: ISODateString;
@@ -143,6 +145,30 @@ export type EventParticipant = {
   eventId: ID;
   studentId: ID;
   registeredAt: ISODateString;
+};
+
+export type EventObjective = {
+  id: ID;
+  eventId: ID;
+  order: number;
+  text: string;
+};
+
+export type EventFeedbackRating = {
+  id: ID;
+  feedbackId: ID;
+  objectiveId: ID;
+  rating: number;
+};
+
+export type EventFeedback = {
+  id: ID;
+  eventId: ID;
+  studentId: ID;
+  attendanceRecordId: ID;
+  comment?: string;
+  submittedAt: ISODateString;
+  ratings?: EventFeedbackRating[];
 };
 
 export type AttendanceSession = {
@@ -170,6 +196,7 @@ export type AttendanceRecord = {
   recordedAt: string;
   recordedByUserId?: string;
   note?: string;
+  lateReasonCategory?: string;
   timeIn?: string;
   timeOut?: string;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
@@ -196,6 +223,47 @@ export type CorrectionRequest = {
   requestedAt: ISODateString;
   reviewedByUserId?: ID;
   reviewedAt?: ISODateString;
+  reviewRemarks?: string;
+};
+
+export type CredentialRequest = {
+  id: ID;
+  studentId: ID;
+  credentialType: "qr" | "facial";
+  requestType: "replacement" | "re_enrollment" | "technical_issue";
+  reason: string;
+  status: CredentialRequestStatus;
+  requestedAt: ISODateString;
+  reviewedByUserId?: ID;
+  reviewedAt?: ISODateString;
+  reviewRemarks?: string;
+};
+
+export type QrCredential = {
+  id: ID;
+  studentId: ID;
+  tokenHash: string;
+  status: string;
+  issuedAt: ISODateString;
+  expiresAt?: ISODateString;
+  revokedAt?: ISODateString;
+  lastSuccessfulCheckInAt?: ISODateString;
+};
+
+export type FacialProfile = {
+  id: ID;
+  studentId: ID;
+  status: string;
+  enrollmentReference: string;
+  enrolledAt: ISODateString;
+  consentRecordedAt: ISODateString;
+  lastVerifiedAt?: ISODateString;
+};
+
+export type StudentCredentialStatus = {
+  studentId: ID;
+  qrCredential?: QrCredential;
+  facialProfile?: FacialProfile;
 };
 
 export type Report = {

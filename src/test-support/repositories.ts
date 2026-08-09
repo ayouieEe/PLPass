@@ -26,18 +26,21 @@ import type {
   AcademicManagementRepository,
   AnalyticsMlRepository,
   AttendanceScanInput,
-  AttendanceSimulationResult,
+  AttendanceSubmissionResult,
   AttendanceRecordRepository,
   AttendanceSessionRepository,
   AuditLogRepository,
   AuthenticationRepository,
   ClassRosterRepository,
   CorrectionRequestRepository,
+  CredentialRequestRepository,
+  CreateCredentialRequestInput,
   CreateClassSessionInput,
   CreateCorrectionRequestInput,
   CreateEventInput,
   CreateEventSessionInput,
   EndAttendanceSessionInput,
+  EventFeedbackRepository,
   EventManagementRepository,
   ManualAttendanceInput,
   AttendanceAttemptRepository,
@@ -45,6 +48,7 @@ import type {
   ReportRepository,
   RepositoryRegistry,
   ReviewCorrectionRequestInput,
+  StudentCredentialRepository,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
   UserManagementRepository
@@ -63,6 +67,7 @@ import type {
   AttendanceSession,
   Class,
   CorrectionRequest,
+  CredentialRequest,
   Event,
   EventParticipant,
   Notification,
@@ -257,6 +262,7 @@ let eventParticipantState = eventParticipantFixtures.map((entry) => ({ ...entry 
 let attendanceSessionState = attendanceSessionFixtures.map((entry) => ({ ...entry }));
 let attendanceRecordState = attendanceRecordFixtures.map((entry) => ({ ...entry }));
 let correctionRequestState = correctionRequestFixtures.map((entry) => ({ ...entry }));
+let credentialRequestState: CredentialRequest[] = [];
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
@@ -276,6 +282,7 @@ export function resetSimulatedRepositoryState() {
   attendanceSessionState = attendanceSessionFixtures.map((entry) => ({ ...entry }));
   attendanceRecordState = attendanceRecordFixtures.map((entry) => ({ ...entry }));
   correctionRequestState = correctionRequestFixtures.map((entry) => ({ ...entry }));
+  credentialRequestState = [];
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
@@ -347,7 +354,7 @@ function addSafeAttendanceAttempt(input: {
 }) {
   attendanceAttemptState = [
     {
-      id: `attempt-simulated-${Date.now()}`,
+      id: `attempt-local-${Date.now()}`,
       sessionId: input.sessionId,
       studentId: input.studentId,
       accepted: input.accepted,
@@ -359,7 +366,7 @@ function addSafeAttendanceAttempt(input: {
 }
 
 function resultFor(input: {
-  resultStatus: AttendanceSimulationResult["resultStatus"];
+  resultStatus: AttendanceSubmissionResult["resultStatus"];
   sessionId: string;
   method: VerificationMethod;
   recordedAt: string;
@@ -367,7 +374,7 @@ function resultFor(input: {
   studentId?: string;
   attendanceStatus?: AttendanceStatus;
   attendanceRecord?: AttendanceRecord;
-}): AttendanceSimulationResult {
+}): AttendanceSubmissionResult {
   return {
     resultStatus: input.resultStatus,
     studentDisplayName: input.studentId ? displayNameForStudent(input.studentId) : undefined,
@@ -414,7 +421,7 @@ function completeAttendanceRecord(input: {
   context: RepositoryContext;
   note?: string;
   statusOverride?: Extract<AttendanceStatus, "present" | "late">;
-}): AttendanceSimulationResult {
+}): AttendanceSubmissionResult {
   const existing = attendanceRecordState.find((record) => record.sessionId === input.session.id && record.studentId === input.studentId && record.status !== "excused");
   if (existing) {
     addSafeAttendanceAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: false, attemptedAt: input.occurredAt, message: "Already recorded", context: input.context });
@@ -998,15 +1005,31 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     }
     return record;
   },
-  async simulateCredentialAttendance(input, context) {
+  async recordCredentialAttendance(input, context) {
     await beforeRead("attendanceRecords", context, ["faculty", "organizer"]);
     const currentContext = contextOrDefault(context);
     return simulateAttendance(input, input.method, currentContext);
   },
-  async simulateManualAttendance(input, context) {
+  async recordManualAttendance(input, context) {
     await beforeRead("attendanceRecords", context, ["faculty", "organizer"]);
     const currentContext = contextOrDefault(context);
     return simulateAttendance(input, "manual", currentContext);
+  },
+  async submitLateReason(input, context) {
+    await beforeRead("attendanceRecords", context, ["student"]);
+    const currentContext = contextOrDefault(context);
+    const student = getStudentForContext(currentContext);
+    const index = attendanceRecordState.findIndex((record) => record.id === input.attendanceRecordId);
+    if (index < 0) {
+      throw new RepositoryError("Attendance record was not found.", "NOT_FOUND");
+    }
+    const record = attendanceRecordState[index];
+    if (record.studentId !== student?.id || record.status !== "late") {
+      throw new RepositoryError("Students can only submit late reasons for their own late records.", "PERMISSION_DENIED");
+    }
+    const updated = { ...record, lateReasonCategory: input.reason, note: record.note ?? `Late reason: ${input.reason}` };
+    attendanceRecordState[index] = updated;
+    return updated;
   }
 };
 
@@ -1129,6 +1152,79 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
       ...auditLogState
     ];
     return updated;
+  }
+};
+
+export const simulatedCredentialRequestRepository: CredentialRequestRepository = {
+  async listCredentialRequests(query, context) {
+    await beforeRead("credentialRequests", context, ["admin", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const student = getStudentForContext(currentContext);
+    const items = credentialRequestState.filter((request) => (
+      matchesSearch([request.reason, request.status, request.credentialType, request.requestType], query?.search) &&
+      (currentContext.actorRole !== "student" || request.studentId === student?.id)
+    ));
+    return paginateList(items, query);
+  },
+  async createCredentialRequest(input: CreateCredentialRequestInput, context) {
+    await beforeRead("credentialRequests", context, ["student"]);
+    const currentContext = contextOrDefault(context);
+    const student = getStudentForContext(currentContext);
+    if (!student || input.studentId !== student.id) {
+      throw new RepositoryError("Students can only submit their own credential requests.", "PERMISSION_DENIED");
+    }
+    const duplicatePending = credentialRequestState.some((request) =>
+      request.studentId === input.studentId &&
+      request.credentialType === input.credentialType &&
+      request.requestType === input.requestType &&
+      request.status === "pending"
+    );
+    if (duplicatePending) {
+      throw new RepositoryError("A pending request for this concern already exists.", "VALIDATION_ERROR");
+    }
+    const created: CredentialRequest = {
+      id: `credential-request-${Date.now()}`,
+      studentId: input.studentId,
+      credentialType: input.credentialType,
+      requestType: input.requestType,
+      reason: input.reason,
+      status: "pending",
+      requestedAt: new Date().toISOString()
+    };
+    credentialRequestState = [created, ...credentialRequestState];
+    return created;
+  }
+};
+
+export const simulatedStudentCredentialRepository: StudentCredentialRepository = {
+  async getStudentCredentialStatus(studentId, context) {
+    await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
+    return { studentId };
+  }
+};
+
+export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
+  async listEventObjectives() {
+    return [];
+  },
+  async listStudentFeedback() {
+    return [];
+  },
+  async submitEventFeedback(input) {
+    return {
+      id: `feedback-${input.eventId}-${input.studentId}`,
+      eventId: input.eventId,
+      studentId: input.studentId,
+      attendanceRecordId: input.attendanceRecordId,
+      comment: input.comment,
+      submittedAt: new Date().toISOString(),
+      ratings: input.ratings.map((rating, index) => ({
+        id: `feedback-rating-${index + 1}`,
+        feedbackId: `feedback-${input.eventId}-${input.studentId}`,
+        objectiveId: rating.objectiveId,
+        rating: rating.rating
+      }))
+    };
   }
 };
 
@@ -1257,6 +1353,9 @@ export const simulatedRepositoryRegistry: RepositoryRegistry = {
   attendanceRecords: simulatedAttendanceRecordRepository,
   attendanceAttempts: simulatedAttendanceAttemptRepository,
   correctionRequests: simulatedCorrectionRequestRepository,
+  credentialRequests: simulatedCredentialRequestRepository,
+  studentCredentials: simulatedStudentCredentialRepository,
+  eventFeedback: simulatedEventFeedbackRepository,
   reports: simulatedReportRepository,
   notifications: simulatedNotificationRepository,
   auditLogs: simulatedAuditLogRepository,

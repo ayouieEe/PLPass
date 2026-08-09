@@ -20,6 +20,9 @@ export type PriorityLevel = "Time-Sensitive" | "Business-Critical" | "Flexible";
 export const CORRECTION_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type CorrectionRequestStatus = (typeof CORRECTION_REQUEST_STATUSES)[number];
 
+export const CREDENTIAL_REQUEST_STATUSES = ["pending", "approved", "rejected", "resolved"] as const;
+export type CredentialRequestStatus = (typeof CREDENTIAL_REQUEST_STATUSES)[number];
+
 export const REPORT_STATUSES = ["queued", "processing", "ready", "failed"] as const;
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 

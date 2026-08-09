@@ -44,7 +44,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
-  useAttendanceSimulationMutations,
+  useAttendanceSubmissionMutations,
   useAttendanceSession,
   useAttendanceSessionMutations,
   useAttendanceSessions,
@@ -61,7 +61,7 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
-import type { AttendanceSimulationResult } from "@/services/contracts";
+import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,

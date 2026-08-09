@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useStudents } from "@/hooks/useRepositoryQueries";
-import { compareDateValues, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, toValidDate } from "@/lib/utils/date";
+import { compareDateValues, formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/repositoryUtils";
-import type { AttendanceRecord, AttendanceSession, CorrectionRequest, Event, Student } from "@/types/domain";
+import type { AttendanceRecord, AttendanceSession, Event, Student, StudentCredentialStatus } from "@/types/domain";
 import type { AttendanceStatus, CorrectionRequestStatus } from "@/types/enums";
 
 export type StudentScope = {
@@ -24,11 +24,13 @@ export type StudentEventRecord = {
   startsAt: string;
   endsAt?: string;
   status: AttendanceStatus | "correction-pending";
-  method: "QR" | "Facial";
+  method: "QR" | "Facial" | "Manual" | "Online";
   recordedAt: string;
   lateReason?: string;
   feedbackSubmitted?: boolean;
 };
+
+const STUDENT_FEEDBACK_DEADLINE_HOURS = 72;
 
 export type StudentEventState =
   | "Session Not Started"
@@ -66,16 +68,6 @@ export type StudentEventWorkflow = {
 
 export type StudentRequestKind = "attendance_correction" | "authentication_issue" | "face_reenrollment";
 
-export type StudentSupportRequest = {
-  id: string;
-  studentId: string;
-  kind: Exclude<StudentRequestKind, "attendance_correction">;
-  title: string;
-  description: string;
-  status: CorrectionRequestStatus;
-  submittedAt: string;
-};
-
 export const lateReasonOptions = [
   "Traffic / Commute",
   "Class or Academic Conflict",
@@ -101,88 +93,49 @@ export function useStudentScope(): StudentScope {
   };
 }
 
-export function studentStorageKey(studentId: string, suffix: string) {
-  return `plpass-student-${studentId}-${suffix}`;
-}
-
-export function isDemoStudent(student?: Pick<Student, "id">) {
-  void student;
-  return false;
-}
-
-export function loadStudentEventRecords(studentId: string): StudentEventRecord[] {
-  try {
-    const raw = localStorage.getItem(studentStorageKey(studentId, "event-records"));
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function saveStudentEventRecords(studentId: string, records: StudentEventRecord[]) {
-  try {
-    localStorage.setItem(studentStorageKey(studentId, "event-records"), JSON.stringify(records));
-  } catch {
-    // ignore
-  }
-}
-
-export function upsertStudentEventRecord(studentId: string, record: StudentEventRecord) {
-  const current = loadStudentEventRecords(studentId);
-  const updated = current.filter((item) => item.id !== record.id && item.eventId !== record.eventId);
-  updated.push(record);
-  saveStudentEventRecords(studentId, updated);
-}
-
-export function markStudentFeedbackSubmitted(studentId: string, eventId: string) {
-  try {
-    const submitted = new Set<string>(JSON.parse(localStorage.getItem(studentStorageKey(studentId, "feedback-submitted")) || "[]"));
-    submitted.add(eventId);
-    localStorage.setItem(studentStorageKey(studentId, "feedback-submitted"), JSON.stringify(Array.from(submitted)));
-  } catch {
-    // ignore
-  }
-}
-
-export function isFeedbackSubmitted(studentId: string, eventId: string) {
-  try {
-    const submitted: string[] = JSON.parse(localStorage.getItem(studentStorageKey(studentId, "feedback-submitted")) || "[]");
-    return submitted.includes(eventId);
-  } catch {
-    return false;
-  }
-}
-
-export function qrUidForStudent(student?: Student) {
-  const identifier = student?.studentNumber ?? "STUDENT";
-  return `PLPASS-QR-${identifier}`;
-}
-
 export type StudentIdentityReadiness = {
-  qrCode: string;
+  qrCredentialId: string;
+  qrStatus: string;
   qrExpiry: string | null;
   faceEnrolled: boolean;
   faceEnrolledDate: string | null;
+  faceStatus: string;
 };
 
-export function ensureStudentIdentityReadiness(student?: Student): StudentIdentityReadiness {
-  const fallback = {
-    qrCode: "",
-    qrExpiry: null,
-    faceEnrolled: false,
-    faceEnrolledDate: null
-  } satisfies StudentIdentityReadiness;
-
-  if (!student) return fallback;
-
-  const defaultQr = qrUidForStudent(student);
-
+export function ensureStudentIdentityReadiness(credentials?: StudentCredentialStatus): StudentIdentityReadiness {
+  const facialStatus = credentials?.facialProfile?.status ?? "not_configured";
   return {
-    qrCode: defaultQr,
+    qrCredentialId: credentials?.qrCredential?.id ?? "",
+    qrStatus: credentials?.qrCredential?.status ?? "not_configured",
+    qrExpiry: credentials?.qrCredential?.expiresAt ?? null,
+    faceEnrolled: facialStatus === "active" || facialStatus === "activated",
+    faceEnrolledDate: credentials?.facialProfile?.enrolledAt ?? null,
+    faceStatus: facialStatus
+  };
+}
+
+export function hasUsableQrCredential(readiness: StudentIdentityReadiness) {
+  const status = readiness.qrStatus.toLowerCase();
+  if (!readiness.qrCredentialId) return false;
+  if (status === "revoked" || status === "expired" || status === "inactive" || status === "blocked") return false;
+  if (readiness.qrExpiry && new Date(readiness.qrExpiry).getTime() <= Date.now()) return false;
+  return true;
+}
+
+export function formatCredentialStatus(value: string | undefined) {
+  const normalized = value?.replace(/_/g, " ").trim();
+  if (!normalized) return "Not configured";
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function emptyStudentIdentityReadiness(): StudentIdentityReadiness {
+  return {
+    qrCredentialId: "",
+    qrStatus: "not_configured",
     qrExpiry: null,
     faceEnrolled: false,
-    faceEnrolledDate: null
+    faceEnrolledDate: null,
+    faceStatus: "not_configured"
   };
 }
 
@@ -199,106 +152,6 @@ export function getCorrectionRequestTypes(status: StudentEventRecord["status"]):
   if (status === "late") return ["present", "excused"];
   if (status === "absent") return ["present", "late", "excused"];
   return [];
-}
-
-export function isStudentDemoRecord(record: Pick<StudentEventRecord, "id">) {
-  void record;
-  return false;
-}
-
-export function loadStudentCorrectionRequests(studentId: string): CorrectionRequest[] {
-  void studentId;
-  return [];
-}
-
-export function createStudentCorrectionRequest(
-  studentId: string,
-  input: Pick<CorrectionRequest, "attendanceRecordId" | "eventId" | "requestedStatus" | "reason">
-) {
-  void studentId;
-  void input;
-  throw new Error("Correction requests must be submitted through Supabase.");
-}
-
-export function loadStudentSupportRequests(studentId: string): StudentSupportRequest[] {
-  try {
-    const raw = localStorage.getItem(studentStorageKey(studentId, "support-requests"));
-    if (raw) return JSON.parse(raw);
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function createStudentSupportRequest(
-  studentId: string,
-  input: Pick<StudentSupportRequest, "kind" | "title" | "description">
-) {
-  if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
-    const list = loadStudentSupportRequests(studentId);
-    const newReq: StudentSupportRequest = {
-      id: `req-${Date.now()}`,
-      studentId,
-      kind: input.kind,
-      title: input.title,
-      description: input.description,
-      status: "pending",
-      submittedAt: new Date().toISOString()
-    };
-    const updated = [newReq, ...list];
-    try {
-      localStorage.setItem(studentStorageKey(studentId, "support-requests"), JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
-    return newReq;
-  }
-  throw new Error("Support requests need a Supabase-backed table before they can be submitted.");
-}
-
-export function getEventObjectives(event: Event) {
-  const objectiveMap: Record<string, string[]> = {
-    "EVT-2026-001": [
-      "Connect students with industry partners for potential career and internship opportunities",
-      "Improve student awareness of current industry hiring standards",
-      "Gather student interest data for PLP's placement program"
-    ],
-    "EVT-2026-002": [
-      "Demonstrate essential professional skills and domain expertise",
-      "Improve student confidence in practical work scenarios"
-    ],
-    "EVT-2026-003": [
-      "Orient new students on university programs and campus membership benefits",
-      "Present the academic year's event calendar"
-    ],
-    "EVT-2026-004": [
-      "Simulate real campus leadership and administrative scenarios",
-      "Assess student resolution of operational challenges",
-      "Evaluate practical workshop exercises"
-    ],
-    "EVT-2026-005": [
-      "Introduce sustainable campus practices and community initiatives",
-      "Encourage student-led sustainability projects across PLP"
-    ],
-    "EVT-2026-006": [
-      "Showcase student innovation, talent, and technical competency",
-      "Foster healthy academic competition among all PLP departments"
-    ]
-  };
-  if (objectiveMap[event.code]) {
-    return objectiveMap[event.code];
-  }
-  const category = event.category.toLowerCase();
-  if (category.includes("leadership")) {
-    return ["Apply leadership values in student activities", "Collaborate with peers during event tasks", "Reflect on campus leadership responsibilities"];
-  }
-  if (category.includes("orientation")) {
-    return ["Understand campus policies and event expectations", "Identify available student support services", "Prepare for participation in college activities"];
-  }
-  if (category.includes("forum")) {
-    return ["Connect event themes to academic practice", "Evaluate speaker insights and examples", "Participate in informed discussion"];
-  }
-  return ["Understand the event purpose", "Participate in the scheduled activity", "Reflect on the learning outcome"];
 }
 
 export function statusTone(status: AttendanceStatus | "correction-pending" | Event["status"]) {
@@ -331,11 +184,41 @@ export function countdownLabel(value: string | undefined) {
 }
 
 export function hasEventResource(event: Event) {
-  return event.id.charCodeAt(event.id.length - 1) % 2 === 1;
+  return Boolean(getEventResource(event).url);
 }
 
 export function eventResourceLabel(event: Event) {
-  return hasEventResource(event) ? `${event.code} resource pack` : "No attachment";
+  return getEventResource(event).label;
+}
+
+function normalizeResourceUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^www\./i.test(trimmed)) return `https://${trimmed}`;
+  return undefined;
+}
+
+function extractFirstUrl(value: string | undefined) {
+  const match = value?.match(/https?:\/\/[^\s)]+|www\.[^\s)]+/i);
+  return normalizeResourceUrl(match?.[0]);
+}
+
+export function getEventResource(event: Event) {
+  const resourceUrl = normalizeResourceUrl((event as Event & { resourceUrl?: string }).resourceUrl) ?? extractFirstUrl(event.description);
+  if (resourceUrl) {
+    return {
+      label: `${event.code} resource link`,
+      description: "Organizer provided a resource link for this event.",
+      url: resourceUrl
+    };
+  }
+
+  return {
+    label: "No attachment",
+    description: event.description ? "Event notes are available, but no downloadable resource link was attached." : "Organizer has not attached a resource.",
+    url: undefined
+  };
 }
 
 export function sortEventsByDate(events: Event[]) {
@@ -343,13 +226,77 @@ export function sortEventsByDate(events: Event[]) {
 }
 
 export function studentVisibleEvents(events: Event[]) {
-  const visible = events.filter((event) => event.status !== "cancelled" && (event.status === "approved" || event.status === "completed" || isFutureOrNowDate(event.startsAt)));
+  const visible = events.filter((event) => event.status === "approved" || event.status === "completed");
   return sortEventsByDate(visible);
 }
 
-function pdfStudentDemoRecords(studentId: string): StudentEventRecord[] {
-  void studentId;
-  return [];
+export type StudentEventConflictInfo = {
+  eventId: string;
+  conflictingEvents: Array<Pick<Event, "id" | "title" | "startsAt" | "endsAt">>;
+};
+
+function eventTimeRange(event: Event) {
+  const startsAt = toValidDate(event.startsAt);
+  const endsAt = toValidDate(event.endsAt);
+  if (!startsAt || !endsAt) return null;
+  const start = startsAt.getTime();
+  const end = endsAt.getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return { start, end };
+}
+
+function eventsOverlap(first: Event, second: Event) {
+  const firstRange = eventTimeRange(first);
+  const secondRange = eventTimeRange(second);
+  if (!firstRange || !secondRange) return false;
+  return firstRange.start < secondRange.end && secondRange.start < firstRange.end;
+}
+
+export function getStudentEventConflictMap(events: Event[]) {
+  const conflictMap = new Map<string, StudentEventConflictInfo>();
+  const relevantEvents = studentVisibleEvents(events).filter((event) => event.status !== "completed");
+
+  for (let firstIndex = 0; firstIndex < relevantEvents.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < relevantEvents.length; secondIndex += 1) {
+      const first = relevantEvents[firstIndex];
+      const second = relevantEvents[secondIndex];
+      if (!eventsOverlap(first, second)) continue;
+
+      const firstConflict = conflictMap.get(first.id) ?? { eventId: first.id, conflictingEvents: [] };
+      firstConflict.conflictingEvents.push({
+        id: second.id,
+        title: second.title,
+        startsAt: second.startsAt,
+        endsAt: second.endsAt
+      });
+      conflictMap.set(first.id, firstConflict);
+
+      const secondConflict = conflictMap.get(second.id) ?? { eventId: second.id, conflictingEvents: [] };
+      secondConflict.conflictingEvents.push({
+        id: first.id,
+        title: first.title,
+        startsAt: first.startsAt,
+        endsAt: first.endsAt
+      });
+      conflictMap.set(second.id, secondConflict);
+    }
+  }
+
+  return conflictMap;
+}
+
+export function getEventConflictLabel(conflict?: StudentEventConflictInfo) {
+  if (!conflict?.conflictingEvents.length) return "";
+  const [firstConflict] = conflict.conflictingEvents;
+  const extraCount = conflict.conflictingEvents.length - 1;
+  return `Conflicts with ${firstConflict.title}${extraCount > 0 ? ` +${extraCount} more` : ""}`;
+}
+
+export function studentAttendanceMethodLabel(method: AttendanceRecord["verificationMethod"]): StudentEventRecord["method"] {
+  if (method === "qr") return "QR";
+  if (method === "facial") return "Facial";
+  if (method === "online") return "Online";
+  return "Manual";
 }
 
 export function recordsForStudentEvents(input: {
@@ -376,13 +323,12 @@ export function recordsForStudentEvents(input: {
         startsAt: event.startsAt,
         endsAt: event.endsAt,
         status: record.status,
-        method: record.verificationMethod === "qr" ? "QR" : "Facial",
+        method: studentAttendanceMethodLabel(record.verificationMethod),
         recordedAt: record.recordedAt,
-        lateReason: record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined,
+        lateReason: record.lateReasonCategory ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined),
         feedbackSubmitted: record.note?.includes("Feedback submitted") ?? false
       }];
     });
-  void pdfStudentDemoRecords;
   return repositoryRecords;
 }
 
@@ -411,12 +357,11 @@ export function getStudentEventRecords(input: {
   sessions: AttendanceSession[];
   events: Event[];
 }) {
-  const localRecords = loadStudentEventRecords(input.studentId);
-  const repositoryAndDemoRecords = recordsForStudentEvents(input);
-  return mergeStudentEventRecords([...localRecords, ...repositoryAndDemoRecords]);
+  const repositoryRecords = recordsForStudentEvents(input);
+  return mergeStudentEventRecords(repositoryRecords);
 }
 
-export function getStudentEventMetrics(records: StudentEventRecord[], studentId: string) {
+export function getStudentEventMetrics(records: StudentEventRecord[]) {
   const presentCount = records.filter((record) => record.status === "present").length;
   const lateCount = records.filter((record) => record.status === "late").length;
   const absentCount = records.filter((record) => record.status === "absent").length;
@@ -424,7 +369,7 @@ export function getStudentEventMetrics(records: StudentEventRecord[], studentId:
   const attendedCount = presentCount + lateCount;
   const attendanceRate = records.length ? Math.round((attendedCount / records.length) * 100) : 0;
   const attendedRecords = records.filter((record) => record.status === "present" || record.status === "late");
-  const feedbackDue = attendedRecords.filter((record) => !record.feedbackSubmitted && !isFeedbackSubmitted(studentId, record.eventId)).length;
+  const feedbackDue = attendedRecords.filter((record) => !record.feedbackSubmitted).length;
 
   return {
     totalCount: records.length,
@@ -439,11 +384,50 @@ export function getStudentEventMetrics(records: StudentEventRecord[], studentId:
   };
 }
 
+export function getStudentFeedbackDeadline(record: Pick<StudentEventRecord, "endsAt" | "startsAt">) {
+  const eventEnd = toValidDate(record.endsAt) ?? toValidDate(record.startsAt);
+  if (!eventEnd) return null;
+
+  return new Date(eventEnd.getTime() + STUDENT_FEEDBACK_DEADLINE_HOURS * 60 * 60 * 1000).toISOString();
+}
+
+export function getStudentFeedbackDeadlineStatus(record: Pick<StudentEventRecord, "endsAt" | "startsAt">, now = Date.now()) {
+  const dueAt = getStudentFeedbackDeadline(record);
+  if (!dueAt) {
+    return {
+      dueAt: null,
+      isOverdue: false,
+      isDueSoon: false,
+      label: "Feedback deadline unavailable"
+    };
+  }
+
+  const dueTime = new Date(dueAt).getTime();
+  const remainingHours = Math.ceil((dueTime - now) / (60 * 60 * 1000));
+  const dueDateLabel = `${formatDisplayDate(dueAt)} at ${formatDisplayTime(dueAt)}`;
+
+  if (remainingHours <= 0) {
+    return {
+      dueAt,
+      isOverdue: true,
+      isDueSoon: false,
+      label: `Overdue since ${dueDateLabel}`
+    };
+  }
+
+  return {
+    dueAt,
+    isOverdue: false,
+    isDueSoon: remainingHours <= 24,
+    label: remainingHours <= 24 ? `Due in ${remainingHours} hour${remainingHours === 1 ? "" : "s"}` : `Due by ${dueDateLabel}`
+  };
+}
+
 export function eventFromStudentRecord(record: StudentEventRecord): Event {
   return {
     id: record.eventId,
     code: record.eventCode,
-    organizerId: "student-record",
+    organizerId: "attendance-record",
     category: record.category,
     title: record.eventName,
     venue: record.venue,
@@ -496,7 +480,7 @@ export function buildStudentEventWorkflow(input: {
     if (state === "Absent") return ["Submit Excuse", "File an excuse request for organizer review."] as const;
     if (state === "Pending Time Out") return ["File Correction", "Time Out is missing. Ask the organizer to review the record."] as const;
     if (state === "Correction Rejected") return ["File Correction", "Review the decision and submit a clearer request if needed."] as const;
-    if (state === "Waiting for Time In") return ["Present QR UID", "Show your QR UID to the organizer. The organizer records Time In."] as const;
+    if (state === "Waiting for Time In") return ["Present QR Credential", "Show your Supabase QR credential to the organizer. The organizer records Time In."] as const;
     if (state === "Feedback Submitted") return ["Attendance Completed", "Your feedback is submitted and attendance is complete."] as const;
     return ["View Event", "Review details, objectives, and resources."] as const;
   })();

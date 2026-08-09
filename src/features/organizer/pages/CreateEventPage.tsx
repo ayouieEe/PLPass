@@ -42,7 +42,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
-  useAttendanceSimulationMutations,
+  useAttendanceSubmissionMutations,
   useAttendanceSession,
   useAttendanceSessionMutations,
   useAttendanceSessions,
