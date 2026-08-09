@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
@@ -27,8 +28,8 @@ export function ModalShell({ open, title, description, children, footer, size = 
     return null;
   }
 
-  return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/45 p-4 backdrop-blur-sm">
+  const modal = (
+    <div className="fixed inset-0 z-[9999] grid h-dvh place-items-center bg-foreground/45 p-4 backdrop-blur-sm">
       <section
         className={cn(
           "plpass-modal-surface relative max-h-[90vh] w-full overflow-hidden rounded-2xl border shadow-2xl",
@@ -62,4 +63,10 @@ export function ModalShell({ open, title, description, children, footer, size = 
       </section>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return modal;
+  }
+
+  return createPortal(modal, document.body);
 }

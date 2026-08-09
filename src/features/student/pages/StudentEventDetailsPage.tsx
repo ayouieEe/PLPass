@@ -14,13 +14,13 @@ import {
   MapPin,
   MessageSquareText,
   Sparkles,
-  Star,
-  X
+  Star
 } from "lucide-react";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -90,40 +90,14 @@ function FeedbackModal({
   const isCommentOnly = objectives.length === 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Event feedback"
-      onClick={onClose}
+    <ModalShell
+      open={open}
+      title="Share your feedback"
+      description={isCommentOnly ? "Overall feedback" : `${ratedCount} of ${objectives.length} objectives rated`}
+      size="sm"
+      onClose={onClose}
     >
-      <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border bg-surface shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b bg-surface/95 px-6 py-5 backdrop-blur">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
-              <MessageSquareText className="h-4 w-4 text-primary" />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold">Share your feedback</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {isCommentOnly ? "Overall feedback" : `${ratedCount} of ${objectives.length} objectives rated`}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close feedback"
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-5 px-6 py-5">
+        <div className="space-y-5">
           {isCommentOnly ? (
             <p className="rounded-xl border border-primary/20 bg-primary/10 p-4 text-sm text-muted-foreground">
               Objective ratings are not configured for this event yet. You can still submit your overall feedback below.
@@ -168,8 +142,7 @@ function FeedbackModal({
             </p>
           )}
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -244,7 +217,7 @@ export function StudentEventDetailsPage() {
     return <ErrorState title="Event unavailable" message="This event is not published for students." />;
   }
   const feedbackObjectives = ((objectivesQuery.data?.length ?? 0) > 0 ? objectivesQuery.data ?? [] : []).slice(0, 3);
-  const hasSupabaseObjectives = (objectivesQuery.data?.length ?? 0) > 0;
+  const hasConfiguredObjectives = (objectivesQuery.data?.length ?? 0) > 0;
   const displayObjectives = feedbackObjectives.slice(0, 3);
   const currentEventId = event.id;
   const repositoryRecords = recordsForStudentEvents({
@@ -264,7 +237,7 @@ export function StudentEventDetailsPage() {
     feedbackSubmitted,
     correctionStatus: correction?.status
   });
-  const allObjectivesRated = hasSupabaseObjectives
+  const allObjectivesRated = hasConfiguredObjectives
     ? feedbackObjectives.every((objective) => ratings[objective.id] > 0)
     : comment.trim().length >= 5;
   const feedbackReady = workflow.canSubmitFeedback;
@@ -280,18 +253,18 @@ export function StudentEventDetailsPage() {
         attendanceRecordId: currentRecord.id,
         reason
       });
-      toast.success("Late reason submitted to Supabase. Event feedback is now available.");
+      toast.success("Late reason submitted. Event feedback is now available.");
     } catch {
       toast.error("Unable to submit late reason. Please try again.");
     }
   }
 
   async function submitFeedback() {
-    if (hasSupabaseObjectives && !allObjectivesRated) {
+    if (hasConfiguredObjectives && !allObjectivesRated) {
       toast.error("Please rate each event objective.");
       return;
     }
-    if (!hasSupabaseObjectives && comment.trim().length < 5) {
+    if (!hasConfiguredObjectives && comment.trim().length < 5) {
       toast.error("Please write a short overall feedback comment.");
       return;
     }
@@ -305,7 +278,7 @@ export function StudentEventDetailsPage() {
         studentId: student.id,
         attendanceRecordId: currentRecord.id,
         comment,
-        ratings: hasSupabaseObjectives
+        ratings: hasConfiguredObjectives
           ? feedbackObjectives.map((objective) => ({
               objectiveId: objective.id,
               rating: ratings[objective.id]
@@ -314,7 +287,7 @@ export function StudentEventDetailsPage() {
       });
       setComment("");
       setFeedbackModalOpen(false);
-      toast.success("Feedback submitted to Supabase. Attendance is now complete.");
+      toast.success("Feedback submitted. Attendance is now complete.");
     } catch {
       toast.error("Unable to submit feedback. Please try again.");
     }
@@ -372,7 +345,7 @@ export function StudentEventDetailsPage() {
           </div>
           <Button onClick={() => setFeedbackModalOpen(true)}>
             <MessageSquareText className="mr-2 h-4 w-4" />
-            Answer Event Feedback
+            Answer Feedback
           </Button>
         </div>
       )}
@@ -431,7 +404,7 @@ export function StudentEventDetailsPage() {
             </div>
           ) : (
             <p className="mt-5 rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">
-              No objectives were configured for this event in Supabase.
+              No objectives were configured for this event yet.
             </p>
           )}
         </section>
