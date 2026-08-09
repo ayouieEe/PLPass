@@ -98,6 +98,20 @@ const VENUE_OPTIONS = [
   { label: "AVR 4", value: "AVR 4" }
 ];
 
+const PRIORITY_OPTIONS = [
+  { label: "Time-Sensitive", value: "Time-Sensitive" },
+  { label: "Business-Critical", value: "Business-Critical" },
+  { label: "Flexible", value: "Flexible" }
+];
+
+const CATEGORY_OPTIONS = [
+  { label: "Career Development", value: "Career Development" },
+  { label: "Skills Training", value: "Skills Training" },
+  { label: "General Assembly", value: "General Assembly" },
+  { label: "Seminar", value: "Seminar" },
+  { label: "Competition", value: "Competition" }
+];
+
 const PROGRAM_CODES: Record<string, string> = {
   "program-bsit": "BSIT",
   "program-bscs": "BSCS",
@@ -125,7 +139,9 @@ const eventFormSchema = z
     objective1: z.string().min(3, "Objective 1 is required."),
     objective2: z.string().min(3, "Objective 2 is required."),
     objective3: z.string().min(3, "Objective 3 is required."),
-    remarks: z.string().optional()
+    remarks: z.string().optional(),
+    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"]).default("Flexible"),
+    impactScore: z.number().min(0).max(10).nullable().optional()
   })
   .refine((value) => {
     const startMinutes = timeToMinutes(value.startTime);
@@ -400,7 +416,9 @@ export function CreateEventPage() {
       objective1: "",
       objective2: "",
       objective3: "",
-      remarks: ""
+      remarks: "",
+      priorityLevel: "Flexible",
+      impactScore: null
     }
   });
   const sessionForm = useForm<SessionFormValues>({
@@ -414,14 +432,6 @@ export function CreateEventPage() {
   });
   const watchedCategory = form.watch("category");
   const watchedStartTime = form.watch("startTime");
-  const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
-    return shellState;
-  }
-  if (catalog.programs.isLoading || studentsQuery.isLoading) {
-    return <LoadingState label="Loading participant selector" />;
-  }
-  const selectedStudents = selectedIds.map((id) => supabaseStudents.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
   const programById = useMemo(() => {
     const map = new Map(Object.entries(PROGRAM_CODES));
     if (catalog.programs.data?.items) {
@@ -431,6 +441,14 @@ export function CreateEventPage() {
     }
     return map;
   }, [catalog.programs.data]);
+  const shellState = <ShellState scope={scope} />;
+  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
+    return shellState;
+  }
+  if (catalog.programs.isLoading || studentsQuery.isLoading) {
+    return <LoadingState label="Loading participant selector" />;
+  }
+  const selectedStudents = selectedIds.map((id) => supabaseStudents.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
   const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
@@ -483,7 +501,9 @@ export function CreateEventPage() {
         attendanceMode: "face-to-face",
         participantStudentIds: selectedIds,
         description: values.description,
-        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n")
+        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n"),
+        priorityLevel: values.priorityLevel,
+        impactScore: values.impactScore ?? null
       });
 
       setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
@@ -517,14 +537,27 @@ export function CreateEventPage() {
             />
             <div className="grid gap-4 md:grid-cols-2">
               <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
-              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. PLP University Orientation & General Assembly" />
-              <TextField control={form.control} name="category" label="Category" placeholder="e.g. General Assembly" />
+              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
+              <SelectField
+                control={form.control}
+                name="category"
+                label="Category"
+                placeholder="Select a category"
+                options={CATEGORY_OPTIONS}
+              />
               <SelectField
                 control={form.control}
                 name="venue"
                 label="Venue"
                 placeholder="Select a venue"
                 options={VENUE_OPTIONS}
+              />
+              <SelectField
+                control={form.control}
+                name="priorityLevel"
+                label="Priority Level"
+                placeholder="Select priority"
+                options={PRIORITY_OPTIONS}
               />
               <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().slice(0, 10)} />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />

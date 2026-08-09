@@ -298,17 +298,17 @@ export function EventDetailsPage() {
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   
-  const event = eventQuery.data;
+  const selectedEvent = eventQuery.data;
 
   useEffect(() => {
-    if (event) {
+    if (selectedEvent) {
       setHeaderOverride({
-        title: `${event.code} - ${event.title}`,
-        breadcrumbs: ["Organizer", "Events", event.code],
-        description: `${event.category} at ${event.venue}`
+        title: `${selectedEvent.code} - ${selectedEvent.title}`,
+        breadcrumbs: ["Organizer", "Events", selectedEvent.code],
+        description: `${selectedEvent.category} at ${selectedEvent.venue}`
       });
     }
-  }, [event, setHeaderOverride]);
+  }, [selectedEvent, setHeaderOverride]);
 
   const form = useForm<SessionFormValues>({
     resolver: zodResolver(sessionFormSchema),
@@ -333,6 +333,7 @@ export function EventDetailsPage() {
   if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading) {
     return <LoadingState label="Loading event workspace" />;
   }
+  const event = eventQuery.data;
   const participants = participantsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];

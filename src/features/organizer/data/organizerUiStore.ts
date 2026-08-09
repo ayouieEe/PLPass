@@ -122,9 +122,14 @@ export function startOrganizerSession(state: OrganizerUiState, ..._args: unknown
   return state;
 }
 
-export function endOrganizerSession(state: OrganizerUiState, ..._args: unknown[]) {
-  void _args;
-  return state;
+export function endOrganizerSession(state: OrganizerUiState, eventCode: string, attendanceRows: OrganizerAttendanceRow[]) {
+  return {
+    ...state,
+    attendanceRows: [
+      ...state.attendanceRows.filter((row) => row.eventCode !== eventCode),
+      ...attendanceRows
+    ]
+  };
 }
 
 export function approveOrganizerCorrectionRequest(state: OrganizerUiState, ..._args: unknown[]) {

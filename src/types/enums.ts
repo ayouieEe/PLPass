@@ -15,6 +15,7 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export const EVENT_STATUSES = ["pending", "approved", "rejected", "completed", "cancelled"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
+export type PriorityLevel = "Time-Sensitive" | "Business-Critical" | "Flexible";
 
 export const CORRECTION_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
 export type CorrectionRequestStatus = (typeof CORRECTION_REQUEST_STATUSES)[number];

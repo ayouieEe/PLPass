@@ -145,10 +145,10 @@ export function OrganizerCorrectionRequestsPage() {
         studentNumber: req.studentId,
         eventCode: req.eventId ?? "EVT-2026-001",
         eventName: "CCS Orientation",
-        requestType: req.requestedStatus === "excused" ? "Excuse" : "Correction",
+        requestType: (req.requestedStatus === "excused" ? "Excuse" : "Correction") as RequestType,
         dateSubmitted: "2026-07-17",
         status: req.status as RequestStatus,
-        recordedAttendanceStatus: "absent",
+        recordedAttendanceStatus: "absent" as const,
         requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent"
       }))
       .sort((a, b) => (a.status === "pending" ? -1 : b.status === "pending" ? 1 : 0));
@@ -212,7 +212,7 @@ export function OrganizerCorrectionRequestsPage() {
       await reviewMutation.mutateAsync({
         requestId: selectedRequest.id,
         status: "approved",
-        reviewRemarks: remark
+        reason: remark
       });
     } catch {
       // ignore local ui sync
@@ -238,8 +238,7 @@ export function OrganizerCorrectionRequestsPage() {
       await reviewMutation.mutateAsync({
         requestId: selectedRequest.id,
         status: "rejected",
-        reason: remark,
-        reviewRemarks: remark
+        reason: remark
       });
     } catch {
       // ignore local ui sync

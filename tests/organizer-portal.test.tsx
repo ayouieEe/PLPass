@@ -5,10 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
-import { EventManagementPage } from "@/features/organizer/pages/EventManagementPage";
 import { CompletedEventModal } from "@/features/organizer/pages/EventRecordsPage";
 import { AuthenticationMethodsPage } from "@/features/organizer/pages/AuthenticationMethodsPage";
-import { OrganizerCorrectionRequestsPage } from "@/features/organizer/pages/OrganizerCorrectionRequestsPage";
 import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/test-support/testHelpers";
 import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
 import { resetSimulatedRepositoryState } from "@/test-support/repositories";
@@ -148,7 +146,8 @@ describe("organizer repository scoping and workflows", () => {
           startTime: "10:00",
           endTime: "11:00",
           attendanceMode: "face-to-face",
-          participantStudentIds: ["student-1"]
+          participantStudentIds: ["student-1"],
+          priorityLevel: "Flexible"
         },
         organizerTestContext
       )
@@ -164,7 +163,8 @@ describe("organizer repository scoping and workflows", () => {
         startTime: "10:00",
         endTime: "11:00",
         attendanceMode: "face-to-face",
-        participantStudentIds: ["student-1", "student-2"]
+        participantStudentIds: ["student-1", "student-2"],
+        priorityLevel: "Flexible"
       },
       organizerTestContext
     );
@@ -250,7 +250,8 @@ describe("organizer repository scoping and workflows", () => {
         startTime: "10:00",
         endTime: "11:00",
         attendanceMode: "online",
-        participantStudentIds: ["student-1"]
+        participantStudentIds: ["student-1"],
+        priorityLevel: "Flexible"
       },
       studentTestContext
     )).rejects.toMatchObject({ code: "PERMISSION_DENIED" });

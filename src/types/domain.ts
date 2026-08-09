@@ -8,6 +8,7 @@ import type {
   MlPredictionType,
   NotificationStatus,
   NotificationType,
+  PriorityLevel,
   ReportStatus,
   RiskLevel,
   SessionStatus,
@@ -132,6 +133,9 @@ export type Event = {
   startsAt: ISODateString;
   endsAt: ISODateString;
   status: EventStatus;
+  priorityLevel: PriorityLevel;
+  impactScore: number | null;
+  predictedTurnout: number | null;
 };
 
 export type EventParticipant = {
@@ -158,14 +162,17 @@ export type AttendanceSession = {
 };
 
 export type AttendanceRecord = {
-  id: ID;
-  sessionId: ID;
-  studentId: ID;
+  id: string;
+  sessionId: string;
+  studentId: string;
   status: AttendanceStatus;
   verificationMethod: VerificationMethod;
-  recordedAt: ISODateString;
-  recordedByUserId?: ID;
+  recordedAt: string;
+  recordedByUserId?: string;
   note?: string;
+  timeIn?: string;
+  timeOut?: string;
+  lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 };
 
 export type AttendanceAttempt = {

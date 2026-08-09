@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -10,8 +10,9 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessionMutations, useAttendanceSimulationMutations, useAttendanceRecords, useStudents, useEventMutations } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import type { PriorityLevel } from "@/types/enums";
 import {
   createUiExport,
   endOrganizerSession,
@@ -28,12 +29,14 @@ import {
 type EventTab = "today" | "incoming";
 type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
 type AttendanceStatus = "present" | "late" | "absent";
+type ManualAttendanceStatus = Extract<AttendanceStatus, "present" | "late">;
 
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const dashboardActiveSessionEventCode = "EVT-2026-004";
 type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 
 type EventRecord = {
+  id?: string;
   code: string;
   name: string;
   category: string;
@@ -45,6 +48,8 @@ type EventRecord = {
   objectives: string[];
   description?: string;
   status?: OrganizerEvent["status"];
+  priorityLevel: PriorityLevel;
+  impactScore: number | null;
 };
 
 type AttendanceRow = OrganizerAttendanceRow;
@@ -70,6 +75,95 @@ const allEvents: EventRecord[] = [];
 const sessionSummaries: CompletedRecord[] = [];
 
 const attendanceDetails: AttendanceRow[] = [];
+
+// Higher rank = more urgent. Used to sort events and to decide which side
+// of a conflict "wins" the recommended slot.
+const PRIORITY_RANK: Record<PriorityLevel, number> = {
+  "Business-Critical": 3,
+  "Time-Sensitive": 2,
+  "Flexible": 1
+};
+
+function priorityTone(level: PriorityLevel) {
+  if (level === "Business-Critical") {
+    return "danger" as const;
+  }
+  if (level === "Time-Sensitive") {
+    return "warning" as const;
+  }
+  return "muted" as const;
+}
+
+// Combined ranking score: priority tier first, impact score as a tiebreaker
+// within the same tier. Events without an impact score are treated as 0
+// impact for ordering purposes only (does not mutate the underlying data).
+function priorityScore(event: EventRecord) {
+  const tierScore = PRIORITY_RANK[event.priorityLevel] ?? 1;
+  const impact = event.impactScore ?? 0;
+  return tierScore * 1000 + impact;
+}
+
+function sortByPriority(events: EventRecord[]) {
+  return [...events].sort((a, b) => priorityScore(b) - priorityScore(a));
+}
+
+function toMinutes(time: string) {
+  // Accepts "HH:MM" (24h) or "hh:MM AM/PM" — falls back to 0 if unparsable
+  // so a bad value never throws during conflict detection.
+  const ampmMatch = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    let hours = Number(ampmMatch[1]) % 12;
+    if (ampmMatch[3].toUpperCase() === "PM") {
+      hours += 12;
+    }
+    return hours * 60 + Number(ampmMatch[2]);
+  }
+  const [hoursStr, minutesStr] = time.split(":");
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return 0;
+  }
+  return hours * 60 + minutes;
+}
+
+function parseDateTime(date: string, time: string) {
+  const ampmMatch = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    let hours = Number(ampmMatch[1]) % 12;
+    if (ampmMatch[3].toUpperCase() === "PM") {
+      hours += 12;
+    }
+    return new Date(`${date}T${hours.toString().padStart(2, "0")}:${ampmMatch[2]}:00`);
+  }
+  const isoDate = `${date}T${time}:00`;
+  const parsed = new Date(isoDate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function timeRangesOverlap(startA: string, endA: string, startB: string, endB: string) {
+  const startAMin = toMinutes(startA);
+  const endAMin = toMinutes(endA);
+  const startBMin = toMinutes(startB);
+  const endBMin = toMinutes(endB);
+  return startAMin < endBMin && startBMin < endAMin;
+}
+
+// Client-side conflict detection: same venue, same date, overlapping time
+// window. This mirrors what get_conflicting_events() will do server-side,
+// but runs against already-typed Event data so it works before the
+// Supabase types are regenerated.
+function findConflicts(event: EventRecord, candidates: EventRecord[]) {
+  return candidates.filter((other) => {
+    if (other.code === event.code) {
+      return false;
+    }
+    if (other.venue !== event.venue || other.date !== event.date) {
+      return false;
+    }
+    return timeRangesOverlap(event.startTime, event.endTime, other.startTime, other.endTime);
+  });
+}
 
 function statusTone(status: AttendanceStatus | "Today" | "Incoming" | "Active" | "Completed") {
   if (status === "present" || status === "Active" || status === "Completed") {
@@ -164,6 +258,10 @@ function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: Reac
 }
 
 function eventFromStore(event: OrganizerEvent): EventRecord {
+  // OrganizerEvent (the local UI store) predates priorityLevel/impactScore,
+  // so events created outside the Supabase-backed Create Event flow default
+  // to Flexible/no-impact-score until the store type is extended.
+  const storeEvent = event as OrganizerEvent & { priorityLevel?: PriorityLevel; impactScore?: number | null };
   return {
     code: event.code,
     name: event.name,
@@ -174,7 +272,9 @@ function eventFromStore(event: OrganizerEvent): EventRecord {
     endTime: event.endTime,
     predictedTurnout: `${event.predictedTurnout}%`,
     objectives: event.objectives
-    ,status: event.status
+    ,status: event.status,
+    priorityLevel: storeEvent.priorityLevel ?? "Flexible",
+    impactScore: storeEvent.impactScore ?? null
   };
 }
 
@@ -216,7 +316,8 @@ export function EventManagementPage() {
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
   const [manualInput, setManualInput] = useState("");
-  const [manualStatus, setManualStatus] = useState<AttendanceStatus>("present");
+  const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
+  const [manualLateReason, setManualLateReason] = useState<LateReason | "">("");
   const [sessionForm, setSessionForm] = useState({
     venue: "",
     date: "",
@@ -230,29 +331,80 @@ export function EventManagementPage() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
   );
-  const eventsQuery = useEvents({ pageSize: 100 }, context);
+ const eventsQuery = useEvents({ pageSize: 100 }, context);
+const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
+const { completeEventMutation } = useEventMutations(context);
+const { manualAttendanceMutation } = useAttendanceSimulationMutations(context);
+const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+
+const attendanceRecordsQuery = useAttendanceRecords(
+  { sessionId: liveSessionId ?? undefined, pageSize: 100 } as never,
+  context
+);
+const studentsQuery = useStudents({ pageSize: 200 }, context);
+const studentNameById = useMemo(() => {
+  const map = new Map<string, string>();
+  (studentsQuery.data?.items ?? []).forEach((s) => map.set(s.id, s.fullName ?? s.studentNumber));
+  return map;
+}, [studentsQuery.data?.items]);
+
+  useEffect(() => {
+    if (!liveSessionId) {
+      setActiveRows([]);
+      return;
+    }
+
+    const mappedRows: AttendanceRow[] = (attendanceRecordsQuery.data?.items ?? [])
+      .filter((record) => record.sessionId === liveSessionId)
+      .map((record) => {
+        const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
+        const status = record.status === "excused" ? "present" : record.status;
+
+        return {
+          id: record.id,
+          studentId: record.studentId,
+          studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
+          eventCode: activeEvent?.code ?? "LIVE",
+          attendanceMethod:
+            record.verificationMethod === "qr"
+              ? "QR Code"
+              : record.verificationMethod === "facial"
+                ? "Facial Recognition"
+                : "Manual",
+          checkInTime: formatDisplayTime(record.recordedAt),
+          attendanceStatus: status === "present" || status === "late" || status === "absent" ? status : "present",
+          lateReason: status === "late" ? record.lateReason : undefined
+        };
+      });
+
+    setActiveRows(mappedRows);
+  }, [activeEvent?.code, attendanceRecordsQuery.data?.items, liveSessionId, studentsQuery.data?.items]);
 
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
   const repositoryEvents = useMemo<EventRecord[]>(() => {
-    return (eventsQuery.data?.items ?? []).map((event) => {
+  return (eventsQuery.data?.items ?? [])
+    .filter((event) => event.status !== "completed" && event.status !== "cancelled")
+    .map((event) => {
       const rec: EventRecord = {
+        id: event.id,
         code: event.code,
         name: event.title,
         category: event.category,
         venue: event.venue,
-        date: formatDisplayDate(event.startsAt, "YYYY-MM-DD"),
+        date: event.startsAt.slice(0, 10),
         startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
         endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
         predictedTurnout: "85%",
-        objectives: ["Objective 1"]
+        objectives: ["Objective 1"],
+        priorityLevel: event.priorityLevel,
+        impactScore: event.impactScore
       };
-      rec.status = "today";
       return rec;
     });
-  }, [eventsQuery.data?.items]);
+}, [eventsQuery.data?.items]);
 
   const storeEvents = useMemo(
     () => [...repositoryEvents, ...uiState.events.map(eventFromStore)],
@@ -273,31 +425,52 @@ export function EventManagementPage() {
 
   // Today and incoming events are published events that haven't been cancelled,
   // haven't been completed, and aren't currently live. New events appear here automatically.
+  // Both lists are sorted by priority (Business-Critical > Time-Sensitive > Flexible,
+  // impact score as tiebreaker) so the most urgent events surface first.
   const todayEvents = useMemo(
     () =>
-      storeEvents.filter(
-        (event) =>
-          !cancelledCodes.includes(event.code) &&
-          !completedCodes.has(event.code) &&
-          event.code !== activeEvent?.code &&
-          (event.status === "today" || isTodayEvent(event)) &&
-          matchesSearch(event, search)
+      sortByPriority(
+        storeEvents.filter(
+          (event) =>
+            !cancelledCodes.includes(event.code) &&
+            !completedCodes.has(event.code) &&
+            event.code !== activeEvent?.code &&
+            (event.status === "today" || isTodayEvent(event)) &&
+            matchesSearch(event, search)
+        )
       ),
     [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
   );
 
   const incomingEvents = useMemo(
     () =>
-      storeEvents.filter(
-        (event) =>
-          !cancelledCodes.includes(event.code) &&
-          !completedCodes.has(event.code) &&
-          event.code !== activeEvent?.code &&
-          (event.status === "incoming" || !isTodayEvent(event)) &&
-          matchesSearch(event, search)
+      sortByPriority(
+        storeEvents.filter(
+          (event) =>
+            !cancelledCodes.includes(event.code) &&
+            !completedCodes.has(event.code) &&
+            event.code !== activeEvent?.code &&
+            (event.status === "incoming" || !isTodayEvent(event)) &&
+            matchesSearch(event, search)
+        )
       ),
     [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
   );
+
+  // Conflicts are computed across every non-cancelled, non-completed event
+  // currently visible (today + incoming), so a conflict shows up regardless
+  // of which tab either event happens to land in.
+  const conflictsByCode = useMemo(() => {
+    const pool = [...todayEvents, ...incomingEvents];
+    const map = new Map<string, EventRecord[]>();
+    pool.forEach((event) => {
+      const conflicts = findConflicts(event, pool);
+      if (conflicts.length > 0) {
+        map.set(event.code, conflicts);
+      }
+    });
+    return map;
+  }, [todayEvents, incomingEvents]);
 
   const activeCounts = countRows(activeRows);
 
@@ -323,25 +496,58 @@ export function EventManagementPage() {
     toast.warning(`${event.code} has been cancelled.`);
   }
 
-  function startSession() {
-    if (!startEvent) {
-      return;
-    }
-    const updated = { ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime };
-    setActiveEvent(updated);
-    setActiveRows(buildLiveRows(sessionForm.method, updated.code));
-    setUiState((current) => startOrganizerSession(current, updated.code));
+ async function startSession() {
+  if (!startEvent?.id) {
+    toast.error("Only events synced from Supabase can start a live session.");
+    return;
+  }
+  try {
+    const session = await createEventSessionMutation.mutateAsync({
+      eventId: startEvent.id,
+      venue: sessionForm.venue,
+      date: sessionForm.date,
+      startTime: sessionForm.startTime,
+      expectedEndTime: sessionForm.endTime,
+      attendanceMode: "face-to-face"
+    });
+    setLiveSessionId(session.id);
+    setActiveEvent({ ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
     setStartEvent(null);
     setSelectedEventForSession(null);
-    toast.success(`${updated.code} live session started.`);
-    // Per spec, starting a session redirects the organizer to the Live
-    // Session interface — handled below by rendering it whenever
-    // activeEvent is set, regardless of which tab was previously selected.
+    toast.success(`${startEvent.code} live session started.`);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to start session.");
   }
-
-  function endSession() {
+}
+ const endSession = useCallback(async () => {
+  if (!liveSessionId || !activeEvent?.id) return;
+  try {
+    await endSessionMutation.mutateAsync({ sessionId: liveSessionId, reason: "Organizer ended session" });
+    await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     setSummaryOpen(true);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Failed to end session.");
   }
+}, [activeEvent?.id, liveSessionId, endSessionMutation, completeEventMutation]);
+
+  useEffect(() => {
+    if (!activeEvent) {
+      return;
+    }
+    const endDate = parseDateTime(activeEvent.date, activeEvent.endTime);
+    if (!endDate) {
+      return;
+    }
+    const timeoutMs = endDate.getTime() - Date.now();
+    if (timeoutMs <= 0) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      toast(`Session ${activeEvent.code} has ended.`, { description: "The live session was closed automatically at the scheduled end time." });
+      void endSession();
+    }, timeoutMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeEvent, endSession]);
 
   function viewEventRecordFromSummary() {
     if (!activeEvent) {
@@ -443,6 +649,31 @@ export function EventManagementPage() {
     { accessorKey: "venue", header: "Venue" },
     { accessorKey: "date", header: "Date" },
     { accessorKey: "startTime", header: "Start Time" },
+    {
+      id: "priority",
+      header: "Priority",
+      cell: ({ row }) => <StatusBadge label={row.original.priorityLevel} tone={priorityTone(row.original.priorityLevel)} />
+    },
+    {
+      id: "conflict",
+      header: "Conflict",
+      cell: ({ row }) => {
+        const conflicts = conflictsByCode.get(row.original.code);
+        if (!conflicts || conflicts.length === 0) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        const conflictCodes = conflicts.map((item) => item.code).join(", ");
+        return (
+          <div
+            className="flex items-center gap-1.5 text-sm font-medium text-danger"
+            title={`Overlaps with ${conflictCodes} at the same venue and time`}
+          >
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            {conflicts.length === 1 ? `Conflicts with ${conflictCodes}` : `${conflicts.length} conflicts`}
+          </div>
+        );
+      }
+    },
     { id: "status", header: "Status", cell: ({ row }) => <StatusBadge label={isTodayEvent(row.original) ? "Today" : "Incoming"} tone={isTodayEvent(row.original) ? "success" : "info"} /> }
   ];
 
@@ -602,42 +833,111 @@ export function EventManagementPage() {
                     </div>
                   ) : captureMode === "Manual" ? (
                     <div className="rounded-xl border border-dashed border-primary/20 bg-surface p-5">
-                      <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name and record attendance manually.</p>
-                      <div className="mt-4 flex flex-col gap-2">
-                        <input value={manualInput} onChange={(e) => setManualInput(e.target.value)} placeholder="Student ID or name" className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none" />
-                        <div className="flex items-center gap-2">
-                          <select value={manualStatus} onChange={(e) => setManualStatus(e.target.value as AttendanceStatus)} className="rounded-md border bg-background px-2 py-1 text-sm">
-                            <option value="present">Present</option>
-                            <option value="late">Late</option>
-                            <option value="absent">Absent</option>
-                          </select>
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Search or select a student, then choose present or late before recording.</p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-2 text-sm font-medium">
+                            Student lookup
+                            <input
+                              value={manualInput}
+                              onChange={(e) => setManualInput(e.target.value)}
+                              placeholder="Enter student ID or name"
+                              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none"
+                            />
+                          </label>
+                          <label className="space-y-2 text-sm font-medium">
+                            Student selection
+                            <select
+                              value={manualInput}
+                              onChange={(e) => setManualInput(e.target.value)}
+                              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none"
+                            >
+                              <option value="">Select a student</option>
+                              {[...studentNameById.entries()].map(([id, name]) => (
+                                <option key={id} value={id}>
+                                  {name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">Attendance status</p>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant={manualStatus === "present" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setManualStatus("present")}
+                              >
+                                Present
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={manualStatus === "late" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setManualStatus("late")}
+                              >
+                                Late
+                              </Button>
+                            </div>
+                          </div>
                           <Button
                             type="button"
-                            onClick={() => {
-                              if (!manualInput.trim() || !activeEvent) {
-                                toast.warning("Enter student ID or name first.");
+                            className="h-10 rounded-lg px-5"
+                            onClick={async () => {
+                              if (!manualInput || !liveSessionId) {
+                                toast.warning("Select a student first.");
                                 return;
                               }
-                              const now = new Date();
-                              const time = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-                              const newRow: AttendanceRow = {
-                                id: `MAN-${Date.now()}`,
-                                studentId: manualInput.trim(),
-                                studentName: manualInput.trim(),
-                                eventCode: activeEvent.code,
-                                attendanceMethod: "Manual",
-                                checkInTime: time,
-                                attendanceStatus: manualStatus
-                              };
-                              setActiveRows((cur) => [newRow, ...cur]);
-                              setManualInput("");
-                              toast.success("Manual attendance recorded.");
+                              try {
+                                const result = await manualAttendanceMutation.mutateAsync({
+                                  sessionId: liveSessionId,
+                                  studentId: manualInput,
+                                  reason: "Manual entry",
+                                  remarks: "",
+                                  statusOverride: manualStatus,
+                                  lateReason: manualStatus === "late" && manualLateReason ? manualLateReason : undefined
+                                });
+                                toast.success(result.safeMessage);
+                                setManualInput("");
+                                setManualStatus("present");
+                                setManualLateReason("");
+                              } catch (error) {
+                                toast.error(error instanceof Error ? error.message : "Failed to record attendance.");
+                              }
                             }}
                           >
                             Record
                           </Button>
                         </div>
+
+                        {manualStatus === "late" ? (
+                          <label className="space-y-2 text-sm font-medium">
+                            Late reason
+                            <select
+                              className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm"
+                              value={manualLateReason}
+                              onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
+                            >
+                              <option value="">No reason specified</option>
+                              {lateReasons.map((reason) => (
+                                <option key={reason} value={reason}>
+                                  {reason}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+
+                        <p className="text-sm text-muted-foreground">
+                          Manual attendance records are applied immediately to the live session and will appear in the live attendance list.
+                        </p>
                       </div>
                     </div>
                   ) : (
@@ -707,6 +1007,7 @@ export function EventManagementPage() {
           <EventDetails
             event={eventModal}
             status={getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes)}
+            conflicts={conflictsByCode.get(eventModal.code) ?? []}
             onCancel={() => setConfirmCancelEvent(eventModal)}
           />
         </ModalFrame>
@@ -814,11 +1115,14 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, onCancel }: { event: EventRecord; status: string; onCancel?: () => void }) {
+function EventDetails({ event, status, conflicts = [], onCancel }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void }) {
   return (
     <div>
       <p className="text-sm font-semibold text-primary">Event Details</p>
-      <h2 className="mt-1 text-2xl font-semibold">{event.code} - {event.name}</h2>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <h2 className="text-2xl font-semibold">{event.code} - {event.name}</h2>
+        <StatusBadge label={event.priorityLevel} tone={priorityTone(event.priorityLevel)} />
+      </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <SummaryTile label="Category" value={event.category} />
         <SummaryTile label="Venue" value={event.venue} />
@@ -826,7 +1130,31 @@ function EventDetails({ event, status, onCancel }: { event: EventRecord; status:
         <SummaryTile label="Schedule" value={`${event.startTime} - ${event.endTime}`} />
         <SummaryTile label="Status" value={status} />
         <SummaryTile label="Predicted Turnout" value={event.predictedTurnout} />
+        <SummaryTile label="Priority Level" value={event.priorityLevel} />
+        <SummaryTile label="Impact Score" value={event.impactScore === null ? "Not set" : `${event.impactScore}/10`} />
       </div>
+      {conflicts.length > 0 ? (
+        <section className="mt-5 rounded-lg border border-danger/30 bg-danger/5 p-4">
+          <div className="flex items-center gap-2 text-danger">
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            <h3 className="font-semibold">Schedule Conflict Detected</h3>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This event overlaps at the same venue and time with:
+          </p>
+          <ul className="mt-2 space-y-1">
+            {conflicts.map((conflict) => (
+              <li key={conflict.code} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
+                <span>{conflict.code} - {conflict.name}</span>
+                <StatusBadge label={conflict.priorityLevel} tone={priorityTone(conflict.priorityLevel)} />
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Higher-priority and higher-impact events are ranked first in the event list to help decide which one keeps the slot.
+          </p>
+        </section>
+      ) : null}
       {event.description ? (
         <section className="mt-5 rounded-lg border bg-background p-4">
           <h3 className="font-semibold">Description</h3>

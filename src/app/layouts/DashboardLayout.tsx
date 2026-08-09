@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Bell, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserCircle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -41,7 +41,6 @@ export function DashboardLayout({
   userLabel,
   title,
   description,
-  breadcrumbs,
   primaryAction,
   filters,
   topRightActions,
@@ -65,7 +64,6 @@ export function DashboardLayout({
   const routeMeta = useMemo(() => getRouteHeaderMeta(location.pathname, role), [location.pathname, role]);
   const currentTitle = title ?? headerOverride.title ?? routeMeta.title;
   const currentDescription = description ?? headerOverride.description ?? routeMeta.description ?? "PLPass authenticated workspace";
-  const currentBreadcrumbs = breadcrumbs ?? headerOverride.breadcrumbs ?? routeMeta.breadcrumbs;
   const currentPrimaryAction = primaryAction ?? headerOverride.primaryAction;
 
 

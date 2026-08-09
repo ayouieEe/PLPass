@@ -59,6 +59,8 @@ export type CreateEventInput = {
   participantStudentIds: string[];
   description?: string;
   remarks?: string;
+  priorityLevel: "Time-Sensitive" | "Business-Critical" | "Flexible";
+  impactScore?: number | null;
 };
 
 export type CreateEventSessionInput = {
@@ -87,6 +89,8 @@ export type ManualAttendanceInput = {
   studentId: string;
   reason: string;
   remarks: string;
+  statusOverride?: "present" | "late";
+  lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
   occurredAt?: string;
   allowManualJoin?: boolean;
 };
@@ -174,6 +178,7 @@ export interface EventManagementRepository {
   listEventParticipants(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventParticipant>>;
   createEvent(input: CreateEventInput, context?: RepositoryContext): Promise<Event>;
   updateEventStatus(eventId: string, status: Extract<EventStatus, "approved" | "rejected">, reason?: string, context?: RepositoryContext): Promise<Event>;
+  completeEvent(eventId: string, context?: RepositoryContext): Promise<Event>;
 }
 
 export interface AttendanceSessionRepository {
