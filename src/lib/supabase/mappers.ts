@@ -20,7 +20,7 @@ import type {
   Student,
   User
 } from "@/types/domain";
-import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, UserRole, VerificationMethod } from "@/types/enums";
+import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, PriorityLevel, UserRole, VerificationMethod } from "@/types/enums";
 
 type Row = Record<string, unknown>;
 
@@ -50,6 +50,16 @@ function numberValue(row: Row, keys: string[], fallback = 0) {
     }
   }
   return fallback;
+}
+
+function nullableNumberValue(row: Row, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+  return null;
 }
 
 function optionalString(row: Row, keys: string[]) {
@@ -108,6 +118,11 @@ function mapEmploymentStatus(value: string): FacultyProfile["employmentStatus"] 
 }
 
 function mapEventStatus(row: Row): EventStatus {
+  const eventStatus = stringValue(row, ["event_status", "status"], "pending");
+  if (eventStatus === "completed" || eventStatus === "cancelled") {
+    return eventStatus;
+  }
+
   const approvalStatus = stringValue(row, ["approval_status"]);
   if (approvalStatus === "approved") {
     return "approved";
@@ -118,15 +133,18 @@ function mapEventStatus(row: Row): EventStatus {
   if (approvalStatus === "pending") {
     return "pending";
   }
-  const eventStatus = stringValue(row, ["event_status", "status"], "pending");
-  if (eventStatus === "completed" || eventStatus === "cancelled") {
-    return eventStatus;
-  }
+
   return eventStatus === "draft" ? "pending" : "approved";
+}
+function mapPriorityLevel(value: string): PriorityLevel {
+  if (value === "Time-Sensitive" || value === "Business-Critical" || value === "Flexible") {
+    return value;
+  }
+  return "Flexible";
 }
 
 function mapSessionStatus(value: string): AttendanceSession["status"] {
-  if (value === "ongoing") {
+  if (value === "ongoing" || value === "active") {
     return "active";
   }
   if (value === "scheduled") {
@@ -266,7 +284,10 @@ export function mapEvent(row: Row): Event {
     venue: stringValue(row, ["venue", "room_id"]),
     startsAt: stringValue(row, ["starts_at", "start_time", "event_date"], new Date().toISOString()),
     endsAt: stringValue(row, ["ends_at", "end_time", "event_date"], new Date().toISOString()),
-    status: mapEventStatus(row)
+    status: mapEventStatus(row),
+    priorityLevel: mapPriorityLevel(stringValue(row, ["priority_level"], "Flexible")),
+    impactScore: nullableNumberValue(row, ["impact_score"]),
+    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"])
   };
 }
 
@@ -319,11 +340,11 @@ export function mapAttendanceSession(row: Row, type: AttendanceSessionType): Att
     title: stringValue(row, ["title", "session_name"], "Attendance session"),
     mode: mapSessionMode(stringValue(row, ["attendance_mode", "mode"], "required")),
     status: mapSessionStatus(stringValue(row, ["session_status", "status"], "scheduled")),
-    startsAt: stringValue(row, ["starts_at", "start_time", "actual_start", "session_date"], new Date().toISOString()),
-    endsAt: optionalString(row, ["ends_at", "end_time", "actual_end"]),
+    startsAt: stringValue(row, ["scheduled_start", "starts_at", "start_time", "actual_start", "session_date"], new Date().toISOString()),
+    endsAt: optionalString(row, ["scheduled_end", "ends_at", "end_time", "actual_end"]),
     lateCutoffAt: optionalString(row, ["late_cutoff_at"]),
-    attendanceWindowStartAt: optionalString(row, ["attendance_window_start", "attendance_window_start_at"]),
-    attendanceWindowEndAt: optionalString(row, ["attendance_window_end", "attendance_window_end_at"]),
+    attendanceWindowStartAt: optionalString(row, ["attendance_window_start_at", "attendance_window_start", "scheduled_start"]),
+    attendanceWindowEndAt: optionalString(row, ["attendance_window_end_at", "attendance_window_end", "scheduled_end"]),
     createdByUserId: stringValue(row, ["created_by", "created_by_user_id"])
   };
 }
@@ -340,7 +361,8 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     note: optionalString(row, ["remarks", "note"]),
     lateReasonCategory: optionalString(row, ["late_reason_category"]),
     timeIn: optionalString(row, ["time_in"]),
-    timeOut: optionalString(row, ["time_out"])
+    timeOut: optionalString(row, ["time_out"]),
+    lateReason: optionalString(row, ["late_reason_category", "late_reason"]) as AttendanceRecord["lateReason"]
   };
   return base as AttendanceRecord;
 }

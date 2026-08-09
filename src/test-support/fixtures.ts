@@ -115,7 +115,13 @@ export const eventFixtures: Event[] = [
   { id: "event-4", code: "EVT-2026-004", organizerId: "organizer-2", departmentId: "dept-ccs", category: "Skills Training", title: "PLP Tech & Leadership Simulation Day", venue: "PLP AVR Auditorium", startsAt: "2026-03-19T00:30:00.000Z", endsAt: "2026-03-19T07:30:00.000Z", status: "completed" },
   { id: "event-5", code: "EVT-2026-005", organizerId: "organizer-1", departmentId: "dept-cte", category: "Seminar", title: "PLP Campus Sustainability Series", venue: "PLP Multi-Purpose Hall", startsAt: "2026-04-02T05:30:00.000Z", endsAt: "2026-04-02T08:00:00.000Z", status: "completed" },
   { id: "event-6", code: "EVT-2026-006", organizerId: "organizer-1", departmentId: "dept-hm", category: "Competition", title: "PLP Inter-College Skills & Talent Showcase", venue: "PLP Main Activity Center", startsAt: "2026-04-18T01:00:00.000Z", endsAt: "2026-04-18T08:00:00.000Z", status: "completed" }
-];
+].map((event) => ({
+  ...event,
+  status: event.status as Event["status"],
+  priorityLevel: "Flexible",
+  impactScore: null,
+  predictedTurnout: null
+}));
 
 export const eventParticipantFixtures: EventParticipant[] = [
   ...eventFixtures.flatMap((event, eventIndex) =>

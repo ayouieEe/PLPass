@@ -664,6 +664,8 @@ export type Database = {
           id: string
           organizer_id: string
           predicted_turnout_percent: number | null
+          priority_level: string
+          impact_score: number | null
           starts_at: string
           title: string
           updated_at: string
@@ -682,6 +684,8 @@ export type Database = {
           id?: string
           organizer_id: string
           predicted_turnout_percent?: number | null
+          priority_level?: string
+          impact_score?: number | null
           starts_at: string
           title: string
           updated_at?: string
@@ -700,6 +704,8 @@ export type Database = {
           id?: string
           organizer_id?: string
           predicted_turnout_percent?: number | null
+          priority_level?: string
+          impact_score?: number | null  
           starts_at?: string
           title?: string
           updated_at?: string

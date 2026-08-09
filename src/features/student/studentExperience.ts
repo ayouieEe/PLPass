@@ -433,7 +433,10 @@ export function eventFromStudentRecord(record: StudentEventRecord): Event {
     venue: record.venue,
     startsAt: record.startsAt,
     endsAt: record.endsAt ?? record.startsAt,
-    status: "completed"
+    status: "completed",
+    priorityLevel: "Flexible",
+    impactScore: null,
+    predictedTurnout: null
   };
 }
 

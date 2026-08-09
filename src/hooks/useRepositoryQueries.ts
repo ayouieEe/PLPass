@@ -186,14 +186,19 @@ export function useEvent(eventId: string | undefined, context?: RepositoryContex
 
 export function useEventMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
+  const invalidateEvents = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["events"] });
+    await queryClient.invalidateQueries({ queryKey: ["eventParticipants"] });
+    await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+  };
   return {
     createEventMutation: useMutation({
       mutationFn: (input: CreateEventInput) => repositories.eventManagement.createEvent(input, context),
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({ queryKey: ["events"] });
-        await queryClient.invalidateQueries({ queryKey: ["eventParticipants"] });
-        await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
-      }
+      onSuccess: invalidateEvents
+    }),
+    completeEventMutation: useMutation({
+      mutationFn: (eventId: string) => repositories.eventManagement.completeEvent(eventId, context),
+      onSuccess: invalidateEvents
     })
   };
 }
@@ -275,12 +280,15 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
 export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   const invalidateAttendance = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
-    await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
-    await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
-    await queryClient.invalidateQueries({ queryKey: ["attendanceAttempts"] });
-    await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
-    await queryClient.invalidateQueries({ queryKey: ["mlPredictions"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] }),
+      queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] }),
+      queryClient.invalidateQueries({ queryKey: ["attendanceSession"] }),
+      queryClient.invalidateQueries({ queryKey: ["attendanceAttempts"] }),
+      queryClient.invalidateQueries({ queryKey: ["auditLogs"] }),
+      queryClient.invalidateQueries({ queryKey: ["mlPredictions"] })
+    ]);
+    await queryClient.refetchQueries({ queryKey: ["attendanceRecords"], type: "active" });
   };
   return {
     credentialScanMutation: useMutation({

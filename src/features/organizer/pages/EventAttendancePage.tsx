@@ -94,6 +94,16 @@ type EventWithCount = Event & { participantCount: number };
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
 
+const LATE_REASON_OPTIONS = [
+  "Traffic / Commute",
+  "Class or Academic Conflict",
+  "Personal / Health",
+  "Weather / Force Majeure",
+  "Other"
+] as const;
+
+type LateReason = (typeof LATE_REASON_OPTIONS)[number];
+
 const eventFormSchema = z
   .object({
     code: z.string().min(2, "Event code is required."),
@@ -301,6 +311,8 @@ export function EventAttendancePage() {
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualReason, setManualReason] = useState("");
   const [manualRemarks, setManualRemarks] = useState("");
+  const [manualStatus, setManualStatus] = useState<"present" | "late">("present");
+  const [manualLateReason, setManualLateReason] = useState<LateReason | "">("");
   // remove allowManualJoin checkbox — manual tab provides manual input
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -405,12 +417,16 @@ export function EventAttendancePage() {
         studentId: manualStudentId,
         reason: manualReason,
         remarks: manualRemarks,
+        statusOverride: manualStatus,
+        lateReason: manualLateReason === "" ? undefined : manualLateReason,
         occurredAt: simulatedTime()
       });
       setLatestResult(result);
       setManualStudentId("");
       setManualReason("");
       setManualRemarks("");
+      setManualStatus("present");
+      setManualLateReason("");
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
       toast.error("Manual attendance was not saved", { description: "Select a participant, reason, and remarks." });
@@ -459,6 +475,44 @@ export function EventAttendancePage() {
                 Remarks
                 <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} />
               </label>
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Attendance status</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={manualStatus === "present" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setManualStatus("present")}
+                  >
+                    Present
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={manualStatus === "late" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setManualStatus("late")}
+                  >
+                    Late
+                  </Button>
+                </div>
+              </div>
+              {manualStatus === "late" ? (
+                <label className="block text-sm font-medium">
+                  Late reason
+                  <select
+                    className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm"
+                    value={manualLateReason}
+                    onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
+                  >
+                    <option value="">No reason specified</option>
+                    {LATE_REASON_OPTIONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div>
                 <Button type="button" disabled={attendanceMutations.manualAttendanceMutation.isPending} onClick={submitManualAttendance}>
                   Save manual attendance
