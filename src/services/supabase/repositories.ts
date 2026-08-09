@@ -9,11 +9,16 @@ import type {
   AuthenticationRepository,
   ClassRosterRepository,
   CorrectionRequestRepository,
+  CredentialRequestRepository,
   EndAttendanceSessionInput,
+  EventFeedbackRepository,
   EventManagementRepository,
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
+  StudentCredentialRepository,
+  SubmitLateReasonInput,
+  SubmitEventFeedbackInput,
   SystemSettingsRepository,
   UserManagementRepository
 } from "@/services/contracts";
@@ -25,11 +30,16 @@ import {
   mapAttendanceSession,
   mapAuditLog,
   mapCorrectionRequest,
+  mapCredentialRequest,
   mapEvent,
+  mapEventFeedback,
+  mapEventObjective,
   mapEventParticipant,
+  mapFacialProfile,
   mapNotification,
   mapOrganizer,
   mapProfileToUser,
+  mapQrCredential,
   mapReport,
   mapStudent
 } from "@/lib/supabase/mappers";
@@ -43,7 +53,7 @@ import type {
   Student,
   SystemSettings
 } from "@/types/domain";
-import type { EventStatus } from "@/types/enums";
+import type { AttendanceStatus, EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
 type Row = Record<string, unknown>;
@@ -74,6 +84,16 @@ function pageResult<T>(items: T[], total: number, query?: ListQuery): PaginatedR
 
 function emptyPage<T>(query?: ListQuery): PaginatedResult<T> {
   return pageResult([], 0, query);
+}
+
+function allowedCorrectionStatusesForAttendance(status: AttendanceStatus): AttendanceStatus[] {
+  if (status === "late") {
+    return ["present", "excused"];
+  }
+  if (status === "absent") {
+    return ["present", "late", "excused"];
+  }
+  return [];
 }
 
 async function selectRows(table: TableName, query?: ListQuery, columns = "*"): Promise<PaginatedResult<Row>> {
@@ -169,6 +189,20 @@ async function currentProfile(): Promise<Row> {
   return { ...(data as Row), email: user.email ?? (data as Row).email };
 }
 
+async function currentStudentIdForProfile(profileId: string): Promise<string> {
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client
+    .from("students")
+    .select("id")
+    .eq("profile_id", profileId)
+    .maybeSingle();
+  throwIfSupabaseError(error);
+  if (!data?.id) {
+    throw new RepositoryError("The signed-in account is not linked to a student profile.", "PERMISSION_DENIED");
+  }
+  return String(data.id);
+}
+
 export const supabaseAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
     return [];
@@ -194,8 +228,11 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
   async getUserById(userId) {
     return mapProfileToUser(await selectSingleRow("profiles", userId));
   },
-  async listStudents(query) {
-    const rows = await selectRows("students", query, studentReadSelect);
+  async listStudents(query, context) {
+    const rows =
+      context?.actorRole === "student"
+        ? await selectRowsFiltered("students", query, studentReadSelect, { profile_id: context.actorUserId })
+        : await selectRows("students", query, studentReadSelect);
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
   async listFacultyProfiles(query) {
@@ -264,12 +301,36 @@ export const supabaseClassRosterRepository: ClassRosterRepository = {
 };
 
 export const supabaseEventManagementRepository: EventManagementRepository = {
-  async listEvents(query) {
+  async listEvents(query, context) {
+    if (context?.actorRole === "student") {
+      const listQuery = queryOrDefault(query);
+      const from = listQuery.pageIndex * listQuery.pageSize;
+      const to = from + listQuery.pageSize - 1;
+      const client = getSupabaseBrowserClient();
+      let builder = client
+        .from("events")
+        .select(eventReadSelect, { count: "exact" })
+        .eq("approval_status", "approved");
+
+      if (listQuery.sortBy) {
+        builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+      }
+
+      const { data, error, count } = await builder.range(from, to);
+      throwIfSupabaseError(error);
+      const rows = pageResult((data ?? []) as unknown as Row[], count ?? data?.length ?? 0, listQuery);
+      return pageResult(rows.items.map(mapEvent), rows.total, query);
+    }
+
     const rows = await selectRows("events", query, eventReadSelect);
     return pageResult(rows.items.map(mapEvent), rows.total, query);
   },
-  async getEventById(eventId) {
-    return mapEvent(await selectSingleRowWithColumns("events", eventId, eventReadSelect));
+  async getEventById(eventId, context) {
+    const event = mapEvent(await selectSingleRowWithColumns("events", eventId, eventReadSelect));
+    if (context?.actorRole === "student" && event.status !== "approved" && event.status !== "completed") {
+      throw new RepositoryError("This event is not published for students.", "PERMISSION_DENIED");
+    }
+    return event;
   },
   async listEventParticipants(eventId, query) {
     const rows = await selectRows("event_participants", query);
@@ -382,20 +443,30 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
 };
 
 export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
-  async listAttendanceRecords(query) {
+  async listAttendanceRecords(query, context) {
     const sessionId = (query as { sessionId?: string })?.sessionId;
-    const rows = sessionId
-      ? await selectRowsFiltered("attendance_records", query, "*", { event_session_id: sessionId })
+    const studentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : undefined;
+    const rows = sessionId || studentId
+      ? await selectRowsFiltered("attendance_records", query, "*", { event_session_id: sessionId, student_id: studentId })
       : await selectRows("attendance_records", query);
     return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
   },
-  async getAttendanceRecordById(recordId) {
-    return mapAttendanceRecord(await selectSingleRow("attendance_records", recordId));
+  async getAttendanceRecordById(recordId, context) {
+    const row = await selectSingleRow("attendance_records", recordId);
+    if (context?.actorRole === "student") {
+      const studentId = await currentStudentIdForProfile(context.actorUserId);
+      if (String(row.student_id ?? "") !== studentId) {
+        throw new RepositoryError("Students can only read their own attendance records.", "PERMISSION_DENIED");
+      }
+    }
+    return mapAttendanceRecord(row);
   },
-  async simulateCredentialAttendance() {
+  async recordCredentialAttendance() {
     throw new RepositoryError("QR and facial attendance require the secure Supabase verifier function before they can be enabled.", "VALIDATION_ERROR");
   },
-  async simulateManualAttendance(input) {
+  async recordManualAttendance(input) {
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
     if (session.status !== "active") throw new RepositoryError("This attendance session is not active.", "VALIDATION_ERROR");
     const client = getSupabaseBrowserClient();
@@ -410,6 +481,27 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const row = await insertRow("attendance_records", { event_session_id: input.sessionId, student_id: input.studentId, attendance_status: status, verification_method: "manual", time_in: recordedAt, recorded_at: recordedAt, remarks: [input.reason, input.remarks].filter(Boolean).join(": ") });
     const record = mapAttendanceRecord(row);
     return { resultStatus: status === "late" ? "Late" : "Present", attendanceStatus: status, verificationMethod: "manual", recordedAt, safeMessage: `Attendance recorded as ${status}.`, attendanceRecord: record, summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } };
+  },
+  async submitLateReason(input: SubmitLateReasonInput, context) {
+    const client = getSupabaseBrowserClient();
+    if (context?.actorRole === "student") {
+      const studentId = await currentStudentIdForProfile(context.actorUserId);
+      const { data: record, error: recordError } = await client
+        .from("attendance_records")
+        .select("id, student_id")
+        .eq("id", input.attendanceRecordId)
+        .maybeSingle();
+      throwIfSupabaseError(recordError);
+      if (!record || String(record.student_id) !== studentId) {
+        throw new RepositoryError("Students can only submit late reasons for their own attendance records.", "PERMISSION_DENIED");
+      }
+    }
+    const { data, error } = await client.rpc("submit_late_reason", {
+      p_attendance_record_id: input.attendanceRecordId,
+      p_late_reason_category: input.reason
+    });
+    throwIfSupabaseError(error);
+    return mapAttendanceRecord(data as Row);
   }
 };
 
@@ -432,15 +524,65 @@ export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = 
 };
 
 export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = {
-  async listCorrectionRequests(query) {
-    const rows = await selectRows("attendance_requests", query);
+  async listCorrectionRequests(query, context) {
+    const studentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : undefined;
+    const rows = studentId
+      ? await selectRowsFiltered("attendance_requests", query, "*", { student_id: studentId })
+      : await selectRows("attendance_requests", query);
     return pageResult(rows.items.map(mapCorrectionRequest), rows.total, query);
   },
-  async createCorrectionRequest(input) {
+  async createCorrectionRequest(input, context) {
+    if (!input.attendanceRecordId) {
+      throw new RepositoryError("An attendance record is required to create a correction request.", "VALIDATION_ERROR");
+    }
+
+    const studentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : input.studentId;
+    if (!studentId) {
+      throw new RepositoryError("A student profile is required to create a correction request.", "VALIDATION_ERROR");
+    }
+
+    const reason = input.reason.trim();
+    if (!reason) {
+      throw new RepositoryError("A reason is required to create a correction request.", "VALIDATION_ERROR");
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (context?.actorRole === "student") {
+      const { data: record, error: recordError } = await client
+        .from("attendance_records")
+        .select("id, student_id, attendance_status")
+        .eq("id", input.attendanceRecordId)
+        .maybeSingle();
+      throwIfSupabaseError(recordError);
+      if (!record || String(record.student_id) !== studentId) {
+        throw new RepositoryError("Students can only create correction requests for their own attendance records.", "PERMISSION_DENIED");
+      }
+      const allowedStatuses = allowedCorrectionStatusesForAttendance(String(record.attendance_status) as AttendanceStatus);
+      if (!allowedStatuses.includes(input.requestedStatus)) {
+        throw new RepositoryError("This attendance record is not eligible for the requested correction.", "VALIDATION_ERROR");
+      }
+    }
+
+    const { data: existingPendingRequests, error: existingPendingRequestError } = await client
+      .from("attendance_requests")
+      .select("id")
+      .eq("student_id", studentId)
+      .eq("attendance_record_id", input.attendanceRecordId)
+      .eq("request_status", "pending")
+      .limit(1);
+    throwIfSupabaseError(existingPendingRequestError);
+    if (existingPendingRequests?.length) {
+      throw new RepositoryError("You already have a pending correction request for this attendance record.", "VALIDATION_ERROR");
+    }
+
     const inserted = await insertRow("attendance_requests", {
-      student_id: input.studentId,
+      student_id: studentId,
       attendance_record_id: input.attendanceRecordId,
-      explanation: input.reason,
+      explanation: reason,
       requested_status: input.requestedStatus,
       request_status: "pending"
     });
@@ -466,6 +608,218 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
   }
 };
 
+export const supabaseCredentialRequestRepository: CredentialRequestRepository = {
+  async listCredentialRequests(query, context) {
+    if (context?.actorRole === "student") {
+      const studentId = await currentStudentIdForProfile(context.actorUserId);
+      const rows = await selectRowsFiltered("credential_requests", query, "*", { student_id: studentId });
+      return pageResult(rows.items.map(mapCredentialRequest), rows.total, query);
+    }
+
+    const rows = await selectRows("credential_requests", query);
+    return pageResult(rows.items.map(mapCredentialRequest), rows.total, query);
+  },
+  async createCredentialRequest(input, context) {
+    const studentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : input.studentId;
+    if (!studentId) {
+      throw new RepositoryError("A student profile is required to create a credential request.", "VALIDATION_ERROR");
+    }
+
+    const reason = input.reason.trim();
+    if (!reason) {
+      throw new RepositoryError("A reason is required to create a credential request.", "VALIDATION_ERROR");
+    }
+
+    const client = getSupabaseBrowserClient();
+    const { data: existingPendingRequest, error: existingPendingRequestError } = await client
+      .from("credential_requests")
+      .select("id")
+      .eq("student_id", studentId)
+      .eq("credential_type", input.credentialType)
+      .eq("request_type", input.requestType)
+      .eq("request_status", "pending")
+      .maybeSingle();
+    throwIfSupabaseError(existingPendingRequestError);
+    if (existingPendingRequest) {
+      throw new RepositoryError("You already have a pending request for this credential issue.", "VALIDATION_ERROR");
+    }
+
+    const inserted = await insertRow("credential_requests", {
+      student_id: studentId,
+      credential_type: input.credentialType,
+      request_type: input.requestType,
+      reason,
+      request_status: "pending"
+    });
+    return mapCredentialRequest(inserted);
+  }
+};
+
+export const supabaseStudentCredentialRepository: StudentCredentialRepository = {
+  async getStudentCredentialStatus(studentId, context) {
+    const scopedStudentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : studentId;
+    const client = getSupabaseBrowserClient();
+    const { data: qrRows, error: qrError } = await client
+      .from("qr_credentials")
+      .select("id, student_id, credential_status, issued_at, expires_at, revoked_at, last_successful_check_in_at, created_at, updated_at")
+      .eq("student_id", scopedStudentId)
+      .order("issued_at", { ascending: false })
+      .limit(1);
+    throwIfSupabaseError(qrError);
+
+    const { data: facialRow, error: facialError } = await client
+      .from("facial_profiles")
+      .select("id, student_id, facial_status, enrolled_at, last_verified_at, consent_recorded_at, created_at, updated_at")
+      .eq("student_id", scopedStudentId)
+      .maybeSingle();
+    throwIfSupabaseError(facialError);
+
+    return {
+      studentId: scopedStudentId,
+      qrCredential: qrRows?.[0] ? mapQrCredential(qrRows[0] as Row) : undefined,
+      facialProfile: facialRow ? mapFacialProfile(facialRow as Row) : undefined
+    };
+  }
+};
+
+export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
+  async listEventObjectives(eventId, context) {
+    if (context?.actorRole === "student") {
+      await supabaseEventManagementRepository.getEventById(eventId, context);
+    }
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("event_objectives")
+      .select("*")
+      .eq("event_id", eventId)
+      .order("objective_order", { ascending: true });
+    throwIfSupabaseError(error);
+    return ((data ?? []) as Row[]).map(mapEventObjective);
+  },
+
+  async listStudentFeedback(studentId, context) {
+    const client = getSupabaseBrowserClient();
+    const scopedStudentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : studentId;
+    if (!scopedStudentId) return [];
+    const { data, error } = await client
+      .from("event_feedback")
+      .select("*, event_feedback_ratings(*)")
+      .eq("student_id", scopedStudentId)
+      .order("submitted_at", { ascending: false });
+    throwIfSupabaseError(error);
+    return ((data ?? []) as Row[]).map(mapEventFeedback);
+  },
+
+  async submitEventFeedback(input: SubmitEventFeedbackInput, context) {
+    const client = getSupabaseBrowserClient();
+    const studentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : input.studentId;
+    if (!studentId) {
+      throw new RepositoryError("A student profile is required to submit event feedback.", "VALIDATION_ERROR");
+    }
+    if (context?.actorRole === "student") {
+      await supabaseEventManagementRepository.getEventById(input.eventId, context);
+      const { data: record, error: recordError } = await client
+        .from("attendance_records")
+        .select("id, student_id, event_session_id, event_sessions(event_id)")
+        .eq("id", input.attendanceRecordId)
+        .maybeSingle();
+      throwIfSupabaseError(recordError);
+      const session = Array.isArray(record?.event_sessions) ? record?.event_sessions[0] : record?.event_sessions;
+      const recordEventId = typeof session?.event_id === "string" ? session.event_id : "";
+      if (!record || String(record.student_id) !== studentId || recordEventId !== input.eventId) {
+        throw new RepositoryError("Students can only submit feedback for their own attendance records.", "PERMISSION_DENIED");
+      }
+    }
+    if (input.ratings.length > 0) {
+      const objectiveIds = input.ratings.map((rating) => rating.objectiveId);
+      if (
+        input.ratings.some((rating) => !Number.isInteger(rating.rating) || rating.rating < 1 || rating.rating > 5) ||
+        new Set(objectiveIds).size !== objectiveIds.length
+      ) {
+        throw new RepositoryError("Feedback ratings must be unique whole numbers from 1 to 5.", "VALIDATION_ERROR");
+      }
+
+      const { data: objectives, error: objectivesError } = await client
+        .from("event_objectives")
+        .select("id")
+        .eq("event_id", input.eventId)
+        .in("id", objectiveIds);
+      throwIfSupabaseError(objectivesError);
+      const validObjectiveIds = new Set((objectives ?? []).map((objective) => String(objective.id)));
+      if (objectiveIds.some((objectiveId) => !validObjectiveIds.has(objectiveId))) {
+        throw new RepositoryError("Feedback ratings can only reference objectives from this event.", "VALIDATION_ERROR");
+      }
+    }
+    const comment = input.comment?.trim() || null;
+    const { data: existing, error: existingError } = await client
+      .from("event_feedback")
+      .select("*")
+      .eq("event_id", input.eventId)
+      .eq("student_id", studentId)
+      .maybeSingle();
+    throwIfSupabaseError(existingError);
+
+    const feedbackValues = {
+      event_id: input.eventId,
+      student_id: studentId,
+      attendance_record_id: input.attendanceRecordId,
+      comment,
+      updated_at: new Date().toISOString()
+    };
+
+    const feedbackResult = existing
+      ? await client
+          .from("event_feedback")
+          .update(feedbackValues)
+          .eq("id", existing.id)
+          .select("*")
+          .single()
+      : await client
+          .from("event_feedback")
+          .insert(feedbackValues)
+          .select("*")
+          .single();
+    throwIfSupabaseError(feedbackResult.error);
+
+    const feedback = feedbackResult.data as Row;
+    const feedbackId = String(feedback.id ?? "");
+    const { error: clearRatingsError } = await client
+      .from("event_feedback_ratings")
+      .delete()
+      .eq("feedback_id", feedbackId);
+    throwIfSupabaseError(clearRatingsError);
+
+    if (input.ratings.length > 0) {
+      const { error: ratingsError } = await client
+        .from("event_feedback_ratings")
+        .insert(
+          input.ratings.map((rating) => ({
+            feedback_id: feedbackId,
+            objective_id: rating.objectiveId,
+            rating: rating.rating
+          }))
+        );
+      throwIfSupabaseError(ratingsError);
+    }
+
+    const { data: saved, error: savedError } = await client
+      .from("event_feedback")
+      .select("*, event_feedback_ratings(*)")
+      .eq("id", feedbackId)
+      .single();
+    throwIfSupabaseError(savedError);
+    return mapEventFeedback(saved as Row);
+  }
+};
+
 export const supabaseReportRepository: ReportRepository = {
   async listReports(query) {
     const rows = await selectRows("generated_reports", query);
@@ -474,17 +828,23 @@ export const supabaseReportRepository: ReportRepository = {
 };
 
 export const supabaseNotificationRepository: NotificationRepository = {
-  async listNotifications(query) {
-    const rows = await selectRows("notifications", query);
+  async listNotifications(query, context) {
+    const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
+    const rows = await selectRowsFiltered("notifications", query, "*", { recipient_id: recipientId });
     return pageResult(rows.items.map(mapNotification), rows.total, query);
   },
-  async markNotificationRead(notificationId) {
+  async markNotificationRead(notificationId, context) {
+    const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
+    const row = await selectSingleRow("notifications", notificationId);
+    if (String(row.recipient_id ?? "") !== recipientId) {
+      throw new RepositoryError("Users can only update their own notifications.", "PERMISSION_DENIED");
+    }
     return mapNotification(await updateRow("notifications", notificationId, { notification_status: "read", read_at: new Date().toISOString() }));
   },
-  async markAllNotificationsRead() {
+  async markAllNotificationsRead(context) {
     const client = getSupabaseBrowserClient();
-    const profile = await currentProfile();
-    const { data, error } = await client.from("notifications").update({ notification_status: "read", read_at: new Date().toISOString() }).eq("recipient_id", String(profile.id)).select("*");
+    const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
+    const { data, error } = await client.from("notifications").update({ notification_status: "read", read_at: new Date().toISOString() }).eq("recipient_id", recipientId).select("*");
     throwIfSupabaseError(error);
     return ((data ?? []) as Row[]).map(mapNotification);
   }
@@ -550,6 +910,9 @@ export const supabaseRepositoryRegistry: RepositoryRegistry = {
   attendanceRecords: supabaseAttendanceRecordRepository,
   attendanceAttempts: supabaseAttendanceAttemptRepository,
   correctionRequests: supabaseCorrectionRequestRepository,
+  credentialRequests: supabaseCredentialRequestRepository,
+  studentCredentials: supabaseStudentCredentialRepository,
+  eventFeedback: supabaseEventFeedbackRepository,
   reports: supabaseReportRepository,
   notifications: supabaseNotificationRepository,
   auditLogs: supabaseAuditLogRepository,

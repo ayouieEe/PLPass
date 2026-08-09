@@ -6,17 +6,17 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
-import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
 import {
+  correctionRequestTypeLabels,
   getStudentEventRecords,
-  loadStudentCorrectionRequests,
-  loadStudentSupportRequests,
+  studentVisibleEvents,
   useStudentScope,
   type StudentRequestKind
 } from "@/features/student/studentExperience";
-import type { CorrectionRequestStatus } from "@/types/enums";
+import type { CorrectionRequestStatus, CredentialRequestStatus } from "@/types/enums";
 
 type RequestHistoryRow = {
   id: string;
@@ -25,8 +25,9 @@ type RequestHistoryRow = {
   typeLabel: string;
   title: string;
   description: string;
-  status: CorrectionRequestStatus;
+  status: CorrectionRequestStatus | CredentialRequestStatus;
   reference: string;
+  details: string[];
 };
 
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
@@ -35,8 +36,9 @@ function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
 }
 
-function statusTone(status: CorrectionRequestStatus) {
+function statusTone(status: CorrectionRequestStatus | CredentialRequestStatus) {
   if (status === "approved") return "success";
+  if (status === "resolved") return "success";
   if (status === "rejected") return "danger";
   return "warning";
 }
@@ -59,6 +61,7 @@ export function RequestHistoryPage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -76,15 +79,16 @@ export function RequestHistoryPage() {
     eventsQuery.isLoading ||
     sessionsQuery.isLoading ||
     recordsQuery.isLoading ||
-    correctionsQuery.isLoading
+    correctionsQuery.isLoading ||
+    credentialRequestsQuery.isLoading
   ) {
     return <LoadingState label="Loading request history" />;
   }
 
   const student = scope.student;
-  const hasPartialDataIssue = classesQuery.isError || eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError;
+  const hasPartialDataIssue = classesQuery.isError || eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError || credentialRequestsQuery.isError;
   const classes = classesQuery.data?.items ?? [];
-  const events = eventsQuery.data?.items ?? [];
+  const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
   const studentEventRecords = getStudentEventRecords({
@@ -94,10 +98,7 @@ export function RequestHistoryPage() {
     events
   });
 
-  const correctionRows: RequestHistoryRow[] = [
-    ...loadStudentCorrectionRequests(student.id),
-    ...(correctionsQuery.data?.items ?? [])
-  ].map((request) => {
+  const correctionRows: RequestHistoryRow[] = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id).map((request) => {
     const eventRecord = studentEventRecords.find(
       (record) => record.id === request.attendanceRecordId || record.eventId === request.eventId
     );
@@ -105,6 +106,15 @@ export function RequestHistoryPage() {
     const event = events.find((entry) => entry.id === request.eventId);
     const title = eventRecord?.eventName ?? event?.title ?? classRecord?.subjectTitle ?? "Attendance correction";
     const reference = eventRecord?.eventCode ?? event?.code ?? classRecord?.subjectCode ?? request.attendanceRecordId;
+    const scheduleSource = eventRecord ?? event;
+    const eventSchedule = scheduleSource
+      ? `${formatDisplayDate(scheduleSource.startsAt)} at ${formatDisplayTime(scheduleSource.startsAt)}`
+      : undefined;
+    const reviewDetail = request.reviewRemarks
+      ? `Organizer note: ${request.reviewRemarks}`
+      : request.reviewedAt
+        ? `Reviewed ${formatDisplayDate(request.reviewedAt)}`
+        : undefined;
     return {
       id: request.id,
       submittedAt: request.requestedAt,
@@ -113,20 +123,31 @@ export function RequestHistoryPage() {
       title,
       description: request.reason,
       status: request.status,
-      reference
+      reference,
+      details: [
+        `Requested status: ${correctionRequestTypeLabels[request.requestedStatus] ?? request.requestedStatus}`,
+        eventSchedule ? `Event schedule: ${eventSchedule}` : undefined,
+        reviewDetail
+      ].filter(Boolean) as string[]
     };
   });
 
-  const supportRows: RequestHistoryRow[] = loadStudentSupportRequests(student.id).map((request) => ({
-    id: request.id,
-    submittedAt: request.submittedAt,
-    type: request.kind,
-    typeLabel: typeLabel(request.kind),
-    title: request.title,
-    description: request.description,
-    status: request.status,
-    reference: request.kind === "authentication_issue" ? "Attendance Methods" : "Facial Recognition"
-  }));
+  const supportRows: RequestHistoryRow[] = (credentialRequestsQuery.data?.items ?? [])
+    .filter((request) => request.studentId === student.id)
+    .map((request) => ({
+      id: request.id,
+      submittedAt: request.requestedAt,
+      type: request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue",
+      typeLabel: typeLabel(request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue"),
+      title: request.requestType === "re_enrollment" ? "Facial re-enrollment request" : "Authentication issue",
+      description: request.reason,
+      status: request.status,
+      reference: request.credentialType === "facial" ? "Facial Recognition" : "Attendance Methods",
+      details: [
+        request.reviewRemarks ? `Reviewer note: ${request.reviewRemarks}` : undefined,
+        request.reviewedAt ? `Reviewed ${formatDisplayDate(request.reviewedAt)}` : undefined
+      ].filter(Boolean) as string[]
+    }));
 
   const requestRows = [...correctionRows, ...supportRows].sort((left, right) => submittedTime(right.submittedAt) - submittedTime(left.submittedAt));
 
@@ -139,7 +160,7 @@ export function RequestHistoryPage() {
   });
 
   const pendingCount = requestRows.filter((row) => row.status === "pending").length;
-  const resolvedCount = requestRows.filter((row) => row.status === "approved" || row.status === "rejected").length;
+  const resolvedCount = requestRows.filter((row) => row.status === "approved" || row.status === "rejected" || row.status === "resolved").length;
   const issueCount = requestRows.filter((row) => row.type !== "attendance_correction").length;
 
   return (
@@ -214,6 +235,7 @@ export function RequestHistoryPage() {
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
+              <option value="resolved">Resolved</option>
             </select>
           </label>
         </div>
@@ -241,6 +263,15 @@ export function RequestHistoryPage() {
                     <div className="min-w-0">
                       <p className="font-semibold tracking-tight">{row.title}</p>
                       <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">{row.description}</p>
+                      {row.details.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {row.details.map((detail) => (
+                            <span key={detail} className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                              {detail}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex md:justify-end">
                       <StatusBadge label={row.status} tone={statusTone(row.status)} />

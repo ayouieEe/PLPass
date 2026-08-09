@@ -7,13 +7,11 @@ import { toast } from "sonner";
 import type { ColDef } from "ag-grid-community";
 import {
   History,
-  FileUp,
   CheckCircle,
   Clock,
   XCircle
 } from "lucide-react";
 import {
-  useClasses,
   useEvents,
   useCorrectionRequests,
   useAttendanceRecords,
@@ -31,11 +29,9 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { formatDisplayDate } from "@/lib/utils/date";
 import {
   correctionRequestTypeLabels,
-  createStudentCorrectionRequest,
   getCorrectionRequestTypes,
-  getStudentEventRecords,
-  isStudentDemoRecord,
-  loadStudentCorrectionRequests,
+  recordsForStudentEvents,
+  studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
 import type { CorrectionRequest } from "@/types/domain";
@@ -50,8 +46,7 @@ type CorrectionHistoryRow = {
 };
 
 const correctionFormSchema = z.object({
-  category: z.enum(["class", "event"]),
-  code: z.string().min(1, "Please select or enter class/event code."),
+  code: z.string().min(1, "Please select an event code."),
   name: z.string().min(1, "Name is required."),
   requestType: z.enum(["excused", "present", "late"]),
   reason: z.string().min(12, "Explanation must be at least 12 characters."),
@@ -63,17 +58,13 @@ type CorrectionFormValues = z.infer<typeof correctionFormSchema>;
 export function CorrectionRequestsPage() {
   const scope = useStudentScope();
   const [searchParams] = useSearchParams();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<CorrectionRequest | null>(null);
-  const [localRevision, setLocalRevision] = useState(0);
 
-  const classesQuery = useClasses({ pageSize: 100 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
 
-  const urlCategory = searchParams.get("category") === "event" ? "event" : "class";
   const urlRecordId = searchParams.get("recordId") ?? "";
   const urlCode = searchParams.get("code") ?? "";
   const urlName = searchParams.get("name") ?? "";
@@ -81,7 +72,6 @@ export function CorrectionRequestsPage() {
   const form = useForm<CorrectionFormValues>({
     resolver: zodResolver(correctionFormSchema),
     defaultValues: {
-      category: urlCategory,
       code: urlCode,
       name: urlName,
       requestType: "excused",
@@ -91,20 +81,17 @@ export function CorrectionRequestsPage() {
   });
 
   const { setValue, control, handleSubmit, reset } = form;
-  const watchedCategory = useWatch({ control, name: "category" });
   const watchedCode = useWatch({ control, name: "code" });
   const watchedRecordId = useWatch({ control, name: "recordId" });
 
-  const classes = useMemo(() => classesQuery.data?.items ?? [], [classesQuery.data?.items]);
-  const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
+  const events = useMemo(() => studentVisibleEvents(eventsQuery.data?.items ?? []), [eventsQuery.data?.items]);
   const records = useMemo(() => recordsQuery.data?.items ?? [], [recordsQuery.data?.items]);
   const sessions = useMemo(() => sessionsQuery.data?.items ?? [], [sessionsQuery.data?.items]);
-  void localRevision;
 
   const studentEventRecords = useMemo(
     () =>
       scope.student
-        ? getStudentEventRecords({
+        ? recordsForStudentEvents({
             studentId: scope.student.id,
             records,
             sessions,
@@ -114,94 +101,42 @@ export function CorrectionRequestsPage() {
     [events, records, scope.student, sessions]
   );
   const selectedStudentEventRecord = studentEventRecords.find((record) => record.id === watchedRecordId);
-  const selectedRawRecord = records.find((record) => record.id === watchedRecordId);
-  const selectedRawSession = sessions.find((session) => session.id === selectedRawRecord?.sessionId);
   const selectedRequestTypes = selectedStudentEventRecord ? getCorrectionRequestTypes(selectedStudentEventRecord.status) : undefined;
   const requestTypeOptions = selectedStudentEventRecord
     ? selectedRequestTypes ?? []
     : (["excused", "present", "late"] as CorrectionFormValues["requestType"][]);
 
-  // Update codes dropdown options
-  const codeOptions =
-    watchedCategory === "class"
-      ? classes.map((c) => ({ label: `${c.subjectCode} - ${c.subjectTitle}`, value: c.subjectCode }))
-      : [
-          ...events.map((e) => ({ label: `${e.code} - ${e.title}`, value: e.code })),
-          ...studentEventRecords
-            .filter(isStudentDemoRecord)
-            .map((record) => ({ label: `${record.eventCode} - ${record.eventName}`, value: record.eventCode }))
-        ];
-
-  const attendanceRecordOptions = records.map((record) => {
-    const session = sessions.find((entry) => entry.id === record.sessionId);
-    const classRecord = classes.find((entry) => entry.id === session?.classId);
-    const event = events.find((entry) => entry.id === session?.eventId);
-    const label = classRecord
-      ? `${classRecord.subjectCode} - ${classRecord.subjectTitle}`
-      : event
-        ? `${event.code} - ${event.title}`
-        : session?.title ?? record.id;
-    return {
-      label: `${label} (${record.status})`,
-      value: record.id
-    };
-  }).concat(
-    studentEventRecords
-      .filter(isStudentDemoRecord)
-      .map((record) => ({
-        label: `${record.eventCode} - ${record.eventName} (${record.status})`,
-        value: record.id
-      }))
-  );
+  const codeOptions = events.map((event) => ({ label: `${event.code} - ${event.title}`, value: event.code }));
+  const attendanceRecordOptions = studentEventRecords.map((record) => ({
+    label: `${record.eventCode} - ${record.eventName} (${record.status})`,
+    value: record.id
+  }));
 
   // Automatically update the Name field when Code changes
   useEffect(() => {
     if (!watchedCode) return;
-    if (watchedCategory === "class") {
-      const match = classes.find((c) => c.subjectCode === watchedCode);
-      if (match) setValue("name", match.subjectTitle);
-    } else {
-      const match = events.find((e) => e.code === watchedCode);
-      if (match) setValue("name", match.title);
-      const demoMatch = studentEventRecords.find((record) => record.eventCode === watchedCode);
-      if (!match && demoMatch) setValue("name", demoMatch.eventName);
-    }
-  }, [watchedCode, watchedCategory, classes, events, studentEventRecords, setValue]);
+    const match = events.find((event) => event.code === watchedCode);
+    if (match) setValue("name", match.title);
+  }, [watchedCode, events, setValue]);
 
   useEffect(() => {
     if (!watchedRecordId) return;
     if (selectedStudentEventRecord) {
       const nextType = getCorrectionRequestTypes(selectedStudentEventRecord.status)[0];
-      setValue("category", "event");
       setValue("code", selectedStudentEventRecord.eventCode);
       setValue("name", selectedStudentEventRecord.eventName);
       if (nextType) setValue("requestType", nextType);
-      return;
     }
-
-    if (!selectedRawSession) return;
-    const classRecord = classes.find((entry) => entry.id === selectedRawSession.classId);
-    const eventRecord = events.find((entry) => entry.id === selectedRawSession.eventId);
-    if (classRecord) {
-      setValue("category", "class");
-      setValue("code", classRecord.subjectCode);
-      setValue("name", classRecord.subjectTitle);
-    } else if (eventRecord) {
-      setValue("category", "event");
-      setValue("code", eventRecord.code);
-      setValue("name", eventRecord.title);
-    }
-  }, [classes, events, selectedRawSession, selectedStudentEventRecord, setValue, watchedRecordId]);
+  }, [selectedStudentEventRecord, setValue, watchedRecordId]);
 
   // Handle URL redirect query parameter synchronization
   useEffect(() => {
     if (urlCode && urlName) {
-      setValue("category", urlCategory);
       setValue("code", urlCode);
       setValue("name", urlName);
       setValue("recordId", urlRecordId);
     }
-  }, [urlCategory, urlCode, urlName, urlRecordId, setValue]);
+  }, [urlCode, urlName, urlRecordId, setValue]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -212,18 +147,19 @@ export function CorrectionRequestsPage() {
   }
 
   if (
-    classesQuery.isLoading ||
     eventsQuery.isLoading ||
-    correctionsQuery.isLoading ||
     recordsQuery.isLoading ||
     sessionsQuery.isLoading
   ) {
     return <LoadingState label="Loading correction page" />;
   }
 
+  if (eventsQuery.isError || recordsQuery.isError || sessionsQuery.isError) {
+    return <ErrorState title="Unable to load correction requests" message="Please try refreshing the page." />;
+  }
+
   async function onSubmit(values: CorrectionFormValues) {
     try {
-      let classId: string | undefined;
       let eventId: string | undefined;
       let attendanceRecordId = values.recordId || undefined;
       const selectedEventRecord = studentEventRecords.find((record) => record.id === values.recordId);
@@ -240,47 +176,15 @@ export function CorrectionRequestsPage() {
         }
         eventId = selectedEventRecord.eventId;
         attendanceRecordId = selectedEventRecord.id;
-
-        if (isStudentDemoRecord(selectedEventRecord)) {
-          createStudentCorrectionRequest(scope.student?.id ?? "", {
-            attendanceRecordId,
-            eventId,
-            requestedStatus: values.requestType,
-            reason: values.reason
-          });
-          toast.success("Correction request submitted successfully.");
-          reset({
-            category: "class",
-            code: "",
-            name: "",
-            requestType: "excused",
-            reason: "",
-            recordId: ""
-          });
-          setSelectedFile(null);
-          setLocalRevision((value) => value + 1);
-          return;
-        }
       }
 
-      if (values.category === "class") {
-        const matchingClass = classes.find((c) => c.subjectCode === values.code);
-        classId = matchingClass?.id;
-      } else {
-        const matchingEvent = events.find((e) => e.code === values.code);
-        eventId = matchingEvent?.id;
-      }
+      const matchingEvent = events.find((event) => event.code === values.code);
+      eventId = eventId ?? matchingEvent?.id;
 
-      if (!attendanceRecordId && classId) {
-        const matchSession = sessions.find((s) => s.classId === classId);
-        if (matchSession) {
-          const matchRecord = records.find((r) => r.sessionId === matchSession.id);
-          attendanceRecordId = matchRecord?.id;
-        }
-      } else if (!attendanceRecordId && eventId) {
+      if (!attendanceRecordId && eventId) {
         const matchSession = sessions.find((s) => s.eventId === eventId);
         if (matchSession) {
-          const matchRecord = records.find((r) => r.sessionId === matchSession.id);
+          const matchRecord = records.find((r) => r.sessionId === matchSession.id && r.studentId === scope.student?.id);
           attendanceRecordId = matchRecord?.id;
         }
       }
@@ -288,7 +192,6 @@ export function CorrectionRequestsPage() {
       await correctionsQuery.createMutation.mutateAsync({
         studentId: scope.student?.id ?? "",
         attendanceRecordId: attendanceRecordId ?? "",
-        classId,
         eventId,
         requestedStatus: values.requestType,
         reason: values.reason
@@ -296,23 +199,14 @@ export function CorrectionRequestsPage() {
 
       toast.success("Correction request submitted successfully.");
       reset({
-        category: "class",
         code: "",
         name: "",
         requestType: "excused",
         reason: "",
         recordId: ""
       });
-      setSelectedFile(null);
     } catch {
       toast.error("Failed to submit request. You may have a pending request already.");
-    }
-  }
-
-  function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
-    if (event.target.files && event.target.files.length > 0) {
-      setSelectedFile(event.target.files[0]);
-      toast.info(`Attached file: ${event.target.files[0].name}`);
     }
   }
 
@@ -322,13 +216,10 @@ export function CorrectionRequestsPage() {
     return "danger";
   }
 
-  const correctionHistoryRows: CorrectionHistoryRow[] = [
-    ...loadStudentCorrectionRequests(scope.student?.id ?? ""),
-    ...(correctionsQuery.data?.items ?? [])
-  ].map((request) => ({
+  const correctionHistoryRows: CorrectionHistoryRow[] = correctionsQuery.isError ? [] : (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === scope.student?.id).map((request) => ({
     id: request.id,
     submittedDate: formatDisplayDate(request.requestedAt, "N/A"),
-    subjectOrEventId: request.classId ?? request.eventId ?? "Session Record",
+    subjectOrEventId: request.eventId ?? "Session Record",
     type: request.requestedStatus === "excused" ? "Excused Absence" : "Correction",
     status: request.status,
     request
@@ -336,7 +227,7 @@ export function CorrectionRequestsPage() {
 
   const correctionHistoryColumns: ColDef<CorrectionHistoryRow>[] = [
     { field: "submittedDate", headerName: "Submitted Date", minWidth: 170 },
-    { field: "subjectOrEventId", headerName: "Subject/Event ID", minWidth: 180 },
+    { field: "subjectOrEventId", headerName: "Event ID", minWidth: 180 },
     { field: "type", headerName: "Type", minWidth: 160 },
     {
       field: "status",
@@ -368,7 +259,7 @@ export function CorrectionRequestsPage() {
       <PageHeader
         eyebrow="Absences & Edits"
         title="Correction Requests"
-        description="File formal absence excuse notices or request corrections for organizer-recorded attendance."
+        description="File event absence excuse notices or request corrections for organizer-recorded event attendance."
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -376,7 +267,7 @@ export function CorrectionRequestsPage() {
         <div className="lg:col-span-1 student-glass-card p-6 space-y-4 shadow-sm h-fit">
           <div>
             <h3 className="font-semibold text-foreground text-base">File New Request</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Please provide supporting files for excused requests.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Submit a Supabase-backed correction request with a clear explanation.</p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -390,25 +281,14 @@ export function CorrectionRequestsPage() {
 
             <StudentSelectField
               control={control}
-              name="category"
-              label="Category"
-              options={[
-                { label: "Class Attendance", value: "class" },
-                { label: "Campus Event", value: "event" }
-              ]}
-              placeholder="Select category..."
-            />
-
-            <StudentSelectField
-              control={control}
               name="code"
-              label="Subject/Event Code"
+              label="Event Code"
               options={codeOptions}
               placeholder="-- Select Code --"
             />
 
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">Class/Event Name</label>
+              <label className="block text-xs font-semibold text-foreground mb-1.5">Event Name</label>
               <input
                 type="text"
                 readOnly
@@ -438,24 +318,6 @@ export function CorrectionRequestsPage() {
               placeholder="State clearly why you missed the session or why correction is requested..."
             />
 
-            {/* File Attachment Uploader */}
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-foreground">Attach Supporting File</label>
-              <div className="relative border border-dashed border-border hover:border-primary/50 transition-colors rounded-2xl p-4 flex flex-col items-center justify-center cursor-pointer bg-card/40">
-                <input
-                  type="file"
-                  onChange={handleFileChange}
-                  accept=".pdf,.png,.jpg,.jpeg"
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-                <FileUp className="h-6 w-6 text-muted-foreground mb-1" />
-                <span className="text-xs font-semibold text-foreground">
-                  {selectedFile ? selectedFile.name : "Choose PDF or Image"}
-                </span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Max size: 5MB</span>
-              </div>
-            </div>
-
             <SubmitButton
               isSubmitting={correctionsQuery.createMutation.isPending}
               className="student-btn-primary w-full mt-2"
@@ -472,15 +334,26 @@ export function CorrectionRequestsPage() {
             <History className="h-5 w-5 text-primary" />
             <h3 className="font-semibold text-foreground text-base">Correction History</h3>
           </div>
+          {correctionsQuery.isLoading ? (
+            <LoadingState label="Loading correction history" />
+          ) : correctionsQuery.isError ? (
+            <section className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
+              <p className="font-semibold text-warning">Correction history is temporarily unavailable.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                You can still prepare a new correction request above. Refresh later to view submitted requests.
+              </p>
+            </section>
+          ) : (
 
-          <PLPassDataGrid
-            data={correctionHistoryRows}
-            columns={correctionHistoryColumns}
-            label="Correction request history"
-            emptyTitle="No correction requests recorded"
-            enableQuickFilter={false}
-            enableColumnVisibility={false}
-          />
+            <PLPassDataGrid
+              data={correctionHistoryRows}
+              columns={correctionHistoryColumns}
+              label="Correction request history"
+              emptyTitle="No correction requests recorded"
+              enableQuickFilter={false}
+              enableColumnVisibility={false}
+            />
+          )}
         </div>
       </div>
 

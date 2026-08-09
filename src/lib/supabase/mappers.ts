@@ -5,11 +5,17 @@ import type {
   Class,
   ClassRoster,
   CorrectionRequest,
+  CredentialRequest,
   Event,
+  EventFeedback,
+  EventFeedbackRating,
+  EventObjective,
   EventParticipant,
+  FacialProfile,
   FacultyProfile,
   Notification,
   OrganizerProfile,
+  QrCredential,
   Report,
   Student,
   User
@@ -239,6 +245,7 @@ export function mapEvent(row: Row): Event {
     departmentId: optionalString(row, ["department_id", "college_id"]),
     category: stringValue(row, ["category_name", "category"], stringValue(category ?? {}, ["category_name"], stringValue(row, ["category_id"]))),
     title: stringValue(row, ["title", "event_name"]),
+    description: optionalString(row, ["description"]),
     venue: stringValue(row, ["venue", "room_id"]),
     startsAt: stringValue(row, ["starts_at", "start_time", "event_date"], new Date().toISOString()),
     endsAt: stringValue(row, ["ends_at", "end_time", "event_date"], new Date().toISOString()),
@@ -252,6 +259,37 @@ export function mapEventParticipant(row: Row): EventParticipant {
     eventId: stringValue(row, ["event_id"]),
     studentId: stringValue(row, ["student_id"]),
     registeredAt: stringValue(row, ["registered_at", "created_at"], new Date().toISOString())
+  };
+}
+
+export function mapEventObjective(row: Row): EventObjective {
+  return {
+    id: stringValue(row, ["id"]),
+    eventId: stringValue(row, ["event_id"]),
+    order: numberValue(row, ["objective_order"]),
+    text: stringValue(row, ["objective_text"])
+  };
+}
+
+export function mapEventFeedbackRating(row: Row): EventFeedbackRating {
+  return {
+    id: stringValue(row, ["id"]),
+    feedbackId: stringValue(row, ["feedback_id"]),
+    objectiveId: stringValue(row, ["objective_id"]),
+    rating: numberValue(row, ["rating"])
+  };
+}
+
+export function mapEventFeedback(row: Row): EventFeedback {
+  const ratings = row["event_feedback_ratings"];
+  return {
+    id: stringValue(row, ["id"]),
+    eventId: stringValue(row, ["event_id"]),
+    studentId: stringValue(row, ["student_id"]),
+    attendanceRecordId: stringValue(row, ["attendance_record_id"]),
+    comment: optionalString(row, ["comment"]),
+    submittedAt: stringValue(row, ["submitted_at"], new Date().toISOString()),
+    ratings: Array.isArray(ratings) ? ratings.map((rating) => mapEventFeedbackRating(rating as Row)) : undefined
   };
 }
 
@@ -283,6 +321,7 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     recordedAt: stringValue(row, ["recorded_at", "time_in", "created_at"], new Date().toISOString()),
     recordedByUserId: optionalString(row, ["recorded_by", "created_by"]),
     note: optionalString(row, ["remarks", "note"]),
+    lateReasonCategory: optionalString(row, ["late_reason_category"]),
     timeIn: optionalString(row, ["time_in"]),
     timeOut: optionalString(row, ["time_out"])
   };
@@ -301,7 +340,48 @@ export function mapCorrectionRequest(row: Row): CorrectionRequest {
     status: stringValue(row, ["request_status", "status"], "pending") as CorrectionRequest["status"],
     requestedAt: stringValue(row, ["created_at", "requested_at"], new Date().toISOString()),
     reviewedByUserId: optionalString(row, ["reviewed_by"]),
-    reviewedAt: optionalString(row, ["reviewed_at"])
+    reviewedAt: optionalString(row, ["reviewed_at"]),
+    reviewRemarks: optionalString(row, ["review_reason", "review_remarks"])
+  };
+}
+
+export function mapCredentialRequest(row: Row): CredentialRequest {
+  return {
+    id: stringValue(row, ["id"]),
+    studentId: stringValue(row, ["student_id"]),
+    credentialType: stringValue(row, ["credential_type"], "qr") === "facial" ? "facial" : "qr",
+    requestType: stringValue(row, ["request_type"], "technical_issue") as CredentialRequest["requestType"],
+    reason: stringValue(row, ["reason"]),
+    status: stringValue(row, ["request_status"], "pending") as CredentialRequest["status"],
+    requestedAt: stringValue(row, ["created_at"], new Date().toISOString()),
+    reviewedByUserId: optionalString(row, ["reviewed_by"]),
+    reviewedAt: optionalString(row, ["reviewed_at"]),
+    reviewRemarks: optionalString(row, ["review_remarks"])
+  };
+}
+
+export function mapQrCredential(row: Row): QrCredential {
+  return {
+    id: stringValue(row, ["id"]),
+    studentId: stringValue(row, ["student_id", "studentId"]),
+    tokenHash: stringValue(row, ["token_hash", "tokenHash"]),
+    status: stringValue(row, ["credential_status", "status"], "unknown"),
+    issuedAt: stringValue(row, ["issued_at", "issuedAt"], new Date().toISOString()),
+    expiresAt: optionalString(row, ["expires_at", "expiresAt"]),
+    revokedAt: optionalString(row, ["revoked_at", "revokedAt"]),
+    lastSuccessfulCheckInAt: optionalString(row, ["last_successful_check_in_at", "lastSuccessfulCheckInAt"])
+  };
+}
+
+export function mapFacialProfile(row: Row): FacialProfile {
+  return {
+    id: stringValue(row, ["id"]),
+    studentId: stringValue(row, ["student_id", "studentId"]),
+    status: stringValue(row, ["facial_status", "status"], "unknown"),
+    enrollmentReference: stringValue(row, ["enrollment_reference", "enrollmentReference"]),
+    enrolledAt: stringValue(row, ["enrolled_at", "enrolledAt"], new Date().toISOString()),
+    consentRecordedAt: stringValue(row, ["consent_recorded_at", "consentRecordedAt"], new Date().toISOString()),
+    lastVerifiedAt: optionalString(row, ["last_verified_at", "lastVerifiedAt"])
   };
 }
 

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { repositories } from "@/services/repositories";
 import type {
   AddRosterStudentInput,
+  CreateCredentialRequestInput,
   CreateClassSessionInput,
   CreateCorrectionRequestInput,
   CreateEventInput,
@@ -10,6 +11,8 @@ import type {
   AttendanceScanInput,
   ManualAttendanceInput,
   ReviewCorrectionRequestInput,
+  SubmitEventFeedbackInput,
+  SubmitLateReasonInput,
   UpdateSystemSettingsInput
 } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -262,7 +265,7 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
   });
 }
 
-export function useAttendanceSimulationMutations(context?: RepositoryContext) {
+export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   const invalidateAttendance = async () => {
     await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
@@ -274,14 +277,31 @@ export function useAttendanceSimulationMutations(context?: RepositoryContext) {
   };
   return {
     credentialScanMutation: useMutation({
-      mutationFn: (input: AttendanceScanInput) => repositories.attendanceRecords.simulateCredentialAttendance(input, context),
+      mutationFn: (input: AttendanceScanInput) => repositories.attendanceRecords.recordCredentialAttendance(input, context),
       onSuccess: invalidateAttendance
     }),
     manualAttendanceMutation: useMutation({
-      mutationFn: (input: ManualAttendanceInput) => repositories.attendanceRecords.simulateManualAttendance(input, context),
+      mutationFn: (input: ManualAttendanceInput) => repositories.attendanceRecords.recordManualAttendance(input, context),
+      onSuccess: invalidateAttendance
+    }),
+    submitLateReasonMutation: useMutation({
+      mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
       onSuccess: invalidateAttendance
     })
   };
+}
+
+export function useSubmitLateReasonMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+      await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
+      await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+    }
+  });
 }
 
 export function useAttendanceRecord(recordId: string | undefined, context?: RepositoryContext) {
@@ -340,6 +360,60 @@ export function useCorrectionRequests(query?: Partial<ListQuery>, context?: Repo
   });
 
   return { ...listQueryResult, createMutation, reviewMutation };
+}
+
+export function useCredentialRequests(query?: Partial<ListQuery>, context?: RepositoryContext) {
+  const listQuery = queryWithDefaults(query);
+  const queryClient = useQueryClient();
+  const listQueryResult = useQuery({
+    queryKey: ["credentialRequests", listQuery, context],
+    queryFn: () => repositories.credentialRequests.listCredentialRequests(listQuery, context)
+  });
+  const createMutation = useMutation({
+    mutationFn: (input: CreateCredentialRequestInput) =>
+      repositories.credentialRequests.createCredentialRequest(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["credentialRequests"] });
+    }
+  });
+
+  return { ...listQueryResult, createMutation };
+}
+
+export function useStudentCredentialStatus(studentId: string | undefined, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["studentCredentialStatus", studentId, context],
+    queryFn: () => repositories.studentCredentials.getStudentCredentialStatus(studentId ?? "", context),
+    enabled: Boolean(studentId)
+  });
+}
+
+export function useEventObjectives(eventId: string | undefined, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["eventObjectives", eventId, context],
+    queryFn: () => repositories.eventFeedback.listEventObjectives(eventId ?? "", context),
+    enabled: Boolean(eventId)
+  });
+}
+
+export function useStudentEventFeedback(studentId: string | undefined, context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const listQueryResult = useQuery({
+    queryKey: ["studentEventFeedback", studentId, context],
+    queryFn: () => repositories.eventFeedback.listStudentFeedback(studentId ?? "", context),
+    enabled: Boolean(studentId)
+  });
+  const submitMutation = useMutation({
+    mutationFn: (input: SubmitEventFeedbackInput) =>
+      repositories.eventFeedback.submitEventFeedback(input, context),
+    onSuccess: async (_feedback, input) => {
+      await queryClient.invalidateQueries({ queryKey: ["studentEventFeedback"] });
+      await queryClient.invalidateQueries({ queryKey: ["eventObjectives", input.eventId] });
+      await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+    }
+  });
+
+  return { ...listQueryResult, submitMutation };
 }
 
 export function useReports(query?: Partial<ListQuery>, context?: RepositoryContext) {

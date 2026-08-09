@@ -1325,7 +1325,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      submit_late_reason: {
+        Args: {
+          p_attendance_record_id: string
+          p_late_reason_category: string
+        }
+        Returns: Database["public"]["Tables"]["attendance_records"]["Row"]
+      }
     }
     Enums: {
       [_ in never]: never

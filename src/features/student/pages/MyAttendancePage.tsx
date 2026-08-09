@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Clock,
   FilePenLine,
-  FileUp,
   History,
   ListFilter,
   Lock,
@@ -22,24 +21,21 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEventObjectives, useEvents, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
 import {
-  isFeedbackSubmitted,
   buildStudentEventWorkflow,
   correctionRequestTypeLabels,
   eventFromStudentRecord,
   getCorrectionRequestTypes,
-  getEventObjectives,
   getStudentEventMetrics,
   getStudentEventRecords,
+  getStudentFeedbackDeadlineStatus,
   lateReasonOptions,
-  loadStudentCorrectionRequests,
-  markStudentFeedbackSubmitted,
   statusTone,
+  studentVisibleEvents,
   StudentEventRecord,
-  upsertStudentEventRecord,
   useStudentScope,
   type CorrectionRequestType
 } from "@/features/student/studentExperience";
@@ -85,20 +81,21 @@ export function MyAttendancePage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const submitLateReasonMutation = useSubmitLateReasonMutation(scope.context);
+  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [selectedRecord, setSelectedRecord] = useState<StudentEventRecord | null>(null);
   const [lateReasonRecord, setLateReasonRecord] = useState<StudentEventRecord | null>(null);
-  const [localRevision, setLocalRevision] = useState(0);
   const [search, setSearch] = useState("");
   const [yearFilter, setYearFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
   const [requestType, setRequestType] = useState<CorrectionRequestType>("excused");
   const [explanation, setExplanation] = useState("");
-  const [attachmentName, setAttachmentName] = useState("");
   const [feedbackRecord, setFeedbackRecord] = useState<StudentEventRecord | null>(null);
   const [feedbackRatings, setFeedbackRatings] = useState<Record<string, number>>({});
   const [feedbackComment, setFeedbackComment] = useState("");
   const [openedFocus, setOpenedFocus] = useState<string | null>(null);
   const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
+  const feedbackObjectivesQuery = useEventObjectives(feedbackRecord?.eventId, scope.context);
 
   useEffect(() => {
     setStatusFilter(searchParams.get("status") ?? "");
@@ -117,7 +114,7 @@ export function MyAttendancePage() {
       studentId: scope.student.id,
       records: recordsQuery.data?.items ?? [],
       sessions: sessionsQuery.data?.items ?? [],
-      events: eventsQuery.data?.items ?? []
+      events: studentVisibleEvents(eventsQuery.data?.items ?? [])
     });
     const matchingRecord = nextRecords.find(
       (record) => record.eventId === focusedRecordId || record.id === focusedRecordId
@@ -129,14 +126,12 @@ export function MyAttendancePage() {
 
     setRequestType(getDefaultRequestType(matchingRecord.status));
     setExplanation("");
-    setAttachmentName("");
     setSelectedRecord(matchingRecord);
     setOpenedFocus(focusedRecordId);
   }, [
     eventsQuery.data?.items,
     eventsQuery.isLoading,
     focusedRecordId,
-    localRevision,
     openedFocus,
     recordsQuery.data?.items,
     recordsQuery.isLoading,
@@ -167,19 +162,19 @@ export function MyAttendancePage() {
     studentId: student.id,
     records: recordsQuery.data?.items ?? [],
     sessions: sessionsQuery.data?.items ?? [],
-    events: eventsQuery.data?.items ?? []
+    events: studentVisibleEvents(eventsQuery.data?.items ?? [])
   });
-  void localRevision;
-  const corrections = [...loadStudentCorrectionRequests(student.id), ...(correctionsQuery.data?.items ?? [])];
-  const events = eventsQuery.data?.items ?? [];
+  const corrections = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
+  const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sessions = sessionsQuery.data?.items ?? [];
-  const metrics = getStudentEventMetrics(records, student.id);
+  const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
+  const metrics = getStudentEventMetrics(records);
   const attendedRecords = metrics.attendedRecords;
   const attendedCount = metrics.attendedCount;
   const pendingCorrections = corrections.filter((request) => request.status === "pending").length;
-  const feedbackDue = metrics.feedbackDue;
+  const feedbackDue = attendedRecords.filter((record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)).length;
   const pendingFeedbackRecords = attendedRecords.filter(
-    (record) => !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId)
+    (record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
   );
   const latestRecord = attendedRecords[0];
   const yearOptions = Array.from(new Set(attendedRecords.map((record) => getRecordYear(record))))
@@ -192,7 +187,7 @@ export function MyAttendancePage() {
     const term = search.trim().toLowerCase();
     const correction = corrections.find((request) => request.eventId === record.eventId);
     const displayStatus = correction?.status === "pending" ? "correction-pending" : record.status;
-    const hasFeedbackDue = !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId);
+    const hasFeedbackDue = !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId);
     const matchesSearch = !term || [record.eventName, record.eventCode, record.category, record.venue].some((value) => value.toLowerCase().includes(term));
     const matchesYear = !yearFilter || getRecordYear(record) === yearFilter;
     const matchesStatus = !statusFilter || (statusFilter === "feedback-due" ? hasFeedbackDue : displayStatus === statusFilter);
@@ -209,7 +204,7 @@ export function MyAttendancePage() {
     return groups;
   }, []);
   const selectedCorrection = selectedRecord ? corrections.find((request) => request.eventId === selectedRecord.eventId) : undefined;
-  const selectedFeedbackSubmitted = selectedRecord ? selectedRecord.feedbackSubmitted || isFeedbackSubmitted(student.id, selectedRecord.eventId) : false;
+  const selectedFeedbackSubmitted = selectedRecord ? selectedRecord.feedbackSubmitted || submittedFeedbackEventIds.has(selectedRecord.eventId) : false;
   const selectedEvent = selectedRecord ? events.find((entry) => entry.id === selectedRecord.eventId) ?? eventFromStudentRecord(selectedRecord) : undefined;
   const selectedSession = selectedRecord ? sessions.find((entry) => entry.eventId === selectedRecord.eventId) : undefined;
   const selectedRequestTypes = selectedRecord ? getCorrectionRequestTypes(selectedRecord.status) : [];
@@ -220,25 +215,33 @@ export function MyAttendancePage() {
     feedbackSubmitted: Boolean(selectedFeedbackSubmitted),
     correctionStatus: selectedCorrection?.status
   }) : undefined;
-  const feedbackEvent = feedbackRecord ? events.find((entry) => entry.id === feedbackRecord.eventId) ?? eventFromStudentRecord(feedbackRecord) : undefined;
-  const feedbackObjectives = feedbackEvent ? getEventObjectives(feedbackEvent).slice(0, 3) : [];
+  const feedbackObjectives = ((feedbackObjectivesQuery.data?.length ?? 0) > 0 ? feedbackObjectivesQuery.data ?? [] : []).slice(0, 3);
+  const hasSupabaseObjectives = (feedbackObjectivesQuery.data?.length ?? 0) > 0;
+  const displayObjectives = feedbackObjectives.slice(0, 3);
+  const canSubmitFeedback = hasSupabaseObjectives
+    ? feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0)
+    : feedbackComment.trim().length >= 5;
 
-  function submitLateReason(reason: string) {
+  async function submitLateReason(reason: string) {
     if (!lateReasonRecord) return;
-    const nextRecord = { ...lateReasonRecord, lateReason: reason };
-    upsertStudentEventRecord(student.id, nextRecord);
-    if (selectedRecord?.eventId === nextRecord.eventId) {
-      setSelectedRecord(nextRecord);
+    try {
+      await submitLateReasonMutation.mutateAsync({
+        attendanceRecordId: lateReasonRecord.id,
+        reason
+      });
+      if (selectedRecord?.eventId === lateReasonRecord.eventId) {
+        setSelectedRecord({ ...selectedRecord, lateReason: reason });
+      }
+      setLateReasonRecord(null);
+      toast.success("Late reason submitted to Supabase.");
+    } catch {
+      toast.error("Unable to submit late reason. Please try again.");
     }
-    setLateReasonRecord(null);
-    setLocalRevision((value) => value + 1);
-    toast.success("Late reason submitted.");
   }
 
   function openRecordDetails(record: StudentEventRecord) {
     setRequestType(getDefaultRequestType(record.status));
     setExplanation("");
-    setAttachmentName("");
     setSelectedRecord(record);
   }
 
@@ -253,24 +256,40 @@ export function MyAttendancePage() {
     setFeedbackComment("");
   }
 
-  function submitFeedback() {
+  async function submitFeedback() {
     if (!feedbackRecord) return;
-    const feedbackEvent = events.find((entry) => entry.id === feedbackRecord.eventId) ?? eventFromStudentRecord(feedbackRecord);
-    const objectives = getEventObjectives(feedbackEvent).slice(0, 3);
-    if (!objectives.every((objective) => feedbackRatings[objective] > 0)) {
+    if (hasSupabaseObjectives && !feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0)) {
       toast.error("Please rate every event objective.");
       return;
     }
-
-    markStudentFeedbackSubmitted(student.id, feedbackRecord.eventId);
-    if (selectedRecord?.eventId === feedbackRecord.eventId) {
-      setSelectedRecord({ ...selectedRecord, feedbackSubmitted: true });
+    if (!hasSupabaseObjectives && feedbackComment.trim().length < 5) {
+      toast.error("Please write a short overall feedback comment.");
+      return;
     }
-    setFeedbackRecord(null);
-    setFeedbackRatings({});
-    setFeedbackComment("");
-    setLocalRevision((value) => value + 1);
-    toast.success("Event feedback submitted. Attendance is now complete.");
+
+    try {
+      await feedbackQuery.submitMutation.mutateAsync({
+        eventId: feedbackRecord.eventId,
+        studentId: student.id,
+        attendanceRecordId: feedbackRecord.id,
+        comment: feedbackComment,
+        ratings: hasSupabaseObjectives
+          ? feedbackObjectives.map((objective) => ({
+              objectiveId: objective.id,
+              rating: feedbackRatings[objective.id]
+            }))
+          : []
+      });
+      if (selectedRecord?.eventId === feedbackRecord.eventId) {
+        setSelectedRecord({ ...selectedRecord, feedbackSubmitted: true });
+      }
+      setFeedbackRecord(null);
+      setFeedbackRatings({});
+      setFeedbackComment("");
+      toast.success("Event feedback submitted to Supabase. Attendance is now complete.");
+    } catch {
+      toast.error("Unable to submit feedback. Please try again.");
+    }
   }
 
   async function submitCorrection() {
@@ -286,17 +305,15 @@ export function MyAttendancePage() {
     }
 
     try {
-      const reason = attachmentName ? `${explanation.trim()} Attachment: ${attachmentName}` : explanation.trim();
       await correctionsQuery.createMutation.mutateAsync({
         studentId: student.id,
         attendanceRecordId: selectedRecord.id,
         eventId: selectedRecord.eventId,
         requestedStatus: requestType,
-        reason
+        reason: explanation.trim()
       });
       toast.success("Correction request submitted.");
       setExplanation("");
-      setAttachmentName("");
     } catch {
       toast.error("Unable to submit correction request.");
     }
@@ -476,7 +493,7 @@ export function MyAttendancePage() {
                   event,
                   session,
                   record,
-                  feedbackSubmitted: Boolean(record.feedbackSubmitted || isFeedbackSubmitted(student.id, record.eventId)),
+                  feedbackSubmitted: Boolean(record.feedbackSubmitted || submittedFeedbackEventIds.has(record.eventId)),
                   correctionStatus: correction?.status
                 }) : undefined;
                 const eventDate = getRecordDate(record);
@@ -563,6 +580,7 @@ export function MyAttendancePage() {
           <div className="space-y-3">
             {pendingFeedbackRecords.map((record) => {
               const needsLateReason = record.status === "late" && !record.lateReason;
+              const deadline = getStudentFeedbackDeadlineStatus(record);
 
               return (
                 <article key={record.id} className="rounded-2xl border bg-background p-4">
@@ -587,6 +605,13 @@ export function MyAttendancePage() {
                       <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
                         {needsLateReason ? "Late reason first" : "Feedback due"}
+                      </span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          deadline.isOverdue ? "bg-destructive/10 text-destructive" : deadline.isDueSoon ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
+                        }`}
+                      >
+                        {deadline.label}
                       </span>
                     </div>
                   </div>
@@ -683,7 +708,9 @@ export function MyAttendancePage() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold">Event feedback required</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Answer the event feedback to complete this attendance record.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Answer the event feedback to complete this attendance record. {getStudentFeedbackDeadlineStatus(selectedRecord).label}.
+                      </p>
                     </div>
                     <Button type="button" onClick={() => openFeedback(selectedRecord)}>
                       <MessageSquareText className="h-4 w-4" />
@@ -729,13 +756,6 @@ export function MyAttendancePage() {
                     ))}
                   </select>
                 </label>
-                <label className="space-y-1.5">
-                  <span className="text-sm font-medium">Attachment Upload</span>
-                  <div className="flex h-10 items-center gap-2 rounded-lg border bg-surface px-3 text-sm">
-                    <FileUp className="h-4 w-4 text-primary" />
-                    <input type="file" className="w-full text-xs" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? "")} />
-                  </div>
-                </label>
                 <label className="space-y-1.5 sm:col-span-2">
                   <span className="text-sm font-medium">Explanation</span>
                   <textarea className="plpass-field min-h-24 w-full rounded-lg border p-3 text-sm" value={explanation} onChange={(event) => setExplanation(event.target.value)} />
@@ -774,23 +794,30 @@ export function MyAttendancePage() {
           onClose={() => setFeedbackRecord(null)}
         >
           <div className="mt-5 space-y-4">
-            {feedbackObjectives.map((objective, index) => (
-              <div key={objective} className="rounded-xl border bg-background p-4">
+            {!hasSupabaseObjectives ? (
+              <p className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-muted-foreground">
+                Objective ratings are not configured for this event yet. You can still submit your overall feedback below.
+              </p>
+            ) : null}
+            {displayObjectives.map((objective, index) => (
+              <div key={objective.id} className="rounded-xl border bg-background p-4">
                 <p className="text-sm font-semibold">Objective {index + 1}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{objective}</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <Button
-                      key={rating}
-                      type="button"
-                      size="sm"
-                      variant={feedbackRatings[objective] === rating ? "default" : "outline"}
-                      onClick={() => setFeedbackRatings((current) => ({ ...current, [objective]: rating }))}
-                    >
-                      {rating}
-                    </Button>
-                  ))}
-                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{objective.text}</p>
+                {hasSupabaseObjectives ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[1, 2, 3, 4, 5].map((rating) => (
+                      <Button
+                        key={rating}
+                        type="button"
+                        size="sm"
+                        variant={feedbackRatings[objective.id] === rating ? "default" : "outline"}
+                        onClick={() => setFeedbackRatings((current) => ({ ...current, [objective.id]: rating }))}
+                      >
+                        {rating}
+                      </Button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))}
             <label className="space-y-1.5">
@@ -802,8 +829,8 @@ export function MyAttendancePage() {
                 placeholder="Share anything useful about the event."
               />
             </label>
-            <Button type="button" className="w-full sm:w-auto" onClick={submitFeedback}>
-              Submit Event Feedback
+            <Button type="button" className="w-full sm:w-auto" onClick={submitFeedback} disabled={feedbackQuery.submitMutation.isPending || !canSubmitFeedback}>
+              {feedbackQuery.submitMutation.isPending ? "Submitting..." : "Submit Event Feedback"}
             </Button>
           </div>
         </ModalShell>

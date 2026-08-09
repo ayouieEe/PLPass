@@ -1,9 +1,7 @@
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
+import type { ComponentType } from "react";
 import {
   User,
   ShieldAlert,
-  Key,
   Camera,
   LogOut,
   Mail,
@@ -11,7 +9,9 @@ import {
   Hash,
   School,
   GraduationCap,
-  CalendarCheck
+  CalendarCheck,
+  Database,
+  ShieldCheck
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,20 +22,29 @@ import {
   useAcademicCatalog,
   useAttendanceRecords,
   useAttendanceSessions,
-  useEvents
+  useEvents,
+  useStudentCredentialStatus
 } from "@/hooks/useRepositoryQueries";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { ensureStudentIdentityReadiness, getStudentEventMetrics, getStudentEventRecords } from "@/features/student/studentExperience";
+import { formatDisplayDate } from "@/lib/utils/date";
+import {
+  ensureStudentIdentityReadiness,
+  formatCredentialStatus,
+  getStudentEventMetrics,
+  getStudentEventRecords,
+  hasUsableQrCredential,
+  studentVisibleEvents
+} from "@/features/student/studentExperience";
 import type { Program, Department } from "@/types/domain";
 
 type ProfileFieldProps = {
   label: string;
   value?: string | number | null;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 };
 
 function getNameById<T extends Program | Department>(items: T[] | undefined, id: string | undefined) {
@@ -68,27 +77,7 @@ export function StudentProfilePage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
-
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [hasQrUid, setHasQrUid] = useState(false);
-  const [hasFacialEnrollment, setHasFacialEnrollment] = useState(false);
-
-  // Sync / initialize default avatar
-  useEffect(() => {
-    const savedAvatar = localStorage.getItem("plpass-student-avatar");
-    if (savedAvatar) {
-      setAvatarUrl(savedAvatar);
-    } else {
-      setAvatarUrl(`https://api.dicebear.com/7.x/initials/svg?seed=${session?.displayName ?? "Student"}`);
-    }
-    const readiness = ensureStudentIdentityReadiness(studentQuery.data?.items[0]);
-    setHasQrUid(Boolean(readiness.qrCode));
-    setHasFacialEnrollment(readiness.faceEnrolled);
-  }, [session, studentQuery.data?.items]);
+  const credentialStatusQuery = useStudentCredentialStatus(studentQuery.data?.items[0]?.id, context);
 
   if (!session) {
     return <ErrorState title="No active session" message="Sign in with a student account to view this page." />;
@@ -101,7 +90,8 @@ export function StudentProfilePage() {
     studentQuery.isLoading ||
     eventsQuery.isLoading ||
     sessionsQuery.isLoading ||
-    recordsQuery.isLoading;
+    recordsQuery.isLoading ||
+    credentialStatusQuery.isLoading;
 
   if (isLoading) {
     return <LoadingState label="Loading profile information" />;
@@ -124,9 +114,25 @@ export function StudentProfilePage() {
     studentId: student.id,
     records: recordsQuery.data?.items ?? [],
     sessions: sessionsQuery.data?.items ?? [],
-    events: eventsQuery.data?.items ?? []
+    events: studentVisibleEvents(eventsQuery.data?.items ?? [])
   });
-  const metrics = getStudentEventMetrics(eventRecords, student.id);
+  const metrics = getStudentEventMetrics(eventRecords);
+  const readiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
+  const credentialReadinessError = credentialStatusQuery.isError;
+  const hasQrCredential = hasUsableQrCredential(readiness);
+  const hasFacialEnrollment = readiness.faceEnrolled;
+  const qrCredentialLabel = credentialReadinessError
+    ? "Unable to read"
+    : hasQrCredential
+      ? formatCredentialStatus(readiness.qrStatus)
+      : "Not configured";
+  const facialEnrollmentLabel = credentialReadinessError
+    ? "Unable to read"
+    : hasFacialEnrollment
+      ? formatCredentialStatus(readiness.faceStatus)
+      : "Organizer managed";
+  const avatarSeed = encodeURIComponent(user.displayName || "Student");
+  const avatarUrl = user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${avatarSeed}`;
 
   function handleLogout() {
     logout();
@@ -134,52 +140,12 @@ export function StudentProfilePage() {
     navigate(APP_ROUTES.login, { replace: true });
   }
 
-  // Handle avatar change
-  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      const objectUrl = URL.createObjectURL(file);
-      setAvatarUrl(objectUrl);
-      localStorage.setItem("plpass-student-avatar", objectUrl);
-      toast.success("Profile picture updated successfully!");
-    }
-  }
-
-  // Handle password change
-  function handlePasswordSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      toast.error("Please fill out all password fields.");
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters long.");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast.error("New password and confirmation do not match.");
-      return;
-    }
-
-    setIsChangingPassword(true);
-    setTimeout(() => {
-      setIsChangingPassword(false);
-      toast.success("Password changed successfully!");
-      setOldPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    }, 1200);
-  }
-
   return (
     <div className="space-y-8 p-1">
       <PageHeader
         eyebrow="Account"
         title="Profile"
-        description="Manage your student account settings, change password, and upload photos."
+        description="Review your Supabase-backed student profile, attendance readiness, and account status."
         actions={
           <Button variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
             <LogOut className="h-4 w-4" />
@@ -188,10 +154,19 @@ export function StudentProfilePage() {
         }
       />
 
+      {credentialReadinessError ? (
+        <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm">
+          <p className="font-semibold text-foreground">Credential readiness could not be loaded</p>
+          <p className="mt-1 text-muted-foreground">
+            Profile details are still available, but QR/facial readiness needs the Supabase credential tables and policies to be reachable.
+          </p>
+        </div>
+      ) : null}
+
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Side: Avatar / Profile Picture Upload View */}
+        {/* Left Side: Supabase Profile Summary */}
         <div className="student-glass-card p-6 flex flex-col items-center text-center space-y-4 shadow-sm">
-          <div className="relative group">
+          <div className="relative">
             <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-primary/20 bg-secondary flex items-center justify-center shadow-inner">
               <img
                 src={avatarUrl}
@@ -199,20 +174,21 @@ export function StudentProfilePage() {
                 className="h-full w-full object-cover"
               />
             </div>
-            <label className="absolute bottom-1 right-1 h-9 w-9 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md cursor-pointer hover:scale-105 transition-transform border-2 border-white">
+            <span
+              className="absolute bottom-1 right-1 h-9 w-9 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md border-2 border-white"
+              aria-label="Profile image from Supabase profile"
+              title="Profile image from Supabase profile"
+            >
               <Camera className="h-4.5 w-4.5" />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleAvatarChange}
-                className="hidden"
-              />
-            </label>
+            </span>
           </div>
 
           <div>
             <h3 className="font-bold text-lg text-foreground">{user.displayName}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{user.email}</p>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Profile images are read from Supabase profile data. Upload changes are handled by an administrator.
+            </p>
           </div>
 
           <div className="w-full border-t border-border pt-4">
@@ -239,6 +215,8 @@ export function StudentProfilePage() {
               <ProfileField label="Year Level" value={`Year ${student.yearLevel}`} icon={Award} />
               <ProfileField label="Section" value={student.section} icon={CalendarCheck} />
               <ProfileField label="Enrollment Status" value={student.status} icon={ShieldAlert} />
+              <ProfileField label="Account Status" value={user.isActive ? "Active" : "Inactive"} icon={ShieldCheck} />
+              <ProfileField label="Profile Source" value="Supabase profile record" icon={Database} />
             </div>
           </div>
 
@@ -248,28 +226,34 @@ export function StudentProfilePage() {
               Attendance Readiness & Statistics
             </h3>
             <div className="grid gap-4 sm:grid-cols-2">
-              <ProfileField label="QR UID Status" value={hasQrUid ? "Ready" : "Not prepared"} icon={Hash} />
-              <ProfileField label="Facial Enrollment" value={hasFacialEnrollment ? "Enrolled" : "Not enrolled"} icon={Camera} />
+              <ProfileField label="QR Credential" value={qrCredentialLabel} icon={Hash} />
+              <ProfileField label="Facial Enrollment" value={facialEnrollmentLabel} icon={Camera} />
               <ProfileField label="Event Records" value={metrics.totalCount} icon={CalendarCheck} />
               <ProfileField label="Attendance Rate" value={`${metrics.attendanceRate}%`} icon={Award} />
+              <ProfileField label="Account Created" value={formatDisplayDate(user.createdAt)} icon={CalendarCheck} />
+              <ProfileField label="Authentication Provider" value="Supabase Auth" icon={Database} />
             </div>
           </div>
 
           {/* Change Password Form Card */}
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
-              <Key className="h-5 w-5 text-primary" />
-              Change Account Password
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Account Security
             </h3>
 
-            <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-md">
+            <form onSubmit={(event) => event.preventDefault()} className="space-y-4 max-w-md">
+              <p className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
+                Password changes are managed by Supabase Auth. Contact an administrator if your account password needs to be reset.
+              </p>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-foreground">Current Password</label>
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value={oldPassword}
-                  onChange={(e) => setOldPassword(e.target.value)}
+                  value=""
+                  readOnly
+                  disabled
                   placeholder="••••••••"
                 />
               </div>
@@ -279,8 +263,9 @@ export function StudentProfilePage() {
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  value=""
+                  readOnly
+                  disabled
                   placeholder="••••••••"
                 />
               </div>
@@ -290,14 +275,15 @@ export function StudentProfilePage() {
                 <input
                   type="password"
                   className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  value=""
+                  readOnly
+                  disabled
                   placeholder="••••••••"
                 />
               </div>
 
-              <Button type="submit" disabled={isChangingPassword} className="student-btn-primary px-6 mt-2">
-                {isChangingPassword ? "Updating..." : "Update Password"}
+              <Button type="submit" disabled className="student-btn-primary px-6 mt-2">
+                Managed by Supabase Auth
               </Button>
             </form>
           </div>

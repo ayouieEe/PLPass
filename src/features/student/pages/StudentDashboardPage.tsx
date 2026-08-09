@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ArrowRight,
   CalendarCheck,
@@ -12,7 +12,8 @@ import {
   MapPin,
   MessageSquareText,
   QrCode,
-  ShieldCheck
+  ShieldCheck,
+  TriangleAlert
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -23,14 +24,17 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentCredentialStatus, useStudentEventFeedback } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   ensureStudentIdentityReadiness,
+  getEventConflictLabel,
+  getStudentEventConflictMap,
   getStudentEventMetrics,
   getStudentEventRecords,
-  isFeedbackSubmitted,
+  getStudentFeedbackDeadlineStatus,
+  hasUsableQrCredential,
   statusTone,
   studentVisibleEvents,
   useStudentScope
@@ -151,14 +155,12 @@ export function StudentDashboardPage() {
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
+  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
+  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
   const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
-  const [qrReady, setQrReady] = useState(false);
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
-
-  useEffect(() => {
-    setQrReady(Boolean(ensureStudentIdentityReadiness(scope.student).qrCode));
-  }, [scope.student]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -168,16 +170,19 @@ export function StudentDashboardPage() {
     return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) {
     return <LoadingState label="Loading dashboard" />;
   }
 
-  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
+  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError) {
     return <ErrorState title="Unable to load dashboard" message="Please try refreshing the page." />;
   }
 
   const student = scope.student;
+  const credentialReadinessError = credentialStatusQuery.isError;
+  const qrReady = hasUsableQrCredential(ensureStudentIdentityReadiness(credentialStatusQuery.data));
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
+  const conflictMap = getStudentEventConflictMap(events);
   const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
   const dashboardEvents = dashboardEventList(sortedEvents);
   const upcomingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Upcoming");
@@ -188,13 +193,28 @@ export function StudentDashboardPage() {
     sessions: sessionsQuery.data?.items ?? [],
     events: eventsQuery.data?.items ?? []
   });
-  const eventMetrics = getStudentEventMetrics(eventRecords, student.id);
+  const eventMetrics = getStudentEventMetrics(eventRecords);
   const attendedCount = eventMetrics.attendedCount;
   const attendanceRate = eventMetrics.attendanceRate;
-  const pendingFeedback = eventMetrics.feedbackDue;
+  const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
   const pendingFeedbackRecords = eventMetrics.attendedRecords.filter(
-    (record) => !record.feedbackSubmitted && !isFeedbackSubmitted(student.id, record.eventId)
+    (record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
   );
+  const pendingFeedback = pendingFeedbackRecords.length;
+  const overdueFeedbackCount = pendingFeedbackRecords.filter((record) => getStudentFeedbackDeadlineStatus(record).isOverdue).length;
+  const nextFeedbackDeadline = pendingFeedbackRecords
+    .map((record) => getStudentFeedbackDeadlineStatus(record))
+    .filter((deadline) => deadline.dueAt)
+    .sort((left, right) => new Date(left.dueAt ?? "").getTime() - new Date(right.dueAt ?? "").getTime())[0];
+  const lateReasonRecords = eventMetrics.attendedRecords.filter((record) => record.status === "late" && !record.lateReason);
+  const studentCorrectionRequests = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
+  const rejectedCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "rejected");
+  const pendingCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "pending");
+  const hasDashboardTasks =
+    lateReasonRecords.length > 0 ||
+    pendingFeedback > 0 ||
+    rejectedCorrectionRequests.length > 0 ||
+    pendingCorrectionRequests.length > 0;
   const eventDateKeys = new Set(events.map((event) => dateKey(event.startsAt)).filter(Boolean));
   const selectedDateEvents = events.filter((event) => dateKey(event.startsAt) === selectedDate);
 
@@ -213,6 +233,18 @@ export function StudentDashboardPage() {
         title="Student dashboard"
         description="Track published events, organizer-recorded attendance, feedback tasks, and your next required action."
       />
+
+      {credentialReadinessError ? (
+        <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <p className="font-semibold text-foreground">Credential readiness could not be loaded</p>
+            <p className="mt-1 text-muted-foreground">
+              Dashboard data is still available, but QR/facial readiness needs the Supabase credential tables and policies to be reachable.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attended event records">
@@ -270,7 +302,9 @@ export function StudentDashboardPage() {
           </div>
 
           <div className="mt-5 grid gap-3">
-            {dashboardEvents.length ? dashboardEvents.map((event) => (
+            {dashboardEvents.length ? dashboardEvents.map((event) => {
+              const conflict = conflictMap.get(event.id);
+              return (
               <NavLink
                 key={event.id}
                 to={APP_ROUTES.studentEvent(event.id)}
@@ -298,6 +332,17 @@ export function StudentDashboardPage() {
                       <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
                       {event.venue}
                     </p>
+                    {event.description ? (
+                      <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
+                        {event.description}
+                      </p>
+                    ) : null}
+                    {conflict ? (
+                      <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                        <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
+                        {getEventConflictLabel(conflict)}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2">
@@ -310,7 +355,8 @@ export function StudentDashboardPage() {
                   </span>
                 </div>
               </NavLink>
-            )) : <EmptyState title="No upcoming events" description="Published events will appear here." />}
+              );
+            }) : <EmptyState title="No upcoming events" description="Published events will appear here." />}
           </div>
         </div>
 
@@ -396,15 +442,24 @@ export function StudentDashboardPage() {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
             </p>
-            {selectedDateEvents.length ? selectedDateEvents.map((event) => (
-              <div key={event.id} className="rounded-xl border bg-background p-3 text-sm transition-colors hover:border-primary/30">
+            {selectedDateEvents.length ? selectedDateEvents.map((event) => {
+              const conflict = conflictMap.get(event.id);
+              return (
+              <div key={event.id} className={`rounded-xl border bg-background p-3 text-sm transition-colors ${conflict ? "border-warning/30" : "hover:border-primary/30"}`}>
                 <p className="font-semibold">{event.title}</p>
                 <p className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
                   <Clock className="h-3.5 w-3.5 flex-shrink-0" />
                   {formatDisplayTime(event.startsAt)} · {event.venue}
                 </p>
+                {conflict ? (
+                  <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                    <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
+                    {getEventConflictLabel(conflict)}
+                  </p>
+                ) : null}
               </div>
-            )) : <p className="text-sm text-muted-foreground">No event selected for this date.</p>}
+              );
+            }) : <p className="text-sm text-muted-foreground">No event selected for this date.</p>}
           </div>
         </div>
       </section>
@@ -422,6 +477,29 @@ export function StudentDashboardPage() {
             </div>
           </div>
           <div className="mt-4 grid gap-3">
+            {lateReasonRecords.length > 0 ? (
+              <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-warning/15">
+                    <Clock className="h-4 w-4 text-warning" />
+                  </span>
+                  <div>
+                    <p className="font-semibold">
+                      Submit late reason for {lateReasonRecords.length} event{lateReasonRecords.length === 1 ? "" : "s"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Late attendance needs a reason before feedback unlocks.
+                    </p>
+                  </div>
+                </div>
+                <Button asChild size="sm" className="mt-3">
+                  <NavLink to={`${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(lateReasonRecords[0]?.eventId ?? "")}`}>
+                    Submit Late Reason
+                  </NavLink>
+                </Button>
+              </div>
+            ) : null}
+
             {pendingFeedback > 0 ? (
               <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
                 <div className="flex items-start gap-3">
@@ -433,8 +511,9 @@ export function StudentDashboardPage() {
                       Give feedback on {pendingFeedback} event{pendingFeedback === 1 ? "" : "s"}
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      You attended {pendingFeedback === 1 ? "an event that's" : "events that are"} asking for a
-                      quick feedback form.
+                      {overdueFeedbackCount > 0
+                        ? `${overdueFeedbackCount} feedback task${overdueFeedbackCount === 1 ? " is" : "s are"} overdue.`
+                        : nextFeedbackDeadline?.label ?? "Answer the quick feedback form to complete attendance."}
                     </p>
                   </div>
                 </div>
@@ -442,12 +521,56 @@ export function StudentDashboardPage() {
                   Give Feedback
                 </Button>
               </div>
-            ) : (
+            ) : null}
+
+            {rejectedCorrectionRequests.length > 0 ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+                    <FilePenLine className="h-4 w-4 text-destructive" />
+                  </span>
+                  <div>
+                    <p className="font-semibold">
+                      Review {rejectedCorrectionRequests.length} rejected correction request{rejectedCorrectionRequests.length === 1 ? "" : "s"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Check the organizer response, then submit a clearer request if needed.
+                    </p>
+                  </div>
+                </div>
+                <Button asChild variant="outline" size="sm" className="mt-3">
+                  <NavLink to={APP_ROUTES.studentRequestHistory}>Open Request History</NavLink>
+                </Button>
+              </div>
+            ) : null}
+
+            {pendingCorrectionRequests.length > 0 ? (
+              <div className="rounded-xl border border-info/30 bg-info/5 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-info/10">
+                    <FilePenLine className="h-4 w-4 text-info" />
+                  </span>
+                  <div>
+                    <p className="font-semibold">
+                      {pendingCorrectionRequests.length} correction request{pendingCorrectionRequests.length === 1 ? "" : "s"} awaiting review
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      No action needed yet. The organizer still needs to review your request.
+                    </p>
+                  </div>
+                </div>
+                <Button asChild variant="outline" size="sm" className="mt-3">
+                  <NavLink to={APP_ROUTES.studentRequestHistory}>View Status</NavLink>
+                </Button>
+              </div>
+            ) : null}
+
+            {!hasDashboardTasks ? (
               <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
                 <p className="text-sm font-medium text-emerald-700">You're all caught up — nothing pending right now.</p>
               </div>
-            )}
+            ) : null}
 
             <div className="rounded-xl border bg-background p-4">
               <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -455,8 +578,8 @@ export function StudentDashboardPage() {
                 How attendance works
               </p>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Just show your QR code when it's time to check in. The organizer scans it to record your Time
-                In and Time Out — you don't need to do anything else.
+                QR is the usual check-in method. Organizers can also record facial, manual, or online attendance
+                depending on the event setup.
               </p>
             </div>
           </div>
@@ -471,7 +594,7 @@ export function StudentDashboardPage() {
               </span>
               <div>
                 <h2 className="text-lg font-semibold tracking-tight">Attendance Methods</h2>
-                <p className="text-sm text-muted-foreground">Your QR code for checking in and out, plus your attendance history.</p>
+                <p className="text-sm text-muted-foreground">Your Supabase QR credential, facial fallback, and the supported attendance modes.</p>
               </div>
             </div>
             <span
@@ -480,15 +603,15 @@ export function StudentDashboardPage() {
               }`}
             >
               {qrReady ? <CheckCircle2 className="h-3 w-3" /> : <QrCode className="h-3 w-3" />}
-              {qrReady ? "QR code ready" : "QR code not set up"}
+              {qrReady ? "QR credential active" : "QR credential not set up"}
             </span>
           </div>
           <div className="mt-5 grid gap-2">
             <AuthActionRow
               to={APP_ROUTES.studentMethods}
               icon={QrCode}
-              label="Show QR UID"
-              description="The code organizers scan for your Time In and Time Out"
+              label="Review Methods"
+              description="QR, facial, manual, and online attendance modes"
             />
             <AuthActionRow
               to={APP_ROUTES.studentAttendance}
@@ -511,6 +634,7 @@ export function StudentDashboardPage() {
           <div className="space-y-3">
             {pendingFeedbackRecords.map((record) => {
               const needsLateReason = record.status === "late" && !record.lateReason;
+              const deadline = getStudentFeedbackDeadlineStatus(record);
               const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(record.eventId)}`;
 
               return (
@@ -536,6 +660,13 @@ export function StudentDashboardPage() {
                       <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
                         {needsLateReason ? "Late reason first" : "Feedback due"}
+                      </span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          deadline.isOverdue ? "bg-destructive/10 text-destructive" : deadline.isDueSoon ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
+                        }`}
+                      >
+                        {deadline.label}
                       </span>
                     </div>
                   </div>

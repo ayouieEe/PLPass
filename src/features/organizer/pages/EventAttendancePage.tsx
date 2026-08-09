@@ -42,7 +42,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
-  useAttendanceSimulationMutations,
+  useAttendanceSubmissionMutations,
   useAttendanceSession,
   useAttendanceSessionMutations,
   useAttendanceSessions,
@@ -59,7 +59,7 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
-import type { AttendanceSimulationResult } from "@/services/contracts";
+import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
@@ -290,9 +290,9 @@ export function EventAttendancePage() {
   const participantQuery = useEventParticipants(sessionQuery.data?.eventId ?? "", { pageSize: 500 }, scope.context);
   const tapsQuery = useNfcTapAttempts({ pageSize: 500 }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
-  const attendanceMutations = useAttendanceSimulationMutations(scope.context);
+  const attendanceMutations = useAttendanceSubmissionMutations(scope.context);
   const [qrEnabled, setQrEnabled] = useState(false);
-  const [latestResult, setLatestResult] = useState<AttendanceSimulationResult | null>(null);
+  const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualReason, setManualReason] = useState("");
   const [manualRemarks, setManualRemarks] = useState("");

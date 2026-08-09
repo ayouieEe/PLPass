@@ -22,24 +22,19 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   buildStudentEventWorkflow,
   eventResourceLabel,
-  getEventObjectives,
-  hasEventResource,
-  isFeedbackSubmitted,
+  getEventResource,
+  getStudentFeedbackDeadlineStatus,
   lateReasonOptions,
-  loadStudentEventRecords,
-  markStudentFeedbackSubmitted,
-  mergeStudentEventRecords,
   recordsForStudentEvents,
-  StudentEventRecord,
-  upsertStudentEventRecord,
   useStudentScope
 } from "@/features/student/studentExperience";
+import type { EventObjective } from "@/types/domain";
 
 type RatingState = Record<string, number>;
 function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -81,7 +76,7 @@ function FeedbackModal({
 }: {
   open: boolean;
   onClose: () => void;
-  objectives: string[];
+  objectives: EventObjective[];
   ratings: RatingState;
   onRate: (objective: string, value: number) => void;
   comment: string;
@@ -91,7 +86,8 @@ function FeedbackModal({
 }) {
   if (!open) return null;
 
-  const ratedCount = objectives.filter((objective) => ratings[objective] > 0).length;
+  const ratedCount = objectives.filter((objective) => ratings[objective.id] > 0).length;
+  const isCommentOnly = objectives.length === 0;
 
   return (
     <div
@@ -113,7 +109,7 @@ function FeedbackModal({
             <div>
               <h2 className="text-base font-semibold">Share your feedback</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {ratedCount} of {objectives.length} objectives rated
+                {isCommentOnly ? "Overall feedback" : `${ratedCount} of ${objectives.length} objectives rated`}
               </p>
             </div>
           </div>
@@ -128,21 +124,27 @@ function FeedbackModal({
         </div>
 
         <div className="space-y-5 px-6 py-5">
+          {isCommentOnly ? (
+            <p className="rounded-xl border border-primary/20 bg-primary/10 p-4 text-sm text-muted-foreground">
+              Objective ratings are not configured for this event yet. You can still submit your overall feedback below.
+            </p>
+          ) : (
           <div className="space-y-3">
             {objectives.map((objective, index) => (
-              <div key={objective} className="rounded-xl border bg-background p-4">
+              <div key={objective.id} className="rounded-xl border bg-background p-4">
                 <div className="flex items-start gap-2.5">
                   <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
                     {index + 1}
                   </span>
-                  <p className="text-sm leading-snug text-foreground/90">{objective}</p>
+                  <p className="text-sm leading-snug text-foreground/90">{objective.text}</p>
                 </div>
                 <div className="mt-3 pl-7">
-                  <StarRating value={ratings[objective] ?? 0} onChange={(value) => onRate(objective, value)} />
+                  <StarRating value={ratings[objective.id] ?? 0} onChange={(value) => onRate(objective.id, value)} />
                 </div>
               </div>
             ))}
           </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -161,7 +163,9 @@ function FeedbackModal({
             Submit Feedback
           </Button>
           {!canSubmit && (
-            <p className="text-center text-xs text-muted-foreground">Rate every objective to submit.</p>
+            <p className="text-center text-xs text-muted-foreground">
+              {isCommentOnly ? "Write a short comment to submit." : "Rate every objective to submit."}
+            </p>
           )}
         </div>
       </div>
@@ -221,7 +225,9 @@ export function StudentEventDetailsPage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
-  const [localRecords, setLocalRecords] = useState<StudentEventRecord[]>(() => scope.student ? loadStudentEventRecords(scope.student.id) : []);
+  const submitLateReasonMutation = useSubmitLateReasonMutation(scope.context);
+  const objectivesQuery = useEventObjectives(eventId, scope.context);
+  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [ratings, setRatings] = useState<RatingState>({});
   const [comment, setComment] = useState("");
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
@@ -234,7 +240,12 @@ export function StudentEventDetailsPage() {
 
   const event = eventQuery.data;
   if (!event) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
-  const objectives = getEventObjectives(event).slice(0, 3);
+  if (event.status !== "approved" && event.status !== "completed") {
+    return <ErrorState title="Event unavailable" message="This event is not published for students." />;
+  }
+  const feedbackObjectives = ((objectivesQuery.data?.length ?? 0) > 0 ? objectivesQuery.data ?? [] : []).slice(0, 3);
+  const hasSupabaseObjectives = (objectivesQuery.data?.length ?? 0) > 0;
+  const displayObjectives = feedbackObjectives.slice(0, 3);
   const currentEventId = event.id;
   const repositoryRecords = recordsForStudentEvents({
     studentId: student.id,
@@ -242,9 +253,9 @@ export function StudentEventDetailsPage() {
     sessions: sessionsQuery.data?.items ?? [],
     events: [event]
   });
-  const currentRecord = mergeStudentEventRecords([...localRecords, ...repositoryRecords]).find((record) => record.eventId === event.id);
+  const currentRecord = repositoryRecords.find((record) => record.eventId === event.id);
   const correction = (correctionsQuery.data?.items ?? []).find((request) => request.eventId === event.id);
-  const feedbackSubmitted = Boolean(currentRecord?.feedbackSubmitted || isFeedbackSubmitted(student.id, currentEventId));
+  const feedbackSubmitted = Boolean(currentRecord?.feedbackSubmitted || (feedbackQuery.data ?? []).some((feedback) => feedback.eventId === currentEventId));
   const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
   const workflow = buildStudentEventWorkflow({
     event,
@@ -253,28 +264,60 @@ export function StudentEventDetailsPage() {
     feedbackSubmitted,
     correctionStatus: correction?.status
   });
-  const allObjectivesRated = objectives.every((objective) => ratings[objective] > 0);
+  const allObjectivesRated = hasSupabaseObjectives
+    ? feedbackObjectives.every((objective) => ratings[objective.id] > 0)
+    : comment.trim().length >= 5;
   const feedbackReady = workflow.canSubmitFeedback;
+  const feedbackDeadline = currentRecord ? getStudentFeedbackDeadlineStatus(currentRecord) : null;
   const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason);
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
+  const eventResource = getEventResource(event);
 
-  function submitLateReason(reason: string) {
+  async function submitLateReason(reason: string) {
     if (!currentRecord) return;
-    upsertStudentEventRecord(student.id, { ...currentRecord, lateReason: reason });
-    setLocalRecords(loadStudentEventRecords(student.id));
-    toast.success("Late reason submitted. Event feedback is now available.");
+    try {
+      await submitLateReasonMutation.mutateAsync({
+        attendanceRecordId: currentRecord.id,
+        reason
+      });
+      toast.success("Late reason submitted to Supabase. Event feedback is now available.");
+    } catch {
+      toast.error("Unable to submit late reason. Please try again.");
+    }
   }
 
-  function submitFeedback() {
-    if (!allObjectivesRated) {
+  async function submitFeedback() {
+    if (hasSupabaseObjectives && !allObjectivesRated) {
       toast.error("Please rate each event objective.");
       return;
     }
-    markStudentFeedbackSubmitted(student.id, currentEventId);
-    setLocalRecords(loadStudentEventRecords(student.id));
-    setComment("");
-    setFeedbackModalOpen(false);
-    toast.success("Feedback submitted. Attendance is now complete.");
+    if (!hasSupabaseObjectives && comment.trim().length < 5) {
+      toast.error("Please write a short overall feedback comment.");
+      return;
+    }
+    if (!currentRecord) {
+      toast.error("Attendance record is required before feedback can be submitted.");
+      return;
+    }
+    try {
+      await feedbackQuery.submitMutation.mutateAsync({
+        eventId: currentEventId,
+        studentId: student.id,
+        attendanceRecordId: currentRecord.id,
+        comment,
+        ratings: hasSupabaseObjectives
+          ? feedbackObjectives.map((objective) => ({
+              objectiveId: objective.id,
+              rating: ratings[objective.id]
+            }))
+          : []
+      });
+      setComment("");
+      setFeedbackModalOpen(false);
+      toast.success("Feedback submitted to Supabase. Attendance is now complete.");
+    } catch {
+      toast.error("Unable to submit feedback. Please try again.");
+    }
   }
 
   return (
@@ -294,6 +337,13 @@ export function StudentEventDetailsPage() {
       </div>
 
       <PageHeader eyebrow={event.code} title={event.title} description={event.category} />
+
+      {event.description ? (
+        <section className="rounded-2xl border bg-surface p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Organizer notes</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
+        </section>
+      ) : null}
 
       {/* Attendance status — the single most important thing on this page */}
       <section className="overflow-hidden rounded-2xl border bg-surface shadow-sm">
@@ -315,7 +365,9 @@ export function StudentEventDetailsPage() {
             </span>
             <div>
               <p className="text-sm font-semibold">Feedback is ready</p>
-              <p className="text-sm text-muted-foreground">Answer the required event feedback to complete attendance.</p>
+              <p className="text-sm text-muted-foreground">
+                Answer the required event feedback to complete attendance. {feedbackDeadline?.label}.
+              </p>
             </div>
           </div>
           <Button onClick={() => setFeedbackModalOpen(true)}>
@@ -366,16 +418,22 @@ export function StudentEventDetailsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border bg-surface p-6 shadow-sm">
           <h2 className="text-lg font-semibold tracking-tight">Objectives</h2>
-          <div className="mt-5 grid gap-3">
-            {objectives.map((objective, index) => (
-              <div key={objective} className="flex gap-3 rounded-xl bg-background p-4 transition hover:bg-muted/50">
-                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                  {index + 1}
-                </span>
-                <p className="text-sm leading-snug">{objective}</p>
-              </div>
-            ))}
-          </div>
+          {displayObjectives.length ? (
+            <div className="mt-5 grid gap-3">
+              {displayObjectives.map((objective, index) => (
+                <div key={objective.id} className="flex gap-3 rounded-xl bg-background p-4 transition hover:bg-muted/50">
+                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    {index + 1}
+                  </span>
+                  <p className="text-sm leading-snug">{objective.text}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-5 rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">
+              No objectives were configured for this event in Supabase.
+            </p>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-surface p-6 shadow-sm">
@@ -387,15 +445,22 @@ export function StudentEventDetailsPage() {
               </span>
               <div>
                 <p className="text-sm font-semibold">{eventResourceLabel(event)}</p>
-                <p className="text-sm text-muted-foreground">
-                  {hasEventResource(event) ? "Attachment or external link from organizer" : "Organizer has not attached a resource."}
-                </p>
+                <p className="text-sm text-muted-foreground">{eventResource.description}</p>
               </div>
             </div>
-            <Button variant="outline" disabled={!hasEventResource(event)} onClick={() => toast.success("Resource opened.")}>
-              <Download className="mr-2 h-4 w-4" />
-              Open / Download
-            </Button>
+            {eventResource.url ? (
+              <Button asChild variant="outline">
+                <a href={eventResource.url} target="_blank" rel="noreferrer">
+                  <Download className="mr-2 h-4 w-4" />
+                  Open / Download
+                </a>
+              </Button>
+            ) : (
+              <Button variant="outline" disabled>
+                <Download className="mr-2 h-4 w-4" />
+                No resource link
+              </Button>
+            )}
           </div>
         </section>
       </div>
@@ -403,13 +468,13 @@ export function StudentEventDetailsPage() {
       <FeedbackModal
         open={feedbackModalOpen}
         onClose={() => setFeedbackModalOpen(false)}
-        objectives={objectives}
+        objectives={feedbackObjectives}
         ratings={ratings}
-        onRate={(objective, value) => setRatings((current) => ({ ...current, [objective]: value }))}
+        onRate={(objectiveId, value) => setRatings((current) => ({ ...current, [objectiveId]: value }))}
         comment={comment}
         onCommentChange={setComment}
         onSubmit={submitFeedback}
-        canSubmit={allObjectivesRated}
+        canSubmit={allObjectivesRated && !feedbackQuery.submitMutation.isPending}
       />
     </div>
   );
