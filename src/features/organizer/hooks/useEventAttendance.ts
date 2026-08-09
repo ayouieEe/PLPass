@@ -4,6 +4,38 @@ import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organi
 
 type OrgAttendanceStatus = "present" | "late" | "absent";
 
+type ProfileNameRow = {
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+};
+
+type StudentRelationRow = {
+  profiles?: ProfileNameRow | ProfileNameRow[] | null;
+};
+
+type EventSessionRow = {
+  id: string;
+  event_id: string;
+};
+
+type EventParticipantRow = {
+  event_id: string;
+};
+
+type AttendanceSummaryRow = {
+  id: string;
+  event_session_id: string | null;
+  student_id: string | null;
+  attendance_status: string | null;
+  verification_method: string | null;
+  time_in: string | null;
+  recorded_at: string | null;
+  late_reason_category?: string | null;
+  late_reason?: string | null;
+  students?: StudentRelationRow | StudentRelationRow[] | null;
+};
+
 export type EventAttendanceSummary = {
   rows: OrganizerAttendanceRow[];
   present: number;
@@ -19,8 +51,9 @@ function mapVerificationMethod(value: string | null): AttendanceMethod {
   return "Manual";
 }
 
-function studentDisplayName(row: any): string {
-  const profile = row?.students?.profiles;
+function studentDisplayName(row: AttendanceSummaryRow): string {
+  const student = Array.isArray(row.students) ? row.students[0] : row.students;
+  const profile = Array.isArray(student?.profiles) ? student?.profiles[0] : student?.profiles;
   if (profile) {
     const parts = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean);
     if (parts.length) return parts.join(" ");
@@ -54,7 +87,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   if (sessionsError) throw sessionsError;
 
   const sessionToEvent = new Map<string, string>();
-  (sessions ?? []).forEach((s: any) => sessionToEvent.set(s.id, s.event_id));
+  ((sessions ?? []) as EventSessionRow[]).forEach((session) => sessionToEvent.set(session.id, session.event_id));
   const sessionIds = Array.from(sessionToEvent.keys());
 
   // 2. Registered participants per event (denominator for attendance rate)
@@ -65,12 +98,12 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   if (participantsError) throw participantsError;
 
   const registeredCountByEvent = new Map<string, number>();
-  (participants ?? []).forEach((p: any) => {
-    registeredCountByEvent.set(p.event_id, (registeredCountByEvent.get(p.event_id) ?? 0) + 1);
+  ((participants ?? []) as EventParticipantRow[]).forEach((participant) => {
+    registeredCountByEvent.set(participant.event_id, (registeredCountByEvent.get(participant.event_id) ?? 0) + 1);
   });
 
   // 3. Attendance records for those sessions, joined to student + profile names
-  let records: any[] = [];
+  let records: AttendanceSummaryRow[] = [];
   if (sessionIds.length > 0) {
     const { data, error } = await client
       .from("attendance_records")
@@ -79,7 +112,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
-    records = data ?? [];
+    records = (data ?? []) as AttendanceSummaryRow[];
   }
 
   const summaries: Record<string, EventAttendanceSummary> = {};
@@ -94,7 +127,8 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     };
   });
 
-  records.forEach((row: any) => {
+  records.forEach((row) => {
+    if (!row.event_session_id) return;
     const eventId = sessionToEvent.get(row.event_session_id);
     if (!eventId || !summaries[eventId]) return;
     const status = (row.attendance_status ?? "present") as OrgAttendanceStatus;
@@ -107,7 +141,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       attendanceMethod: mapVerificationMethod(row.verification_method),
       checkInTime: row.time_in ?? row.recorded_at ?? "",
       attendanceStatus: status,
-      lateReason: status === "late" ? mapLateReason(row.late_reason_category ?? row.late_reason) : undefined
+      lateReason: status === "late" ? mapLateReason(row.late_reason_category ?? row.late_reason ?? null) : undefined
     });
 
     if (status === "present") summaries[eventId].present += 1;

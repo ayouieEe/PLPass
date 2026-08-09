@@ -259,30 +259,30 @@ export function createStudentSupportRequest(
 export function getEventObjectives(event: Event) {
   const objectiveMap: Record<string, string[]> = {
     "EVT-2026-001": [
-      "Connect HM students with at least 5 partner hotels or restaurants for potential internship slots",
+      "Connect students with industry partners for potential career and internship opportunities",
       "Improve student awareness of current industry hiring standards",
-      "Gather student interest data for AHTOMP's placement program"
+      "Gather student interest data for PLP's placement program"
     ],
     "EVT-2026-002": [
-      "Demonstrate proper fine-dining table service techniques",
-      "Improve student confidence in guest interaction scenarios"
+      "Demonstrate essential professional skills and domain expertise",
+      "Improve student confidence in practical work scenarios"
     ],
     "EVT-2026-003": [
-      "Orient new HM students on AHTOMP's programs and membership benefits",
+      "Orient new students on university programs and campus membership benefits",
       "Present the academic year's event calendar"
     ],
     "EVT-2026-004": [
-      "Simulate real front-desk check-in and check-out scenarios",
-      "Assess student handling of guest complaints",
-      "Evaluate use of a property management system training simulation"
+      "Simulate real campus leadership and administrative scenarios",
+      "Assess student resolution of operational challenges",
+      "Evaluate practical workshop exercises"
     ],
     "EVT-2026-005": [
-      "Introduce sustainable and responsible tourism practices",
-      "Encourage student-led sustainability initiatives on campus"
+      "Introduce sustainable campus practices and community initiatives",
+      "Encourage student-led sustainability projects across PLP"
     ],
     "EVT-2026-006": [
-      "Showcase student culinary and beverage-crafting competencies",
-      "Foster friendly competition among HM sections"
+      "Showcase student innovation, talent, and technical competency",
+      "Foster healthy academic competition among all PLP departments"
     ]
   };
   if (objectiveMap[event.code]) {
@@ -449,7 +449,10 @@ export function eventFromStudentRecord(record: StudentEventRecord): Event {
     venue: record.venue,
     startsAt: record.startsAt,
     endsAt: record.endsAt ?? record.startsAt,
-    status: "completed"
+    status: "completed",
+    priorityLevel: "Flexible",
+    impactScore: null,
+    predictedTurnout: null
   };
 }
 

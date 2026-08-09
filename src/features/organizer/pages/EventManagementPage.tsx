@@ -725,8 +725,8 @@ const studentNameById = useMemo(() => {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader eyebrow="Event Management" title="Event Records" description="Published events appear here after the Create Event workflow; start a session only when the event is ready to run." />
+    <div className="space-y-4">
+      <PageHeader title="Events" />
 
 
       {activeEvent ? (

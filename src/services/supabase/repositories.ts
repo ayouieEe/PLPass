@@ -51,7 +51,7 @@ type TableName = keyof Database["public"]["Tables"];
 
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
-const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level)";
+const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level), programs(program_code, program_name)";
 
 function queryOrDefault(query?: ListQuery): ListQuery {
   return {
@@ -308,14 +308,6 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     if (!category) {
       throw new RepositoryError("Select an event category that exists in Supabase.", "VALIDATION_ERROR");
     }
-
-    const CATEGORY_OPTIONS = [
-  { label: "Career Development", value: "Career Development" },
-  { label: "Skills Training", value: "Skills Training" },
-  { label: "General Assembly", value: "General Assembly" },
-  { label: "Seminar", value: "Seminar" },
-  { label: "Competition", value: "Competition" }
-];
 
     const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
     const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();

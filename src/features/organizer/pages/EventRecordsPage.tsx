@@ -291,16 +291,19 @@ export function EventRecordsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader eyebrow="Event Management" title="Event Records" description="Review completed attendance sessions, event details, feedback sentiment, and export reports." />
+    <div className="space-y-4">
+      <PageHeader title="Event Records" />
 
       <section className="rounded-lg border bg-surface p-4">
-        <div className="w-full max-w-xl">
-          <label className="text-sm font-medium" htmlFor="event-record-search">Search completed events</label>
-          <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background px-3 py-2">
-            <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Search by event code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </div>
+        <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 w-full max-w-md">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <input
+            id="event-record-search"
+            className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder="Search completed events..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
       </section>
 

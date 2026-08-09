@@ -776,7 +776,10 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       venue: input.venue.trim(),
       startsAt: `${input.date}T${input.startTime}:00.000Z`,
       endsAt: `${input.date}T${input.endTime}:00.000Z`,
-      status: "pending"
+      status: "pending",
+      priorityLevel: input.priorityLevel,
+      impactScore: input.impactScore ?? null,
+      predictedTurnout: null
     };
     const participants: EventParticipant[] = input.participantStudentIds.map((studentId) => ({
       id: `participant-${created.id}-${studentId}`,
@@ -807,6 +810,17 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     }
     const event = getOrThrow(eventState, eventId, "Event");
     const updated = { ...event, status };
+    eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
+    return updated;
+  },
+  async completeEvent(eventId, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only complete their own events.", "PERMISSION_DENIED");
+    }
+    const updated = { ...event, status: "completed" as const };
     eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
     return updated;
   }

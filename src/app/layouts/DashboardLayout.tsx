@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Bell, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserCircle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useHeader } from "@/app/providers/HeaderContext";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { RoleBasedSidebar } from "@/components/shared/RoleBasedSidebar";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useNotificationUnreadCount } from "@/hooks/useRepositoryQueries";
 import { useTheme } from "@/hooks/useTheme";
+import { getRouteHeaderMeta } from "@/lib/constants/routeMetadata";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import type { UserRole } from "@/types/roles";
@@ -39,7 +41,6 @@ export function DashboardLayout({
   userLabel,
   title,
   description,
-  breadcrumbs,
   primaryAction,
   filters,
   topRightActions,
@@ -48,6 +49,7 @@ export function DashboardLayout({
 }: DashboardLayoutProps) {
   const { theme, setTheme } = useTheme();
   const { session, logout } = useDevelopmentSession();
+  const { headerOverride } = useHeader();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -58,9 +60,12 @@ export function DashboardLayout({
   const isDark = theme === "dark";
   const notificationContext = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const unreadCount = useNotificationUnreadCount(notificationContext);
-  const currentTitle = title ?? `${role[0].toUpperCase()}${role.slice(1)} dashboard`;
-  const currentDescription = description ?? "PLPass authenticated workspace";
-  const currentBreadcrumbs = breadcrumbs ?? [];
+  
+  const routeMeta = useMemo(() => getRouteHeaderMeta(location.pathname, role), [location.pathname, role]);
+  const currentTitle = title ?? headerOverride.title ?? routeMeta.title;
+  const currentDescription = description ?? headerOverride.description ?? routeMeta.description ?? "PLPass authenticated workspace";
+  const currentPrimaryAction = primaryAction ?? headerOverride.primaryAction;
+
 
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
@@ -186,17 +191,12 @@ export function DashboardLayout({
               </Button>
               <span className="hidden h-7 w-px bg-border md:block" aria-hidden="true" />
               <div className="min-w-0">
-                {role !== "student" && breadcrumbs ? (
-                  <nav aria-label="Breadcrumb" className="hidden text-xs text-muted-foreground xl:block">
-                    {currentBreadcrumbs.join(" / ")}
-                  </nav>
-                ) : null}
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
                     <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
                     {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
-                  {primaryAction ? <div className="hidden md:block">{primaryAction}</div> : null}
+                  {currentPrimaryAction ? <div className="hidden md:block">{currentPrimaryAction}</div> : null}
                 </div>
               </div>
             </div>
