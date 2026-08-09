@@ -45,9 +45,14 @@ afterEach(() => {
 async function signIn(displayName: string) {
   const user = userEvent.setup();
   render(<App />);
-  await screen.findByText(displayName);
-  await user.click(screen.getByText(displayName));
-  await user.click(screen.getByRole("button", { name: /sign in with selected account/i }));
+  const emailMap: Record<string, string> = {
+    "Organizer One": "organizer.one@plpass.test",
+    "Student 01": "student.1@plpass.test"
+  };
+  const email = emailMap[displayName] ?? "organizer.one@plpass.test";
+  await user.type(await screen.findByLabelText(/email/i), email);
+  await user.type(screen.getByLabelText(/password/i), "password123");
+  await user.click(screen.getByRole("button", { name: "Sign in" }));
 }
 
 describe("mock authentication flow", () => {
@@ -105,7 +110,7 @@ describe("mock authentication flow", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
-    expect(screen.getByText("Current session: Student 01")).toBeInTheDocument();
+    expect(screen.getByText(/currently signed in as Student 01/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeInTheDocument();
   });
 

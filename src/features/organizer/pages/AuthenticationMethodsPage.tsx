@@ -27,7 +27,10 @@ type FacialRow = {
   lastScan: string;
 };
 
-const USER_MANAGEMENT_STUDENTS: Array<{ id: string; name: string; qrStatus: string; facialStatus: string }> = [];
+const USER_MANAGEMENT_STUDENTS: Array<{ id: string; name: string; qrStatus: string; facialStatus: string }> = [
+  { id: "2023-00001", name: "John Doe", qrStatus: "Ready", facialStatus: "Ready" },
+  { id: "2023-00002", name: "Jane Smith", qrStatus: "Needs Review", facialStatus: "Needs Review" }
+];
 
 type RegenerationRequest = {
   id: string;
@@ -218,11 +221,8 @@ export function AuthenticationMethodsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Authentication Methods"
-        description="Manage and monitor the two authentication credentials students use for event check-ins."
-      />
+    <div className="space-y-4">
+      <PageHeader title="Authentication Methods" />
 
       <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-1">
         <button

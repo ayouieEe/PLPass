@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useHeader } from "@/app/providers/HeaderContext";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -129,7 +130,10 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
@@ -283,6 +287,7 @@ export function EventAttendancePage() {
   const { sessionId } = useParams();
   const scope = useOrganizerScope();
   const navigate = useNavigate();
+  const { setHeaderOverride } = useHeader();
   const sessionQuery = useAttendanceSession(sessionId, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
@@ -302,6 +307,20 @@ export function EventAttendancePage() {
   const [methodFilter, setMethodFilter] = useState("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
+
+  const selectedSession = sessionQuery.data;
+  const selectedEvent = eventsQuery.data?.items.find((item) => item.id === selectedSession?.eventId);
+
+  useEffect(() => {
+    if (selectedSession) {
+      setHeaderOverride({
+        title: `${selectedEvent?.code ?? selectedSession.title} - Attendance`,
+        breadcrumbs: ["Organizer", "Sessions", "Attendance"],
+        description: `Live attendance session at ${selectedEvent?.venue ?? "Event venue"}`
+      });
+    }
+  }, [selectedSession, selectedEvent, setHeaderOverride]);
+
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;

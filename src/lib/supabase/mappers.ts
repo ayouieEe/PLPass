@@ -163,9 +163,21 @@ export function mapProfileToUser(row: Row): User {
 export function mapStudent(row: Row): Student {
   const profile = nestedRow(row, "profiles");
   const section = nestedRow(row, "sections");
+  const program = nestedRow(row, "programs");
+
+  const firstName = profile ? stringValue(profile, ["first_name"]) : "";
+  const middleName = profile ? stringValue(profile, ["middle_name"]) : "";
+  const lastName = profile ? stringValue(profile, ["last_name"]) : "";
+
+  const middleInitial = middleName.trim() ? `${middleName.trim().charAt(0).toUpperCase()}.` : "";
+  const formattedName = lastName && firstName
+    ? `${lastName}, ${firstName}${middleInitial ? " " + middleInitial : ""}`
+    : [firstName, middleName, lastName].filter(Boolean).join(" ");
+
   const fullName = profile
-    ? [stringValue(profile, ["first_name"]), stringValue(profile, ["last_name"])].filter(Boolean).join(" ")
+    ? [firstName, middleName, lastName].filter(Boolean).join(" ")
     : "";
+
   const base = {
     id: stringValue(row, ["id", "student_id"]),
     userId: stringValue(row, ["profile_id", "user_id", "id"]),
@@ -173,9 +185,14 @@ export function mapStudent(row: Row): Student {
     status: stringValue(row, ["student_status", "status"], "enrolled") as Student["status"],
     programId: stringValue(row, ["program_id"]),
     departmentId: stringValue(row, ["department_id", "college_id"]),
+    programCode: stringValue(program ?? {}, ["program_code", "code"], stringValue(row, ["program_id"])),
     yearLevel: numberValue(row, ["year_level"], numberValue(section ?? {}, ["year_level"], 1)),
     section: stringValue(row, ["section_name"], stringValue(section ?? {}, ["section_name"], stringValue(row, ["section_id"]))),
     createdAt: stringValue(row, ["created_at"], new Date().toISOString()),
+    firstName: firstName || undefined,
+    middleName: middleName || undefined,
+    lastName: lastName || undefined,
+    formattedName: formattedName || undefined,
     fullName: fullName || undefined,
     email: profile ? optionalString(profile, ["email"]) : undefined
   };

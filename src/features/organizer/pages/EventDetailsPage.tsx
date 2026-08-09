@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { useHeader } from "@/app/providers/HeaderContext";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -130,7 +131,10 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
@@ -284,6 +288,7 @@ export function EventDetailsPage() {
   const { eventId } = useParams();
   const scope = useOrganizerScope();
   const navigate = useNavigate();
+  const { setHeaderOverride } = useHeader();
   const [tab, setTab] = useState("participants");
   const eventQuery = useEvent(eventId, scope.context);
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
@@ -292,6 +297,19 @@ export function EventDetailsPage() {
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
+  
+  const selectedEvent = eventQuery.data;
+
+  useEffect(() => {
+    if (selectedEvent) {
+      setHeaderOverride({
+        title: `${selectedEvent.code} - ${selectedEvent.title}`,
+        breadcrumbs: ["Organizer", "Events", selectedEvent.code],
+        description: `${selectedEvent.category} at ${selectedEvent.venue}`
+      });
+    }
+  }, [selectedEvent, setHeaderOverride]);
+
   const form = useForm<SessionFormValues>({
     resolver: zodResolver(sessionFormSchema),
     values: {

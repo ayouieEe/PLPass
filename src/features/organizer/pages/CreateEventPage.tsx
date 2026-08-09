@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -98,8 +98,15 @@ const VENUE_OPTIONS = [
   { label: "AVR 4", value: "AVR 4" }
 ];
 
-const PROGRAM_CODES = {
-  "program-bshm": "BSHM"
+const PROGRAM_CODES: Record<string, string> = {
+  "program-bsit": "BSIT",
+  "program-bscs": "BSCS",
+  "program-bsa": "BSA",
+  "program-bsba": "BSBA",
+  "program-bsed": "BSED",
+  "program-bshm": "BSHM",
+  "program-bsn": "BSN",
+  "program-bsce": "BSCE"
 };
 function timeToMinutes(value: string) {
   const [hours, minutes] = value.split(":").map(Number);
@@ -151,7 +158,10 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
@@ -404,6 +414,15 @@ export function CreateEventPage() {
   });
   const watchedCategory = form.watch("category");
   const watchedStartTime = form.watch("startTime");
+  const programById = useMemo(() => {
+    const map = new Map(Object.entries(PROGRAM_CODES));
+    if (catalog.programs.data?.items) {
+      catalog.programs.data.items.forEach((p) => {
+        map.set(p.id, p.code);
+      });
+    }
+    return map;
+  }, [catalog.programs.data]);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -412,7 +431,6 @@ export function CreateEventPage() {
     return <LoadingState label="Loading participant selector" />;
   }
   const selectedStudents = selectedIds.map((id) => supabaseStudents.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
-  const programById = new Map(Object.entries(PROGRAM_CODES));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
   const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
@@ -489,10 +507,7 @@ export function CreateEventPage() {
     }
   }  return (
     <OrganizerFrame>
-      <PageHeader
-        title="Create Event"
-        description="Create events, assign participants, preview live predicted attendance, and publish immediately."
-      />
+      <PageHeader title="Create Event" />
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
@@ -502,8 +517,8 @@ export function CreateEventPage() {
             />
             <div className="grid gap-4 md:grid-cols-2">
               <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
-              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
-              <TextField control={form.control} name="category" label="Category" placeholder="e.g. Career Talk" />
+              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. PLP University Orientation & General Assembly" />
+              <TextField control={form.control} name="category" label="Category" placeholder="e.g. General Assembly" />
               <SelectField
                 control={form.control}
                 name="venue"
@@ -519,7 +534,7 @@ export function CreateEventPage() {
                   control={form.control}
                   name="description"
                   label="Description (Optional)"
-                  placeholder="e.g. A career orientation with hotel and restaurant industry partners."
+                  placeholder="e.g. A university-wide summit for all PLP students, faculty, and campus organizations."
                   rows={3}
                 />
               </div>
@@ -528,9 +543,9 @@ export function CreateEventPage() {
               <h3 className="font-semibold text-foreground">Objectives (1-3)</h3>
               <p className="mt-1 text-sm text-muted-foreground">All three objectives are required for the event record.</p>
               <div className="mt-4 grid gap-3">
-                <TextField control={form.control} name="objective1" label="Objective 1" placeholder="e.g. Improve student awareness of hospitality career paths." />
-                <TextField control={form.control} name="objective2" label="Objective 2" placeholder="e.g. Encourage participation in department-wide activities." />
-                <TextField control={form.control} name="objective3" label="Objective 3" placeholder="e.g. Gather feedback for future event planning." />
+                <TextField control={form.control} name="objective1" label="Objective 1" placeholder="e.g. Promote inter-departmental student collaboration across PLP." />
+                <TextField control={form.control} name="objective2" label="Objective 2" placeholder="e.g. Orient students on university-wide activities and career guidance." />
+                <TextField control={form.control} name="objective3" label="Objective 3" placeholder="e.g. Gather feedback to improve future campus events." />
               </div>
             </section>
           </div>
@@ -588,7 +603,15 @@ export function CreateEventPage() {
             <SearchInput value={search} placeholder="Search students" onChange={setSearch} />
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
               <option value="">All programs</option>
-              <option value="program-bshm">BSHM</option>
+              {catalog.programs.data?.items ? (
+                catalog.programs.data.items.map((program) => (
+                  <option key={program.id} value={program.id}>{program.code} - {program.name}</option>
+                ))
+              ) : (
+                Object.entries(PROGRAM_CODES).map(([id, code]) => (
+                  <option key={id} value={id}>{code}</option>
+                ))
+              )}
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
               <option value="">All year levels</option>

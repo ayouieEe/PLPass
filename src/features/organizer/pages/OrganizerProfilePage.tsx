@@ -78,7 +78,8 @@ export function OrganizerProfilePage() {
   const user = userQuery.data;
   const organizer = organizerQuery.data?.items[0];
   const departments = catalog.departments.data?.items;
-  const departmentDisplayName = "Hospitality Management"; //getNameById(departments
+  const departmentName = getNameById(departments, organizer?.departmentId);
+  const departmentDisplayName = departmentName !== "N/A" ? departmentName : "PLP Administration";
 
   if (!user || !organizer) {
     return <ErrorState title="Profile not found" message="No organizer profile details were found for this account." />;
@@ -136,12 +137,11 @@ export function OrganizerProfilePage() {
 
 
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-4 p-1">
       <PageHeader
         title="Profile"
-        description="Manage your organizer account settings, change password, and update your profile photo."
         actions={
-          <Button variant="outline" onClick={handleLogout} className="gap-2">
+          <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
             <LogOut className="h-4 w-4" />
             <span>Logout</span>
           </Button>

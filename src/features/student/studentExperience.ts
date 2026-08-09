@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useStudents } from "@/hooks/useRepositoryQueries";
 import { compareDateValues, formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
@@ -77,7 +78,10 @@ export const lateReasonOptions = [
 
 export function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const studentQuery = useStudents({ pageSize: 1 }, context);
 
   return {

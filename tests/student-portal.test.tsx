@@ -48,7 +48,7 @@ describe("student route access", () => {
 
     expect(await screen.findByRole("heading", { name: "Student dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "student navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open attended event records" })).toHaveAttribute("href", "/student/attendance");
+    expect(await screen.findByRole("link", { name: "Open attended event records" })).toHaveAttribute("href", "/student/attendance");
     expect(screen.getByRole("link", { name: "Open attendance records" })).toHaveAttribute("href", "/student/attendance");
     expect(screen.getByRole("link", { name: "Open event cards" })).toHaveAttribute("href", "/student/events");
     expect(screen.getByRole("button", { name: "Open feedback tasks" })).toBeInTheDocument();
@@ -183,7 +183,7 @@ describe("student UI flows", () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Student dashboard" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open feedback tasks" }));
+    await user.click(await screen.findByRole("button", { name: "Open feedback tasks" }));
     const feedbackDialog = await screen.findByRole("dialog");
     expect(within(feedbackDialog).getByRole("heading", { name: "Pending Feedback" })).toBeInTheDocument();
     expect(within(feedbackDialog).getByText("Sustainable Tourism Speaker Series")).toBeInTheDocument();

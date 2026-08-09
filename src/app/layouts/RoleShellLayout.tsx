@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { DashboardLayout } from "@/app/layouts/DashboardLayout";
+import { HeaderProvider } from "@/app/providers/HeaderContext";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 
@@ -15,8 +16,11 @@ export function RoleShellLayout() {
   }
 
   return (
-    <DashboardLayout role={session.role} userLabel={session.displayName}>
-      <Outlet />
-    </DashboardLayout>
+    <HeaderProvider>
+      <DashboardLayout role={session.role} userLabel={session.displayName}>
+        <Outlet />
+      </DashboardLayout>
+    </HeaderProvider>
   );
 }
+

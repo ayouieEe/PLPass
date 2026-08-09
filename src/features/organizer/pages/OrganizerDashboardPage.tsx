@@ -122,13 +122,12 @@ function sessionSummaryFromStore(event: OrganizerCompletedEvent): SessionSummary
 function DashboardMetricCard({
   title,
   value,
-  detail,
   icon: Icon,
   tone = "default"
 }: {
   title: string;
   value: string;
-  detail: string;
+  detail?: string;
   icon: LucideIcon;
   tone?: "default" | "warning" | "success";
 }) {
@@ -140,17 +139,16 @@ function DashboardMetricCard({
         : "border-primary/15 bg-primary/5 text-primary";
 
   return (
-    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
+    <article className="rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
-          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
+          <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
         </div>
-        <span className={`grid h-10 w-10 flex-none place-items-center rounded-md border ${toneClass}`}>
-          <Icon className="h-5 w-5" aria-hidden="true" />
+        <span className={`grid h-9 w-9 flex-none place-items-center rounded-md border ${toneClass}`}>
+          <Icon className="h-4 w-4" aria-hidden="true" />
         </span>
       </div>
-      <p className="mt-4 line-clamp-2 text-sm leading-5 text-muted-foreground">{detail}</p>
     </article>
   );
 }
@@ -162,20 +160,20 @@ function ChartPanel({
   children
 }: {
   title: string;
-  description: string;
+  description?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="rounded-lg border bg-surface p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
         </div>
         {action}
       </div>
-      <div className="mt-5 h-72 w-full">{children}</div>
+      <div className="mt-3 h-64 w-full">{children}</div>
     </section>
   );
 }
@@ -183,12 +181,9 @@ function ChartPanel({
 function LateReasonLabels({ data }: { data: Array<{ category: string; share: number }> }) {
   return (
     <aside className="h-full rounded-lg border bg-surface p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Late-Arrival Reason Labels</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Share of late check-ins by reason this month.</p>
-        </div>
-        <span className="flex-none rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">Late-Arrival Reasons</h2>
+        <span className="flex-none rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
           Top
         </span>
       </div>
@@ -287,36 +282,35 @@ export function OrganizerDashboardPage() {
   const topLateReason = lateReasonData.reduce((top, item) => (item.share > top.share ? item : top), lateReasonData[0] ?? EMPTY_SUMMARY.topLateArrivalReason);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Dashboard"
-        description="Day-to-day workspace for live sessions, turnout forecasts, attendance trends, and feedback signals."
         actions={
           <>
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" size="sm">
               <NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink>
             </Button>
-            <Button asChild>
+            <Button asChild size="sm">
               <NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink>
             </Button>
           </>
         }
       />
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="animate-fade-in-up-1">
           <DashboardMetricCard
             title="Total Events"
             value={totalEvents.toLocaleString()}
-            detail="Published AHTOMP events in the current data set."
+            detail="Published events"
             icon={CalendarCheck}
           />
         </div>
         <div className="animate-fade-in-up-2">
           <DashboardMetricCard
-            title="Active Sessions Today"
+            title="Active Today"
             value={activeSessionCount.toLocaleString()}
-            detail={activeEvent ? `${activeEvent.code}: ${activeEvent.title}` : "No active session. Showing the next upcoming event."}
+            detail={activeEvent ? activeEvent.code : "No active session"}
             icon={Clock3}
             tone="success"
           />
@@ -325,7 +319,7 @@ export function OrganizerDashboardPage() {
           <DashboardMetricCard
             title="Registered Students"
             value={uiState.students.length.toLocaleString()}
-            detail="Total student registrations across tracked event sessions."
+            detail="Total enrolled"
             icon={Users}
           />
         </div>
@@ -333,7 +327,7 @@ export function OrganizerDashboardPage() {
           <DashboardMetricCard
             title="Next Event Turnout"
             value={nextEvent ? `${nextEvent.predictedTurnout}%` : "0%"}
-            detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."}
+            detail={nextEvent ? nextEvent.code : "No upcoming event"}
             icon={TrendingUp}
             tone="success"
           />
@@ -352,12 +346,11 @@ export function OrganizerDashboardPage() {
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <section className="rounded-lg border bg-surface p-4 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-foreground">Today&apos;s Event Details</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Overview of the event scheduled for today and its current session context.</p>
+                <h2 className="text-sm font-semibold text-foreground">Today&apos;s Event</h2>
               </div>
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
                 Live today
               </span>
             </div>
@@ -400,10 +393,9 @@ export function OrganizerDashboardPage() {
 
           <ChartPanel
             title="Attendance Trends"
-            description="Attendance rate per session, filterable by event."
           action={
             <select
-              className="h-10 rounded-md border bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              className="h-8 rounded-md border bg-background px-2.5 text-xs text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               value={eventFilter}
               onChange={(event) => setEventFilter(event.target.value)}
               aria-label="Filter attendance trend by event"
@@ -444,10 +436,7 @@ export function OrganizerDashboardPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <ChartPanel
-          title="Prediction Overview"
-          description="Predicted-to-attend vs. predicted-to-miss by event."
-        >
+        <ChartPanel title="Turnout Predictions">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={predictionOverviewData} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -461,10 +450,7 @@ export function OrganizerDashboardPage() {
           </ResponsiveContainer>
         </ChartPanel>
 
-        <ChartPanel
-          title="Feedback Sentiment"
-          description="Average positive, neutral, and negative feedback share across events."
-        >
+        <ChartPanel title="Feedback Sentiment">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie

@@ -63,7 +63,8 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["students", listQuery, context],
-    queryFn: () => repositories.userManagement.listStudents(listQuery, context)
+    queryFn: () => repositories.userManagement.listStudents(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -71,7 +72,8 @@ export function useFacultyProfiles(query?: Partial<ListQuery>, context?: Reposit
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["facultyProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listFacultyProfiles(listQuery, context)
+    queryFn: () => repositories.userManagement.listFacultyProfiles(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -79,7 +81,8 @@ export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: Repos
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["organizerProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listOrganizerProfiles(listQuery, context)
+    queryFn: () => repositories.userManagement.listOrganizerProfiles(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -87,7 +90,8 @@ export function useAdminProfiles(query?: Partial<ListQuery>, context?: Repositor
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["adminProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context)
+    queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -166,7 +170,8 @@ export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContex
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["events", listQuery, context],
-    queryFn: () => repositories.eventManagement.listEvents(listQuery, context)
+    queryFn: () => repositories.eventManagement.listEvents(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -220,7 +225,8 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceSessions", listQuery, context],
-    queryFn: () => repositories.attendanceSessions.listAttendanceSessions(listQuery, context)
+    queryFn: () => repositories.attendanceSessions.listAttendanceSessions(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -228,7 +234,7 @@ export function useAttendanceSession(sessionId: string | undefined, context?: Re
   return useQuery({
     queryKey: ["attendanceSession", sessionId, context],
     queryFn: () => repositories.attendanceSessions.getAttendanceSessionById(sessionId ?? "", context),
-    enabled: Boolean(sessionId),
+    enabled: Boolean(sessionId && context),
     retry: false
   });
 }
@@ -261,7 +267,8 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceRecords", listQuery, context],
-    queryFn: () => repositories.attendanceRecords.listAttendanceRecords(listQuery, context)
+    queryFn: () => repositories.attendanceRecords.listAttendanceRecords(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 

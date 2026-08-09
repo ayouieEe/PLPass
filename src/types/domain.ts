@@ -39,6 +39,13 @@ export type Student = {
   departmentId: ID;
   yearLevel: number;
   section: string;
+  programCode?: string;
+  fullName?: string;
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  formattedName?: string;
+  email?: string;
   createdAt: ISODateString;
 };
 
