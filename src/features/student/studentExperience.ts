@@ -476,11 +476,11 @@ export function buildStudentEventWorkflow(input: {
   const requiresCorrection = state === "Pending Time Out" || state === "Correction Rejected";
   const nextAction = (() => {
     if (state === "Late Reason Required") return ["Submit Late Reason", "Record the reason before feedback unlocks."] as const;
-    if (state === "Feedback Available") return ["Answer Event Feedback", "Required before attendance is marked complete."] as const;
+    if (state === "Feedback Available") return ["Answer Feedback", "Required before attendance is marked complete."] as const;
     if (state === "Absent") return ["Submit Excuse", "File an excuse request for organizer review."] as const;
     if (state === "Pending Time Out") return ["File Correction", "Time Out is missing. Ask the organizer to review the record."] as const;
     if (state === "Correction Rejected") return ["File Correction", "Review the decision and submit a clearer request if needed."] as const;
-    if (state === "Waiting for Time In") return ["Present QR Credential", "Show your Supabase QR credential to the organizer. The organizer records Time In."] as const;
+    if (state === "Waiting for Time In") return ["Show QR", "Show your QR to the organizer. The organizer records Time In."] as const;
     if (state === "Feedback Submitted") return ["Attendance Completed", "Your feedback is submitted and attendance is complete."] as const;
     return ["View Event", "Review details, objectives, and resources."] as const;
   })();

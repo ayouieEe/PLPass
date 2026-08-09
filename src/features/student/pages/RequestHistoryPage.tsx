@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { ClipboardList, FilePenLine, History, ListFilter, MessageSquareWarning, Search } from "lucide-react";
+import { FilePenLine, ListFilter, Search } from "lucide-react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { StatCard } from "@/components/shared/StatCard";
 import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
@@ -45,8 +44,8 @@ function statusTone(status: CorrectionRequestStatus | CredentialRequestStatus) {
 
 function typeLabel(type: StudentRequestKind) {
   if (type === "attendance_correction") return "Correction Request";
-  if (type === "authentication_issue") return "Authentication Issue";
-  return "Re-enrollment Request";
+  if (type === "authentication_issue") return "Check-in Problem";
+  return "Facial Review";
 }
 
 function submittedTime(value: string) {
@@ -139,7 +138,7 @@ export function RequestHistoryPage() {
       submittedAt: request.requestedAt,
       type: request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue",
       typeLabel: typeLabel(request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue"),
-      title: request.requestType === "re_enrollment" ? "Facial re-enrollment request" : "Authentication issue",
+      title: request.requestType === "re_enrollment" ? "Facial review request" : "Check-in problem",
       description: request.reason,
       status: request.status,
       reference: request.credentialType === "facial" ? "Facial Recognition" : "Attendance Methods",
@@ -159,16 +158,14 @@ export function RequestHistoryPage() {
     return matchesSearch && matchesType && matchesStatus;
   });
 
-  const pendingCount = requestRows.filter((row) => row.status === "pending").length;
   const resolvedCount = requestRows.filter((row) => row.status === "approved" || row.status === "rejected" || row.status === "resolved").length;
-  const issueCount = requestRows.filter((row) => row.type !== "attendance_correction").length;
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Student Requests"
         title="Request History"
-        description="Track correction requests, authentication issues, and re-enrollment requests you have submitted."
+        description="Track the attendance corrections, check-in problems, and facial review requests you submitted."
       />
 
       {hasPartialDataIssue ? (
@@ -180,19 +177,13 @@ export function RequestHistoryPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <StatCard title="Total Requests" value={String(requestRows.length)} description="All submitted concerns" icon={ClipboardList} />
-        <StatCard title="Pending" value={String(pendingCount)} description="Awaiting organizer review" icon={History} tone={pendingCount ? "warning" : "success"} />
-        <StatCard title="Issues Reported" value={String(issueCount)} description="Authentication and re-enrollment" icon={MessageSquareWarning} />
-      </section>
-
       <section className={cn(cardShellClass, "p-0")}>
         <CardAccent />
         <div className="flex flex-wrap items-start justify-between gap-3 p-5 md:p-6">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Submitted Requests</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {visibleRows.length} shown, {resolvedCount} resolved.
+              {visibleRows.length} shown, {resolvedCount} completed.
             </p>
           </div>
           <StatusBadge label={`${requestRows.length} total`} tone="info" />
@@ -218,9 +209,9 @@ export function RequestHistoryPage() {
               onChange={(event) => setTypeFilter(event.target.value)}
             >
               <option value="">All request types</option>
-              <option value="attendance_correction">Correction Requests</option>
-              <option value="authentication_issue">Authentication Issues</option>
-              <option value="face_reenrollment">Re-enrollment Requests</option>
+              <option value="attendance_correction">Correction requests</option>
+              <option value="authentication_issue">Check-in problems</option>
+              <option value="face_reenrollment">Facial reviews</option>
             </select>
           </label>
           <label className="relative flex h-11 items-center">

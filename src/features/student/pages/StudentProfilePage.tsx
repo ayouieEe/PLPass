@@ -10,7 +10,6 @@ import {
   School,
   GraduationCap,
   CalendarCheck,
-  Database,
   ShieldCheck
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -145,7 +144,7 @@ export function StudentProfilePage() {
       <PageHeader
         eyebrow="Account"
         title="Profile"
-        description="Review your Supabase-backed student profile, attendance readiness, and account status."
+        description="Review your student details, attendance access, and account status."
         actions={
           <Button variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
             <LogOut className="h-4 w-4" />
@@ -156,15 +155,14 @@ export function StudentProfilePage() {
 
       {credentialReadinessError ? (
         <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm">
-          <p className="font-semibold text-foreground">Credential readiness could not be loaded</p>
+          <p className="font-semibold text-foreground">Attendance access could not be loaded</p>
           <p className="mt-1 text-muted-foreground">
-            Profile details are still available, but QR/facial readiness needs the Supabase credential tables and policies to be reachable.
+            Profile details are still available. If this continues, ask an organizer to verify your attendance access.
           </p>
         </div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Side: Supabase Profile Summary */}
         <div className="student-glass-card p-6 flex flex-col items-center text-center space-y-4 shadow-sm">
           <div className="relative">
             <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-primary/20 bg-secondary flex items-center justify-center shadow-inner">
@@ -176,8 +174,8 @@ export function StudentProfilePage() {
             </div>
             <span
               className="absolute bottom-1 right-1 h-9 w-9 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md border-2 border-white"
-              aria-label="Profile image from Supabase profile"
-              title="Profile image from Supabase profile"
+              aria-label="Profile image"
+              title="Profile image"
             >
               <Camera className="h-4.5 w-4.5" />
             </span>
@@ -187,7 +185,7 @@ export function StudentProfilePage() {
             <h3 className="font-bold text-lg text-foreground">{user.displayName}</h3>
             <p className="text-xs text-muted-foreground mt-0.5">{user.email}</p>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Profile images are read from Supabase profile data. Upload changes are handled by an administrator.
+              Profile photo changes are handled by an administrator.
             </p>
           </div>
 
@@ -198,7 +196,6 @@ export function StudentProfilePage() {
           </div>
         </div>
 
-        {/* Center: Student Information Details */}
         <div className="lg:col-span-2 space-y-6">
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
@@ -216,7 +213,6 @@ export function StudentProfilePage() {
               <ProfileField label="Section" value={student.section} icon={CalendarCheck} />
               <ProfileField label="Enrollment Status" value={student.status} icon={ShieldAlert} />
               <ProfileField label="Account Status" value={user.isActive ? "Active" : "Inactive"} icon={ShieldCheck} />
-              <ProfileField label="Profile Source" value="Supabase profile record" icon={Database} />
             </div>
           </div>
 
@@ -231,64 +227,22 @@ export function StudentProfilePage() {
               <ProfileField label="Event Records" value={metrics.totalCount} icon={CalendarCheck} />
               <ProfileField label="Attendance Rate" value={`${metrics.attendanceRate}%`} icon={Award} />
               <ProfileField label="Account Created" value={formatDisplayDate(user.createdAt)} icon={CalendarCheck} />
-              <ProfileField label="Authentication Provider" value="Supabase Auth" icon={Database} />
             </div>
           </div>
 
-          {/* Change Password Form Card */}
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-primary" />
               Account Security
             </h3>
 
-            <form onSubmit={(event) => event.preventDefault()} className="space-y-4 max-w-md">
-              <p className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
-                Password changes are managed by Supabase Auth. Contact an administrator if your account password needs to be reset.
-              </p>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Current Password</label>
-                <input
-                  type="password"
-                  className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value=""
-                  readOnly
-                  disabled
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">New Password</label>
-                <input
-                  type="password"
-                  className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value=""
-                  readOnly
-                  disabled
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Confirm New Password</label>
-                <input
-                  type="password"
-                  className="student-input h-10 w-full px-3 py-2 text-sm focus:outline-none"
-                  value=""
-                  readOnly
-                  disabled
-                  placeholder="••••••••"
-                />
-              </div>
-
-              <Button type="submit" disabled className="student-btn-primary px-6 mt-2">
-                Managed by Supabase Auth
-              </Button>
-            </form>
+            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
+              Password resets and account access changes are handled by an administrator. If you cannot access your account, contact the PLPass support person assigned to your class or event.
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 }
+

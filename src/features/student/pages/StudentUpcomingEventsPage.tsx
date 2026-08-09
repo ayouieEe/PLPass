@@ -62,10 +62,6 @@ function buildCalendarGrid(monthCursor: Date) {
   return cells;
 }
 
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
 function isEventStillInStudentEventsFlow(state: string) {
   return ["Session Not Started", "Waiting for Time In", "Pending Time Out", "Late Reason Required"].includes(state);
 }
@@ -85,6 +81,10 @@ function eventTimingBadge(event: Event) {
   if (isOngoingEvent(event)) return { label: "Ongoing", tone: "warning" as const };
   if (isScheduledToday(event)) return { label: "Scheduled Today", tone: "info" as const };
   return { label: countdownLabel(event.startsAt), tone: "info" as const };
+}
+
+function formatEventTimeRange(event: Event) {
+  return `${formatDisplayTime(event.startsAt)} - ${formatDisplayTime(event.endsAt)}`;
 }
 
 export function StudentUpcomingEventsPage() {
@@ -154,20 +154,24 @@ export function StudentUpcomingEventsPage() {
     };
   });
 
-  const today = new Date();
-  const todayStart = startOfLocalDay(today);
-  const tomorrowStart = todayStart + 86_400_000;
   const actionableWorkflows = allWorkflows.filter(({ workflow }) => isEventStillInStudentEventsFlow(workflow.state));
   const ongoingWorkflowsFromRepository = actionableWorkflows.filter(({ event }) => isOngoingEvent(event));
-  const ongoingWorkflows = ongoingWorkflowsFromRepository;
+  const ongoingWorkflows = ongoingWorkflowsFromRepository
+    .slice()
+    .sort((left, right) => {
+      const leftHasTimedIn = left.workflow.state === "Pending Time Out" ? -1 : 0;
+      const rightHasTimedIn = right.workflow.state === "Pending Time Out" ? -1 : 0;
+      if (leftHasTimedIn !== rightHasTimedIn) {
+        return leftHasTimedIn - rightHasTimedIn;
+      }
+      return new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime();
+    })
+    .slice(0, 1);
+  const hiddenOngoingCount = Math.max(0, ongoingWorkflowsFromRepository.length - ongoingWorkflows.length);
 
   // "Upcoming" tab — only events that have not started yet. Anything already
-  // underway belongs in the Ongoing tab, and anything already finished has no
-  // place in either list.
   const now = Date.now();
   const upcomingWorkflowsFromRepository = actionableWorkflows.filter(({ event }) => new Date(event.startsAt).getTime() > now);
-  void todayStart;
-  void tomorrowStart;
   const upcomingWorkflows = upcomingWorkflowsFromRepository
     .filter(({ event }) => new Date(event.startsAt).getTime() > now)
     .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime());
@@ -177,13 +181,10 @@ export function StudentUpcomingEventsPage() {
   const workflows = tabWorkflows.filter(({ event, workflow }) => {
     const term = search.trim().toLowerCase();
     const matchesSearch = !term || [event.title, event.code, event.category, event.venue].some((value) => value.toLowerCase().includes(term));
-    const matchesAction = !actionFilter || workflow.state === actionFilter;
+    const matchesAction = activeTab !== "ongoing" || !actionFilter || workflow.state === actionFilter;
     return matchesSearch && matchesAction;
   });
 
-  // Calendar always reflects the full upcoming list (not just the current month's
-  // search/filter results are still respected, but the tab restriction to
-  // "upcoming" events specifically is what guarantees these are incoming events).
   const calendarCells = buildCalendarGrid(monthCursor);
   const eventsByDay = new Map<string, typeof workflows>();
   workflows.forEach((entry) => {
@@ -195,6 +196,10 @@ export function StudentUpcomingEventsPage() {
 
   const selectedDayEvents = selectedDayKey ? eventsByDay.get(selectedDayKey) ?? [] : [];
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const hasFilters = Boolean(search.trim() || (activeTab === "ongoing" && actionFilter));
+  const resultLabel = activeTab === "ongoing"
+    ? `${workflows.length} current event${workflows.length === 1 ? "" : "s"}`
+    : `${workflows.length} upcoming event${workflows.length === 1 ? "" : "s"}`;
 
   function goToMonth(offset: number) {
     setMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
@@ -212,7 +217,7 @@ export function StudentUpcomingEventsPage() {
       <PageHeader
         eyebrow="Events"
         title="Events"
-        description="Review events you still need to attend today or in the future. Completed attendance is kept in Attendance Records."
+        description="Review events you can still attend. Completed attendance stays in Attendance Records."
       />
 
       <section className="relative space-y-4 overflow-hidden rounded-2xl border bg-surface p-4 shadow-sm">
@@ -228,6 +233,9 @@ export function StudentUpcomingEventsPage() {
                 type="button"
                 onClick={() => {
                   setActiveTab(tab.id);
+                  if (tab.id === "upcoming") {
+                    setActionFilter("");
+                  }
                   setSelectedDayKey(null);
                 }}
                 className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 ${
@@ -287,7 +295,7 @@ export function StudentUpcomingEventsPage() {
           )}
         </div>
 
-        <div className="grid gap-3 border-t pt-4 md:grid-cols-[minmax(0,1fr)_240px]">
+        <div className={`grid gap-3 border-t pt-4 ${activeTab === "ongoing" ? "md:grid-cols-[minmax(0,1fr)_240px]" : ""}`}>
           <label className="group flex items-center gap-3 rounded-xl border bg-background px-3 py-2.5 text-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
             <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-focus-within:text-primary" />
             <input
@@ -297,26 +305,55 @@ export function StudentUpcomingEventsPage() {
               placeholder="Search event, code, venue..."
             />
           </label>
-          <label className="relative flex h-11 items-center">
-            <SlidersHorizontal className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-            <select
-              className="plpass-select pl-9"
-              value={actionFilter}
-              onChange={(event) => setActionFilter(event.target.value)}
+          {activeTab === "ongoing" ? (
+            <label className="relative flex h-11 items-center">
+              <SlidersHorizontal className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
+              <select
+                className="plpass-select pl-9"
+                value={actionFilter}
+                onChange={(event) => setActionFilter(event.target.value)}
+              >
+                <option value="">All actions</option>
+                <option value="Waiting for Time In">Needs Time In</option>
+                <option value="Pending Time Out">Needs Time Out</option>
+                <option value="Late Reason Required">Needs Late Reason</option>
+              </select>
+            </label>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-background/70 px-3 py-2 text-sm">
+          <span className="font-medium text-muted-foreground">
+            Showing <span className="text-foreground">{resultLabel}</span>
+            {hasFilters ? " matching your filters" : ""}
+          </span>
+          {hasFilters ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearch("");
+                setActionFilter("");
+              }}
             >
-              <option value="">All actions</option>
-              <option value="Session Not Started">Session Not Started</option>
-              <option value="Waiting for Time In">Waiting for Time In</option>
-              <option value="Pending Time Out">Pending Time Out</option>
-              <option value="Late Reason Required">Late Reason Required</option>
-            </select>
-          </label>
+              Clear filters
+            </Button>
+          ) : null}
         </div>
       </section>
 
       {activeTab === "ongoing" ? (
         workflows.length ? (
           <div className="grid gap-4">
+            {hiddenOngoingCount > 0 ? (
+              <div className="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm">
+                <p className="font-semibold text-warning">Schedule overlap detected</p>
+                <p className="mt-1 text-muted-foreground">
+                  PLPass is showing your current event only. Other overlapping active events are kept out of this tab because a student can attend one event at a time.
+                </p>
+              </div>
+            ) : null}
             {workflows.map(({ event, workflow }) => {
               const conflict = conflictMap.get(event.id);
               const eventResource = getEventResource(event);
@@ -347,7 +384,7 @@ export function StudentUpcomingEventsPage() {
                         <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5">
                           <Clock className="h-3.5 w-3.5 text-primary" />
                         </span>
-                        {formatDisplayTime(event.startsAt)} – {formatDisplayTime(event.endsAt)}
+                        {formatEventTimeRange(event)}
                       </p>
                       <p className="flex items-center gap-2 text-muted-foreground">
                         <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5">
@@ -367,7 +404,7 @@ export function StudentUpcomingEventsPage() {
                       <div>
                         <p className="text-sm font-semibold text-primary">Active attendance window</p>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Present your Supabase QR credential to the organizer. The organizer records Time In and Time Out.
+                          Open your attendance method and present your QR if the organizer asks for it. The organizer records Time In and Time Out.
                         </p>
                       </div>
                     </div>
@@ -386,10 +423,10 @@ export function StudentUpcomingEventsPage() {
                       <div className="rounded-xl border bg-background p-4 transition hover:border-primary/30">
                         <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                           <Layers className="h-3.5 w-3.5" />
-                          Objectives
+                          What to review
                         </p>
                         <p className="mt-2.5 text-sm text-muted-foreground">
-                          Open event details to view objectives configured by the organizer in Supabase.
+                          Open event details to review the purpose, reminders, and attendance action for this event.
                         </p>
                       </div>
 
@@ -432,6 +469,14 @@ export function StudentUpcomingEventsPage() {
                         <span>Time Out</span>
                         <span className="font-semibold text-foreground">{workflow.timeOutLabel}</span>
                       </p>
+                    </div>
+                    <div className="grid gap-2 border-t pt-4">
+                      <Button asChild size="sm">
+                        <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
+                      </Button>
+                      <Button asChild variant="outline" size="sm">
+                        <NavLink to={APP_ROUTES.studentMethods}>Open Attendance Methods</NavLink>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -624,7 +669,7 @@ export function StudentUpcomingEventsPage() {
                       <div className="mt-2.5 space-y-1 text-xs text-muted-foreground">
                         <p className="flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-                          {formatDisplayTime(event.startsAt)} – {formatDisplayTime(event.endsAt)}
+                          {formatEventTimeRange(event)}
                         </p>
                         <p className="flex items-center gap-1.5">
                           <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
@@ -677,7 +722,7 @@ export function StudentUpcomingEventsPage() {
                     <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5">
                       <Clock className="h-3.5 w-3.5 text-primary" />
                     </span>
-                    {formatDisplayTime(event.startsAt)} – {formatDisplayTime(event.endsAt)}
+                    {formatEventTimeRange(event)}
                   </p>
                   <p className="flex items-center gap-2 text-muted-foreground">
                     <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary/20 to-primary/5">
@@ -704,9 +749,9 @@ export function StudentUpcomingEventsPage() {
                 ) : null}
 
                 <div className="mt-5 flex-1 rounded-xl border bg-background p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Objectives</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What to review</p>
                   <p className="mt-2.5 text-sm text-muted-foreground">
-                    Open event details to view objectives configured by the organizer in Supabase.
+                    Open event details to review the purpose, reminders, and attendance action for this event.
                   </p>
                 </div>
 

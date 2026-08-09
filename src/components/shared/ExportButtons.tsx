@@ -11,7 +11,7 @@ type ExportButtonsProps = {
 export function ExportButtons({ onExportXlsx, onExportPdf, disabled = false, title }: ExportButtonsProps) {
   const xlsxDisabled = disabled || !onExportXlsx;
   const pdfDisabled = disabled || !onExportPdf;
-  const disabledTitle = title ?? "Export generation requires backend support";
+  const disabledTitle = title ?? "Export is not available yet";
 
   return (
     <div className="flex flex-wrap items-center gap-2">

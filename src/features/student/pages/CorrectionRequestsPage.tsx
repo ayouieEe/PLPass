@@ -26,6 +26,7 @@ import { TextAreaField } from "@/components/forms/TextAreaField";
 import { SubmitButton } from "@/components/forms/SubmitButton";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { formatDisplayDate } from "@/lib/utils/date";
 import {
   correctionRequestTypeLabels,
@@ -267,7 +268,7 @@ export function CorrectionRequestsPage() {
         <div className="lg:col-span-1 student-glass-card p-6 space-y-4 shadow-sm h-fit">
           <div>
             <h3 className="font-semibold text-foreground text-base">File New Request</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">Submit a Supabase-backed correction request with a clear explanation.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Submit a correction request with a clear explanation.</p>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -359,68 +360,54 @@ export function CorrectionRequestsPage() {
 
       {/* DETAILED REQUEST VIEW DIALOG */}
       {selectedRequest && (
-        <section
-          className="fixed inset-0 z-50 grid place-items-center bg-primary/25 p-4 backdrop-blur-md animate-in fade-in-30"
-          role="dialog"
-          aria-modal="true"
+        <ModalShell
+          open={Boolean(selectedRequest)}
+          title="Correction Request Detail"
+          description={`Submitted on ${formatDisplayDate(selectedRequest.requestedAt, "N/A")}`}
+          size="sm"
+          onClose={() => setSelectedRequest(null)}
+          footer={<Button onClick={() => setSelectedRequest(null)}>Close</Button>}
         >
-          <div className="w-full max-w-lg rounded-[28px] border border-border bg-card/75 p-6 shadow-2xl space-y-5 backdrop-blur-xl animate-in zoom-in-95">
-            <div className="flex justify-between items-start border-b border-border pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-foreground">Correction Request Detail</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Submitted on {formatDisplayDate(selectedRequest.requestedAt, "N/A")}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedRequest(null)} className="text-foreground hover:bg-secondary">
-                ✕
-              </Button>
-            </div>
-
-            <div className="space-y-3.5 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-card/40 p-3 rounded-xl border border-border">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground">Record ID</span>
-                  <p className="font-semibold text-foreground mt-0.5 truncate">{selectedRequest.attendanceRecordId || "N/A"}</p>
+          <div className="space-y-3.5 text-sm">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border bg-background p-3">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground">Attendance Record</span>
+                  <p className="mt-0.5 truncate font-semibold text-foreground">{selectedRequest.attendanceRecordId || "N/A"}</p>
                 </div>
-                <div className="bg-card/40 p-3 rounded-xl border border-border">
-                  <span className="text-[10px] uppercase font-bold text-muted-foreground">Request Type</span>
-                  <p className="font-semibold text-foreground mt-0.5 capitalize">{selectedRequest.requestedStatus}</p>
+                <div className="rounded-xl border bg-background p-3">
+                  <span className="text-[10px] font-bold uppercase text-muted-foreground">Request Type</span>
+                  <p className="mt-0.5 font-semibold capitalize text-foreground">{selectedRequest.requestedStatus}</p>
                 </div>
               </div>
 
-              <div className="bg-card/40 p-4 rounded-xl border border-border space-y-2">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground">Explanation / Reason</span>
-                <p className="text-xs leading-relaxed text-foreground">{selectedRequest.reason}</p>
+              <div className="space-y-2 rounded-xl border bg-background p-4">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Explanation / Reason</span>
+                <p className="text-sm leading-relaxed text-foreground">{selectedRequest.reason}</p>
               </div>
 
-              <div className="bg-card/40 p-4 rounded-xl border border-border space-y-2">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground">Review Decision</span>
-                <div className="flex items-center gap-2 mt-1">
+              <div className="space-y-2 rounded-xl border bg-background p-4">
+                <span className="text-[10px] font-bold uppercase text-muted-foreground">Review Decision</span>
+                <div className="mt-1 flex items-center gap-2">
                   {selectedRequest.status === "approved" ? (
-                    <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                    <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500" />
                   ) : selectedRequest.status === "rejected" ? (
-                    <XCircle className="h-5 w-5 text-danger shrink-0" />
+                    <XCircle className="h-5 w-5 shrink-0 text-danger" />
                   ) : (
-                    <Clock className="h-5 w-5 text-warning shrink-0" />
+                    <Clock className="h-5 w-5 shrink-0 text-warning" />
                   )}
-                  <span className="font-semibold text-xs uppercase text-foreground">
+                  <span className="text-xs font-semibold uppercase text-foreground">
                     {selectedRequest.status === "pending" ? "Awaiting review" : `Reviewed: ${selectedRequest.status}`}
                   </span>
                 </div>
-                {selectedRequest.reviewedAt && (
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Review Date: {formatDisplayDate(selectedRequest.reviewedAt, "N/A")}
+                {selectedRequest.reviewedAt ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Review date: {formatDisplayDate(selectedRequest.reviewedAt, "N/A")}
                   </p>
-                )}
+                ) : null}
               </div>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-border">
-              <Button onClick={() => setSelectedRequest(null)} className="student-btn-primary px-6">Close</Button>
-            </div>
-          </div>
-        </section>
+        </ModalShell>
       )}
     </div>
   );

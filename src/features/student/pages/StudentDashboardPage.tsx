@@ -9,6 +9,7 @@ import {
   Clock,
   FilePenLine,
   History,
+  Info,
   MapPin,
   MessageSquareText,
   QrCode,
@@ -118,11 +119,9 @@ function MetricLink({
     <NavLink
       to={to}
       aria-label={label}
-      className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group block h-full rounded-2xl transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="h-full transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:shadow-md">
-        {children}
-      </div>
+      {children}
     </NavLink>
   );
 }
@@ -141,12 +140,35 @@ function MetricButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="group block h-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group block h-full rounded-2xl text-left transition-transform duration-150 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="h-full transition-transform duration-150 group-hover:-translate-y-0.5 group-hover:shadow-md">
-        {children}
-      </div>
+      {children}
     </button>
+  );
+}
+
+function DashboardNotice({
+  tone = "info",
+  title,
+  description
+}: {
+  tone?: "info" | "warning";
+  title: string;
+  description: string;
+}) {
+  const toneClass = tone === "warning"
+    ? "border-warning/30 bg-warning/10 text-warning"
+    : "border-info/30 bg-info/10 text-info";
+  const Icon = tone === "warning" ? TriangleAlert : Info;
+
+  return (
+    <div className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${toneClass}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <div>
+        <p className="font-semibold text-foreground">{title}</p>
+        <p className="mt-1 text-muted-foreground">{description}</p>
+      </div>
+    </div>
   );
 }
 
@@ -170,21 +192,31 @@ export function StudentDashboardPage() {
     return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) {
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
     return <LoadingState label="Loading dashboard" />;
   }
 
-  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError) {
-    return <ErrorState title="Unable to load dashboard" message="Please try refreshing the page." />;
+  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
+    return (
+      <ErrorState
+        title="Unable to load student dashboard"
+        message="The main student records could not be reached. Please refresh the page or try again later."
+      />
+    );
   }
 
   const student = scope.student;
+  const optionalDataWarnings = [
+    feedbackQuery.isError ? "feedback tasks" : "",
+    correctionsQuery.isError ? "request status" : ""
+  ].filter(Boolean);
   const credentialReadinessError = credentialStatusQuery.isError;
   const qrReady = hasUsableQrCredential(ensureStudentIdentityReadiness(credentialStatusQuery.data));
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const conflictMap = getStudentEventConflictMap(events);
   const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
   const dashboardEvents = dashboardEventList(sortedEvents);
+  const ongoingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Ongoing");
   const upcomingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Upcoming");
 
   const eventRecords = getStudentEventRecords({
@@ -197,7 +229,10 @@ export function StudentDashboardPage() {
   const attendedCount = eventMetrics.attendedCount;
   const attendanceRate = eventMetrics.attendanceRate;
   const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
+  const lateReasonRecords = eventMetrics.attendedRecords.filter((record) => record.status === "late" && !record.lateReason);
   const pendingFeedbackRecords = eventMetrics.attendedRecords.filter(
+    (record) => record.status !== "late" || Boolean(record.lateReason)
+  ).filter(
     (record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
   );
   const pendingFeedback = pendingFeedbackRecords.length;
@@ -206,24 +241,38 @@ export function StudentDashboardPage() {
     .map((record) => getStudentFeedbackDeadlineStatus(record))
     .filter((deadline) => deadline.dueAt)
     .sort((left, right) => new Date(left.dueAt ?? "").getTime() - new Date(right.dueAt ?? "").getTime())[0];
-  const lateReasonRecords = eventMetrics.attendedRecords.filter((record) => record.status === "late" && !record.lateReason);
   const studentCorrectionRequests = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
   const rejectedCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "rejected");
-  const pendingCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "pending");
   const hasDashboardTasks =
     lateReasonRecords.length > 0 ||
     pendingFeedback > 0 ||
-    rejectedCorrectionRequests.length > 0 ||
-    pendingCorrectionRequests.length > 0;
-  const eventDateKeys = new Set(events.map((event) => dateKey(event.startsAt)).filter(Boolean));
-  const selectedDateEvents = events.filter((event) => dateKey(event.startsAt) === selectedDate);
+    rejectedCorrectionRequests.length > 0;
+  const eventDateKeys = new Set(dashboardEvents.map((event) => dateKey(event.startsAt)).filter(Boolean));
+  const selectedDateEvents = dashboardEvents.filter((event) => dateKey(event.startsAt) === selectedDate);
 
   const calendarCells = buildMonthGrid(monthAnchor);
   const monthLabel = monthAnchor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const todayKey = dateKey(new Date());
+  const monthEvents = dashboardEvents.filter((event) => {
+    const eventDate = new Date(event.startsAt);
+    return eventDate.getFullYear() === monthAnchor.getFullYear() && eventDate.getMonth() === monthAnchor.getMonth();
+  });
+  const selectedDateLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric"
+  });
 
   function goToMonth(offset: number) {
-    setMonthAnchor((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+    setMonthAnchor((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + offset, 1);
+      const firstEventInMonth = dashboardEvents.find((event) => {
+        const eventDate = new Date(event.startsAt);
+        return eventDate.getFullYear() === next.getFullYear() && eventDate.getMonth() === next.getMonth();
+      });
+      setSelectedDate(firstEventInMonth ? dateKey(firstEventInMonth.startsAt) : dateKey(next));
+      return next;
+    });
   }
 
   return (
@@ -231,30 +280,49 @@ export function StudentDashboardPage() {
       <PageHeader
         eyebrow="Student Portal"
         title="Student dashboard"
-        description="Track published events, organizer-recorded attendance, feedback tasks, and your next required action."
+        description={`Welcome back, ${student.fullName}. Track your events, attendance, feedback tasks, and next required action.`}
       />
 
       {credentialReadinessError ? (
-        <div className="flex items-start gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
-          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <div>
-            <p className="font-semibold text-foreground">Credential readiness could not be loaded</p>
-            <p className="mt-1 text-muted-foreground">
-              Dashboard data is still available, but QR/facial readiness needs the Supabase credential tables and policies to be reachable.
-            </p>
-          </div>
-        </div>
+        <DashboardNotice
+          tone="warning"
+          title="Attendance access status is not available yet"
+          description="Your dashboard data is still shown. QR and facial readiness will appear once attendance access can be checked."
+        />
+      ) : null}
+
+      {optionalDataWarnings.length ? (
+        <DashboardNotice
+          title="Some dashboard details are temporarily incomplete"
+          description={`PLPass loaded your main student data, but ${optionalDataWarnings.join(", ")} could not be checked right now.`}
+        />
       ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attended event records">
-          <StatCard title="Events Attended" value={String(attendedCount)} description="Open attendance records" icon={CalendarCheck} />
+          <StatCard
+            title="Events Attended"
+            value={String(attendedCount)}
+            description={attendedCount ? "Open attendance records" : "No recorded attendance yet"}
+            icon={CalendarCheck}
+          />
         </MetricLink>
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attendance records">
-          <StatCard title="Attendance Rate" value={`${attendanceRate}%`} description="Review attendance records" icon={History} tone={attendanceRate < 80 ? "warning" : "success"} />
+          <StatCard
+            title="Attendance Rate"
+            value={`${attendanceRate}%`}
+            description={eventMetrics.totalCount ? "Based on recorded attendance" : "Waiting for attendance records"}
+            icon={History}
+            tone={eventMetrics.totalCount && attendanceRate < 80 ? "warning" : "success"}
+          />
         </MetricLink>
         <MetricLink to={APP_ROUTES.studentUpcomingEvents} label="Open event cards">
-          <StatCard title="Events" value={String(upcomingEvents.length)} description="Browse event cards" icon={CalendarDays} />
+          <StatCard
+            title="Available Events"
+            value={String(dashboardEvents.length)}
+            description={dashboardEvents.length ? `${ongoingEvents.length} ongoing, ${upcomingEvents.length} upcoming` : "No active events"}
+            icon={CalendarDays}
+          />
         </MetricLink>
         <MetricButton label="Open feedback tasks" onClick={() => setFeedbackModalOpen(true)}>
           <div
@@ -277,7 +345,7 @@ export function StudentDashboardPage() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border bg-background/80 px-3 py-2">
               <span className="text-xs font-semibold text-foreground">
-                {pendingFeedback ? "View feedback tasks" : "Open feedback panel"}
+                {pendingFeedback ? "View feedback tasks" : "No feedback due"}
               </span>
               <span className="text-[11px] font-medium text-muted-foreground">Click</span>
             </div>
@@ -291,14 +359,26 @@ export function StudentDashboardPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Events</h2>
-              <p className="text-sm text-muted-foreground">Open an event to view details, resources, progress, and next action.</p>
+              <p className="text-sm text-muted-foreground">Open an event to view details, schedule, attendance status, and your next action.</p>
             </div>
-            <Button asChild variant="outline" size="sm">
-              <NavLink to={APP_ROUTES.studentUpcomingEvents}>
-                View all
-                <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-              </NavLink>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {dashboardEvents.length ? (
+                <>
+                  <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    {ongoingEvents.length} ongoing
+                  </span>
+                  <span className="rounded-full bg-info/10 px-3 py-1 text-xs font-semibold text-info">
+                    {upcomingEvents.length} upcoming
+                  </span>
+                </>
+              ) : null}
+              <Button asChild variant="outline" size="sm">
+                <NavLink to={APP_ROUTES.studentUpcomingEvents}>
+                  View all
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </NavLink>
+              </Button>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-3">
@@ -356,7 +436,13 @@ export function StudentDashboardPage() {
                 </div>
               </NavLink>
               );
-            }) : <EmptyState title="No upcoming events" description="Published events will appear here." />}
+            }) : (
+              <EmptyState
+                icon={CalendarDays}
+                title="No available events yet"
+                description="Approved student events will appear here once an organizer publishes them."
+              />
+            )}
           </div>
         </div>
 
@@ -364,8 +450,12 @@ export function StudentDashboardPage() {
           <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold tracking-tight">Calendar</h2>
-              <p className="text-sm text-muted-foreground">Select a date to highlight scheduled events.</p>
+              <h2 className="text-lg font-semibold tracking-tight">Upcoming Schedule</h2>
+              <p className="text-sm text-muted-foreground">
+                {monthEvents.length
+                  ? `${monthEvents.length} event${monthEvents.length === 1 ? "" : "s"} this month`
+                  : "No active events this month"}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Button asChild variant="outline" size="sm">
@@ -395,7 +485,14 @@ export function StudentDashboardPage() {
             </div>
           </div>
 
-          <p className="mt-3 text-sm font-semibold">{monthLabel}</p>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold">{monthLabel}</p>
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary">
+              {selectedDateEvents.length
+                ? `${selectedDateEvents.length} selected`
+                : "No event selected"}
+            </span>
+          </div>
 
           <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-muted-foreground">
             {WEEKDAY_LABELS.map((label, index) => (
@@ -430,9 +527,9 @@ export function StudentDashboardPage() {
                   }`}
                 >
                   {day.getDate()}
-                  {hasEvent && !selected && (
+                  {hasEvent && !selected ? (
                     <span className="absolute bottom-1 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-current opacity-70" />
-                  )}
+                  ) : null}
                 </button>
               );
             })}
@@ -440,26 +537,45 @@ export function StudentDashboardPage() {
 
           <div className="mt-4 space-y-2 border-t pt-4">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              {selectedDateLabel}
             </p>
             {selectedDateEvents.length ? selectedDateEvents.map((event) => {
               const conflict = conflictMap.get(event.id);
               return (
-              <div key={event.id} className={`rounded-xl border bg-background p-3 text-sm transition-colors ${conflict ? "border-warning/30" : "hover:border-primary/30"}`}>
-                <p className="font-semibold">{event.title}</p>
-                <p className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
-                  <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-                  {formatDisplayTime(event.startsAt)} · {event.venue}
-                </p>
-                {conflict ? (
-                  <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
-                    <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
-                    {getEventConflictLabel(conflict)}
-                  </p>
-                ) : null}
-              </div>
+                <NavLink
+                  key={event.id}
+                  to={APP_ROUTES.studentEvent(event.id)}
+                  className={`block rounded-xl border bg-background p-3 text-sm transition-colors ${
+                    conflict ? "border-warning/30 hover:border-warning/50" : "hover:border-primary/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{event.title}</p>
+                      <p className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+                        {formatDisplayTime(event.startsAt)}
+                      </p>
+                      <p className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                        {event.venue}
+                      </p>
+                    </div>
+                    <ArrowRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                  </div>
+                  {conflict ? (
+                    <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                      <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
+                      {getEventConflictLabel(conflict)}
+                    </p>
+                  ) : null}
+                </NavLink>
               );
-            }) : <p className="text-sm text-muted-foreground">No event selected for this date.</p>}
+            }) : (
+              <div className="rounded-xl border bg-background p-3 text-sm text-muted-foreground">
+                No active event on this date. Select a highlighted day or open all events.
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -473,7 +589,7 @@ export function StudentDashboardPage() {
             </span>
             <div>
               <h2 className="text-lg font-semibold tracking-tight">Things To Do</h2>
-              <p className="text-sm text-muted-foreground">Anything that needs your action shows up here.</p>
+              <p className="text-sm text-muted-foreground">Only required student actions appear here.</p>
             </div>
           </div>
           <div className="mt-4 grid gap-3">
@@ -493,7 +609,7 @@ export function StudentDashboardPage() {
                   </div>
                 </div>
                 <Button asChild size="sm" className="mt-3">
-                  <NavLink to={`${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(lateReasonRecords[0]?.eventId ?? "")}`}>
+                  <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(lateReasonRecords[0]?.eventId ?? "")}`}>
                     Submit Late Reason
                   </NavLink>
                 </Button>
@@ -544,44 +660,13 @@ export function StudentDashboardPage() {
               </div>
             ) : null}
 
-            {pendingCorrectionRequests.length > 0 ? (
-              <div className="rounded-xl border border-info/30 bg-info/5 p-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-info/10">
-                    <FilePenLine className="h-4 w-4 text-info" />
-                  </span>
-                  <div>
-                    <p className="font-semibold">
-                      {pendingCorrectionRequests.length} correction request{pendingCorrectionRequests.length === 1 ? "" : "s"} awaiting review
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      No action needed yet. The organizer still needs to review your request.
-                    </p>
-                  </div>
-                </div>
-                <Button asChild variant="outline" size="sm" className="mt-3">
-                  <NavLink to={APP_ROUTES.studentRequestHistory}>View Status</NavLink>
-                </Button>
-              </div>
-            ) : null}
-
             {!hasDashboardTasks ? (
               <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
-                <p className="text-sm font-medium text-emerald-700">You're all caught up — nothing pending right now.</p>
+                <p className="text-sm font-medium text-emerald-700">You're all caught up. No required action right now.</p>
               </div>
             ) : null}
 
-            <div className="rounded-xl border bg-background p-4">
-              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <QrCode className="h-3.5 w-3.5" />
-                How attendance works
-              </p>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                QR is the usual check-in method. Organizers can also record facial, manual, or online attendance
-                depending on the event setup.
-              </p>
-            </div>
           </div>
         </div>
 
@@ -593,8 +678,8 @@ export function StudentDashboardPage() {
                 <ShieldCheck className="h-4 w-4 text-primary" />
               </span>
               <div>
-                <h2 className="text-lg font-semibold tracking-tight">Attendance Methods</h2>
-                <p className="text-sm text-muted-foreground">Your Supabase QR credential, facial fallback, and the supported attendance modes.</p>
+                <h2 className="text-lg font-semibold tracking-tight">Attendance Shortcuts</h2>
+                <p className="text-sm text-muted-foreground">Check your attendance access and records.</p>
               </div>
             </div>
             <span
@@ -603,21 +688,21 @@ export function StudentDashboardPage() {
               }`}
             >
               {qrReady ? <CheckCircle2 className="h-3 w-3" /> : <QrCode className="h-3 w-3" />}
-              {qrReady ? "QR credential active" : "QR credential not set up"}
+              {qrReady ? "QR ready" : "QR not set up"}
             </span>
           </div>
           <div className="mt-5 grid gap-2">
             <AuthActionRow
               to={APP_ROUTES.studentMethods}
               icon={QrCode}
-              label="Review Methods"
-              description="QR, facial, manual, and online attendance modes"
+              label="Attendance Methods"
+              description="View QR and supported check-in options"
             />
             <AuthActionRow
               to={APP_ROUTES.studentAttendance}
               icon={History}
-              label="Review Records"
-              description="See your past check-ins and attendance status per event"
+              label="Attendance Records"
+              description="View your attendance status per event"
             />
           </div>
         </div>
@@ -626,14 +711,13 @@ export function StudentDashboardPage() {
       <ModalShell
         open={feedbackModalOpen}
         title="Pending Feedback"
-        description="These attended events still need action before attendance is marked complete."
+        description="These attended events are ready for event feedback. Late reasons are handled as a separate required step."
         size="lg"
         onClose={() => setFeedbackModalOpen(false)}
       >
         {pendingFeedbackRecords.length ? (
           <div className="space-y-3">
             {pendingFeedbackRecords.map((record) => {
-              const needsLateReason = record.status === "late" && !record.lateReason;
               const deadline = getStudentFeedbackDeadlineStatus(record);
               const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(record.eventId)}`;
 
@@ -659,7 +743,7 @@ export function StudentDashboardPage() {
                     <div className="flex flex-wrap justify-end gap-2">
                       <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
-                        {needsLateReason ? "Late reason first" : "Feedback due"}
+                        Feedback due
                       </span>
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -672,13 +756,11 @@ export function StudentDashboardPage() {
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                     <p className="max-w-xl text-sm text-muted-foreground">
-                      {needsLateReason
-                        ? "Submit your late reason first. The event feedback unlocks after that."
-                        : "Answer the event feedback to complete this attendance record."}
+                      Answer the event feedback to complete this attendance record.
                     </p>
                     <Button asChild size="sm">
                       <NavLink to={target}>
-                        {needsLateReason ? "Submit Late Reason" : "Answer Feedback"}
+                        Answer Feedback
                         <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                       </NavLink>
                     </Button>
@@ -700,3 +782,4 @@ export function StudentDashboardPage() {
     </div>
   );
 }
+
