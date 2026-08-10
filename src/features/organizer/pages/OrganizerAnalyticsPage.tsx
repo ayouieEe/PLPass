@@ -2,7 +2,30 @@
 import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Clock3, Download, Filter, MessageSquareQuote, Plus, Search, Sparkles, Target, TrendingUp, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarCheck,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Clock,
+  Clock3,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Filter,
+  Layers,
+  MessageSquareQuote,
+  Plus,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Users
+} from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useForm } from "react-hook-form";
 import { EMPTY_EVENTS, EMPTY_LATE_REASON_FREQUENCY, EMPTY_SENTIMENT, EMPTY_SESSION_SUMMARY, EMPTY_SUMMARY } from "./OrganizerDashboardPage";
@@ -39,6 +62,7 @@ import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
+import { AnalyticsExportModal } from "@/features/reports/AnalyticsExportModal";
 import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
 import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
 import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
@@ -94,44 +118,7 @@ type OrganizerScope = {
   isError: boolean;
 };
 
-type EventWithCount = Event & { participantCount: number };
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const eventFormSchema = z
-  .object({
-    code: z.string().min(2, "Event code is required."),
-    title: z.string().min(3, "Event name is required."),
-    category: z.string().min(2, "Category is required."),
-    venue: z.string().min(2, "Venue is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    endTime: z.string().min(1, "End time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"]),
-    description: z.string().optional(),
-    remarks: z.string().optional()
-  })
-  .refine((value) => value.endTime > value.startTime, {
-    path: ["endTime"],
-    message: "End time must be after start time."
-  });
-
-const sessionFormSchema = z
-  .object({
-    venue: z.string().min(2, "Venue is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    expectedEndTime: z.string().min(1, "Expected end time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"])
-  })
-  .refine((value) => value.expectedEndTime > value.startTime, {
-    path: ["expectedEndTime"],
-    message: "Expected end time must be after start time."
-  });
-
-type EventFormValues = z.infer<typeof eventFormSchema>;
-type SessionFormValues = z.infer<typeof sessionFormSchema>;
+type AnalyticsTab = "predictions" | "attendance" | "sentiment" | "late_arrivals";
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
@@ -149,52 +136,6 @@ function useOrganizerScope(): OrganizerScope {
   };
 }
 
-function formatDate(value: string | undefined) {
-  return formatDisplayDate(value, "Not scheduled");
-}
-
-function formatTime(value: string | undefined) {
-  return formatDisplayTime(value, "Not set");
-}
-
-function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
-  if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
-    return "success" as const;
-  }
-  if (status === "late" || status === "draft" || status === "pending" || status === "medium") {
-    return "warning" as const;
-  }
-  if (status === "absent" || status === "cancelled" || status === "rejected" || status === "high" || status === "critical") {
-    return "danger" as const;
-  }
-  return "muted" as const;
-}
-
-function attendanceCounts(records: AttendanceRecord[]) {
-  return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
-  };
-}
-
-function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
-    return 0;
-  }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
-}
-
-function eventLabel(event: Event | undefined) {
-  return event ? `${event.code} - ${event.title}` : "Unknown event";
-}
-
-function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
-}
-
 function ShellState({ scope }: { scope: OrganizerScope }) {
   if (scope.isLoading) {
     return <LoadingState label="Loading organizer workspace" />;
@@ -203,125 +144,6 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
     return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
-}
-
-function OrganizerFrame({ children }: { children: React.ReactNode }) {
-  return <div className="space-y-6">{children}</div>;
-}
-
-function recordsForSession(records: AttendanceRecord[], sessionId: string) {
-  return records.filter((record) => record.sessionId === sessionId);
-}
-
-function participantStudents(participants: EventParticipant[], students: Student[]) {
-  const participantIds = new Set(participants.map((participant) => participant.studentId));
-  return students.filter((student) => participantIds.has(student.id));
-}
-
-function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
-  const eventDate = dateKey(event.startsAt);
-  if (!eventDate) {
-    return undefined;
-  }
-  return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
-}
-
-function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
-  const date = dateKey(event.startsAt);
-  return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
-}
-
-function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
-  return records.map((record) => ({
-    id: record.id,
-    studentName: studentName(students.find((student) => student.id === record.studentId)),
-    identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-    status: record.status === "excused" ? "manual" : record.status,
-    timestamp: formatTime(record.recordedAt)
-  }));
-}
-
-function EventScheduleCard({ event }: { event: Event }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{eventLabel(event)}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(event.startsAt)} {formatTime(event.startsAt)} - {formatTime(event.endsAt)} - {event.venue}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerEvent(event.id)}>View</NavLink>
-        </Button>
-      </div>
-    </article>
-  );
-}
-
-function PredictionCard({ prediction }: { prediction: MlPrediction }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{prediction.patternLabel}</p>
-          <p className="text-sm text-muted-foreground">{prediction.explanation}</p>
-        </div>
-        <StatusBadge label={prediction.riskLevel} tone={statusTone(prediction.riskLevel)} />
-      </div>
-    </article>
-  );
-}
-
-function SessionCard({ session }: { session: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session.title}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} {formatTime(session.startsAt)}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerSession(session.id)}>View session</NavLink>
-        </Button>
-      </div>
-    </article>
-  );
-
-}
-
-function DashboardMetricCard({
-  title,
-  value,
-  detail,
-  icon: Icon,
-  tone = "default"
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  icon: typeof CalendarCheck;
-  tone?: "default" | "warning" | "success";
-}) {
-  const toneClass =
-    tone === "warning"
-      ? "border-amber-200 bg-amber-50 text-amber-700"
-      : tone === "success"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-primary/15 bg-primary/5 text-primary";
-
-  return (
-    <article className="min-h-36 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
-          <p className="mt-3 text-3xl font-semibold leading-none text-foreground">{value}</p>
-        </div>
-        <span className={`grid h-10 w-10 flex-none place-items-center rounded-md border ${toneClass}`}>
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </span>
-      </div>
-      <p className="mt-4 line-clamp-2 text-sm leading-5 text-muted-foreground">{detail}</p>
-    </article>
-  );
 }
 
 function ChartPanel({
@@ -336,7 +158,7 @@ function ChartPanel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border bg-surface p-4 shadow-sm">
+    <section className="rounded-xl border bg-surface p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">{title}</h2>
@@ -350,8 +172,38 @@ function ChartPanel({
 }
 
 export function OrganizerAnalyticsPage() {
+  const scope = useOrganizerScope();
+
   const [eventFilter, setEventFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateRangeFilter, setDateRangeFilter] = useState("all");
+  const [semesterFilter, setSemesterFilter] = useState("all");
+  const [academicYearFilter, setAcademicYearFilter] = useState("2026");
+  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (categoryFilter !== "all") count++;
+    if (dateRangeFilter !== "all") count++;
+    if (semesterFilter !== "all") count++;
+    if (academicYearFilter !== "2026") count++;
+    return count;
+  }, [categoryFilter, dateRangeFilter, semesterFilter, academicYearFilter]);
+
+  const handleResetFilters = () => {
+    setEventFilter("all");
+    setCategoryFilter("all");
+    setDateRangeFilter("all");
+    setSemesterFilter("all");
+    setAcademicYearFilter("2026");
+  };
+
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("predictions");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [modalInitialReportType, setModalInitialReportType] = useState("attendance-summary");
+
   const [uiState] = useState(() => loadOrganizerUiState());
+
   const eventData = useMemo(
     () =>
       uiState.events.map((event) => ({
@@ -365,6 +217,7 @@ export function OrganizerAnalyticsPage() {
       })),
     [uiState.events]
   );
+
   const sessionSummaryData = useMemo(
     () =>
       uiState.completedEvents.map((event) => ({
@@ -378,6 +231,7 @@ export function OrganizerAnalyticsPage() {
       })),
     [uiState.completedEvents]
   );
+
   const sentimentData = useMemo(
     () =>
       uiState.completedEvents.map((event) => ({
@@ -387,6 +241,7 @@ export function OrganizerAnalyticsPage() {
       })),
     [uiState.completedEvents]
   );
+
   const eventLookup = useMemo(() => new Map(eventData.map((event) => [event.code, event])), [eventData]);
 
   const trendData = useMemo(() => {
@@ -446,15 +301,29 @@ export function OrganizerAnalyticsPage() {
   const nextEvent = uiState.events
     .filter((event) => event.status === "incoming" || event.status === "today")
     .sort((first, second) => first.date.localeCompare(second.date))[0];
-  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value : eventLookup.get(eventFilter)?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value;
+  const selectedPrediction =
+    eventFilter === "all"
+      ? nextEvent?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value
+      : eventLookup.get(eventFilter)?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value;
   const registeredStudents = uiState.students.length || EMPTY_SUMMARY.totalRegisteredStudents;
+
+  const overallAttendanceAvg = useMemo(() => {
+    if (!trendData.length) return 84;
+    return Math.round(trendData.reduce((acc, row) => acc + (row.attendanceRate ?? 0), 0) / trendData.length);
+  }, [trendData]);
+
+  const positiveSentimentShare = useMemo(() => {
+    const pos = sentimentOverview.find((s) => s.name === "Positive");
+    return pos ? pos.value : 76;
+  }, [sentimentOverview]);
+
   const topLateReason = useMemo(() => {
     const reasons = eventFilter === "all" ? EMPTY_LATE_REASON_FREQUENCY : filteredLateReasons;
     return reasons.length > 0
       ? reasons.reduce((max, r) => (r.share > max.share ? r : max))
       : EMPTY_SUMMARY.topLateArrivalReason;
   }, [eventFilter, filteredLateReasons]);
-  
+
   const predictionFactors = useMemo(() => {
     const baseFactors = [
       { name: "Attendance history", strength: 92, detail: "Strongest signal in repeat turnout patterns" },
@@ -465,12 +334,8 @@ export function OrganizerAnalyticsPage() {
     ];
     if (eventFilter === "all") return baseFactors;
     const event = eventLookup.get(eventFilter);
-    return event ? baseFactors.map(f => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
+    return event ? baseFactors.map((f) => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
   }, [eventFilter, eventLookup]);
-
-  function exportAnalyticsReport(label: string) {
-    toast.success(createUiExport(`${label}${eventFilter === "all" ? "" : ` - ${eventFilter}`}`));
-  }
 
   const objectivePerformance = useMemo(() => {
     const baseObjectives = [
@@ -480,7 +345,7 @@ export function OrganizerAnalyticsPage() {
     ];
     if (eventFilter === "all") return baseObjectives;
     const event = eventLookup.get(eventFilter);
-    return event ? baseObjectives.map(o => ({ ...o, responses: Math.round(o.responses * 0.6) })) : baseObjectives;
+    return event ? baseObjectives.map((o) => ({ ...o, responses: Math.round(o.responses * 0.6) })) : baseObjectives;
   }, [eventFilter, eventLookup]);
 
   const studentComments = useMemo(() => {
@@ -491,7 +356,7 @@ export function OrganizerAnalyticsPage() {
     ];
     if (eventFilter === "all") return baseComments;
     const event = eventLookup.get(eventFilter);
-    return event ? baseComments.map(c => ({ ...c, comment: `Re: ${event.code} - ${c.comment}` })) : baseComments;
+    return event ? baseComments.map((c) => ({ ...c, comment: `Re: ${event.code} - ${c.comment}` })) : baseComments;
   }, [eventFilter, eventLookup]);
 
   const lateArrivalTrend = useMemo(() => {
@@ -502,96 +367,283 @@ export function OrganizerAnalyticsPage() {
       { month: "Apr", count: 29 }
     ];
     if (eventFilter === "all") return baseTrend;
-    return baseTrend.map(t => ({ ...t, count: Math.round(t.count * 0.5) }));
+    return baseTrend.map((t) => ({ ...t, count: Math.round(t.count * 0.5) }));
   }, [eventFilter]);
+
+  function openExportModal(typeId = "attendance-summary") {
+    setModalInitialReportType(typeId);
+    setIsExportModalOpen(true);
+  }
+
+  function handleExportSubmit(exportPayload: {
+    reportTitle: string;
+    format: string;
+    event: string;
+    category: string;
+    dateRange: string;
+    semester: string;
+    academicYear: string;
+  }) {
+    const exportLabel = `${exportPayload.reportTitle} (${exportPayload.format}) - ${
+      exportPayload.event === "all" ? "All Events" : exportPayload.event
+    }`;
+    toast.success(createUiExport(exportLabel));
+  }
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Analytics Insights" />
+      {/* Page Header with Export Button Action */}
+      <PageHeader
+        title="Analytics Workspace Overview"
+        description="Comprehensive analytics dashboard for turnout predictions, attendance trends, feedback sentiment, and late arrival patterns."
+        actions={
+          <Button
+            type="button"
+            onClick={() => openExportModal("full-package")}
+            className="inline-flex items-center gap-2 font-semibold shadow-xs"
+          >
+            <Download className="h-4 w-4" />
+            <span>Export Reports</span>
+          </Button>
+        }
+      />
 
-      <section className="rounded-xl border bg-surface p-4 shadow-sm space-y-3">
+      {/* Top Executive Summary Metrics Bar */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <article className="rounded-xl border bg-surface p-4 shadow-xs transition-all hover:border-primary/40">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Overall Attendance</p>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-primary/10 text-primary">
+              <TrendingUp className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tracking-tight text-foreground">{overallAttendanceAvg}%</span>
+            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">+3.2% vs prev term</span>
+          </div>
+        </article>
+
+        <article className="rounded-xl border bg-surface p-4 shadow-xs transition-all hover:border-emerald-500/40">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Predicted Turnout</p>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+              <Sparkles className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tracking-tight text-foreground">{selectedPrediction}%</span>
+            <span className="text-xs text-muted-foreground">Random Forest AI</span>
+          </div>
+        </article>
+
+        <article className="rounded-xl border bg-surface p-4 shadow-xs transition-all hover:border-amber-500/40">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Positive Sentiment</p>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <MessageSquareQuote className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tracking-tight text-foreground">{positiveSentimentShare}%</span>
+            <span className="text-xs text-muted-foreground">VADER feedback benchmark</span>
+          </div>
+        </article>
+
+        <article className="rounded-xl border bg-surface p-4 shadow-xs transition-all hover:border-rose-500/40">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Top Late Reason</p>
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
+              <Clock className="h-4 w-4" />
+            </span>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2 truncate">
+            <span className="text-lg font-bold tracking-tight text-foreground truncate">{topLateReason.category}</span>
+            <span className="text-xs text-muted-foreground shrink-0">({topLateReason.share}%)</span>
+          </div>
+        </article>
+      </section>
+
+      {/* Primary Scope Controls & Collapsible Filter Toolbar */}
+      <section className="rounded-xl border bg-surface p-3 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-foreground">Analytics Filters</h2>
-          <span className="flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
-            <Filter className="h-3.5 w-3.5" />
-            Global filters
-          </span>
-        </div>
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
-          <label className="space-y-1 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Event</span>
-            <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
-              <option value="all">All events</option>
+          <div className="flex flex-wrap items-center gap-3 flex-1 min-w-[280px]">
+            <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground shrink-0 uppercase tracking-wider">
+              <Filter className="h-3.5 w-3.5 text-primary" />
+              <span>Event Scope:</span>
+            </div>
+            <select
+              className="plpass-field h-9 min-w-[220px] max-w-xs flex-1 rounded-lg border bg-background px-3 text-xs font-medium text-foreground outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+              value={eventFilter}
+              onChange={(e) => setEventFilter(e.target.value)}
+            >
+              <option value="all">All Events Overview</option>
               {eventData.map((event) => (
                 <option key={event.code} value={event.code}>
-                  {event.code}
+                  {event.code} — {event.title}
                 </option>
               ))}
             </select>
-          </label>
-          <label className="space-y-1 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Event Category</span>
-            <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm">
-              <option value="all">All categories</option>
-              <option value="career-development">Career Development</option>
-              <option value="skills-training">Skills Training</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Date Range</span>
-            <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm">
-              <option value="all">Last 6 months</option>
-              <option value="quarter">Last quarter</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Semester</span>
-            <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm">
-              <option value="all">All semesters</option>
-              <option value="first">1st Semester</option>
-              <option value="second">2nd Semester</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Academic Year</span>
-            <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm">
-              <option value="2026">2026</option>
-              <option value="2025">2025</option>
-            </select>
-          </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {(eventFilter !== "all" || activeFilterCount > 0) && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsAdvancedFiltersOpen(!isAdvancedFiltersOpen)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                isAdvancedFiltersOpen || activeFilterCount > 0
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              <span>Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-primary px-1.5 py-0.2 text-[10px] font-bold text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              )}
+              {isAdvancedFiltersOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         </div>
+
+        {/* Expandable Advanced Filters Drawer */}
+        {isAdvancedFiltersOpen && (
+          <div className="pt-3 border-t grid gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-in fade-in-50 duration-200">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Category</span>
+              <select
+                className="plpass-field h-8 w-full rounded-md border bg-background px-2.5 text-xs"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="all">All Categories</option>
+                <option value="career-development">Career Development</option>
+                <option value="skills-training">Skills Training</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Time Range</span>
+              <select
+                className="plpass-field h-8 w-full rounded-md border bg-background px-2.5 text-xs"
+                value={dateRangeFilter}
+                onChange={(e) => setDateRangeFilter(e.target.value)}
+              >
+                <option value="all">Last 6 Months</option>
+                <option value="quarter">Last Quarter</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Semester</span>
+              <select
+                className="plpass-field h-8 w-full rounded-md border bg-background px-2.5 text-xs"
+                value={semesterFilter}
+                onChange={(e) => setSemesterFilter(e.target.value)}
+              >
+                <option value="all">All Semesters</option>
+                <option value="first">1st Semester</option>
+                <option value="second">2nd Semester</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Academic Year</span>
+              <select
+                className="plpass-field h-8 w-full rounded-md border bg-background px-2.5 text-xs"
+                value={academicYearFilter}
+                onChange={(e) => setAcademicYearFilter(e.target.value)}
+              >
+                <option value="2026">AY 2026</option>
+                <option value="2025">AY 2025</option>
+              </select>
+            </label>
+          </div>
+        )}
       </section>
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Event Attendance Prediction</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Forecast turnout with a Random Forest view of the most relevant attendance determinants.</p>
-          </div>
-          <span className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700">
-            <Sparkles className="h-4 w-4" />
-            Random Forest
-          </span>
+      {/* Clean Segmented Tab Navigation Bar */}
+      <nav className="border-b border-border/80">
+        <div className="flex flex-wrap gap-1 sm:gap-6">
+          <button
+            type="button"
+            onClick={() => setActiveTab("predictions")}
+            className={`inline-flex items-center gap-2 border-b-2 py-2.5 px-1 text-xs font-semibold transition-colors ${
+              activeTab === "predictions"
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+            }`}
+          >
+            <Sparkles className="h-4 w-4 text-emerald-500" />
+            <span>Turnout Predictions</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("attendance")}
+            className={`inline-flex items-center gap-2 border-b-2 py-2.5 px-1 text-xs font-semibold transition-colors ${
+              activeTab === "attendance"
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+            }`}
+          >
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+            <span>Attendance Analytics</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("sentiment")}
+            className={`inline-flex items-center gap-2 border-b-2 py-2.5 px-1 text-xs font-semibold transition-colors ${
+              activeTab === "sentiment"
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+            }`}
+          >
+            <MessageSquareQuote className="h-4 w-4 text-amber-500" />
+            <span>Feedback & Sentiment</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("late_arrivals")}
+            className={`inline-flex items-center gap-2 border-b-2 py-2.5 px-1 text-xs font-semibold transition-colors ${
+              activeTab === "late_arrivals"
+                ? "border-primary text-primary font-bold"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+            }`}
+          >
+            <Clock className="h-4 w-4 text-rose-500" />
+            <span>Late Arrival Insights</span>
+          </button>
         </div>
+      </nav>
 
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <article className="animate-fade-in-up-1 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-                <p className="text-sm font-medium text-muted-foreground">Predicted Turnout</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{selectedPrediction}%</p>
-              </article>
-              <article className="animate-fade-in-up-2 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-                <p className="text-sm font-medium text-muted-foreground">Expected Attendees</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round((registeredStudents * selectedPrediction) / 100).toLocaleString()}</p>
-              </article>
-              <article className="animate-fade-in-up-3 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-                <p className="text-sm font-medium text-muted-foreground">Expected Absentees</p>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{Math.round(registeredStudents - (registeredStudents * selectedPrediction) / 100).toLocaleString()}</p>
-              </article>
+      {/* TAB 1: TURNOUT PREDICTIONS */}
+      {activeTab === "predictions" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-foreground">Turnout Forecast & Determinants</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">Machine learning prediction model based on historical attendance patterns.</p>
             </div>
+            <span className="flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              Random Forest Model Active
+            </span>
+          </div>
 
-            <ChartPanel title="Prediction Overview" description="Predicted attendance versus expected absence across the current event list.">
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <ChartPanel title="Prediction Overview" description="Predicted attendance versus expected absence per event.">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={predictionOverviewData} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -604,288 +656,247 @@ export function OrganizerAnalyticsPage() {
                 </BarChart>
               </ResponsiveContainer>
             </ChartPanel>
-          </div>
 
-          <aside className="rounded-xl border bg-surface p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              <h3 className="text-base font-semibold text-foreground">Ranked attendance factors</h3>
-            </div>
-            <div className="mt-4 space-y-4">
-              {predictionFactors.map((factor) => (
-                <div key={factor.name} className="rounded-lg border bg-background p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">{factor.name}</p>
-                    <span className="text-sm font-semibold text-primary">{factor.strength}%</span>
-                  </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${factor.strength}%` }} />
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{factor.detail}</p>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Attendance Analytics</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Review the detailed attendance story behind the dashboard summary with attendance, late, and absence breakdowns.</p>
-          </div>
-          <span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-sm font-medium text-primary">Detailed view</span>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <ChartPanel
-            title="Attendance Trends"
-            description="Attendance rate per session, filterable by event."
-            action={
-              <select
-                className="h-10 rounded-md border bg-background px-3 text-sm text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={eventFilter}
-                onChange={(event) => setEventFilter(event.target.value)}
-                aria-label="Filter attendance trend by event"
-              >
-                <option value="all">All events</option>
-                {eventData.map((event) => (
-                  <option key={event.code} value={event.code}>
-                    {event.code} - {event.title}
-                  </option>
-                ))}
-              </select>
-            }
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData} margin={{ top: 8, right: 14, left: -10, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: number) => [`${value}%`, "Attendance rate"]} labelFormatter={(label, payload) => `${label} - ${payload?.[0]?.payload?.date ?? ""}`} />
-                <Line type="monotone" dataKey="attendanceRate" name="Attendance rate" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartPanel>
-
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <article className="animate-fade-in-up-1 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-                <p className="text-sm font-medium text-muted-foreground">Total Present</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.present ?? 0), 0).toLocaleString()}</p>
-              </article>
-              <article className="animate-fade-in-up-2 rounded-lg border bg-surface p-4 shadow-sm transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-                <p className="text-sm font-medium text-muted-foreground">Total Late</p>
-                <p className="mt-2 text-2xl font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.late ?? 0), 0).toLocaleString()}</p>
-              </article>
-            </div>
-            <article className="animate-fade-in-up-3 rounded-lg border bg-surface p-4 shadow-sm">
-              <p className="text-sm font-medium text-muted-foreground">Attendance Summary</p>
-              <div className="mt-3 space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span>Total Absent</span>
-                  <span className="font-semibold text-foreground">{trendData.reduce((acc, row) => acc + (row.absent ?? 0), 0).toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Overall Attendance Rate</span>
-                  <span className="font-semibold text-foreground">{Math.round(trendData.reduce((acc, row) => acc + (row.attendanceRate ?? 0), 0) / Math.max(trendData.length, 1))}%</span>
-                </div>
+            <aside className="rounded-xl border bg-surface p-4 shadow-xs">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Ranked Attendance Factors</h3>
               </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Feedback & Objective Insights</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Compare the impact of event objectives with sentiment and representative student comments.</p>
-          </div>
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">VADER + objective ratings</span>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-2">
-          <ChartPanel title="Objective Performance" description="Average objective rating and response volume for each event goal.">
-            <div className="space-y-4">
-              {objectivePerformance.map((objective) => (
-                <div key={objective.label} className="rounded-lg border bg-background p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">{objective.label}</p>
-                    <span className="text-sm font-semibold text-primary">{objective.score.toFixed(1)}/5</span>
+              <div className="mt-4 space-y-3">
+                {predictionFactors.map((factor, index) => (
+                  <div key={factor.name} className="rounded-lg border bg-background p-3 shadow-xs">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">#{index + 1}</span>
+                        <p className="text-xs font-semibold text-foreground">{factor.name}</p>
+                      </div>
+                      <span className="text-xs font-bold text-primary">{factor.strength}%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${factor.strength}%` }} />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">{factor.detail}</p>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${(objective.score / 5) * 100}%` }} />
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">{objective.responses} responses</p>
-                </div>
-              ))}
-            </div>
-          </ChartPanel>
-
-          <ChartPanel title="Feedback Sentiment" description="Positive, neutral, and negative feedback shares across the selected events.">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={sentimentOverview}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={62}
-                  outerRadius={92}
-                  paddingAngle={3}
-                  label={({ name, value }) => `${name} ${value}%`}
-                >
-                  {sentimentOverview.map((entry) => (
-                    <Cell key={entry.name} fill={entry.name === "Positive" ? "#16a34a" : entry.name === "Neutral" ? "#f59e0b" : "#dc2626"} />
-                  ))}
-                </Pie>
-                <Legend iconType="circle" />
-                <Tooltip formatter={(value: number) => `${value}%`} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ChartPanel>
-        </div>
-
-        <section className="rounded-xl border bg-surface p-4 shadow-sm">
-          <div className="flex items-center gap-2">
-            <MessageSquareQuote className="h-4 w-4 text-primary" />
-            <h3 className="text-base font-semibold text-foreground">Student comments</h3>
-          </div>
-          <div className="mt-4 grid gap-6 md:grid-cols-3">
-            {studentComments.map((item) => (
-              <article key={item.comment} className="rounded-lg border bg-background p-4">
-                <p className="text-sm font-semibold text-foreground">{item.sentiment}</p>
-                <p className="mt-2 text-sm text-muted-foreground">“{item.comment}”</p>
-              </article>
-            ))}
+                ))}
+              </div>
+            </aside>
           </div>
         </section>
-      </section>
+      ) : (
+        <h2 className="sr-only">Event Attendance Prediction</h2>
+      )}
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Late Arrival Insights</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Identify the reasons students arrive late and quantify how often those causes recur.</p>
+      {/* TAB 2: ATTENDANCE ANALYTICS */}
+      {activeTab === "attendance" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-foreground">Attendance Distribution & Trends</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">Historical attendance rates and turnout breakdowns across events.</p>
+            </div>
           </div>
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700">Trend watch</span>
-        </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <ChartPanel title="Monthly counts" description="Late-arrival frequency across the most recent months in the current view.">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={lateArrivalTrend} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip />
-                <Bar dataKey="count" name="Late arrivals" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartPanel>
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <ChartPanel
+              title="Attendance Rate Trend"
+              description="Historical attendance percentages by session."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData} margin={{ top: 8, right: 14, left: -10, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value: number) => [`${value}%`, "Attendance rate"]} labelFormatter={(label, payload) => `${label} - ${payload?.[0]?.payload?.date ?? ""}`} />
+                  <Line type="monotone" dataKey="attendanceRate" name="Attendance rate" stroke="#2563eb" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartPanel>
 
-          <div className="space-y-4">
-            <article className="rounded-xl border bg-surface p-4 shadow-sm">
-              <p className="text-sm font-medium text-muted-foreground">Most common late-arrival reason</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{topLateReason.category}</p>
-              <p className="mt-2 text-sm text-muted-foreground">{topLateReason.share}% of late arrivals, highlighting the strongest signal for transport or scheduling interventions.</p>
-            </article>
-            <article className="rounded-xl border bg-surface p-4 shadow-sm">
-              <h3 className="text-base font-semibold text-foreground">Late-arrival categories</h3>
-              <div className="mt-4 space-y-3">
-                {filteredLateReasons.length === 0 ? (
-                  <p className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-                    No late-arrival records available from Supabase yet.
-                  </p>
-                ) : filteredLateReasons.map((reason) => (
-                  <div key={reason.category} className="rounded-lg border bg-background p-3">
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <article className="rounded-xl border bg-surface p-4 shadow-xs">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Present</p>
+                  <p className="mt-1 text-2xl font-bold text-emerald-600 dark:text-emerald-400">{trendData.reduce((acc, row) => acc + (row.present ?? 0), 0).toLocaleString()}</p>
+                </article>
+                <article className="rounded-xl border bg-surface p-4 shadow-xs">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total Late</p>
+                  <p className="mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">{trendData.reduce((acc, row) => acc + (row.late ?? 0), 0).toLocaleString()}</p>
+                </article>
+              </div>
+
+              <article className="rounded-xl border bg-surface p-4 shadow-xs space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Attendance Summary</p>
+                <div className="space-y-2.5 divide-y divide-border/60">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Total Absences</span>
+                    <span className="font-semibold text-rose-600 dark:text-rose-400">{trendData.reduce((acc, row) => acc + (row.absent ?? 0), 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 text-xs">
+                    <span className="text-muted-foreground">Average Attendance Rate</span>
+                    <span className="font-bold text-primary">{Math.round(trendData.reduce((acc, row) => acc + (row.attendanceRate ?? 0), 0) / Math.max(trendData.length, 1))}%</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      ) : (
+        <h2 className="sr-only">Attendance Analytics</h2>
+      )}
+
+      {/* TAB 3: FEEDBACK & SENTIMENT */}
+      {activeTab === "sentiment" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-foreground">Feedback & Objective Ratings</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">VADER sentiment breakdown and key objective satisfaction metrics.</p>
+            </div>
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <ChartPanel title="Objective Goal Ratings" description="Average score (out of 5) across event objectives.">
+              <div className="space-y-3">
+                {objectivePerformance.map((objective) => (
+                  <div key={objective.label} className="rounded-lg border bg-background p-3 shadow-xs">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-medium text-foreground">{reason.category}</p>
-                      <span className="text-sm font-semibold text-foreground">{reason.share}%</span>
+                      <p className="text-xs font-semibold text-foreground">{objective.label}</p>
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary">{objective.score.toFixed(1)} / 5</span>
                     </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-amber-500" style={{ width: `${reason.share}%` }} />
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${(objective.score / 5) * 100}%` }} />
                     </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{objective.responses} responses</p>
                   </div>
                 ))}
               </div>
-            </article>
+            </ChartPanel>
+
+            <ChartPanel title="Sentiment Breakdown" description="Positive, neutral, and negative feedback share.">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={sentimentOverview}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={3}
+                    label={({ name, value }) => `${name} ${value}%`}
+                  >
+                    {sentimentOverview.map((entry) => (
+                      <Cell key={entry.name} fill={entry.name === "Positive" ? "#16a34a" : entry.name === "Neutral" ? "#f59e0b" : "#dc2626"} />
+                    ))}
+                  </Pie>
+                  <Legend iconType="circle" />
+                  <Tooltip formatter={(value: number) => `${value}%`} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartPanel>
           </div>
-        </div>
-      </section>
 
-      <section className="rounded-xl border bg-surface p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Reports</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Export the current analytics data or filtered view.</p>
+          <section className="rounded-xl border bg-surface p-4 shadow-xs">
+            <div className="flex items-center gap-2">
+              <MessageSquareQuote className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold text-foreground">Student Voice Quotes</h3>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              {studentComments.map((item, idx) => (
+                <article key={item.comment} className="rounded-lg border bg-background p-3 shadow-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
+                        S{idx + 1}
+                      </div>
+                      <span className="text-[11px] font-medium text-muted-foreground">Verified Student</span>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      item.sentiment === "Positive" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    }`}>
+                      {item.sentiment}
+                    </span>
+                  </div>
+                  <p className="text-xs italic text-foreground leading-relaxed">“{item.comment}”</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        </section>
+      ) : (
+        <h2 className="sr-only">Feedback & Objective Insights</h2>
+      )}
+
+      {/* TAB 4: LATE ARRIVAL INSIGHTS */}
+      {activeTab === "late_arrivals" ? (
+        <section className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-foreground">Late Check-in Analysis</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">Quantify root causes behind late arrivals to optimize event schedules.</p>
+            </div>
           </div>
-          <span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-sm font-medium text-primary">XLSX / PDF</span>
-        </div>
 
-        <div className="mt-8 grid gap-6 md:grid-cols-2">
-          <article className="rounded-lg border bg-background p-5">
-            <h3 className="font-semibold text-foreground">Attendance Summary Report</h3>
-            <p className="mt-2 text-sm text-muted-foreground">Attendance rates, trends, and session summaries.</p>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => exportAnalyticsReport("Attendance Summary Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                XLSX
-              </button>
-              <button type="button" onClick={() => exportAnalyticsReport("Attendance Summary Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                PDF
-              </button>
-            </div>
-          </article>
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <ChartPanel title="Monthly Late Arrivals" description="Frequency of late check-ins over recent months.">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={lateArrivalTrend} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" name="Late arrivals" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
 
-          <article className="rounded-lg border bg-background p-4">
-            <h3 className="font-semibold text-foreground">Turnout Prediction Report</h3>
-            <p className="mt-2 text-sm text-muted-foreground">Predicted turnout, influential factors, and confidence scores.</p>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => exportAnalyticsReport("Turnout Prediction Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                XLSX
-              </button>
-              <button type="button" onClick={() => exportAnalyticsReport("Turnout Prediction Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                PDF
-              </button>
-            </div>
-          </article>
+            <div className="space-y-4">
+              <article className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-xs space-y-1.5">
+                <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                  <Clock className="h-4 w-4" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider">Primary Bottleneck Cause</p>
+                </div>
+                <p className="text-xl font-bold text-foreground">{topLateReason.category}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{topLateReason.share}% of total late check-ins stem from this cause. Consider extending check-in windows.</p>
+              </article>
 
-          <article className="rounded-lg border bg-background p-4">
-            <h3 className="font-semibold text-foreground">Performance & Sentiment Report</h3>
-            <p className="mt-2 text-sm text-muted-foreground">Objective performance ratings and sentiment analysis.</p>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => exportAnalyticsReport("Performance & Sentiment Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                XLSX
-              </button>
-              <button type="button" onClick={() => exportAnalyticsReport("Performance & Sentiment Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                PDF
-              </button>
+              <article className="rounded-xl border bg-surface p-4 shadow-xs">
+                <h3 className="text-sm font-semibold text-foreground">Reason Category Breakdown</h3>
+                <div className="mt-3 space-y-2.5">
+                  {filteredLateReasons.length === 0 ? (
+                    <p className="rounded-lg border bg-background p-3 text-xs text-muted-foreground">
+                      No late-arrival records available yet.
+                    </p>
+                  ) : (
+                    filteredLateReasons.map((reason) => (
+                      <div key={reason.category} className="rounded-lg border bg-background p-3 shadow-xs">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold text-foreground">{reason.category}</p>
+                          <span className="text-xs font-bold text-amber-600 dark:text-amber-400">{reason.share}%</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-amber-500 transition-all duration-500" style={{ width: `${reason.share}%` }} />
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </article>
             </div>
-          </article>
+          </div>
+        </section>
+      ) : (
+        <h2 className="sr-only">Late Arrival Insights</h2>
+      )}
 
-          <article className="rounded-lg border bg-background p-4">
-            <h3 className="font-semibold text-foreground">Late Arrival Patterns Report</h3>
-            <p className="mt-2 text-sm text-muted-foreground">Late-arrival reasons, frequency, and category breakdown.</p>
-            <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => exportAnalyticsReport("Late Arrival Patterns Report XLSX")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                XLSX
-              </button>
-              <button type="button" onClick={() => exportAnalyticsReport("Late Arrival Patterns Report PDF")} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted">
-                <Download className="h-4 w-4" />
-                PDF
-              </button>
-            </div>
-          </article>
-        </div>
-      </section>
+      {/* Analytics Export Modal with Filters */}
+      <AnalyticsExportModal
+        open={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        initialReportType={modalInitialReportType}
+        initialEventFilter={eventFilter}
+        eventOptions={eventData}
+        onExport={handleExportSubmit}
+      />
     </div>
   );
 }
