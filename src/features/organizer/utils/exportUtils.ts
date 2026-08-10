@@ -258,3 +258,191 @@ export function exportParticipationHistoryPdf(students: ExportParticipationRow[]
 
   doc.save(`participation-history-${todayLabel()}.pdf`);
 }
+
+// ---------------------------------------------------------------------------
+// Correction Requests exports
+// ---------------------------------------------------------------------------
+
+export type ExportCorrectionRequestRow = {
+  requestId: string;
+  studentId: string;
+  studentName: string;
+  eventCode: string;
+  eventName: string;
+  requestType: string;
+  dateSubmitted: string;
+  status: string;
+  recordedStatus: string;
+  requestedStatus: string;
+};
+
+export function exportCorrectionRequestsXlsx(requests: ExportCorrectionRequestRow[]) {
+  const headers = [
+    "Request ID",
+    "Student ID",
+    "Student Name",
+    "Event Code",
+    "Event Name",
+    "Request Type",
+    "Date Submitted",
+    "Status",
+    "Recorded Status",
+    "Requested Status"
+  ];
+
+  const rows = requests.map((r) => [
+    r.requestId,
+    r.studentId,
+    r.studentName,
+    r.eventCode,
+    r.eventName,
+    r.requestType,
+    r.dateSubmitted,
+    r.status,
+    r.recordedStatus,
+    r.requestedStatus
+  ]);
+
+  const csv = buildCsvString(headers, rows);
+  downloadFile(csv, `correction-requests-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+}
+
+export function exportCorrectionRequestsPdf(requests: ExportCorrectionRequestRow[]) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  // Title
+  doc.setFontSize(16);
+  doc.setTextColor(26, 26, 46);
+  doc.text("Correction Requests Report", 14, 18);
+
+  // Subtitle
+  doc.setFontSize(9);
+  doc.setTextColor(107, 114, 128);
+  doc.text(
+    `Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${requests.length} request(s)`,
+    14,
+    24
+  );
+
+  autoTable(doc, {
+    startY: 28,
+    head: [[
+      "Request ID",
+      "Student ID",
+      "Student Name",
+      "Event Code",
+      "Request Type",
+      "Date Submitted",
+      "Status",
+      "Recorded",
+      "Requested"
+    ]],
+    body: requests.map((r) => [
+      r.requestId,
+      r.studentId,
+      r.studentName,
+      r.eventCode,
+      r.requestType,
+      r.dateSubmitted,
+      r.status,
+      r.recordedStatus,
+      r.requestedStatus
+    ]),
+    theme: "striped",
+    headStyles: {
+      fillColor: [79, 70, 229],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 9
+    },
+    styles: {
+      fontSize: 8,
+      cellPadding: 3
+    },
+    alternateRowStyles: {
+      fillColor: [245, 245, 255]
+    }
+  });
+
+  doc.save(`correction-requests-${todayLabel()}.pdf`);
+}
+
+// ---------------------------------------------------------------------------
+// QR Credentials & Facial Profiles exports
+// ---------------------------------------------------------------------------
+
+export type ExportQrCredentialRow = {
+  studentId: string;
+  studentName: string;
+  status: string;
+  dateGenerated: string;
+  lastUsed: string;
+};
+
+export type ExportFacialProfileRow = {
+  studentId: string;
+  studentName: string;
+  status: string;
+  enrollmentDate: string;
+  lastScan: string;
+};
+
+export function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[]) {
+  const headers = ["Student ID", "Student Name", "QR Status", "Date Generated", "Last Used"];
+  const data = rows.map((r) => [r.studentId, r.studentName, r.status, r.dateGenerated, r.lastUsed]);
+  const csv = buildCsvString(headers, data);
+  downloadFile(csv, `qr-credentials-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+}
+
+export function exportQrCredentialsPdf(rows: ExportQrCredentialRow[]) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.setFontSize(16);
+  doc.setTextColor(26, 26, 46);
+  doc.text("QR Credentials Report", 14, 18);
+  doc.setFontSize(9);
+  doc.setTextColor(107, 114, 128);
+  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
+
+  autoTable(doc, {
+    startY: 28,
+    head: [["Student ID", "Student Name", "QR Status", "Date Generated", "Last Used"]],
+    body: rows.map((r) => [r.studentId, r.studentName, r.status, r.dateGenerated, r.lastUsed]),
+    theme: "striped",
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
+    styles: { fontSize: 8, cellPadding: 3 },
+    alternateRowStyles: { fillColor: [245, 245, 255] }
+  });
+
+  doc.save(`qr-credentials-${todayLabel()}.pdf`);
+}
+
+export function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[]) {
+  const headers = ["Student ID", "Student Name", "Facial Status", "Enrollment Date", "Last Scan"];
+  const data = rows.map((r) => [r.studentId, r.studentName, r.status, r.enrollmentDate, r.lastScan]);
+  const csv = buildCsvString(headers, data);
+  downloadFile(csv, `facial-profiles-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+}
+
+export function exportFacialProfilesPdf(rows: ExportFacialProfileRow[]) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.setFontSize(16);
+  doc.setTextColor(26, 26, 46);
+  doc.text("Facial Enrollment Profiles Report", 14, 18);
+  doc.setFontSize(9);
+  doc.setTextColor(107, 114, 128);
+  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
+
+  autoTable(doc, {
+    startY: 28,
+    head: [["Student ID", "Student Name", "Facial Status", "Enrollment Date", "Last Scan"]],
+    body: rows.map((r) => [r.studentId, r.studentName, r.status, r.enrollmentDate, r.lastScan]),
+    theme: "striped",
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
+    styles: { fontSize: 8, cellPadding: 3 },
+    alternateRowStyles: { fillColor: [245, 245, 255] }
+  });
+
+  doc.save(`facial-profiles-${todayLabel()}.pdf`);
+}
+
+
