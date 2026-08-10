@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertCircle, Check, CheckCircle2, Eye, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCorrectionRequests, useOrganizerProfiles } from "@/hooks/useRepositoryQueries";
+import { useCorrectionRequests, useOrganizerProfiles, useStudents } from "@/hooks/useRepositoryQueries";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
   approveOrganizerCorrectionRequest,
@@ -18,6 +19,11 @@ import {
   type OrganizerCorrectionRequest,
   type OrganizerUiState
 } from "@/features/organizer/data/organizerUiStore";
+import {
+  exportCorrectionRequestsXlsx,
+  exportCorrectionRequestsPdf,
+  type ExportCorrectionRequestRow
+} from "@/features/organizer/utils/exportUtils";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -91,6 +97,280 @@ function InfoTile({ label, value }: { label: string; value: string | React.React
   );
 }
 
+function ReportExportModal({
+  isOpen,
+  onClose,
+  requests,
+  activeStatusFilter
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  requests: CorrectionRequest[];
+  activeStatusFilter: string;
+}) {
+  const [reportType, setReportType] = useState<"directory" | "summary">("directory");
+  const [exportStatus, setExportStatus] = useState(activeStatusFilter);
+  const [exportTypeFilter, setExportTypeFilter] = useState<"all" | RequestType>("all");
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+
+  if (!isOpen) return null;
+
+  const filtered = requests.filter((r) => {
+    const matchStatus = exportStatus === "all" || r.status === exportStatus;
+    const matchType = exportTypeFilter === "all" || r.requestType === exportTypeFilter;
+    return matchStatus && matchType;
+  });
+
+  function handleResetFilters() {
+    setExportStatus("all");
+    setExportTypeFilter("all");
+  }
+
+  function handleExport() {
+    if (filtered.length === 0) {
+      toast.warning("No correction request records match the selected export criteria.");
+      return;
+    }
+
+    const data: ExportCorrectionRequestRow[] = filtered.map((r) => ({
+      requestId: r.requestId,
+      studentId: r.studentNumber,
+      studentName: r.studentName,
+      eventCode: r.eventCode,
+      eventName: r.eventName,
+      requestType: r.requestType,
+      dateSubmitted: r.dateSubmitted,
+      status: r.status,
+      recordedStatus: r.recordedAttendanceStatus,
+      requestedStatus: r.requestedStatus
+    }));
+
+    if (exportFormat === "xlsx") {
+      exportCorrectionRequestsXlsx(data);
+      toast.success(`Exported ${data.length} correction request(s) as CSV.`);
+    } else {
+      exportCorrectionRequestsPdf(data);
+      toast.success(`Exported ${data.length} correction request(s) as PDF.`);
+    }
+
+    onClose();
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <section
+        className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+      >
+        {/* Header */}
+        <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-xs">
+              <Download className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
+                Export Report
+              </h2>
+              <p className="text-xs text-slate-500 font-medium">Select report type, criteria, and download format.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/60 bg-white text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close export modal"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-5">
+          {/* Step 1: Report Content Cards */}
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
+              1. Report Content
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setReportType("directory")}
+                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+                  reportType === "directory"
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
+                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${reportType === "directory" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  {reportType === "directory" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Selected
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Correction Directory</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">All requests, student info, recorded & requested status.</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportType("summary")}
+                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+                  reportType === "summary"
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
+                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${reportType === "summary" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                    <AlertCircle className="h-4 w-4" />
+                  </div>
+                  {reportType === "summary" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Selected
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Requests Summary</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Aggregated summary by status & request type.</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Step 2: Filters Grid */}
+          <div>
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                2. Scope & Filters
+              </span>
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
+              >
+                Reset filters
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Request Status</label>
+                <select
+                  value={exportStatus}
+                  onChange={(e) => setExportStatus(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Request Type</label>
+                <select
+                  value={exportTypeFilter}
+                  onChange={(e) => setExportTypeFilter(e.target.value as "all" | RequestType)}
+                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
+                >
+                  <option value="all">All types</option>
+                  <option value="Correction">Correction</option>
+                  <option value="Excuse">Excuse</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 3: File Format Selection */}
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
+              3. Download Format
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setExportFormat("xlsx")}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                  exportFormat === "xlsx"
+                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
+                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+                  <FileSpreadsheet className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel / CSV format</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExportFormat("pdf")}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                  exportFormat === "pdf"
+                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
+                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Printable PDF report</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {filtered.length} records selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={filtered.length === 0}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export {exportFormat.toUpperCase()}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 const uiRequests: CorrectionRequest[] = [];
 
 const requestDetails: Record<string, RequestDetails> = {};
@@ -105,15 +385,22 @@ function requestTypeFromStore(type: OrganizerCorrectionRequest["requestType"]): 
   return type === "Excused Absence" ? "Excuse" : "Correction";
 }
 
+function formatRequestId(id: string, index: number): string {
+  if (id && /^RQ-\d{2}-\d{5}$/i.test(id)) {
+    return id.toUpperCase();
+  }
+  return `RQ-26-${String(index + 1).padStart(5, "0")}`;
+}
+
 function buildRequestsFromStore(state: OrganizerUiState): CorrectionRequest[] {
-  return state.correctionRequests.map((request) => {
+  return state.correctionRequests.map((request, index) => {
     const student = state.students.find((item) => item.name === request.studentName);
     const event = state.events.find((item) => item.code === request.eventCode);
     const attendanceRow = state.attendanceRows.find((row) => row.studentName === request.studentName && row.eventCode === request.eventCode);
 
     return {
       id: request.id,
-      requestId: request.id,
+      requestId: formatRequestId(request.id, index + 100),
       studentName: request.studentName,
       studentNumber: student?.schoolId ?? "N/A",
       eventCode: request.eventCode,
@@ -130,29 +417,45 @@ function buildRequestsFromStore(state: OrganizerUiState): CorrectionRequest[] {
 export function OrganizerCorrectionRequestsPage() {
   const scope = useOrganizerScope();
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  const studentsMap = useMemo(() => {
+    const map = new Map<string, { name: string; studentNumber: string }>();
+    (studentsQuery.data?.items ?? []).forEach((s) => {
+      const name = s.formattedName || s.fullName || s.studentNumber;
+      map.set(s.id, { name, studentNumber: s.studentNumber });
+      map.set(s.userId, { name, studentNumber: s.studentNumber });
+      map.set(s.studentNumber, { name, studentNumber: s.studentNumber });
+    });
+    return map;
+  }, [studentsQuery.data?.items]);
 
   const repositoryRequests = useMemo<CorrectionRequest[]>(() => {
     return (correctionRequestsQuery.data?.items ?? [])
-      .map((req) => ({
-        id: req.id,
-        requestId: req.id,
-        studentName: req.studentId === "student-1" ? "John Doe" : req.studentId,
-        studentNumber: req.studentId,
-        eventCode: req.eventId ?? "EVT-2026-001",
-        eventName: "CCS Orientation",
-        requestType: (req.requestedStatus === "excused" ? "Excuse" : "Correction") as RequestType,
-        dateSubmitted: "2026-07-17",
-        status: req.status as RequestStatus,
-        recordedAttendanceStatus: "absent" as const,
-        requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent"
-      }))
+      .map((req, index) => {
+        const studentInfo = studentsMap.get(req.studentId);
+        return {
+          id: req.id,
+          requestId: formatRequestId(req.id, index),
+          studentName: studentInfo?.name ?? (req.studentId === "student-1" ? "John Doe" : req.studentId),
+          studentNumber: studentInfo?.studentNumber ?? (req.studentId === "student-1" ? "23-00001" : req.studentId),
+          eventCode: req.eventId ?? "EVT-2026-001",
+          eventName: "CCS Orientation",
+          requestType: (req.requestedStatus === "excused" ? "Excuse" : "Correction") as RequestType,
+          dateSubmitted: "2026-07-17",
+          status: req.status as RequestStatus,
+          recordedAttendanceStatus: "absent" as const,
+          requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent"
+        };
+      })
       .sort((a, b) => (a.status === "pending" ? -1 : b.status === "pending" ? 1 : 0));
-  }, [correctionRequestsQuery.data?.items]);
+  }, [correctionRequestsQuery.data?.items, studentsMap]);
 
   const storeRequests = useMemo(() => buildRequestsFromStore(uiState), [uiState]);
   const requests = useMemo(() => [...repositoryRequests, ...storeRequests], [repositoryRequests, storeRequests]);
@@ -245,11 +548,6 @@ export function OrganizerCorrectionRequestsPage() {
     }
   }
 
-  function exportTabReport() {
-    const label = statusFilter === "all" ? "All correction requests" : `${statusFilter} correction requests`;
-    toast.success(createUiExport(label));
-  }
-
   const columns: Array<ColumnDef<CorrectionRequest>> = [
     {
       accessorKey: "requestId",
@@ -303,7 +601,19 @@ export function OrganizerCorrectionRequestsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Correction Requests" />
+      <PageHeader
+        title="Correction Requests"
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsExportModalOpen(true)}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            Export Report
+          </button>
+        }
+      />
 
       <section className="rounded-lg border bg-surface p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -332,14 +642,6 @@ export function OrganizerCorrectionRequestsPage() {
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={exportTabReport}
-            >
-              Export
-            </Button>
           </div>
         </div>
 
@@ -356,6 +658,13 @@ export function OrganizerCorrectionRequestsPage() {
           emptyDescription="No requests matching current filter."
         />
       </section>
+
+      <ReportExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        requests={requests}
+        activeStatusFilter={statusFilter}
+      />
 
       {selectedRequest ? (
         <ModalFrame onClose={() => setSelectedRequest(null)} width="max-w-3xl">
@@ -440,3 +749,4 @@ export function OrganizerCorrectionRequestsPage() {
     </div>
   );
 }
+
