@@ -62,7 +62,7 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/organizer/reports") {
     return {
       title: "Authentication Methods",
-      description: "Configure face recognition, RFID/NFC tags, and QR verification options.",
+      description: "Review QR, facial, manual, and online attendance verification options.",
       breadcrumbs: [rolePrefix, "Authentication Methods"]
     };
   }
@@ -92,7 +92,7 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/student" || pathname === "/student/dashboard") {
     return {
       title: "Dashboard",
-      description: "Student overview and quick access.",
+      description: "Overview of your events, attendance progress, and pending tasks.",
       breadcrumbs: [rolePrefix, "Dashboard"]
     };
   }
@@ -105,8 +105,8 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   }
   if (pathname === "/student/events") {
     return {
-      title: "Upcoming Events",
-      description: "Browse available events.",
+      title: "Events",
+      description: "Review ongoing and upcoming events assigned to you.",
       breadcrumbs: [rolePrefix, "Events"]
     };
   }
@@ -120,21 +120,21 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/student/attendance") {
     return {
       title: "My Attendance",
-      description: "View your attendance history.",
+      description: "Review completed attendance records and required pending tasks.",
       breadcrumbs: [rolePrefix, "Attendance"]
     };
   }
   if (pathname === "/student/methods") {
     return {
       title: "Attendance Methods",
-      description: "Registered check-in credentials.",
+      description: "View QR access, backup verification, and attendance issue reporting.",
       breadcrumbs: [rolePrefix, "Methods"]
     };
   }
   if (pathname === "/student/request-history") {
     return {
       title: "Request History",
-      description: "Past requests and status.",
+      description: "Track submitted requests and review status updates.",
       breadcrumbs: [rolePrefix, "Request History"]
     };
   }

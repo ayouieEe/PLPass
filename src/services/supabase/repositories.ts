@@ -16,6 +16,10 @@ import type {
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
+  AttendanceScanInput,
+  AttendanceSubmissionResultStatus,
+  EnrollFacialProfileInput,
+  IssueQrCredentialInput,
   StudentCredentialRepository,
   SubmitLateReasonInput,
   SubmitEventFeedbackInput,
@@ -62,6 +66,18 @@ type TableName = keyof Database["public"]["Tables"];
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level), programs(program_code, program_name)";
+const attendanceRequestProofBucket = "attendance-request-proofs";
+const credentialRequestProofBucket = "credential-request-proofs";
+
+function sanitizeStorageFileName(fileName: string) {
+  const safeName = fileName
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return safeName || "proof-attachment";
+}
 
 function queryOrDefault(query?: ListQuery): ListQuery {
   return {
@@ -201,6 +217,101 @@ async function currentStudentIdForProfile(profileId: string): Promise<string> {
     throw new RepositoryError("The signed-in account is not linked to a student profile.", "PERMISSION_DENIED");
   }
   return String(data.id);
+}
+
+function normalizeQrCredentialCode(rawCode: string) {
+  return rawCode.trim().replace(/^PLPASS-QR:/i, "").trim();
+}
+
+function credentialScanResult(
+  input: AttendanceScanInput,
+  resultStatus: AttendanceSubmissionResultStatus,
+  recordedAt: string,
+  safeMessage: string,
+  options: Partial<{
+    attendanceRecord: ReturnType<typeof mapAttendanceRecord>;
+    attendanceStatus: AttendanceStatus;
+    present: number;
+    late: number;
+    absent: number;
+    duplicateAttempts: number;
+    failedAttempts: number;
+    studentDisplayName: string;
+    studentNumber: string;
+  }> = {}
+) {
+  return {
+    resultStatus,
+    studentDisplayName: options.studentDisplayName,
+    studentNumber: options.studentNumber,
+    attendanceStatus: options.attendanceStatus,
+    verificationMethod: input.method,
+    recordedAt,
+    safeMessage,
+    attendanceRecord: options.attendanceRecord,
+    summary: {
+      present: options.present ?? 0,
+      late: options.late ?? 0,
+      absent: options.absent ?? 0,
+      duplicateAttempts: options.duplicateAttempts ?? 0,
+      failedAttempts: options.failedAttempts ?? 0
+    }
+  };
+}
+
+async function insertVerificationAttempt(
+  sessionId: string,
+  method: AttendanceScanInput["method"],
+  accepted: boolean,
+  failureCode: string | undefined,
+  message: string,
+  attemptedAt: string,
+  options: Partial<{ studentId: string; qrCredentialId: string; facialProfileId: string }> = {}
+): Promise<Row> {
+  return insertRow("verification_attempts", {
+    event_session_id: sessionId,
+    student_id: options.studentId || null,
+    verification_method: method,
+    accepted,
+    failure_code: failureCode ?? null,
+    message,
+    attempted_at: attemptedAt,
+    qr_credential_id: method === "qr" ? options.qrCredentialId ?? null : null,
+    facial_profile_id: method === "facial" ? options.facialProfileId ?? null : null
+  });
+}
+
+async function studentScanSummary(studentId: string): Promise<{ displayName?: string; studentNumber?: string }> {
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client
+    .from("students")
+    .select("student_id, profiles(first_name, middle_name, last_name, email)")
+    .eq("id", studentId)
+    .maybeSingle();
+  throwIfSupabaseError(error);
+  const row = (data ?? {}) as unknown as Row;
+  const profile = row.profiles as Row | undefined;
+  const displayName = profile
+    ? [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ")
+    : undefined;
+
+  return {
+    displayName: displayName || undefined,
+    studentNumber: typeof row.student_id === "string" ? row.student_id : undefined
+  };
+}
+
+function requireOrganizerContext(context?: { actorRole?: string }) {
+  if (context?.actorRole && context.actorRole !== "organizer" && context.actorRole !== "admin") {
+    throw new RepositoryError("Only organizers can manage student credentials.", "PERMISSION_DENIED");
+  }
+}
+
+function generatedCredentialHash(studentId: string) {
+  const randomPart = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random()}`;
+  return `plpass-qr-${studentId}-${randomPart}`;
 }
 
 export const supabaseAuthenticationRepository: AuthenticationRepository = {
@@ -493,8 +604,138 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
     return mapAttendanceRecord(row);
   },
-  async recordCredentialAttendance() {
-    throw new RepositoryError("QR and facial attendance require the secure Supabase verifier function before they can be enabled.", "VALIDATION_ERROR");
+  async recordCredentialAttendance(input) {
+    const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
+    const occurredAt = input.occurredAt ?? new Date().toISOString();
+
+    if (session.status !== "active") {
+      return credentialScanResult(input, "No Active Session", occurredAt, "This attendance session is not active.", {
+        failedAttempts: 1
+      });
+    }
+
+    if (input.method === "facial") {
+      return credentialScanResult(input, "Invalid Credential", occurredAt, "Facial verification is not enabled for live check-in yet.", {
+        failedAttempts: 1
+      });
+    }
+
+    const client = getSupabaseBrowserClient();
+    const code = normalizeQrCredentialCode(input.credentialCode);
+
+    if (!code) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "invalid_code", "QR code is empty.", occurredAt);
+      return credentialScanResult(input, "Invalid Credential", occurredAt, "QR code is empty.", { failedAttempts: 1 });
+    }
+
+    const { data: credential, error: credentialError } = await client
+      .from("qr_credentials")
+      .select("*")
+      .eq("id", code)
+      .maybeSingle();
+    throwIfSupabaseError(credentialError);
+
+    if (!credential) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "invalid_qr", "QR credential was not found.", occurredAt);
+      return credentialScanResult(input, "Invalid Credential", occurredAt, "QR credential was not found.", { failedAttempts: 1 });
+    }
+
+    const credentialRow = credential as Row;
+    const credentialStatus = String(credentialRow.credential_status ?? "");
+    const expiresAt = typeof credentialRow.expires_at === "string" ? credentialRow.expires_at : undefined;
+    const isExpired = Boolean(expiresAt && new Date(expiresAt).getTime() <= new Date(occurredAt).getTime());
+    if (credentialStatus !== "activated" || credentialRow.revoked_at || isExpired) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "blocked_qr", "QR credential is not active.", occurredAt, {
+        studentId: String(credentialRow.student_id ?? ""),
+        qrCredentialId: String(credentialRow.id ?? "")
+      });
+      return credentialScanResult(input, "Blocked Credential", occurredAt, "QR credential is not active.", { failedAttempts: 1 });
+    }
+
+    const studentId = String(credentialRow.student_id ?? "");
+    const { data: participant, error: participantError } = await client
+      .from("event_participants")
+      .select("id")
+      .eq("event_id", session.eventId ?? "")
+      .eq("student_id", studentId)
+      .maybeSingle();
+    throwIfSupabaseError(participantError);
+
+    if (!participant) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "not_enrolled", "Student is not enrolled in this event.", occurredAt, {
+        studentId,
+        qrCredentialId: String(credentialRow.id ?? "")
+      });
+      return credentialScanResult(input, "Student Not Enrolled", occurredAt, "Student is not enrolled in this event.", { failedAttempts: 1 });
+    }
+
+    const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
+    const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
+    const scannedAt = new Date(occurredAt).getTime();
+    if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime())) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "outside_window", "QR scan is outside the attendance window.", occurredAt, {
+        studentId,
+        qrCredentialId: String(credentialRow.id ?? "")
+      });
+      return credentialScanResult(input, "Outside Attendance Window", occurredAt, "QR scan is outside the attendance window.", { failedAttempts: 1 });
+    }
+
+    const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
+    if (scannedAt > lateCutoff) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "late_reason_required", "Late QR scans need organizer review before they are recorded.", occurredAt, {
+        studentId,
+        qrCredentialId: String(credentialRow.id ?? "")
+      });
+      return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Late QR scans need organizer review before they are recorded.", { failedAttempts: 1 });
+    }
+
+    const { data: existingRows, error: existingError } = await client
+      .from("attendance_records")
+      .select("*")
+      .eq("event_session_id", input.sessionId)
+      .eq("student_id", studentId)
+      .limit(1);
+    throwIfSupabaseError(existingError);
+
+    const existing = existingRows?.[0] as Row | undefined;
+    if (existing) {
+      const record = mapAttendanceRecord(existing);
+      return credentialScanResult(input, "Already Recorded", record.recordedAt, "Attendance was already recorded.", {
+        duplicateAttempts: 1,
+        attendanceRecord: record,
+        attendanceStatus: record.status
+      });
+    }
+
+    const attempt = await insertVerificationAttempt(input.sessionId, input.method, true, undefined, "QR credential accepted.", occurredAt, {
+      studentId,
+      qrCredentialId: String(credentialRow.id ?? "")
+    });
+    const profile = await currentProfile();
+    const recordRow = await insertRow("attendance_records", {
+      event_session_id: input.sessionId,
+      student_id: studentId,
+      verification_attempt_id: String(attempt.id ?? ""),
+      attendance_status: "present",
+      verification_method: "qr",
+      time_in: occurredAt,
+      recorded_at: occurredAt,
+      recorded_by: String(profile.id ?? "")
+    });
+    await updateRow("qr_credentials", String(credentialRow.id ?? ""), {
+      last_successful_check_in_at: occurredAt,
+      updated_at: new Date().toISOString()
+    });
+
+    const record = mapAttendanceRecord(recordRow);
+    const studentSummary = await studentScanSummary(studentId);
+    return credentialScanResult(input, "Present", occurredAt, "QR attendance recorded.", {
+      attendanceRecord: record,
+      attendanceStatus: "present",
+      present: 1,
+      studentDisplayName: studentSummary.displayName,
+      studentNumber: studentSummary.studentNumber
+    });
   },
   async recordManualAttendance(input) {
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
@@ -621,13 +862,41 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
       throw new RepositoryError("You already have a pending correction request for this attendance record.", "VALIDATION_ERROR");
     }
 
+    if (!input.proofAttachment) {
+      throw new RepositoryError("Proof attachment is required to create a correction request.", "VALIDATION_ERROR");
+    }
+
+    const requestId = crypto.randomUUID();
+    const proofFileId = crypto.randomUUID();
+    const safeFileName = sanitizeStorageFileName(input.proofAttachment.name);
+    const proofObjectPath = `${studentId}/${requestId}/${proofFileId}-${safeFileName}`;
+    const { error: uploadError } = await client.storage
+      .from(attendanceRequestProofBucket)
+      .upload(proofObjectPath, input.proofAttachment, {
+        cacheControl: "3600",
+        contentType: input.proofAttachment.type || undefined,
+        upsert: false
+      });
+    throwIfSupabaseError(uploadError);
+
     const inserted = await insertRow("attendance_requests", {
+      id: requestId,
       student_id: studentId,
       attendance_record_id: input.attendanceRecordId,
       explanation: reason,
       requested_status: input.requestedStatus,
       request_status: "pending"
     });
+
+    await insertRow("attendance_request_attachments", {
+      request_id: requestId,
+      storage_bucket: attendanceRequestProofBucket,
+      storage_object_path: proofObjectPath,
+      original_file_name: input.proofAttachment.name,
+      mime_type: input.proofAttachment.type || "application/octet-stream",
+      file_size_bytes: input.proofAttachment.size
+    });
+
     return mapCorrectionRequest(inserted);
   },
   async reviewCorrectionRequest(input) {
@@ -688,13 +957,43 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
       throw new RepositoryError("You already have a pending request for this credential issue.", "VALIDATION_ERROR");
     }
 
+    const requestId = crypto.randomUUID();
+    let proofObjectPath: string | undefined;
+
+    if (input.proofAttachment) {
+      const proofFileId = crypto.randomUUID();
+      const safeFileName = sanitizeStorageFileName(input.proofAttachment.name);
+      proofObjectPath = `${studentId}/${requestId}/${proofFileId}-${safeFileName}`;
+      const { error: uploadError } = await client.storage
+        .from(credentialRequestProofBucket)
+        .upload(proofObjectPath, input.proofAttachment, {
+          cacheControl: "3600",
+          contentType: input.proofAttachment.type || undefined,
+          upsert: false
+        });
+      throwIfSupabaseError(uploadError);
+    }
+
     const inserted = await insertRow("credential_requests", {
+      id: requestId,
       student_id: studentId,
       credential_type: input.credentialType,
       request_type: input.requestType,
       reason,
       request_status: "pending"
     });
+
+    if (input.proofAttachment && proofObjectPath) {
+      await insertRow("credential_request_attachments", {
+        request_id: requestId,
+        storage_bucket: credentialRequestProofBucket,
+        storage_object_path: proofObjectPath,
+        original_file_name: input.proofAttachment.name,
+        mime_type: input.proofAttachment.type || "application/octet-stream",
+        file_size_bytes: input.proofAttachment.size
+      });
+    }
+
     return mapCredentialRequest(inserted);
   }
 };
@@ -725,6 +1024,56 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
       qrCredential: qrRows?.[0] ? mapQrCredential(qrRows[0] as Row) : undefined,
       facialProfile: facialRow ? mapFacialProfile(facialRow as Row) : undefined
     };
+  },
+  async issueQrCredential(input: IssueQrCredentialInput, context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const now = new Date().toISOString();
+    const expiresAt = input.expiresAt ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { error: deactivateError } = await client
+      .from("qr_credentials")
+      .update({
+        credential_status: "inactive",
+        revoked_at: now,
+        updated_at: now
+      })
+      .eq("student_id", input.studentId)
+      .eq("credential_status", "activated");
+    throwIfSupabaseError(deactivateError);
+
+    await insertRow("qr_credentials", {
+      student_id: input.studentId,
+      token_hash: generatedCredentialHash(input.studentId),
+      credential_status: "activated",
+      issued_at: now,
+      expires_at: expiresAt
+    });
+
+    return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
+  },
+  async enrollFacialProfile(input: EnrollFacialProfileInput, context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const now = new Date().toISOString();
+    const enrollmentReference = input.enrollmentReference?.trim() || `face-${input.studentId}-${Date.now()}`;
+
+    const { data, error } = await client
+      .from("facial_profiles")
+      .upsert({
+        student_id: input.studentId,
+        enrollment_reference: enrollmentReference,
+        facial_status: "activated",
+        enrolled_at: now,
+        consent_recorded_at: now,
+        updated_at: now
+      }, { onConflict: "student_id" })
+      .select("*")
+      .single();
+    throwIfSupabaseError(error);
+    void data;
+
+    return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
   }
 };
 

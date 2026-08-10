@@ -34,7 +34,9 @@ import type { AttendanceMode, EventStatus, VerificationMethod } from "@/types/en
 export type CreateCorrectionRequestInput = Pick<
   CorrectionRequest,
   "studentId" | "attendanceRecordId" | "classId" | "eventId" | "requestedStatus" | "reason"
->;
+> & {
+  proofAttachment?: File;
+};
 
 export type AddRosterStudentInput = {
   classId: string;
@@ -107,7 +109,19 @@ export type SubmitLateReasonInput = {
 export type CreateCredentialRequestInput = Pick<
   CredentialRequest,
   "studentId" | "credentialType" | "requestType" | "reason"
->;
+> & {
+  proofAttachment?: File;
+};
+
+export type IssueQrCredentialInput = {
+  studentId: string;
+  expiresAt?: string;
+};
+
+export type EnrollFacialProfileInput = {
+  studentId: string;
+  enrollmentReference?: string;
+};
 
 export type AttendanceSubmissionResultStatus =
   | "Present"
@@ -239,6 +253,8 @@ export interface CredentialRequestRepository {
 
 export interface StudentCredentialRepository {
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
+  issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
+  enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
 }
 
 export interface EventFeedbackRepository {

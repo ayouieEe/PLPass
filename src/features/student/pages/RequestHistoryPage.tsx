@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
@@ -44,7 +45,7 @@ function statusTone(status: CorrectionRequestStatus | CredentialRequestStatus) {
 
 function typeLabel(type: StudentRequestKind) {
   if (type === "attendance_correction") return "Correction Request";
-  if (type === "authentication_issue") return "Check-in Problem";
+  if (type === "authentication_issue") return "Attendance Issue";
   return "Facial Review";
 }
 
@@ -64,6 +65,7 @@ export function RequestHistoryPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [selectedRequest, setSelectedRequest] = useState<RequestHistoryRow | null>(null);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -138,7 +140,7 @@ export function RequestHistoryPage() {
       submittedAt: request.requestedAt,
       type: request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue",
       typeLabel: typeLabel(request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue"),
-      title: request.requestType === "re_enrollment" ? "Facial review request" : "Check-in problem",
+      title: request.requestType === "re_enrollment" ? "Facial review request" : "Attendance issue report",
       description: request.reason,
       status: request.status,
       reference: request.credentialType === "facial" ? "Facial Recognition" : "Attendance Methods",
@@ -163,9 +165,8 @@ export function RequestHistoryPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Student Requests"
         title="Request History"
-        description="Track the attendance corrections, check-in problems, and facial review requests you submitted."
+        description="Track submitted corrections, attendance issues, and facial review requests."
       />
 
       {hasPartialDataIssue ? (
@@ -210,7 +211,7 @@ export function RequestHistoryPage() {
             >
               <option value="">All request types</option>
               <option value="attendance_correction">Correction requests</option>
-              <option value="authentication_issue">Check-in problems</option>
+              <option value="authentication_issue">Attendance issues</option>
               <option value="face_reenrollment">Facial reviews</option>
             </select>
           </label>
@@ -231,18 +232,23 @@ export function RequestHistoryPage() {
           </label>
         </div>
 
-        <div className="border-t p-5 md:p-6">
+        <div className="border-t p-5 pb-24 md:p-6 md:pb-24">
           {visibleRows.length ? (
             <div className="overflow-hidden rounded-2xl border bg-background">
-              <div className="hidden grid-cols-[150px_190px_minmax(0,1fr)_130px] gap-4 border-b bg-surface-muted/50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+              <div className="hidden grid-cols-[150px_190px_minmax(0,1fr)_150px] gap-4 border-b bg-surface-muted/50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
                 <span>Submitted</span>
                 <span>Type</span>
                 <span>Request</span>
-                <span>Status</span>
+                <span className="text-center">Status</span>
               </div>
               <div className="divide-y">
                 {visibleRows.map((row) => (
-                  <article key={row.id} className="grid gap-3 px-4 py-4 md:grid-cols-[150px_190px_minmax(0,1fr)_130px] md:items-center">
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="grid w-full gap-3 px-4 py-4 text-left transition hover:bg-surface-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 md:grid-cols-[150px_190px_minmax(0,1fr)_150px] md:items-center"
+                    onClick={() => setSelectedRequest(row)}
+                  >
                     <div>
                       <p className="text-sm font-semibold">{formatDisplayDate(row.submittedAt)}</p>
                       <p className="text-xs text-muted-foreground">{formatDisplayTime(row.submittedAt)}</p>
@@ -264,10 +270,10 @@ export function RequestHistoryPage() {
                         </div>
                       ) : null}
                     </div>
-                    <div className="flex md:justify-end">
+                    <div className="flex md:justify-center">
                       <StatusBadge label={row.status} tone={statusTone(row.status)} />
                     </div>
-                  </article>
+                  </button>
                 ))}
               </div>
             </div>
@@ -276,6 +282,58 @@ export function RequestHistoryPage() {
           )}
         </div>
       </section>
+
+      {selectedRequest ? (
+        <ModalShell
+          open={Boolean(selectedRequest)}
+          title={selectedRequest.title}
+          description={`${selectedRequest.typeLabel} - ${selectedRequest.reference}`}
+          size="lg"
+          onClose={() => setSelectedRequest(null)}
+        >
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Submitted</p>
+                <p className="mt-1 font-semibold">{formatDisplayDate(selectedRequest.submittedAt)}</p>
+                <p className="text-sm text-muted-foreground">{formatDisplayTime(selectedRequest.submittedAt)}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
+                <div className="mt-2">
+                  <StatusBadge label={selectedRequest.status} tone={statusTone(selectedRequest.status)} />
+                </div>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Request type</p>
+                <p className="mt-1 font-semibold">{selectedRequest.typeLabel}</p>
+              </div>
+              <div className="rounded-xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Reference</p>
+                <p className="mt-1 font-semibold">{selectedRequest.reference}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border bg-background p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Student explanation</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{selectedRequest.description}</p>
+            </div>
+
+            {selectedRequest.details.length ? (
+              <div className="rounded-2xl border bg-background p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Request details</p>
+                <div className="mt-3 space-y-2">
+                  {selectedRequest.details.map((detail) => (
+                    <p key={detail} className="rounded-xl bg-surface-muted/60 px-3 py-2 text-sm text-muted-foreground">
+                      {detail}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </ModalShell>
+      ) : null}
     </div>
   );
 }

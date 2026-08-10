@@ -55,10 +55,10 @@ export function RoleBasedSidebar({
       )}
       aria-label={`${role} workspace sidebar`}
     >
-      <div className={cn("shrink-0 border-b border-border p-4", collapsed && "px-2.5")}>
+      <div className={cn("flex h-[72px] shrink-0 items-center border-b border-border px-4", collapsed && "justify-center px-2.5")}>
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
-            <Activity className="h-5 w-5" aria-hidden="true" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
+            <Activity className="h-4.5 w-4.5" aria-hidden="true" />
           </div>
           {!collapsed ? (
             <div className="min-w-0 flex-1">
@@ -70,7 +70,7 @@ export function RoleBasedSidebar({
         </div>
       </div>
 
-      <nav aria-label={`${role} navigation`} className={cn("min-h-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto px-3 py-4", collapsed && "px-2")}>
+      <nav aria-label={`${role} navigation`} className={cn("plpass-modern-scrollbar min-h-0 flex-1 overscroll-contain overflow-x-hidden overflow-y-auto px-3 py-4", collapsed && "px-2")}>
         {Object.entries(groups).map(([group, items]) => (
           <div key={group} className={cn("mb-5 last:mb-0", collapsed && "mb-3")}>
             {!collapsed ? <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p> : null}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,9 @@ import {
   ListFilter,
   Lock,
   MessageSquareText,
-  Search
+  Paperclip,
+  Search,
+  X
 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -39,6 +41,8 @@ import {
 
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
 const timeOnlyPattern = /^\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?$/i;
+const correctionProofMaxBytes = 5 * 1024 * 1024;
+const acceptedCorrectionProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
 
 function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
@@ -79,6 +83,11 @@ function formatAttendanceMethod(method: string) {
   return method;
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function MyAttendancePage() {
   const scope = useStudentScope();
   const [searchParams] = useSearchParams();
@@ -102,6 +111,10 @@ export function MyAttendancePage() {
   const [openedFocus, setOpenedFocus] = useState<string | null>(null);
   const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
   const [correctionFormOpen, setCorrectionFormOpen] = useState(false);
+  const [correctionProofFile, setCorrectionProofFile] = useState<File | null>(null);
+  const [correctionProofError, setCorrectionProofError] = useState("");
+  const [correctionProofInputKey, setCorrectionProofInputKey] = useState(0);
+  const correctionProofInputId = `correction-proof-${selectedRecord?.id ?? "new"}`;
   const feedbackObjectivesQuery = useEventObjectives(feedbackRecord?.eventId, scope.context);
 
   useEffect(() => {
@@ -178,26 +191,29 @@ export function MyAttendancePage() {
   const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
   const metrics = getStudentEventMetrics(records);
   const attendedRecords = metrics.attendedRecords;
-  const pendingFeedbackRecords = attendedRecords.filter(
-    (record) => (record.status !== "late" || Boolean(record.lateReason)) && !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
+  const isFeedbackSubmitted = (record: StudentEventRecord) => Boolean(record.feedbackSubmitted || submittedFeedbackEventIds.has(record.eventId));
+  const needsLateReason = (record: StudentEventRecord) => record.status === "late" && !record.lateReason;
+  const needsFeedback = (record: StudentEventRecord) => (record.status === "present" || record.status === "late") && !needsLateReason(record) && !isFeedbackSubmitted(record);
+  const isCompletedAttendedRecord = (record: StudentEventRecord) => (
+    (record.status === "present" || record.status === "late")
+    && !needsLateReason(record)
+    && isFeedbackSubmitted(record)
   );
-  const feedbackDue = pendingFeedbackRecords.length;
-  const yearOptions = Array.from(new Set(attendedRecords.map((record) => getRecordYear(record))))
+  const pendingTaskRecords = attendedRecords.filter((record) => needsLateReason(record) || needsFeedback(record));
+  const completedRecords = records.filter(isCompletedAttendedRecord);
+  const completedAttendedCount = completedRecords.length;
+  const pendingTaskCount = pendingTaskRecords.length;
+  const yearOptions = Array.from(new Set(completedRecords.map((record) => getRecordYear(record))))
     .sort((first, second) => {
       if (first === "Date pending") return 1;
       if (second === "Date pending") return -1;
       return Number(second) - Number(first);
     });
-  const visibleRecords = attendedRecords.filter((record) => {
+  const visibleRecords = completedRecords.filter((record) => {
     const term = search.trim().toLowerCase();
-    const correction = corrections.find((request) => request.eventId === record.eventId);
-    const displayStatus = correction?.status === "pending" ? "correction-pending" : record.status;
-    const requiresLateReason = record.status === "late" && !record.lateReason;
-    const hasFeedbackDue = !requiresLateReason && !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId);
     const matchesSearch = !term || [record.eventName, record.eventCode, record.category, record.venue].some((value) => value.toLowerCase().includes(term));
     const matchesYear = !yearFilter || getRecordYear(record) === yearFilter;
-    const matchesStatus = !statusFilter
-      || (statusFilter === "feedback-due" ? hasFeedbackDue : statusFilter === "late-reason-required" ? requiresLateReason : displayStatus === statusFilter);
+    const matchesStatus = !statusFilter || record.status === statusFilter;
     return matchesSearch && matchesYear && matchesStatus;
   });
   const recordsByYear = visibleRecords.reduce<Array<{ year: string; records: StudentEventRecord[] }>>((groups, record) => {
@@ -250,6 +266,7 @@ export function MyAttendancePage() {
     setRequestType(getDefaultRequestType(record.status));
     setExplanation("");
     setCorrectionFormOpen(false);
+    resetCorrectionProofFile();
     setSelectedRecord(record);
   }
 
@@ -262,6 +279,38 @@ export function MyAttendancePage() {
     setFeedbackRecord(record);
     setFeedbackRatings({});
     setFeedbackComment("");
+  }
+
+  function resetCorrectionProofFile() {
+    setCorrectionProofFile(null);
+    setCorrectionProofError("");
+    setCorrectionProofInputKey((key) => key + 1);
+  }
+
+  function handleCorrectionProofChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setCorrectionProofError("");
+
+    if (!file) {
+      setCorrectionProofFile(null);
+      return;
+    }
+
+    if (!acceptedCorrectionProofTypes.includes(file.type)) {
+      setCorrectionProofFile(null);
+      setCorrectionProofError("Use a PNG, JPG, WebP, or PDF file.");
+      setCorrectionProofInputKey((key) => key + 1);
+      return;
+    }
+
+    if (file.size > correctionProofMaxBytes) {
+      setCorrectionProofFile(null);
+      setCorrectionProofError("Proof file must be 5 MB or smaller.");
+      setCorrectionProofInputKey((key) => key + 1);
+      return;
+    }
+
+    setCorrectionProofFile(file);
   }
 
   async function submitFeedback() {
@@ -311,6 +360,10 @@ export function MyAttendancePage() {
       toast.error("Please provide a clear explanation.");
       return;
     }
+    if (!correctionProofFile) {
+      toast.error("Please attach proof for the correction request.");
+      return;
+    }
 
     try {
       await correctionsQuery.createMutation.mutateAsync({
@@ -318,10 +371,12 @@ export function MyAttendancePage() {
         attendanceRecordId: selectedRecord.id,
         eventId: selectedRecord.eventId,
         requestedStatus: requestType,
-        reason: explanation.trim()
+        reason: explanation.trim(),
+        proofAttachment: correctionProofFile
       });
       toast.success("Correction request submitted.");
       setExplanation("");
+      resetCorrectionProofFile();
       setCorrectionFormOpen(false);
     } catch {
       toast.error("Unable to submit correction request.");
@@ -331,9 +386,8 @@ export function MyAttendancePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Attendance"
         title="Attendance Records"
-        description="Review your completed attendance, submit required feedback, and request corrections only when a record is wrong."
+        description="Completed records appear here after required tasks are finished."
       />
 
       <section className="rounded-2xl border bg-surface p-4 shadow-sm">
@@ -373,21 +427,20 @@ export function MyAttendancePage() {
               <option value="">All record statuses</option>
               <option value="present">Present</option>
               <option value="late">Late</option>
-              <option value="late-reason-required">Needs late reason</option>
-              <option value="feedback-due">Needs feedback</option>
-              <option value="correction-pending">Correction pending</option>
+              <option value="absent">Absent</option>
+              <option value="excused">Excused</option>
             </select>
           </label>
           <Button
             type="button"
-            variant={feedbackDue ? "default" : "outline"}
+            variant={pendingTaskCount ? "default" : "outline"}
             className="h-11 justify-center whitespace-nowrap"
-            aria-label="Open feedback tasks"
+            aria-label="Open pending attendance tasks"
             onClick={() => setFeedbackDueModalOpen(true)}
           >
             <MessageSquareText className="h-4 w-4" />
-            Feedback tasks
-            {feedbackDue ? <span className="rounded-full bg-background/20 px-2 py-0.5 text-xs">{feedbackDue}</span> : null}
+            Pending Tasks
+            {pendingTaskCount ? <span className="rounded-full bg-background/20 px-2 py-0.5 text-xs">{pendingTaskCount}</span> : null}
           </Button>
         </div>
       </section>
@@ -397,12 +450,15 @@ export function MyAttendancePage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Attended Events by Year</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Present and late event attendance, grouped by event year from newest to oldest.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Only completed present or late attendance records appear here after required tasks are finished.</p>
           </div>
-          <StatusBadge label={`${visibleRecords.length} attended`} tone="info" />
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge label={`${completedAttendedCount} attended`} tone="info" />
+            <StatusBadge label={`${pendingTaskCount} pending`} tone={pendingTaskCount ? "warning" : "muted"} />
+          </div>
         </div>
 
-        <div className="mt-6">
+        <div className="plpass-modern-scrollbar mt-6 max-h-[68vh] overflow-y-auto pr-2">
           {recordsByYear.length ? (
             <div className="space-y-5">
               {recordsByYear.map((group) => (
@@ -421,7 +477,6 @@ export function MyAttendancePage() {
                   <div className="mt-4 space-y-4">
                     {group.records.map((record, index) => {
                 const correction = corrections.find((request) => request.eventId === record.eventId);
-                const displayStatus = correction?.status === "pending" ? "correction-pending" : record.status;
                 const event = events.find((entry) => entry.id === record.eventId);
                 const session = sessions.find((entry) => entry.eventId === record.eventId);
                 const workflow = event ? buildStudentEventWorkflow({
@@ -450,9 +505,9 @@ export function MyAttendancePage() {
                       ) : null}
                       <span className={cn(
                         "relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-4 border-surface bg-primary/10 text-primary shadow-sm",
-                        displayStatus === "late" && "bg-warning/10 text-warning",
-                        displayStatus === "absent" && "bg-danger/10 text-danger",
-                        displayStatus === "correction-pending" && "bg-info/10 text-info"
+                        record.status === "late" && "bg-warning/10 text-warning",
+                        record.status === "absent" && "bg-danger/10 text-danger",
+                        record.status === "excused" && "bg-info/10 text-info"
                       )}>
                         <CalendarDays className="h-4 w-4" />
                       </span>
@@ -481,7 +536,7 @@ export function MyAttendancePage() {
                             </span>
                           </div>
                         </div>
-                        <StatusBadge label={displayStatus} tone={statusTone(displayStatus)} />
+                        <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       </div>
 
                         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
@@ -499,22 +554,23 @@ export function MyAttendancePage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No attended events" description="Present and late event attendance will appear here, grouped by year." />
+            <EmptyState title="No completed attendance records" description="Completed present and late attendance records will appear here after required tasks are finished." />
           )}
         </div>
       </section>
 
       <ModalShell
         open={feedbackDueModalOpen}
-        title="Feedback Tasks"
-        description="These records are ready for event feedback. Late reason items are handled separately."
+        title="Pending Tasks"
+        description="Complete these required actions before the attendance record appears in your completed records list."
         size="lg"
         onClose={() => setFeedbackDueModalOpen(false)}
       >
-        {pendingFeedbackRecords.length ? (
+        {pendingTaskRecords.length ? (
           <div className="space-y-3">
-            {pendingFeedbackRecords.map((record) => {
+            {pendingTaskRecords.map((record) => {
               const deadline = getStudentFeedbackDeadlineStatus(record);
+              const needsReason = needsLateReason(record);
 
               return (
                 <article key={record.id} className="rounded-2xl border bg-background p-4">
@@ -538,23 +594,38 @@ export function MyAttendancePage() {
                     <div className="flex flex-wrap justify-end gap-2">
                       <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
-                        Needs feedback
+                        {needsReason ? "Needs late reason" : "Needs feedback"}
                       </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          deadline.isOverdue ? "bg-destructive/10 text-destructive" : deadline.isDueSoon ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
-                        }`}
-                      >
-                        {deadline.label}
-                      </span>
+                      {!needsReason ? (
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            deadline.isOverdue ? "bg-destructive/10 text-destructive" : deadline.isDueSoon ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
+                          }`}
+                        >
+                          {deadline.label}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                     <p className="max-w-xl text-sm text-muted-foreground">
-                      Answer the event feedback to complete this attendance record.
+                      {needsReason
+                        ? "Submit the late reason first. Feedback will unlock after this step."
+                        : "Answer the event feedback to complete this attendance record."}
                     </p>
-                    <Button type="button" size="sm" onClick={() => openFeedbackDueRecord(record)}>
-                      Answer Feedback
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        if (needsReason) {
+                          setFeedbackDueModalOpen(false);
+                          setLateReasonRecord(record);
+                        } else {
+                          openFeedbackDueRecord(record);
+                        }
+                      }}
+                    >
+                      {needsReason ? "Submit Late Reason" : "Answer Feedback"}
                     </Button>
                   </div>
                 </article>
@@ -565,7 +636,7 @@ export function MyAttendancePage() {
           <div className="rounded-2xl border border-success/20 bg-success/10 p-5">
             <p className="flex items-center gap-2 font-semibold text-success">
               <CheckCircle2 className="h-4 w-4" />
-              No pending feedback right now.
+              No pending tasks right now.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">Completed attendance records are already settled.</p>
           </div>
@@ -578,7 +649,12 @@ export function MyAttendancePage() {
           title={selectedRecord.eventName}
           description={`${selectedRecord.eventCode} - ${selectedRecord.venue}`}
           size="lg"
-          onClose={() => setSelectedRecord(null)}
+          onClose={() => {
+            setSelectedRecord(null);
+            setCorrectionFormOpen(false);
+            setExplanation("");
+            resetCorrectionProofFile();
+          }}
         >
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-xl border bg-background p-4">
@@ -703,12 +779,66 @@ export function MyAttendancePage() {
                           placeholder="Explain what needs to be corrected."
                         />
                       </label>
+                      <div className="rounded-2xl border bg-surface-muted/40 p-4 sm:col-span-2">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold">Proof attachment required</p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              Attach a screenshot, photo, or PDF that supports your correction request. Maximum file size is {formatFileSize(correctionProofMaxBytes)}.
+                            </p>
+                          </div>
+                          <div className="w-full sm:w-auto">
+                            <input
+                              id={correctionProofInputId}
+                              key={correctionProofInputKey}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,application/pdf"
+                              className="sr-only"
+                              onChange={handleCorrectionProofChange}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-11 w-full rounded-full bg-background px-5 shadow-sm sm:w-auto"
+                              onClick={() => document.getElementById(correctionProofInputId)?.click()}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                              Attach proof
+                            </Button>
+                          </div>
+                        </div>
+
+                        {correctionProofFile ? (
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Paperclip className="h-4 w-4 flex-shrink-0 text-primary" />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold">{correctionProofFile.name}</p>
+                                <p className="text-xs text-muted-foreground">{formatFileSize(correctionProofFile.size)}</p>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
+                              aria-label="Remove proof attachment"
+                              onClick={resetCorrectionProofFile}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : null}
+
+                        {correctionProofError ? <p className="mt-2 text-sm text-danger">{correctionProofError}</p> : null}
+                      </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button onClick={submitCorrection}>Submit Request</Button>
+                      <Button onClick={submitCorrection} disabled={correctionsQuery.createMutation.isPending || Boolean(correctionProofError)}>
+                        {correctionsQuery.createMutation.isPending ? "Submitting..." : "Submit Request"}
+                      </Button>
                       <Button type="button" variant="outline" onClick={() => {
                         setCorrectionFormOpen(false);
                         setExplanation("");
+                        resetCorrectionProofFile();
                       }}>
                         Cancel
                       </Button>

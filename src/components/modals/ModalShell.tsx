@@ -58,7 +58,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
             </Button>
           ) : null}
         </div>
-        <div className="max-h-[calc(90vh-9rem)] overflow-y-auto p-5">{children}</div>
+        <div className="plpass-modern-scrollbar max-h-[calc(90vh-9rem)] overflow-y-auto p-5">{children}</div>
         {footer ? <div className="flex flex-wrap justify-end gap-2 border-t bg-surface-muted/40 p-5">{footer}</div> : null}
       </section>
     </div>

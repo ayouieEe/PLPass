@@ -12,7 +12,6 @@ import {
   MapPin,
   Radio,
   Search,
-  SlidersHorizontal,
   TriangleAlert
 } from "lucide-react";
 import { NavLink, useSearchParams } from "react-router-dom";
@@ -96,7 +95,6 @@ export function StudentUpcomingEventsPage() {
   const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [actionFilter, setActionFilter] = useState("");
   const [activeTab, setActiveTab] = useState<EventListTab>(() =>
     searchParams.get("tab") === "upcoming" || searchParams.get("view") === "calendar" ? "upcoming" : "ongoing"
   );
@@ -176,14 +174,12 @@ export function StudentUpcomingEventsPage() {
     .filter(({ event }) => new Date(event.startsAt).getTime() > now)
     .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime());
 
-  const tabWorkflows = activeTab === "ongoing" ? ongoingWorkflows : upcomingWorkflows;
-
-  const workflows = tabWorkflows.filter(({ event, workflow }) => {
-    const term = search.trim().toLowerCase();
-    const matchesSearch = !term || [event.title, event.code, event.category, event.venue].some((value) => value.toLowerCase().includes(term));
-    const matchesAction = activeTab !== "ongoing" || !actionFilter || workflow.state === actionFilter;
-    return matchesSearch && matchesAction;
-  });
+  const workflows = activeTab === "ongoing"
+    ? ongoingWorkflows
+    : upcomingWorkflows.filter(({ event }) => {
+        const term = search.trim().toLowerCase();
+        return !term || [event.title, event.code, event.category, event.venue].some((value) => value.toLowerCase().includes(term));
+      });
 
   const calendarCells = buildCalendarGrid(monthCursor);
   const eventsByDay = new Map<string, typeof workflows>();
@@ -196,10 +192,6 @@ export function StudentUpcomingEventsPage() {
 
   const selectedDayEvents = selectedDayKey ? eventsByDay.get(selectedDayKey) ?? [] : [];
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const hasFilters = Boolean(search.trim() || (activeTab === "ongoing" && actionFilter));
-  const resultLabel = activeTab === "ongoing"
-    ? `${workflows.length} current event${workflows.length === 1 ? "" : "s"}`
-    : `${workflows.length} upcoming event${workflows.length === 1 ? "" : "s"}`;
 
   function goToMonth(offset: number) {
     setMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
@@ -215,9 +207,8 @@ export function StudentUpcomingEventsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Events"
         title="Events"
-        description="Review events you can still attend. Completed attendance stays in Attendance Records."
+        description="Review ongoing and upcoming events assigned to you."
       />
 
       <section className="relative space-y-4 overflow-hidden rounded-2xl border bg-surface p-4 shadow-sm">
@@ -233,9 +224,7 @@ export function StudentUpcomingEventsPage() {
                 type="button"
                 onClick={() => {
                   setActiveTab(tab.id);
-                  if (tab.id === "upcoming") {
-                    setActionFilter("");
-                  }
+                  setSearch("");
                   setSelectedDayKey(null);
                 }}
                 className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 ${
@@ -295,52 +284,20 @@ export function StudentUpcomingEventsPage() {
           )}
         </div>
 
-        <div className={`grid gap-3 border-t pt-4 ${activeTab === "ongoing" ? "md:grid-cols-[minmax(0,1fr)_240px]" : ""}`}>
-          <label className="group flex items-center gap-3 rounded-xl border bg-background px-3 py-2.5 text-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
-            <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-focus-within:text-primary" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
-              placeholder="Search event, code, venue..."
-            />
-          </label>
-          {activeTab === "ongoing" ? (
-            <label className="relative flex h-11 items-center">
-              <SlidersHorizontal className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" />
-              <select
-                className="plpass-select pl-9"
-                value={actionFilter}
-                onChange={(event) => setActionFilter(event.target.value)}
-              >
-                <option value="">All actions</option>
-                <option value="Waiting for Time In">Needs Time In</option>
-                <option value="Pending Time Out">Needs Time Out</option>
-                <option value="Late Reason Required">Needs Late Reason</option>
-              </select>
+        {activeTab === "upcoming" ? (
+          <div className="border-t pt-4">
+            <label className="group flex items-center gap-3 rounded-xl border bg-background px-3 py-2.5 text-sm transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/10">
+              <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-focus-within:text-primary" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/70"
+                placeholder="Search event, code, venue..."
+              />
             </label>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-background/70 px-3 py-2 text-sm">
-          <span className="font-medium text-muted-foreground">
-            Showing <span className="text-foreground">{resultLabel}</span>
-            {hasFilters ? " matching your filters" : ""}
-          </span>
-          {hasFilters ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setSearch("");
-                setActionFilter("");
-              }}
-            >
-              Clear filters
-            </Button>
-          ) : null}
-        </div>
       </section>
 
       {activeTab === "ongoing" ? (
@@ -364,8 +321,8 @@ export function StudentUpcomingEventsPage() {
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
                 <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
-                <div className="relative grid gap-5 p-5 pt-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:p-6 lg:pt-7">
-                  <div>
+                <div className="relative p-5 pt-6 lg:p-6 lg:pt-7">
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{event.category}</p>
@@ -392,6 +349,22 @@ export function StudentUpcomingEventsPage() {
                         </span>
                         {event.venue}
                       </p>
+                    </div>
+                    <div className="mt-5 grid gap-3 rounded-xl border bg-background/80 p-4 sm:grid-cols-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">My Status</p>
+                        <div className="mt-2">
+                          <StatusBadge label={workflow.attendanceLabel} tone={workflow.stateTone} />
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Time In</p>
+                        <p className="mt-2 text-sm font-semibold text-foreground">{workflow.timeInLabel}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Time Out</p>
+                        <p className="mt-2 text-sm font-semibold text-foreground">{workflow.timeOutLabel}</p>
+                      </div>
                     </div>
                     {event.description ? (
                       <div className="mt-5 rounded-xl border bg-background/80 p-4">
@@ -452,30 +425,12 @@ export function StudentUpcomingEventsPage() {
                         )}
                       </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col gap-4 rounded-xl border bg-background p-4">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">My status</p>
-                      <div className="mt-2">
-                        <StatusBadge label={workflow.attendanceLabel} tone={workflow.stateTone} />
-                      </div>
-                    </div>
-                    <div className="space-y-2 border-t pt-4">
-                      <p className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Time In</span>
-                        <span className="font-semibold text-foreground">{workflow.timeInLabel}</span>
-                      </p>
-                      <p className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Time Out</span>
-                        <span className="font-semibold text-foreground">{workflow.timeOutLabel}</span>
-                      </p>
-                    </div>
-                    <div className="grid gap-2 border-t pt-4">
-                      <Button asChild size="sm">
-                        <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
-                      </Button>
+                    <div className="mt-5 flex flex-wrap justify-end gap-3 border-t pt-4">
                       <Button asChild variant="outline" size="sm">
                         <NavLink to={APP_ROUTES.studentMethods}>Open Attendance Methods</NavLink>
+                      </Button>
+                      <Button asChild size="sm">
+                        <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
                       </Button>
                     </div>
                   </div>
@@ -646,7 +601,7 @@ export function StudentUpcomingEventsPage() {
               {selectedDayEvents
                 .slice()
                 .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime())
-                .map(({ event, workflow }) => {
+                .map(({ event }) => {
                   const isActive = isOngoingEvent(event);
                   const conflict = conflictMap.get(event.id);
                   return (
@@ -677,9 +632,8 @@ export function StudentUpcomingEventsPage() {
                         </p>
                       </div>
                       <div className="mt-3 border-t pt-2.5">
-                        <StatusBadge label={`My attendance: ${workflow.attendanceLabel}`} tone={workflow.stateTone} />
                         {conflict ? (
-                          <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
+                          <p className="flex items-center gap-1.5 text-xs font-semibold text-warning">
                             <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
                             {getEventConflictLabel(conflict)}
                           </p>
@@ -693,7 +647,7 @@ export function StudentUpcomingEventsPage() {
         </section>
       ) : workflows.length ? (
         <section className="grid gap-4 lg:grid-cols-2">
-          {workflows.map(({ event, workflow }) => {
+          {workflows.map(({ event }) => {
             const timingBadge = eventTimingBadge(event);
             const conflict = conflictMap.get(event.id);
             return (
@@ -755,8 +709,7 @@ export function StudentUpcomingEventsPage() {
                   </p>
                 </div>
 
-                <div className="mt-5 flex items-center justify-between gap-3 border-t pt-4">
-                  <StatusBadge label={`My attendance: ${workflow.attendanceLabel}`} tone={workflow.stateTone} />
+                <div className="mt-5 flex items-center justify-end gap-3 border-t pt-4">
                   <Button asChild size="sm">
                     <NavLink to={APP_ROUTES.studentEvent(event.id)}>View Details</NavLink>
                   </Button>

@@ -9,6 +9,8 @@ import type {
   CreateEventSessionInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
+  EnrollFacialProfileInput,
+  IssueQrCredentialInput,
   ManualAttendanceInput,
   ReviewCorrectionRequestInput,
   SubmitEventFeedbackInput,
@@ -401,6 +403,25 @@ export function useStudentCredentialStatus(studentId: string | undefined, contex
     queryFn: () => repositories.studentCredentials.getStudentCredentialStatus(studentId ?? "", context),
     enabled: Boolean(studentId)
   });
+}
+
+export function useStudentCredentialMutations(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const invalidateCredentials = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["studentCredentialStatus"] });
+    await queryClient.invalidateQueries({ queryKey: ["students"] });
+  };
+
+  return {
+    issueQrCredentialMutation: useMutation({
+      mutationFn: (input: IssueQrCredentialInput) => repositories.studentCredentials.issueQrCredential(input, context),
+      onSuccess: invalidateCredentials
+    }),
+    enrollFacialProfileMutation: useMutation({
+      mutationFn: (input: EnrollFacialProfileInput) => repositories.studentCredentials.enrollFacialProfile(input, context),
+      onSuccess: invalidateCredentials
+    })
+  };
 }
 
 export function useEventObjectives(eventId: string | undefined, context?: RepositoryContext) {

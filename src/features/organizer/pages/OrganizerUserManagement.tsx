@@ -33,6 +33,7 @@ import {
   useAttendanceRecords,
   useCorrectionRequests,
   useOrganizerProfiles,
+  useStudentCredentialMutations,
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import {
@@ -836,6 +837,7 @@ export function OrganizerUserManagementPage() {
   const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const credentialMutations = useStudentCredentialMutations(scope.context);
 
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [query, setQuery] = useState("");
@@ -921,14 +923,26 @@ export function OrganizerUserManagementPage() {
   const averageAttendance = studentAccounts.length ? Math.round(studentAccounts.reduce((sum, student) => sum + student.attendanceRate, 0) / studentAccounts.length) : 0;
   const totalCorrectionRequests = studentAccounts.reduce((sum, student) => sum + student.correctionRequests.length, 0);
 
-  function regenerateQrCredential(studentId: string) {
-    setUiState((current) => regenerateOrganizerQr(current, studentId));
-    toast.success("QR credential regenerated locally.");
+  async function regenerateQrCredential(studentId: string) {
+    try {
+      await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId });
+      setUiState((current) => regenerateOrganizerQr(current, studentId));
+      toast.success("QR credential issued in Supabase.");
+    } catch {
+      setUiState((current) => regenerateOrganizerQr(current, studentId));
+      toast.warning("QR credential updated locally only. Supabase did not accept this student record.");
+    }
   }
 
-  function markFacialReady(studentId: string) {
-    setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
-    toast.success("Facial credential marked ready locally.");
+  async function markFacialReady(studentId: string) {
+    try {
+      await credentialMutations.enrollFacialProfileMutation.mutateAsync({ studentId });
+      setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
+      toast.success("Facial backup enrolled in Supabase.");
+    } catch {
+      setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
+      toast.warning("Facial backup updated locally only. Supabase did not accept this student record.");
+    }
   }
 
   function approveCorrection(requestId: string) {

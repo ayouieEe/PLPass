@@ -142,7 +142,6 @@ export function StudentProfilePage() {
   return (
     <div className="space-y-8 p-1">
       <PageHeader
-        eyebrow="Account"
         title="Profile"
         description="Review your student details, attendance access, and account status."
         actions={
@@ -162,41 +161,43 @@ export function StudentProfilePage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="student-glass-card p-6 flex flex-col items-center text-center space-y-4 shadow-sm">
-          <div className="relative">
-            <div className="h-32 w-32 rounded-full overflow-hidden border-4 border-primary/20 bg-secondary flex items-center justify-center shadow-inner">
-              <img
-                src={avatarUrl}
-                alt="Student Avatar"
-                className="h-full w-full object-cover"
-              />
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <div className="student-glass-card flex h-fit flex-col items-center space-y-4 p-6 text-center shadow-sm">
+            <div className="relative">
+              <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
+                <img
+                  src={avatarUrl}
+                  alt="Student Avatar"
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <span
+                className="absolute bottom-1 right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md"
+                aria-label="Profile image"
+                title="Profile image"
+              >
+                <Camera className="h-4.5 w-4.5" />
+              </span>
             </div>
-            <span
-              className="absolute bottom-1 right-1 h-9 w-9 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md border-2 border-white"
-              aria-label="Profile image"
-              title="Profile image"
-            >
-              <Camera className="h-4.5 w-4.5" />
-            </span>
-          </div>
 
-          <div>
-            <h3 className="font-bold text-lg text-foreground">{user.displayName}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{user.email}</p>
-            <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              Profile photo changes are handled by an administrator.
-            </p>
-          </div>
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold text-foreground">{user.displayName}</h3>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Profile photo changes are handled by an administrator.
+              </p>
+            </div>
 
-          <div className="w-full border-t border-border pt-4">
-            <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold bg-success/10 text-success border border-success/20 capitalize">
-              Student Role
-            </span>
+            <div className="w-full border-t border-border pt-4">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
+                Student Role
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-6">
+        <div className="space-y-6 lg:col-span-2">
           <div className="student-glass-card p-6 space-y-4 shadow-sm">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
