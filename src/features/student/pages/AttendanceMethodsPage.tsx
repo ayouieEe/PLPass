@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,8 +9,10 @@ import {
   ClipboardCheck,
   Globe2,
   Lock,
+  Paperclip,
   QrCode,
   ShieldCheck,
+  X,
   type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +43,13 @@ type ChangeRequestFormValues = z.infer<typeof changeRequestSchema>;
 
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
 const qrMatrixSize = 15;
+const issueProofMaxBytes = 5 * 1024 * 1024;
+const acceptedIssueProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
@@ -62,11 +71,21 @@ function isFinderCell(row: number, col: number) {
   return isOuterFrame || isCenter;
 }
 
-function isDataCell(row: number, col: number) {
-  return (row * 7 + col * 11 + row * col) % 5 === 0 || (row + col * 3) % 7 === 0 || (row * 2 + col) % 11 === 0;
+function isDataCell(row: number, col: number, seed: number) {
+  return (
+    (row * 7 + col * 11 + row * col + seed) % 5 === 0
+    || (row + col * 3 + seed) % 7 === 0
+    || (row * 2 + col + seed) % 11 === 0
+  );
 }
 
-function QrPreview({ active }: { active: boolean }) {
+function qrSeed(value: string) {
+  return value.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+}
+
+function QrPreview({ active, value }: { active: boolean; value: string }) {
+  const seed = qrSeed(value);
+
   return (
     <div
       className={cn(
@@ -79,7 +98,7 @@ function QrPreview({ active }: { active: boolean }) {
       {Array.from({ length: qrMatrixSize * qrMatrixSize }).map((_, index) => {
         const row = Math.floor(index / qrMatrixSize);
         const col = index % qrMatrixSize;
-        const filled = isFinderCell(row, col) || isDataCell(row, col);
+        const filled = isFinderCell(row, col) || isDataCell(row, col, seed);
 
         return (
           <span
@@ -98,6 +117,9 @@ export function AttendanceMethodsPage() {
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
   const [showChangeRequest, setShowChangeRequest] = useState(false);
   const [showIssueReport, setShowIssueReport] = useState(false);
+  const [issueProofFile, setIssueProofFile] = useState<File | null>(null);
+  const [issueProofError, setIssueProofError] = useState("");
+  const [issueProofInputKey, setIssueProofInputKey] = useState(0);
 
   const issueForm = useForm<IssueReportFormValues>({
     resolver: zodResolver(issueReportSchema),
@@ -124,7 +146,18 @@ export function AttendanceMethodsPage() {
   const qrStatus = pendingQrIssue ? "Issue pending" : hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Not configured";
   const facialStatus = pendingFacialRequest ? "Request pending" : formatCredentialStatus(identityReadiness.faceStatus);
   const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
-  const qrReference = identityReadiness.qrCredentialId ? `QR ID ${identityReadiness.qrCredentialId}` : "QR not issued yet";
+  const qrScanCode = identityReadiness.qrCredentialId ? `PLPASS-QR:${identityReadiness.qrCredentialId}` : "";
+  const qrReference = qrScanCode || "QR not issued yet";
+
+  async function copyQrCode() {
+    if (!qrScanCode) return;
+    try {
+      await navigator.clipboard.writeText(qrScanCode);
+      toast.success("QR code copied.");
+    } catch {
+      toast.error("Unable to copy QR code.");
+    }
+  }
 
   async function handleIssueSubmit(values: IssueReportFormValues) {
     try {
@@ -132,14 +165,48 @@ export function AttendanceMethodsPage() {
         studentId: student.id,
         credentialType: "qr",
         requestType: "technical_issue",
-        reason: values.issueDescription
+        reason: values.issueDescription,
+        proofAttachment: issueProofFile ?? undefined
       });
-      toast.success("Check-in issue submitted.");
+      toast.success("Attendance issue submitted.");
       issueForm.reset();
+      resetIssueProofFile();
       setShowIssueReport(false);
     } catch {
-      toast.error("Unable to submit check-in issue. Check if you already have a pending request.");
+      toast.error("Unable to submit attendance issue. Check if you already have a pending request.");
     }
+  }
+
+  function resetIssueProofFile() {
+    setIssueProofFile(null);
+    setIssueProofError("");
+    setIssueProofInputKey((key) => key + 1);
+  }
+
+  function handleIssueProofChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setIssueProofError("");
+
+    if (!file) {
+      setIssueProofFile(null);
+      return;
+    }
+
+    if (!acceptedIssueProofTypes.includes(file.type)) {
+      setIssueProofFile(null);
+      setIssueProofError("Use a PNG, JPG, WebP, or PDF file.");
+      setIssueProofInputKey((key) => key + 1);
+      return;
+    }
+
+    if (file.size > issueProofMaxBytes) {
+      setIssueProofFile(null);
+      setIssueProofError("Proof file must be 5 MB or smaller.");
+      setIssueProofInputKey((key) => key + 1);
+      return;
+    }
+
+    setIssueProofFile(file);
   }
 
   async function handleChangeRequestSubmit(values: ChangeRequestFormValues) {
@@ -168,13 +235,12 @@ export function AttendanceMethodsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Verification Setup"
         title="Attendance Methods"
-        description="Check if your QR is ready, know the backup methods, and report any check-in problem before or during an event."
+        description="View your QR access, backup verification, and attendance issue reporting."
         actions={
           <Button type="button" variant="outline" onClick={() => setShowIssueReport(true)}>
             <AlertTriangle className="mr-2 h-4 w-4" />
-            Report check-in problem
+            Report attendance issue
           </Button>
         }
       />
@@ -216,13 +282,18 @@ export function AttendanceMethodsPage() {
                 </div>
 
                 <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-5 text-center">
-                  <QrPreview active={hasQrCredential} />
+                  <QrPreview active={hasQrCredential} value={qrScanCode} />
                   <p className="mt-4 max-w-full break-all font-mono text-sm font-semibold text-foreground">
                     {qrReference}
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                     {hasQrCredential ? "Ready for organizer scanning." : "Ask an organizer or admin to issue your QR."}
                   </p>
+                  {hasQrCredential ? (
+                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={copyQrCode}>
+                      Copy QR code
+                    </Button>
+                  ) : null}
                 </div>
               </div>
 
@@ -347,12 +418,13 @@ export function AttendanceMethodsPage() {
 
       <ModalShell
         open={showIssueReport}
-        title="Report check-in problem"
+        title="Report attendance issue"
         description="Use this only when QR scanning or backup verification did not work during an event."
         size="md"
         onClose={() => {
           setShowIssueReport(false);
           issueForm.clearErrors();
+          resetIssueProofFile();
         }}
       >
         <form onSubmit={issueForm.handleSubmit(handleIssueSubmit)} className="space-y-4">
@@ -382,6 +454,50 @@ export function AttendanceMethodsPage() {
             <p className="text-sm text-danger">{issueForm.formState.errors.issueDescription.message}</p>
           ) : null}
 
+          <div className="rounded-2xl border bg-surface-muted/40 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">Proof attachment</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Optional screenshot, photo, or PDF to help organizers review the problem. Maximum file size is {formatFileSize(issueProofMaxBytes)}.
+                </p>
+              </div>
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-full border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted">
+                <Paperclip className="mr-2 h-4 w-4 text-primary" />
+                Choose file
+                <input
+                  key={issueProofInputKey}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,application/pdf"
+                  className="sr-only"
+                  onChange={handleIssueProofChange}
+                />
+              </label>
+            </div>
+
+            {issueProofFile ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Paperclip className="h-4 w-4 flex-shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{issueProofFile.name}</p>
+                    <p className="text-xs text-muted-foreground">{formatFileSize(issueProofFile.size)}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
+                  aria-label="Remove proof attachment"
+                  onClick={resetIssueProofFile}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : null}
+
+            {issueProofError ? <p className="mt-2 text-sm text-danger">{issueProofError}</p> : null}
+          </div>
+
           <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
             <Button
               type="button"
@@ -389,11 +505,12 @@ export function AttendanceMethodsPage() {
               onClick={() => {
                 setShowIssueReport(false);
                 issueForm.clearErrors();
+                resetIssueProofFile();
               }}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={credentialRequestsQuery.createMutation.isPending}>
+            <Button type="submit" disabled={credentialRequestsQuery.createMutation.isPending || Boolean(issueProofError)}>
               {credentialRequestsQuery.createMutation.isPending ? "Submitting..." : "Submit report"}
             </Button>
           </div>

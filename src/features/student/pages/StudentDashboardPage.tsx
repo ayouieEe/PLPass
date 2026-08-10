@@ -7,7 +7,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  FilePenLine,
   History,
   Info,
   MapPin,
@@ -236,17 +235,9 @@ export function StudentDashboardPage() {
     (record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
   );
   const pendingFeedback = pendingFeedbackRecords.length;
-  const overdueFeedbackCount = pendingFeedbackRecords.filter((record) => getStudentFeedbackDeadlineStatus(record).isOverdue).length;
-  const nextFeedbackDeadline = pendingFeedbackRecords
-    .map((record) => getStudentFeedbackDeadlineStatus(record))
-    .filter((deadline) => deadline.dueAt)
-    .sort((left, right) => new Date(left.dueAt ?? "").getTime() - new Date(right.dueAt ?? "").getTime())[0];
   const studentCorrectionRequests = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
   const rejectedCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "rejected");
-  const hasDashboardTasks =
-    lateReasonRecords.length > 0 ||
-    pendingFeedback > 0 ||
-    rejectedCorrectionRequests.length > 0;
+  const pendingTaskCount = lateReasonRecords.length + pendingFeedback + rejectedCorrectionRequests.length;
   const eventDateKeys = new Set(dashboardEvents.map((event) => dateKey(event.startsAt)).filter(Boolean));
   const selectedDateEvents = dashboardEvents.filter((event) => dateKey(event.startsAt) === selectedDate);
 
@@ -278,9 +269,8 @@ export function StudentDashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Student Portal"
-        title="Student dashboard"
-        description={`Welcome back, ${student.fullName}. Track your events, attendance, feedback tasks, and next required action.`}
+        title={`Welcome back, ${student.fullName}`}
+        description="Here are your events, attendance progress, and pending tasks."
       />
 
       {credentialReadinessError ? (
@@ -324,10 +314,10 @@ export function StudentDashboardPage() {
             icon={CalendarDays}
           />
         </MetricLink>
-        <MetricButton label="Open feedback tasks" onClick={() => setFeedbackModalOpen(true)}>
+        <MetricButton label="Open pending tasks" onClick={() => setFeedbackModalOpen(true)}>
           <div
             className={`relative h-full overflow-hidden rounded-xl border p-4 shadow-sm transition-colors ${
-              pendingFeedback ? "border-primary/30 bg-primary/10" : "bg-surface"
+              pendingTaskCount ? "border-primary/30 bg-primary/10" : "bg-surface"
             }`}
           >
             <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent opacity-80" />
@@ -335,9 +325,9 @@ export function StudentDashboardPage() {
               <div>
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <MessageSquareText className="h-3.5 w-3.5 text-primary" />
-                  Pending Feedback
+                  Pending Tasks
                 </p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">{pendingFeedback}</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight">{pendingTaskCount}</p>
               </div>
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-background text-primary shadow-sm transition-transform group-hover:translate-x-0.5">
                 <ArrowRight className="h-4 w-4" />
@@ -345,7 +335,7 @@ export function StudentDashboardPage() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border bg-background/80 px-3 py-2">
               <span className="text-xs font-semibold text-foreground">
-                {pendingFeedback ? "View feedback tasks" : "No feedback due"}
+                {pendingTaskCount ? "View required tasks" : "No pending tasks"}
               </span>
               <span className="text-[11px] font-medium text-muted-foreground">Click</span>
             </div>
@@ -580,96 +570,7 @@ export function StudentDashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
-          <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
-              <FilePenLine className="h-4 w-4 text-primary" />
-            </span>
-            <div>
-              <h2 className="text-lg font-semibold tracking-tight">Things To Do</h2>
-              <p className="text-sm text-muted-foreground">Only required student actions appear here.</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3">
-            {lateReasonRecords.length > 0 ? (
-              <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-warning/15">
-                    <Clock className="h-4 w-4 text-warning" />
-                  </span>
-                  <div>
-                    <p className="font-semibold">
-                      Submit late reason for {lateReasonRecords.length} event{lateReasonRecords.length === 1 ? "" : "s"}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Late attendance needs a reason before feedback unlocks.
-                    </p>
-                  </div>
-                </div>
-                <Button asChild size="sm" className="mt-3">
-                  <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(lateReasonRecords[0]?.eventId ?? "")}`}>
-                    Submit Late Reason
-                  </NavLink>
-                </Button>
-              </div>
-            ) : null}
-
-            {pendingFeedback > 0 ? (
-              <div className="rounded-xl border border-warning/30 bg-warning/5 p-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-warning/15">
-                    <MessageSquareText className="h-4 w-4 text-warning" />
-                  </span>
-                  <div>
-                    <p className="font-semibold">
-                      Give feedback on {pendingFeedback} event{pendingFeedback === 1 ? "" : "s"}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {overdueFeedbackCount > 0
-                        ? `${overdueFeedbackCount} feedback task${overdueFeedbackCount === 1 ? " is" : "s are"} overdue.`
-                        : nextFeedbackDeadline?.label ?? "Answer the quick feedback form to complete attendance."}
-                    </p>
-                  </div>
-                </div>
-                <Button type="button" size="sm" className="mt-3" onClick={() => setFeedbackModalOpen(true)}>
-                  Give Feedback
-                </Button>
-              </div>
-            ) : null}
-
-            {rejectedCorrectionRequests.length > 0 ? (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-                <div className="flex items-start gap-3">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-destructive/10">
-                    <FilePenLine className="h-4 w-4 text-destructive" />
-                  </span>
-                  <div>
-                    <p className="font-semibold">
-                      Review {rejectedCorrectionRequests.length} rejected correction request{rejectedCorrectionRequests.length === 1 ? "" : "s"}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Check the organizer response, then submit a clearer request if needed.
-                    </p>
-                  </div>
-                </div>
-                <Button asChild variant="outline" size="sm" className="mt-3">
-                  <NavLink to={APP_ROUTES.studentRequestHistory}>Open Request History</NavLink>
-                </Button>
-              </div>
-            ) : null}
-
-            {!hasDashboardTasks ? (
-              <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-                <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
-                <p className="text-sm font-medium text-emerald-700">You're all caught up. No required action right now.</p>
-              </div>
-            ) : null}
-
-          </div>
-        </div>
-
+      <section>
         <div className="relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm">
           <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -691,7 +592,7 @@ export function StudentDashboardPage() {
               {qrReady ? "QR ready" : "QR not set up"}
             </span>
           </div>
-          <div className="mt-5 grid gap-2">
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
             <AuthActionRow
               to={APP_ROUTES.studentMethods}
               icon={QrCode}
@@ -710,13 +611,36 @@ export function StudentDashboardPage() {
 
       <ModalShell
         open={feedbackModalOpen}
-        title="Pending Feedback"
-        description="These attended events are ready for event feedback. Late reasons are handled as a separate required step."
+        title="Pending Tasks"
+        description="Required student actions appear here so you can complete attendance records cleanly."
         size="lg"
         onClose={() => setFeedbackModalOpen(false)}
       >
-        {pendingFeedbackRecords.length ? (
+        {pendingTaskCount ? (
           <div className="space-y-3">
+            {lateReasonRecords.map((record) => (
+              <article key={record.id} className="rounded-2xl border border-warning/30 bg-warning/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {record.eventCode} - {record.category}
+                    </p>
+                    <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">Submit your late reason before event feedback becomes available.</p>
+                  </div>
+                  <StatusBadge label="Late reason needed" tone="warning" />
+                </div>
+                <div className="mt-4 flex justify-end border-t pt-4">
+                  <Button asChild size="sm">
+                    <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(record.eventId)}`}>
+                      Submit Late Reason
+                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                    </NavLink>
+                  </Button>
+                </div>
+              </article>
+            ))}
+
             {pendingFeedbackRecords.map((record) => {
               const deadline = getStudentFeedbackDeadlineStatus(record);
               const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(record.eventId)}`;
@@ -768,12 +692,36 @@ export function StudentDashboardPage() {
                 </article>
               );
             })}
+
+            {rejectedCorrectionRequests.length ? (
+              <article className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold tracking-tight">
+                      Review rejected correction request{rejectedCorrectionRequests.length === 1 ? "" : "s"}
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Check the organizer response, then submit a clearer request if needed.
+                    </p>
+                  </div>
+                  <StatusBadge label={`${rejectedCorrectionRequests.length} rejected`} tone="danger" />
+                </div>
+                <div className="mt-4 flex justify-end border-t pt-4">
+                  <Button asChild variant="outline" size="sm">
+                    <NavLink to={APP_ROUTES.studentRequestHistory}>
+                      Open Request History
+                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                    </NavLink>
+                  </Button>
+                </div>
+              </article>
+            ) : null}
           </div>
         ) : (
           <div className="rounded-2xl border border-success/20 bg-success/10 p-5">
             <p className="flex items-center gap-2 font-semibold text-success">
               <CheckCircle2 className="h-4 w-4" />
-              No pending feedback right now.
+              No pending tasks right now.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">Completed attendance records are already settled.</p>
           </div>

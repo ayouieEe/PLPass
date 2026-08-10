@@ -258,7 +258,6 @@ export function CorrectionRequestsPage() {
   return (
     <div className="space-y-8 p-1">
       <PageHeader
-        eyebrow="Absences & Edits"
         title="Correction Requests"
         description="File event absence excuse notices or request corrections for organizer-recorded event attendance."
       />

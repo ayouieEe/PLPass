@@ -441,25 +441,25 @@ export function EventAttendancePage() {
     <OrganizerFrame>
       <PageHeader
         title={event?.title ?? session.title}
-        description="Development Simulation for QR check-in, facial verification, and manual override."
+        description="Record live QR check-ins, organizer manual attendance, and attendance session activity."
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
       <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
         <div className="space-y-4">
           <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
-            <p className="font-semibold">Development Simulation</p>
+            <p className="font-semibold">Active attendance window</p>
             <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
           </div>
           <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
-          <section className="rounded-lg border bg-surface p-4" aria-label="Facial check-in simulation">
+          <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification status">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="font-semibold">Facial verification</p>
-                <p className="mt-1 text-sm text-muted-foreground">Development Simulation only. Uses a matched participant token to represent a successful face scan.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Facial enrollment is Supabase-backed, but live camera matching is not enabled yet.</p>
               </div>
-              <Button type="button" variant="outline" disabled={attendanceMutations.credentialScanMutation.isPending} onClick={() => submitCredentialScan("PLPASS-DEMO-1004", "qr")}>
-                Simulate face match
+              <Button type="button" variant="outline" disabled>
+                Coming soon
               </Button>
             </div>
           </section>
@@ -525,7 +525,7 @@ export function EventAttendancePage() {
           <LatestTapResultCard result={latestTapResult} />
           <div className="rounded-lg border bg-surface p-4">
             <h2 className="font-semibold">Recent activity</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed Development Simulation attempts refresh through the active data source.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed attendance attempts refresh from PLPass data.</p>
           </div>
           <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
           <div className="grid gap-3 md:grid-cols-2">

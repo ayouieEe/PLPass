@@ -297,6 +297,47 @@ export type Database = {
           },
         ]
       }
+      credential_request_attachments: {
+        Row: {
+          file_size_bytes: number
+          id: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at: string
+        }
+        Insert: {
+          file_size_bytes: number
+          id?: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at?: string
+        }
+        Update: {
+          file_size_bytes?: number
+          id?: string
+          mime_type?: string
+          original_file_name?: string
+          request_id?: string
+          storage_bucket?: string
+          storage_object_path?: string
+          uploaded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_request_attachments_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "credential_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
           created_at: string

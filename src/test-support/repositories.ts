@@ -1200,6 +1200,34 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
   async getStudentCredentialStatus(studentId, context) {
     await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
     return { studentId };
+  },
+  async issueQrCredential(input, context) {
+    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    return {
+      studentId: input.studentId,
+      qrCredential: {
+        id: `qr-${input.studentId}`,
+        studentId: input.studentId,
+        tokenHash: `mock-${input.studentId}`,
+        status: "activated",
+        issuedAt: new Date().toISOString(),
+        expiresAt: input.expiresAt
+      }
+    };
+  },
+  async enrollFacialProfile(input, context) {
+    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    return {
+      studentId: input.studentId,
+      facialProfile: {
+        id: `face-${input.studentId}`,
+        studentId: input.studentId,
+        status: "activated",
+        enrollmentReference: input.enrollmentReference ?? `face-${input.studentId}`,
+        enrolledAt: new Date().toISOString(),
+        consentRecordedAt: new Date().toISOString()
+      }
+    };
   }
 };
 

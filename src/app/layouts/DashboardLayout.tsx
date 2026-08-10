@@ -120,7 +120,7 @@ export function DashboardLayout({
 
   return (
     <div className={cn(
-      "min-h-screen overflow-x-hidden bg-background",
+      "h-screen overflow-hidden bg-background",
       role === "student" && "student-bg-gradient font-sans text-[#4F5654] antialiased"
     )}>
       <RoleBasedSidebar
@@ -167,46 +167,42 @@ export function DashboardLayout({
         </div>
       ) : null}
 
-      <div className={cn("flex min-h-screen min-w-0 flex-1 flex-col transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
-        <header
-          className={cn(
-            "fixed left-0 right-0 top-0 z-40 border-b bg-surface/95 shadow-sm backdrop-blur transition-[left] duration-200 motion-reduce:transition-none",
-            collapsed ? "md:left-[60px]" : "md:left-[280px]"
-          )}
-        >
-          <PageContainer className="flex min-h-16 items-center justify-between gap-3">
+      <div className={cn("flex h-screen min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
+        <header className="z-30 shrink-0 border-b bg-surface/95 shadow-sm backdrop-blur">
+          <PageContainer className="flex h-[72px] min-w-0 items-center justify-between gap-3 py-0">
             <div className="flex min-w-0 items-center gap-3">
-              <Button type="button" variant="outline" size="icon" className="md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
+              <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="hidden h-9 w-9 rounded-lg text-muted-foreground hover:bg-surface-muted hover:text-foreground md:inline-flex"
+                className="hidden h-9 w-9 rounded-full text-muted-foreground hover:bg-surface-muted hover:text-foreground md:inline-flex"
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 onClick={() => setCollapsed((current) => !current)}
               >
                 {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
               </Button>
-              <span className="hidden h-7 w-px bg-border md:block" aria-hidden="true" />
+              <span className="hidden h-8 w-px bg-border md:block" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
-                    <h1 className="truncate text-lg font-semibold text-foreground">{currentTitle}</h1>
+                    <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{currentTitle}</h1>
                     {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
                   {currentPrimaryAction ? <div className="hidden md:block">{currentPrimaryAction}</div> : null}
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
               {topRightActions}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className={cn(
+                  "h-9 rounded-full px-3",
                   role === "student" && "border-brand-green-primary/30 text-brand-green-primary hover:bg-brand-green-light/20 hover:text-brand-green-deep"
                 )}
                 asChild
@@ -228,15 +224,16 @@ export function DashboardLayout({
                 type="button"
                 variant="outline"
                 size="icon"
+                className="h-9 w-9 rounded-full"
                 aria-label="Toggle theme"
                 onClick={() => setTheme(isDark ? "light" : "dark")}
               >
                 {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
               </Button>
               <details className="relative">
-                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md border border-input bg-surface px-3 py-2 text-sm font-medium">
+                <summary className="flex h-9 max-w-[12rem] cursor-pointer list-none items-center gap-2 rounded-full border border-input bg-surface px-3 text-sm font-semibold shadow-sm transition hover:bg-surface-muted sm:max-w-[17rem]">
                   <UserCircle className="h-4 w-4 text-brand-green-primary" aria-hidden="true" />
-                  <span className="hidden sm:inline">{userLabel}</span>
+                  <span className="hidden min-w-0 truncate sm:inline">{userLabel}</span>
                 </summary>
                 <div className="absolute right-0 z-30 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
                   <div className="border-b px-3 py-2">
@@ -271,7 +268,7 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        <main className={cn("w-full min-w-0 flex-1 pb-4 md:pb-6 lg:pb-8", filters ? "pt-36" : "pt-20")}>
+        <main className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
               <section className="min-w-0">{children}</section>

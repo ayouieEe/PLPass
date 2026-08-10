@@ -106,7 +106,7 @@ export function ProfilePage() {
       <PageHeader
         eyebrow="Account"
         title="Profile"
-        description="Shared profile view backed by the active data source."
+        description="Shared profile view backed by PLPass account data."
         actions={
           <Button type="button" variant="outline" onClick={handleLogout}>
             <LogOut className="h-4 w-4" aria-hidden="true" />
