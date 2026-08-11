@@ -21,6 +21,10 @@ export type PLPassDataGridProps<TData extends object> = {
   suppressRowClickSelection?: boolean;
   onSelectionChange?: (selectedRows: TData[]) => void;
   height?: number | string;
+  /** Row height in pixels passed to ag-Grid. Defaults to 52. */
+  rowHeight?: number;
+  /** Header height in pixels passed to ag-Grid. Defaults to 44. */
+  headerHeight?: number;
   toolbarActions?: ReactNode;
   hideHeader?: boolean;
 };

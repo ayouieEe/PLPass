@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { formatDisplayTime } from "@/lib/utils/date";
 import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 
 type OrgAttendanceStatus = "present" | "late" | "absent";
@@ -30,6 +31,7 @@ type AttendanceSummaryRow = {
   attendance_status: string | null;
   verification_method: string | null;
   time_in: string | null;
+  time_out: string | null;
   recorded_at: string | null;
   late_reason_category?: string | null;
   late_reason?: string | null;
@@ -108,7 +110,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, attendance_status, verification_method, time_in, recorded_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -140,6 +142,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       eventCode: eventId,
       attendanceMethod: mapVerificationMethod(row.verification_method),
       checkInTime: row.time_in ?? row.recorded_at ?? "",
+      checkOutTime: row.time_out ? formatDisplayTime(row.time_out) : undefined,
       attendanceStatus: status,
       lateReason: status === "late" ? mapLateReason(row.late_reason_category ?? row.late_reason ?? null) : undefined
     });

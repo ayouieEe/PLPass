@@ -52,7 +52,10 @@ type EventRecord = {
   impactScore: number | null;
 };
 
-type AttendanceRow = OrganizerAttendanceRow;
+type AttendanceRow = OrganizerAttendanceRow & {
+  /** Set when the student verifies a second time in the same live session. */
+  checkOutTime?: string;
+};
 
 type CompletedRecord = EventRecord & {
   present: number;
@@ -359,6 +362,9 @@ const studentNameById = useMemo(() => {
       .map((record) => {
         const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
         const status = record.status === "excused" ? "present" : record.status;
+        // checkedOutAt is supplied by the check-in/check-out attendance API.
+        // It remains optional while older attendance records are migrated.
+        const attendanceRecord = record as typeof record & { checkedOutAt?: string | null };
 
         return {
           id: record.id,
@@ -372,6 +378,7 @@ const studentNameById = useMemo(() => {
                 ? "Facial Recognition"
                 : "Manual",
           checkInTime: formatDisplayTime(record.recordedAt),
+          checkOutTime: attendanceRecord.checkedOutAt ? formatDisplayTime(attendanceRecord.checkedOutAt) : undefined,
           attendanceStatus: status === "present" || status === "late" || status === "absent" ? status : "present",
           lateReason: status === "late" ? record.lateReason : undefined
         };
@@ -473,6 +480,12 @@ const studentNameById = useMemo(() => {
   }, [todayEvents, incomingEvents]);
 
   const activeCounts = countRows(activeRows);
+  const selectedEvents = activeTab === "today" ? todayEvents : incomingEvents;
+  const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
+  const selectedListDescription =
+    activeTab === "today"
+      ? "Events scheduled to run today, ranked by priority and impact."
+      : "Published future events, ranked by priority and impact.";
 
   function openStartSession(event: EventRecord) {
     setStartEvent(event);
@@ -680,6 +693,12 @@ const studentNameById = useMemo(() => {
   const liveColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "checkInTime", header: "Check-in Time" },
+    {
+      id: "checkOutTime",
+      header: "Check-out Time",
+      cell: ({ row }) =>
+        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
+    },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
     { id: "status", header: "Attendance Status", cell: ({ row }) => <StatusBadge label={row.original.attendanceStatus} tone={statusTone(row.original.attendanceStatus)} /> },
     { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
@@ -717,16 +736,31 @@ const studentNameById = useMemo(() => {
 
   function TabButton({ tab, label, count }: { tab: EventTab; label: string; count: number }) {
     return (
-      <Button type="button" variant={activeTab === tab ? "default" : "outline"} className="justify-between gap-3" onClick={() => { setActiveTab(tab); setSelectedEventForSession(null); }}>
-        {label}
-        <span className="rounded-full bg-background/70 px-2 py-0.5 text-xs text-foreground">{count}</span>
+      <Button
+        type="button"
+        variant={activeTab === tab ? "default" : "outline"}
+        className="h-auto min-h-14 justify-between rounded-lg px-3 py-2.5 text-left"
+        onClick={() => {
+          setActiveTab(tab);
+          setSelectedEventForSession(null);
+        }}
+      >
+        <span>
+          <span className="block text-sm font-semibold">{label}</span>
+          <span className="mt-0.5 block text-xs font-normal opacity-75">
+            {tab === "today" ? "Requires attention today" : "Future published schedule"}
+          </span>
+        </span>
+        <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold text-foreground">
+          {count}
+        </span>
       </Button>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Events" />
+    <div className="space-y-4 lg:space-y-5">
+      <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
 
 
       {activeEvent ? (
@@ -756,11 +790,11 @@ const studentNameById = useMemo(() => {
             <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
           </div>
 
-          <section className="mb-4 rounded-lg border bg-background/80 p-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <section className="mb-4 rounded-lg border bg-surface p-4 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Choose the live method for check-ins and monitor the current capture mode during the session.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Choose the live method for check-ins and manage attendance as the session runs.</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -796,160 +830,149 @@ const studentNameById = useMemo(() => {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-2xl border border-dashed border-primary/20 bg-gradient-to-br from-primary/10 via-background to-surface p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium">{captureMode ? `Active capture mode: ${captureMode}` : "Select a capture method"}</p>
-                  <span className="rounded-full border border-primary/20 bg-background px-3 py-1 text-xs font-medium text-primary">
-                    Live session active
-                  </span>
+            <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+              <div className="rounded-2xl border border-border bg-background p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Current mode</p>
+                    <p className="text-lg font-semibold text-foreground">{captureMode ?? "No mode selected"}</p>
+                  </div>
+                  <StatusBadge label="Live" tone="success" />
                 </div>
 
-                <div className="mt-4 rounded-2xl border bg-background/90 p-4 shadow-sm">
+                <div className="mt-4 rounded-2xl border border-border bg-surface p-4">
                   {captureMode === "QR Code" ? (
-                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-primary/20 bg-surface p-5 text-center">
-                      <div className="grid h-28 w-28 place-items-center rounded-2xl border-2 border-primary/40 bg-white p-3 shadow-inner">
-                        <div className="grid h-full w-full grid-cols-3 gap-1 rounded-xl bg-background p-1">
-                          {Array.from({ length: 9 }).map((_, index) => (
-                            <div key={index} className={`h-full w-full rounded-sm ${index % 2 === 0 ? "bg-primary" : "bg-primary/20"}`} />
-                          ))}
-                        </div>
+                    <div className="text-center">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                        <ScanLine className="h-6 w-6" aria-hidden="true" />
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">QR scanner ready</p>
-                        <p className="mt-1 text-sm text-muted-foreground">Point the camera at a student QR code to log attendance instantly.</p>
-                      </div>
+                      <p className="mt-4 text-sm font-semibold text-foreground">QR scanner ready</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Point the camera at a student QR code to log attendance instantly.</p>
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
-                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-primary/20 bg-surface p-5 text-center">
-                      <div className="relative grid h-28 w-28 place-items-center rounded-full border-4 border-primary/30 bg-primary/10">
-                        <div className="h-20 w-20 rounded-full border-4 border-primary/50 bg-background" />
-                        <div className="absolute inset-2 rounded-full border border-primary/20" />
+                    <div className="text-center">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                        <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">Face scan ready</p>
-                        <p className="mt-1 text-sm text-muted-foreground">Align the student&apos;s face in the frame and verify the match before logging attendance.</p>
-                      </div>
+                      <p className="mt-4 text-sm font-semibold text-foreground">Face scan ready</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Align the student&apos;s face in the frame and verify the match before logging attendance.</p>
                     </div>
                   ) : captureMode === "Manual" ? (
-                    <div className="rounded-xl border border-dashed border-primary/20 bg-surface p-5">
-                      <div className="flex flex-col gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Search or select a student, then choose present or late before recording.</p>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="space-y-2 text-sm font-medium">
-                            Student lookup
-                            <input
-                              value={manualInput}
-                              onChange={(e) => setManualInput(e.target.value)}
-                              placeholder="Enter student ID or name"
-                              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none"
-                            />
-                          </label>
-                          <label className="space-y-2 text-sm font-medium">
-                            Student selection
-                            <select
-                              value={manualInput}
-                              onChange={(e) => setManualInput(e.target.value)}
-                              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none"
-                            >
-                              <option value="">Select a student</option>
-                              {[...studentNameById.entries()].map(([id, name]) => (
-                                <option key={id} value={id}>
-                                  {name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-
-                        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">Attendance status</p>
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                type="button"
-                                variant={manualStatus === "present" ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setManualStatus("present")}
-                              >
-                                Present
-                              </Button>
-                              <Button
-                                type="button"
-                                variant={manualStatus === "late" ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setManualStatus("late")}
-                              >
-                                Late
-                              </Button>
-                            </div>
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Search or select a student, then mark present or late before saving.</p>
                           </div>
-                          <Button
-                            type="button"
-                            className="h-10 rounded-lg px-5"
-                            onClick={async () => {
-                              if (!manualInput || !liveSessionId) {
-                                toast.warning("Select a student first.");
-                                return;
-                              }
-                              try {
-                                const result = await manualAttendanceMutation.mutateAsync({
-                                  sessionId: liveSessionId,
-                                  studentId: manualInput,
-                                  reason: "Manual entry",
-                                  remarks: "",
-                                  statusOverride: manualStatus,
-                                  lateReason: manualStatus === "late" && manualLateReason ? manualLateReason : undefined
-                                });
-                                toast.success(result.safeMessage);
-                                setManualInput("");
-                                setManualStatus("present");
-                                setManualLateReason("");
-                              } catch (error) {
-                                toast.error(error instanceof Error ? error.message : "Failed to record attendance.");
-                              }
-                            }}
-                          >
-                            Record
-                          </Button>
+                          <div className="inline-flex rounded-full border border-border bg-background p-1">
+                            <button
+                              type="button"
+                              className={`rounded-full px-4 py-2 text-sm ${manualStatus === "present" ? "bg-primary text-white" : "text-muted-foreground"}`}
+                              onClick={() => setManualStatus("present")}
+                            >
+                              Present
+                            </button>
+                            <button
+                              type="button"
+                              className={`rounded-full px-4 py-2 text-sm ${manualStatus === "late" ? "bg-primary text-white" : "text-muted-foreground"}`}
+                              onClick={() => setManualStatus("late")}
+                            >
+                              Late
+                            </button>
+                          </div>
                         </div>
 
                         {manualStatus === "late" ? (
-                          <label className="space-y-2 text-sm font-medium">
-                            Late reason
-                            <select
-                              className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm"
-                              value={manualLateReason}
-                              onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
-                            >
-                              <option value="">No reason specified</option>
-                              {lateReasons.map((reason) => (
-                                <option key={reason} value={reason}>
-                                  {reason}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          <div className="mt-4 rounded-2xl border border-border bg-white p-4">
+                            <label className="space-y-2 text-sm font-medium">
+                              Reason for late arrival
+                              <select
+                                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                                value={manualLateReason}
+                                onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
+                              >
+                                <option value="">Select a reason</option>
+                                {lateReasons.map((reason) => (
+                                  <option key={reason} value={reason}>
+                                    {reason}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
                         ) : null}
+                      </div>
 
-                        <p className="text-sm text-muted-foreground">
-                          Manual attendance records are applied immediately to the live session and will appear in the live attendance list.
-                        </p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="space-y-2 text-sm font-medium">
+                          Student lookup
+                          <input
+                            value={manualInput}
+                            onChange={(e) => setManualInput(e.target.value)}
+                            placeholder="Enter student ID or name"
+                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                          />
+                        </label>
+                        <label className="space-y-2 text-sm font-medium">
+                          Student selection
+                          <select
+                            value={manualInput}
+                            onChange={(e) => setManualInput(e.target.value)}
+                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                          >
+                            <option value="">Select a student</option>
+                            {[...studentNameById.entries()].map(([id, name]) => (
+                              <option key={id} value={id}>
+                                {name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="text-sm text-muted-foreground">Manual attendance is recorded instantly when submitted.</p>
+                        <Button
+                          type="button"
+                          className="h-11 rounded-lg px-6"
+                          onClick={async () => {
+                            if (!manualInput || !liveSessionId) {
+                              toast.warning("Select a student first.");
+                              return;
+                            }
+                            try {
+                              const result = await manualAttendanceMutation.mutateAsync({
+                                sessionId: liveSessionId,
+                                studentId: manualInput,
+                                reason: "Manual entry",
+                                remarks: "",
+                                statusOverride: manualStatus,
+                                lateReason: manualStatus === "late" && manualLateReason ? manualLateReason : undefined
+                              });
+                              toast.success(result.safeMessage);
+                              setManualInput("");
+                              setManualStatus("present");
+                              setManualLateReason("");
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Failed to record attendance.");
+                            }
+                          }}
+                        >
+                          Record attendance
+                        </Button>
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed border-primary/20 bg-surface p-5 text-center">
+                    <div className="text-center">
                       <p className="text-sm font-semibold text-foreground">Choose a capture mode</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Tap QR Code, Facial Recognition, or Manual to preview the scanner experience.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Tap QR Code, Facial Recognition, or Manual to begin.</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="rounded-2xl border bg-surface-muted p-4">
+              <div className="rounded-2xl border border-border bg-background p-4">
                 <p className="text-sm font-semibold">Supported methods</p>
                 <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                   <li>• QR Code for fast contactless check-ins</li>
@@ -958,7 +981,7 @@ const studentNameById = useMemo(() => {
                 </ul>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {captureMode ? (
-                    <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                    <span className="rounded-full border border-border bg-surface px-3 py-1 text-sm font-medium text-foreground">
                       {captureMode}
                     </span>
                   ) : null}
@@ -974,31 +997,97 @@ const studentNameById = useMemo(() => {
         </section>
       ) : (
         <>
-          <section className="rounded-lg border bg-surface p-4">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid gap-2 sm:grid-cols-3">
-                <TabButton tab="today" label="Today's Event" count={todayEvents.length} />
-                <TabButton tab="incoming" label="Incoming Events" count={incomingEvents.length} />
+          <section className="rounded-lg border bg-surface p-4 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Event workspace</p>
+                <h2 className="mt-1 text-lg font-semibold text-foreground">Schedule overview</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Select an event from the list, then use Start Session to begin attendance.</p>
               </div>
-              <div className="w-full max-w-xl">
-                <label className="text-sm font-medium" htmlFor="event-record-search">Search events</label>
-                <div className="mt-2 flex items-center gap-2 rounded-lg border bg-background px-3 py-2">
+              <div className="w-full lg:max-w-sm">
+                <label className="text-xs font-medium text-muted-foreground" htmlFor="event-record-search">Search events</label>
+                <div className="mt-1.5 flex items-center gap-2 rounded-md border bg-background px-3 py-2">
                   <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Search by event code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
+                  <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
                 </div>
               </div>
             </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <SummaryTile label="Today" value={todayEvents.length.toString()} />
+              <SummaryTile label="Upcoming" value={incomingEvents.length.toString()} />
+              <SummaryTile label="Schedule conflicts" value={conflictsByCode.size.toString()} />
+            </div>
           </section>
 
-          {activeTab === "today" ? (
-            <section className="animate-fade-in-up rounded-lg border bg-surface p-4 transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-              <PLPassDataGrid label="Today's events" data={todayEvents} columns={incomingColumns} emptyTitle="No events today" emptyDescription="Events scheduled for today will appear here when the date matches." rowSelection="single" checkboxSelection suppressRowClickSelection onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)} toolbarActions={startSessionToolbar} />
-            </section>
-          ) : activeTab === "incoming" ? (
-            <section className="animate-fade-in-up rounded-lg border bg-surface p-4 transition-all duration-300 hover:animate-hover-lift hover:shadow-lg">
-              <PLPassDataGrid label="Incoming events" data={incomingEvents} columns={incomingColumns} emptyTitle="No incoming events" emptyDescription="Future published events will appear here." rowSelection="single" checkboxSelection suppressRowClickSelection onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)} toolbarActions={startSessionToolbar} />
-            </section>
-          ) : null}
+          <section className="flex items-center" aria-label="Event schedule filters">
+            <div className="inline-flex items-center rounded-full border bg-background p-1 shadow-sm" role="tablist" aria-label="Event tabs">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "today"}
+                onClick={() => {
+                  setActiveTab("today");
+                  setSelectedEventForSession(null);
+                }}
+                className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
+                  activeTab === "today" ? "bg-emerald-500 text-white shadow" : "text-muted-foreground"
+                }`}
+              >
+                <span className="text-sm font-semibold">Today</span>
+                <span className={`rounded-full ${activeTab === "today" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"} px-2 py-0.5 text-xs font-semibold`}>
+                  {todayEvents.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "incoming"}
+                onClick={() => {
+                  setActiveTab("incoming");
+                  setSelectedEventForSession(null);
+                }}
+                className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
+                  activeTab === "incoming" ? "bg-emerald-500 text-white shadow" : "text-muted-foreground"
+                }`}
+              >
+                <span className="text-sm font-semibold">Incoming</span>
+                <span className={`rounded-full ${activeTab === "incoming" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"} px-2 py-0.5 text-xs font-semibold`}>
+                  {incomingEvents.length}
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section className="animate-fade-in-up rounded-lg border bg-surface p-4 shadow-sm">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{selectedListTitle}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">{selectedListDescription}</p>
+              </div>
+              {selectedEventForSession ? (
+                <span className="w-fit rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
+                  {selectedEventForSession.code} selected
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Select one event to start a session.</span>
+              )}
+            </div>
+            <PLPassDataGrid
+              label={selectedListTitle}
+              data={selectedEvents}
+              columns={incomingColumns}
+              emptyTitle={activeTab === "today" ? "No events today" : "No incoming events"}
+              emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : "Future published events will appear here."}
+              rowSelection="single"
+              checkboxSelection
+              suppressRowClickSelection
+              onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)}
+              toolbarActions={startSessionToolbar}
+              rowHeight={44}
+              headerHeight={40}
+              enableColumnVisibility
+            />
+          </section>
         </>
       )}
 
@@ -1184,6 +1273,12 @@ function CompletedEventModal({ record, rows, onClose, onExportReport }: { record
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
     { accessorKey: "checkInTime", header: "Check-in Time" },
+    {
+      id: "checkOutTime",
+      header: "Check-out Time",
+      cell: ({ row }) =>
+        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
+    },
     { id: "status", header: "Attendance Status", cell: ({ row }) => <StatusBadge label={row.original.attendanceStatus} tone={statusTone(row.original.attendanceStatus)} /> },
     { id: "lateReason", header: "Late Arrival Reason", cell: ({ row }) => row.original.lateReason ?? "-" }
   ];

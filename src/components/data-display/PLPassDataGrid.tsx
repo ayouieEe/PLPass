@@ -65,7 +65,8 @@ function normalizeColumn<TData extends object>(column: PLPassDataGridProps<TData
     valueGetter: column.accessorKey ? ({ data }) => readAccessorValue(data, column.accessorKey ?? "") : undefined,
     cellRenderer: column.cell
       ? (params: ICellRendererParams<TData>) => column.cell?.({ row: { original: params.data as TData }, getValue: () => params.value })
-      : undefined
+      : undefined,
+    ...(column.meta?.agGrid ?? {})
   };
 
   return colDef;
@@ -116,6 +117,8 @@ export function PLPassDataGrid<TData extends object>({
   suppressRowClickSelection = false,
   onSelectionChange,
   height,
+  rowHeight,
+  headerHeight,
   toolbarActions,
   hideHeader = false
 }: PLPassDataGridProps<TData>) {
@@ -217,6 +220,9 @@ export function PLPassDataGrid<TData extends object>({
     return <ErrorState title={errorTitle} message={errorMessage} />;
   }
 
+  const resolvedRowHeight = rowHeight ?? 52;
+  const resolvedHeaderHeight = headerHeight ?? 44;
+
   return (
     <section
       className={cn("plpass-data-grid-shell rounded-2xl border border-border bg-surface shadow-sm", hideHeader ? "p-4" : "p-6")}
@@ -231,24 +237,8 @@ export function PLPassDataGrid<TData extends object>({
               {hasRows ? `${firstRow}-${lastRow} of ${displayedRowCount}` : "0 records"}
             </span>
           </div>
-          {toolbarActions ? <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div> : null}
-        </div>
-      ) : null}
-      {(enableQuickFilter || enableColumnVisibility) ? (
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {enableQuickFilter ? (
-            <label className="relative block min-w-0 flex-1 sm:max-w-sm">
-              <span className="sr-only">Search {label}</span>
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                value={quickFilterText}
-                onChange={(event) => setQuickFilterText(event.target.value)}
-                placeholder="Search records"
-                className="plpass-field h-12 w-full rounded-xl border pl-10 pr-3 text-sm outline-none"
-              />
-            </label>
-          ) : <span />}
           <div className="flex flex-wrap items-center gap-2">
+            {toolbarActions ? <div className="flex flex-wrap items-center gap-2">{toolbarActions}</div> : null}
             {enableColumnVisibility ? (
               <details className="relative">
                 <summary className="list-none">
@@ -284,6 +274,20 @@ export function PLPassDataGrid<TData extends object>({
           </div>
         </div>
       ) : null}
+      {enableQuickFilter ? (
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative block min-w-0 flex-1 sm:max-w-sm">
+            <span className="sr-only">Search {label}</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <input
+              value={quickFilterText}
+              onChange={(event) => setQuickFilterText(event.target.value)}
+              placeholder="Search records"
+              className="plpass-field h-12 w-full rounded-xl border pl-10 pr-3 text-sm outline-none"
+            />
+          </label>
+        </div>
+      ) : null}
       <div
         ref={gridShellRef}
         className={cn(plpassDataGridClassName, "w-full overflow-x-auto", !hasRows && "plpass-data-grid-empty")}
@@ -301,8 +305,8 @@ export function PLPassDataGrid<TData extends object>({
           quickFilterText={quickFilterText}
           rowSelection={rowSelection}
           suppressRowClickSelection={suppressRowClickSelection}
-          rowHeight={52}
-          headerHeight={44}
+          rowHeight={resolvedRowHeight}
+          headerHeight={resolvedHeaderHeight}
           noRowsOverlayComponent={NoRowsOverlay}
           theme="legacy"
           suppressCellFocus={false}
