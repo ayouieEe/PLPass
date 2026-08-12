@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -42,7 +42,6 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
-  useAttendanceSubmissionMutations,
   useAttendanceSession,
   useAttendanceSessionMutations,
   useAttendanceSessions,
@@ -58,11 +57,12 @@ import {
   useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
   AttendanceSession,
+  CorrectionRequest,
   Event,
   EventParticipant,
   MlPrediction,
@@ -74,7 +74,8 @@ import type {
   EventStatus,
   RiskLevel,
   SessionStatus,
-  StudentStatus
+  StudentStatus,
+  VerificationMethod
 } from "@/types/enums";
 
 type OrganizerScope = {
@@ -84,10 +85,12 @@ type OrganizerScope = {
   isLoading: boolean;
   isError: boolean;
 };
+
 type EventWithCount = Event & { participantCount: number };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
+
 const VENUE_OPTIONS = [
   { label: "Function Hall", value: "Function Hall" },
   { label: "Banquet Hall", value: "Banquet Hall" },
@@ -112,20 +115,15 @@ const CATEGORY_OPTIONS = [
   { label: "Competition", value: "Competition" }
 ];
 
-const PROGRAM_CODES: Record<string, string> = {
-  "program-bsit": "BSIT",
-  "program-bscs": "BSCS",
-  "program-bsa": "BSA",
-  "program-bsba": "BSBA",
-  "program-bsed": "BSED",
-  "program-bshm": "BSHM",
-  "program-bsn": "BSN",
-  "program-bsce": "BSCE"
-};
+const MIN_OBJECTIVES = 3;
+
 function timeToMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
+  const [hoursPart = "0", minutesPart = "0"] = value.split(":");
+  const hours = Number(hoursPart);
+  const minutes = Number(minutesPart);
+  return (Number.isNaN(hours) ? 0 : hours) * 60 + (Number.isNaN(minutes) ? 0 : minutes);
 }
+
 const eventFormSchema = z
   .object({
     code: z.string().min(2, "Event code is required."),
@@ -135,49 +133,38 @@ const eventFormSchema = z
     date: z.string().min(1, "Date is required."),
     startTime: z.string().min(1, "Start time is required."),
     endTime: z.string().min(1, "End time is required."),
-    description: z.string().optional(),
-    objective1: z.string().min(3, "Objective 1 is required."),
-    objective2: z.string().min(3, "Objective 2 is required."),
-    objective3: z.string().min(3, "Objective 3 is required."),
-    remarks: z.string().optional(),
-    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"]).default("Flexible"),
-    impactScore: z.number().min(0).max(10).nullable().optional()
+    attendanceMode: z.enum(["face-to-face", "online"]),
+    description: z.string().min(3, "Description is required."),
+    objectives: z
+      .array(z.object({ value: z.string().min(3, "Objective is required.") }))
+      .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`),
+    remarks: z.string().min(3, "Remarks are required."),
+    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"]).default("Flexible")
   })
-  .refine((value) => {
-    const startMinutes = timeToMinutes(value.startTime);
-    const endMinutes = timeToMinutes(value.endTime);
-    return endMinutes > startMinutes;
-  }, {
+  .refine((value) => timeToMinutes(value.endTime) > timeToMinutes(value.startTime), {
     path: ["endTime"],
-    message: "End time must be after the start time."
-  })
-  .refine((value) => {
-    const today = new Date().toISOString().slice(0, 10);
-    return value.date >= today;
-  }, {
-    path: ["date"],
-    message: "Date cannot be in the past."
+    message: "End time must be after start time."
   });
-  const sessionFormSchema = z
+
+const sessionFormSchema = z
   .object({
     venue: z.string().min(2, "Venue is required."),
     date: z.string().min(1, "Date is required."),
     startTime: z.string().min(1, "Start time is required."),
-    expectedEndTime: z.string().min(1, "Expected end time is required.")
+    expectedEndTime: z.string().min(1, "Expected end time is required."),
+    attendanceMode: z.enum(["face-to-face", "online"])
   })
-  .refine((value) => value.expectedEndTime > value.startTime, {
+  .refine((value) => timeToMinutes(value.expectedEndTime) > timeToMinutes(value.startTime), {
     path: ["expectedEndTime"],
     message: "Expected end time must be after start time."
   });
-  type EventFormValues = z.infer<typeof eventFormSchema>;
+
+type EventFormValues = z.infer<typeof eventFormSchema>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
-  const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
-    [session]
-  );
+  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
@@ -187,12 +174,15 @@ function useOrganizerScope(): OrganizerScope {
     isError: organizerQuery.isError
   };
 }
+
 function formatDate(value: string | undefined) {
   return formatDisplayDate(value, "Not scheduled");
 }
+
 function formatTime(value: string | undefined) {
   return formatDisplayTime(value, "Not set");
 }
+
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
@@ -205,6 +195,7 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
   }
   return "muted" as const;
 }
+
 function attendanceCounts(records: AttendanceRecord[]) {
   return {
     present: records.filter((record) => record.status === "present").length,
@@ -213,6 +204,7 @@ function attendanceCounts(records: AttendanceRecord[]) {
     excused: records.filter((record) => record.status === "excused").length
   };
 }
+
 function attendanceRate(records: AttendanceRecord[]) {
   if (records.length === 0) {
     return 0;
@@ -226,20 +218,23 @@ function eventLabel(event: Event | undefined) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+  return student ? student.fullName ?? student.studentNumber : "Unknown student";
 }
+
 function ShellState({ scope }: { scope: OrganizerScope }) {
   if (scope.isLoading) {
     return <LoadingState label="Loading organizer workspace" />;
   }
   if (scope.isError || !scope.organizerId) {
-    return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
+    return <ErrorState title="Organizer profile unavailable" message="The signed-in mock account does not have an organizer profile fixture." />;
   }
   return null;
 }
+
 function OrganizerFrame({ children }: { children: React.ReactNode }) {
   return <div className="space-y-6">{children}</div>;
 }
+
 function recordsForSession(records: AttendanceRecord[], sessionId: string) {
   return records.filter((record) => record.sessionId === sessionId);
 }
@@ -248,6 +243,7 @@ function participantStudents(participants: EventParticipant[], students: Student
   const participantIds = new Set(participants.map((participant) => participant.studentId));
   return students.filter((student) => participantIds.has(student.id));
 }
+
 function eventSemesterId(event: Event, semesters: { id: string; startsAt: string; endsAt: string }[]) {
   const eventDate = dateKey(event.startsAt);
   if (!eventDate) {
@@ -255,10 +251,12 @@ function eventSemesterId(event: Event, semesters: { id: string; startsAt: string
   }
   return semesters.find((semester) => eventDate >= semester.startsAt && eventDate <= semester.endsAt)?.id;
 }
+
 function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
   const date = dateKey(event.startsAt);
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
+
 function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
   return records.map((record) => ({
     id: record.id,
@@ -268,6 +266,7 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     timestamp: formatTime(record.recordedAt)
   }));
 }
+
 function EventScheduleCard({ event }: { event: Event }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -283,6 +282,7 @@ function EventScheduleCard({ event }: { event: Event }) {
     </article>
   );
 }
+
 function PredictionCard({ prediction }: { prediction: MlPrediction }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -296,6 +296,7 @@ function PredictionCard({ prediction }: { prediction: MlPrediction }) {
     </article>
   );
 }
+
 function SessionCard({ session }: { session: AttendanceSession }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -310,8 +311,10 @@ function SessionCard({ session }: { session: AttendanceSession }) {
       </div>
     </article>
   );
-  }
-  function mostCommonValue<T extends string | number>(items: T[]) {
+
+}
+
+function mostCommonValue<T extends string | number>(items: T[]) {
   return items.reduce<{ value: T | null; count: number; totals: Map<T, number> }>(
     (summary, item) => {
       const count = (summary.totals.get(item) ?? 0) + 1;
@@ -321,59 +324,60 @@ function SessionCard({ session }: { session: AttendanceSession }) {
     { value: null, count: 0, totals: new Map<T, number>() }
   ).value;
 }
-function buildAttendanceFactors(selectedStudents: Student[], category: string, startTime: string) {
-  const dominantYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
-  const dominantSection = mostCommonValue(selectedStudents.map((student) => student.section));
-  const categoryLabel = category.trim() || "Event category";
-  const timeLabel = startTime ? `${startTime} start time` : "Start time";
-return [
-    { label: selectedStudents.length ? `${selectedStudents.length} selected Supabase students` : "No selected Supabase students yet", importance: 32 },
-    { label: dominantYear ? `Year ${dominantYear} participation profile` : "Year level profile", importance: 22 },
-    { label: dominantSection ? `Section ${dominantSection} concentration` : "Section concentration", importance: 18 },
-    { label: categoryLabel, importance: 14 },
-    { label: "Face-to-face attendance mode", importance: 9 },
-    { label: timeLabel, importance: 5 }
+
+function buildAttendanceFactors(selectedStudents: Student[], category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+  return [
+    { label: "Attendance history", importance: 92 },
+    { label: "Previous event participation", importance: 81 },
+    { label: "Year level", importance: 74 },
+    { label: "Event category", importance: 69 },
+    { label: "Venue accessibility", importance: 64 }
   ];
 }
-function predictedAttendancePercentage(selectedCount: number, category: string, startTime: string) {
+
+function predictedAttendancePercentage(selectedCount: number, category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
   let score = 68;
   const normalizedCategory = category.toLowerCase();
+
   if (selectedCount >= 150) score += 8;
   if (selectedCount >= 75 && selectedCount < 150) score += 5;
   if (normalizedCategory.includes("assembly") || normalizedCategory.includes("career")) score += 7;
   if (normalizedCategory.includes("competition") || normalizedCategory.includes("showcase")) score += 5;
-  score += 4;
+  if (attendanceMode === "face-to-face") score += 4;
   if (startTime && startTime < "10:00") score += 3;
   if (startTime && startTime >= "13:00") score -= 4;
 
   return Math.max(45, Math.min(96, score));
 }
+
 function CreateEventSectionHeader({
   eyebrow,
   title,
   description
 }: {
-  eyebrow?: string;
+  eyebrow: string;
   title: string;
   description: string;
 }) {
   return (
     <div className="border-b pb-4">
-      {eyebrow ? <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p> : null}
+      <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p>
       <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
+
 function PredictionMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
-    <div className="rounded-lg border bg-surface p-4">
+    <div className="rounded-lg border bg-surface p-3.5">
       <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
-      <p className="mt-2 text-3xl font-semibold leading-none text-foreground">{value}</p>
+      <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
       {detail ? <p className="mt-2 text-sm text-muted-foreground">{detail}</p> : null}
     </div>
   );
 }
+
 export function CreateEventPage() {
   const scope = useOrganizerScope();
   const navigate = useNavigate();
@@ -383,25 +387,9 @@ export function CreateEventPage() {
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [participantError, setParticipantError] = useState("");
-  const [startSessionOpen, setStartSessionOpen] = useState(false);
-  const [sessionStarted, setSessionStarted] = useState(false);
-  const [notificationModalOpen, setNotificationModalOpen] = useState(false);
-  const [notificationStatuses, setNotificationStatuses] = useState<{ studentId: string; studentNumber: string; status: "pending" | "sent" | "failed" }[]>([]);
-  const [isPublishing, setIsPublishing] = useState(false);
-  
-  const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
-  const supabaseStudents = studentsQuery.data?.items ?? [];
-  const filteredStudents = supabaseStudents.filter((student) => {
-    const matchesSearch = !search || student.studentNumber.includes(search) || student.id.includes(search) || student.section.includes(search);
-    const matchesProgram = !programId || student.programId === programId;
-    const matchesYear = !yearLevel || student.yearLevel === Number(yearLevel);
-    const matchesSection = !section || student.section === section;
-    return matchesSearch && matchesProgram && matchesYear && matchesSection;
-  });
-  
-  const students = filteredStudents;
+  const studentsQuery = useStudents({ pageSize: 500, search, programId: programId || undefined, yearLevel: yearLevel ? Number(yearLevel) : undefined, section: section || undefined }, scope.context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
-  const eventMutations = useEventMutations(scope.context);
+  const mutations = useEventMutations(scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
@@ -412,61 +400,39 @@ export function CreateEventPage() {
       date: "",
       startTime: "",
       endTime: "",
+      attendanceMode: "face-to-face",
       description: "",
-      objective1: "",
-      objective2: "",
-      objective3: "",
+      objectives: [{ value: "" }, { value: "" }, { value: "" }],
       remarks: "",
-      priorityLevel: "Flexible",
-      impactScore: null
+      priorityLevel: "Flexible"
     }
   });
-  const sessionForm = useForm<SessionFormValues>({
-    resolver: zodResolver(sessionFormSchema),
-    defaultValues: {
-      venue: "",
-      date: "",
-      startTime: "",
-      expectedEndTime: ""
-    }
+  const {
+    fields: objectiveFields,
+    append: appendObjective,
+    remove: removeObjective
+  } = useFieldArray({
+    control: form.control,
+    name: "objectives"
   });
   const watchedCategory = form.watch("category");
+  const watchedAttendanceMode = form.watch("attendanceMode");
   const watchedStartTime = form.watch("startTime");
-  const programById = useMemo(() => {
-    const map = new Map(Object.entries(PROGRAM_CODES));
-    if (catalog.programs.data?.items) {
-      catalog.programs.data.items.forEach((p) => {
-        map.set(p.id, p.code);
-      });
-    }
-    return map;
-  }, [catalog.programs.data]);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
   }
-  if (catalog.programs.isLoading || studentsQuery.isLoading) {
+  if (studentsQuery.isLoading || catalog.programs.isLoading) {
     return <LoadingState label="Loading participant selector" />;
   }
-  const selectedStudents = selectedIds.map((id) => supabaseStudents.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const students = studentsQuery.data?.items ?? [];
+  const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
-  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
+  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedAttendanceMode, watchedStartTime);
   const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
-  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedStartTime);
-   const livePreviewRecords: LiveAttendanceRecord[] = selectedStudents.slice(0, 6).map((student, index) => ({
-    id: `preview-${student.id}`,
-    studentName: studentName(student),
-    identifier: student.studentNumber,
-    status: index % 4 === 1 ? "late" : index % 4 === 2 ? "absent" : "present",
-    timestamp: index % 4 === 2 ? "Not checked in" : `${watchedStartTime || "09:00"} + ${index * 3}m`,
-    timeIn: index % 4 === 2 ? undefined : `${watchedStartTime || "09:00"} + ${index * 3}m`
-  }));
-  const sessionPreviewCounts = {
-    present: livePreviewRecords.filter((record) => record.status === "present").length,
-    late: livePreviewRecords.filter((record) => record.status === "late").length,
-    absent: Math.max(selectedIds.length - livePreviewRecords.filter((record) => record.status === "present" || record.status === "late").length, 0)
-  };
+  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedAttendanceMode, watchedStartTime);
   function toggleStudent(studentId: string) {
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
@@ -475,66 +441,44 @@ export function CreateEventPage() {
     setSelectedIds((current) => [...new Set([...current, ...students.map((student) => student.id)])]);
     setParticipantError("");
   }
-  function startPreviewSession() {
-    setSessionStarted(true);
-  }
-  function endPreviewSession() {
-    setSessionStarted(false);
-    setStartSessionOpen(false);
+  function addObjective() {
+    appendObjective({ value: "" });
   }
   async function onSubmit(values: EventFormValues) {
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
-
-    setIsPublishing(true);
-    try {
-      await eventMutations.createEventMutation.mutateAsync({
-        code: values.code,
-        title: values.title,
-        category: values.category,
-        venue: values.venue,
-        date: values.date,
-        startTime: values.startTime,
-        endTime: values.endTime,
-        attendanceMode: "face-to-face",
-        participantStudentIds: selectedIds,
-        description: values.description,
-        remarks: [values.objective1, values.objective2, values.objective3, values.remarks].filter(Boolean).join("\n"),
-        priorityLevel: values.priorityLevel,
-        impactScore: values.impactScore ?? null
-      });
-
-      setNotificationStatuses(selectedStudents.map((s) => ({ studentId: s.id, studentNumber: s.studentNumber, status: "pending" })));
-      setNotificationModalOpen(true);
-      selectedStudents.forEach((student, index) => {
-        setTimeout(() => {
-          setNotificationStatuses((current) => current.map((entry) => (entry.studentId === student.id ? { ...entry, status: "sent" } : entry)));
-        }, 400 + index * 200);
-      });
-      setTimeout(() => {
-        setNotificationModalOpen(false);
-        setIsPublishing(false);
-        form.reset();
-        setSelectedIds([]);
-        toast.success(`Published event with ${selectedIds.length} participant${selectedIds.length !== 1 ? "s" : ""}.`);
-        navigate(APP_ROUTES.organizerEvents);
-      }, 400 + selectedStudents.length * 200 + 300);
-    } catch (err) {
-      setIsPublishing(false);
-      toast.error(err instanceof Error ? err.message : "Failed to publish event.");
-    }
-  }  return (
+    const event = await mutations.createEventMutation.mutateAsync({
+      code: values.code,
+      title: values.title,
+      category: values.category,
+      venue: values.venue,
+      date: values.date,
+      startTime: values.startTime,
+      endTime: values.endTime,
+      attendanceMode: values.attendanceMode,
+      description: values.description,
+      remarks: values.remarks,
+      priorityLevel: values.priorityLevel,
+      participantStudentIds: selectedIds
+    });
+    navigate(APP_ROUTES.organizerEvent(event.id));
+  }
+  return (
     <OrganizerFrame>
-      <PageHeader title="Create Event" />
+      <PageHeader
+        title="Create Event"
+      />
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
-        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
             <CreateEventSectionHeader
+              eyebrow="Create Event"
               title="Event Details"
-              description="Enter the event information and up to three objectives for feedback generation."
+              description="Enter the event information and at least three objectives for feedback generation."
             />
+
             <div className="grid gap-4 md:grid-cols-2">
               <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
               <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
@@ -559,65 +503,105 @@ export function CreateEventPage() {
                 placeholder="Select priority"
                 options={PRIORITY_OPTIONS}
               />
-              <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().slice(0, 10)} />
+              <DatePickerField control={form.control} name="date" label="Date" />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />
               <TimePickerField control={form.control} name="endTime" label="End Time" />
+              <SelectField
+                control={form.control}
+                name="attendanceMode"
+                label="Attendance Mode"
+                options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
+              />
               <div className="md:col-span-2">
-                <TextAreaField
-                  control={form.control}
-                  name="description"
-                  label="Description (Optional)"
-                  placeholder="e.g. A university-wide summit for all PLP students, faculty, and campus organizations."
-                  rows={3}
-                />
+                <TextAreaField control={form.control} name="description" label="Description" rows={3} />
               </div>
             </div>
+
             <section className="rounded-lg border bg-background p-4">
-              <h3 className="font-semibold text-foreground">Objectives (1-3)</h3>
-              <p className="mt-1 text-sm text-muted-foreground">All three objectives are required for the event record.</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold text-foreground">Objectives</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    At least {MIN_OBJECTIVES} objectives are required. Add more if needed.
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addObjective}>
+                  <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+                  Add Objective
+                </Button>
+              </div>
+              {form.formState.errors.objectives?.root ? (
+                <p className="mt-2 text-sm text-danger">{form.formState.errors.objectives.root.message}</p>
+              ) : null}
               <div className="mt-4 grid gap-3">
-                <TextField control={form.control} name="objective1" label="Objective 1" placeholder="e.g. Promote inter-departmental student collaboration across PLP." />
-                <TextField control={form.control} name="objective2" label="Objective 2" placeholder="e.g. Orient students on university-wide activities and career guidance." />
-                <TextField control={form.control} name="objective3" label="Objective 3" placeholder="e.g. Gather feedback to improve future campus events." />
+                {objectiveFields.map((field, index) => (
+                  <div key={field.id} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+                    <div className="min-w-0">
+                      <TextField
+                        control={form.control}
+                        name={`objectives.${index}.value` as FieldPath<EventFormValues>}
+                        label={`Objective ${index + 1}`}
+                      />
+                    </div>
+                    {index >= MIN_OBJECTIVES ? (
+                      <div className="self-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeObjective(index)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
               </div>
             </section>
           </div>
-          <aside className="space-y-4 rounded-lg border bg-surface p-5 shadow-sm lg:sticky lg:top-4 lg:self-start">
+
+          <aside className="space-y-4 rounded-lg border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
             <div className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-primary" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">Predicted Attendance Preview</h2>
+              <h2 className="font-semibold text-foreground">Attendance Forecast</h2>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">Live Random Forest Prediction</p>
+            <p className="mt-1 text-sm text-muted-foreground">A compact preview of expected turnout based on the selected participants.</p>
             <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-              Based on the current Supabase student list
+              Based on the current student list
               {dominantSelectedYear ? `, mostly Year ${dominantSelectedYear}` : ""}
               {dominantSelectedSection ? ` from ${dominantSelectedSection}` : ""}.
             </div>
-            <PredictionMetric label="Predicted Attendance Percentage" value={`${predictedPercentage}%`} />
-            <PredictionMetric label="Expected Attendees" value={String(expectedAttendees)} detail={`of ${selectedIds.length} selected participants`} />
 
-            <div className="rounded-lg border bg-background p-4">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Ranked Attendance Factors</p>
-              <div className="mt-4 space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <PredictionMetric label="Predicted Attendance" value={`${predictedPercentage}%`} />
+              <PredictionMetric label="Expected Attendees" value={String(expectedAttendees)} detail={`of ${selectedIds.length} selected`} />
+            </div>
+
+            <div className="rounded-lg border bg-background p-3.5">
+              <p className="text-xs font-medium uppercase text-muted-foreground">Ranked factors</p>
+              <div className="mt-3 space-y-2.5">
                 {attendanceFactors.map((factor) => (
                   <div key={factor.label} className="grid gap-1">
-                    <div className="flex items-center justify-between gap-3 text-sm">
+                    <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
                       <span className="min-w-0 truncate text-foreground">{factor.label}</span>
                       <span className="font-medium text-muted-foreground">{factor.importance}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                       <div className="h-full rounded-full bg-primary" style={{ width: `${factor.importance}%` }} />
                     </div>
                   </div>
-                  ))}
+                ))}
               </div>
             </div>
           </aside>
         </section>
+
         <section className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
           <CreateEventSectionHeader
+            eyebrow="Participants"
             title="Participant Selection"
-            description="Select the students who will be invited and notified when the event is published."
+            description="Choose all students or build a compact participant list for this event."
           />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -629,54 +613,66 @@ export function CreateEventPage() {
               <Button type="button" variant="outline" onClick={() => setSelectedIds([])}>Clear selected students</Button>
             </div>
           </div>
-          <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-            Selected students will receive the event notification after you publish.
-          </div>
           <div className="grid gap-3 md:grid-cols-4">
             <SearchInput value={search} placeholder="Search students" onChange={setSearch} />
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
               <option value="">All programs</option>
-              {catalog.programs.data?.items ? (
-                catalog.programs.data.items.map((program) => (
-                  <option key={program.id} value={program.id}>{program.code} - {program.name}</option>
-                ))
-              ) : (
-                Object.entries(PROGRAM_CODES).map(([id, code]) => (
-                  <option key={id} value={id}>{code}</option>
-                ))
-              )}
+              {catalog.programs.data?.items.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
               <option value="">All year levels</option>
-              {Array.from(new Set(supabaseStudents.map((s) => s.yearLevel))).sort().map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+              {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
               <option value="">All sections</option>
-              {Array.from(new Set(supabaseStudents.map((s) => s.section))).sort().map((item) => <option key={item} value={item}>{item}</option>)}
+              {["A", "B"].map((item) => <option key={item} value={item}>Section {item}</option>)}
             </select>
           </div>
           {participantError ? <p className="text-sm text-danger">{participantError}</p> : null}
-          <div className="max-h-[420px] overflow-y-auto rounded-lg border bg-background p-3">
-            <div className="grid gap-2 md:grid-cols-2">
-              {students.length ? students.map((student) => (
-                <label key={student.id} className="flex items-center gap-3 rounded-lg border bg-surface p-3 text-sm">
-                  <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
-                    <span>
-                      <span className="block font-medium text-foreground">{student.studentNumber}</span>
-                    <span className="text-muted-foreground">{programById.get(student.programId) ?? student.programId} - Year {student.yearLevel} - {student.section}</span>
-                  </span>
-                </label>
-              )) : <EmptyState title="No students found" />}
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="max-h-[360px] overflow-y-auto rounded-lg border bg-background p-3">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {students.length ? students.map((student) => (
+                  <label key={student.id} className="flex items-start gap-3 rounded-lg border bg-surface p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5">
+                    <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
+                      <span className="min-w-0">
+                        <span className="block font-medium text-foreground">{student.fullName ?? student.studentNumber}</span>
+                      <span className="block text-xs text-muted-foreground">{student.studentNumber}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{programById.get(student.programId) ?? student.programId} - Year {student.yearLevel} - {student.section}</span>
+                    </span>
+                  </label>
+                )) : <EmptyState title="No students found" />}
+              </div>
             </div>
+
+            <aside className="rounded-lg border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Selected Participants</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{selectedStudents.length} selected students</p>
+              <div className="mt-4 max-h-72 overflow-y-auto rounded-md border bg-surface p-3">
+                {selectedStudents.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedStudents.map((student) => (
+                      <span key={student.id} className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-foreground">
+                        {student.fullName ?? student.studentNumber}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No selected participants yet.</p>
+                )}
+              </div>
+            </aside>
           </div>
-          </section>
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-5 shadow-sm">
+        </section>
+        {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-4 shadow-sm">
           <div>
             <h2 className="font-semibold text-foreground">Publish Event</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students. No approval workflow is required.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students.</p>
           </div>
           <SubmitButton
-            isSubmitting={isPublishing}
+            isSubmitting={mutations.createEventMutation.isPending}
             onClick={() => {
               if (selectedIds.length === 0) {
                 setParticipantError("Select at least one participant.");
@@ -687,29 +683,6 @@ export function CreateEventPage() {
           </SubmitButton>
         </section>
       </form>
-      {notificationModalOpen ? (
-        <div className="fixed inset-0 z-60 grid place-items-center bg-foreground/40 p-4">
-          <section className="plpass-modal-surface w-full max-w-lg rounded-lg border p-5 shadow-lg" role="dialog" aria-modal="true">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold">Sending notifications</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Simulating email sends to selected participants.</p>
-              </div>
-              <Button type="button" variant="outline" onClick={() => setNotificationModalOpen(false)}>Close</Button>
-            </div>
-            <div className="mt-4 max-h-64 overflow-y-auto space-y-2">
-              {notificationStatuses.map((entry) => (
-                <div key={entry.studentId} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
-                  <div className="truncate">{entry.studentNumber}</div>
-                  <div className="text-muted-foreground">
-                    {entry.status === "pending" ? "Pending" : entry.status === "sent" ? "Sent" : "Failed"}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
-      ) : null}
     </OrganizerFrame>
   );
 }

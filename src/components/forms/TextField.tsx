@@ -8,6 +8,7 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   placeholder?: string;
   type?: "text" | "email" | "password" | "number" | "tel";
   disabled?: boolean;
+  className?: string;
 };
 
 export function TextField<TFieldValues extends FieldValues>({
@@ -16,7 +17,8 @@ export function TextField<TFieldValues extends FieldValues>({
   label,
   placeholder,
   type = "text",
-  disabled
+  disabled,
+  className
 }: TextFieldProps<TFieldValues>) {
   return (
     <Controller
@@ -25,7 +27,7 @@ export function TextField<TFieldValues extends FieldValues>({
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
           <span className={labelClass}>{label}</span>
-          <input {...field} className={fieldBaseClass} type={type} placeholder={placeholder} disabled={disabled} />
+          <input {...field} className={`${fieldBaseClass} ${className ?? ""}`} type={type} placeholder={placeholder} disabled={disabled} />
           {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}

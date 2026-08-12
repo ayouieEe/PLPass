@@ -38,6 +38,7 @@ export type OrganizerAttendanceRow = {
   eventCode: string;
   attendanceMethod: AttendanceMethod;
   checkInTime: string;
+  checkOutTime?: string;
   attendanceStatus: AttendanceStatus;
   lateReason?: LateReason;
 };
