@@ -62,6 +62,7 @@ import {
   RepositoryError,
   type RepositoryContext
 } from "@/test-support/simulatedRepositoryUtils";
+import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -483,7 +484,7 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
   let note: string | undefined;
   const statusOverride = "statusOverride" in input ? input.statusOverride : undefined;
   if ("credentialCode" in input) {
-    const credentialStudentId = developmentCredentialStudentIds[input.credentialCode.trim()];
+    const credentialStudentId = developmentCredentialStudentIds[extractQrCredentialId(input.credentialCode)];
     if (!credentialStudentId) {
       addSafeAttendanceAttempt({ sessionId: session.id, accepted: false, attemptedAt: occurredAt, message: "Invalid credential", context });
       addSafeAudit(context, `${method}_attendance.invalid`, "attendance_session", session.id, { method });
@@ -1216,7 +1217,7 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
     };
   },
   async enrollFacialProfile(input, context) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["admin", "organizer", "student"]);
     return {
       studentId: input.studentId,
       facialProfile: {

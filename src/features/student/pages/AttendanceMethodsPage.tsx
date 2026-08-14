@@ -1,17 +1,20 @@
-import { useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import QRCode from "qrcode";
 import {
   AlertTriangle,
   Camera,
   CheckCircle2,
   ClipboardCheck,
+  Download,
   Globe2,
   Lock,
   Paperclip,
   QrCode,
   ShieldCheck,
+  UploadCloud,
   X,
   type LucideIcon
 } from "lucide-react";
@@ -22,7 +25,8 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useCredentialRequests, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import { cn } from "@/lib/utils/cn";
 import {
   ensureStudentIdentityReadiness,
@@ -42,9 +46,10 @@ const changeRequestSchema = z.object({
 type ChangeRequestFormValues = z.infer<typeof changeRequestSchema>;
 
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
-const qrMatrixSize = 15;
 const issueProofMaxBytes = 5 * 1024 * 1024;
 const acceptedIssueProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
+const faceEnrollmentMaxBytes = 5 * 1024 * 1024;
+const acceptedFaceEnrollmentTypes = ["image/png", "image/jpeg", "image/webp"];
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -55,58 +60,57 @@ function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
 }
 
-function isFinderCell(row: number, col: number) {
-  const inTopLeft = row < 5 && col < 5;
-  const inTopRight = row < 5 && col >= qrMatrixSize - 5;
-  const inBottomLeft = row >= qrMatrixSize - 5 && col < 5;
+function QrPreview({ active, value, fileName }: { active: boolean; value: string; fileName: string }) {
+  const [qrDataUrl, setQrDataUrl] = useState("");
 
-  if (!inTopLeft && !inTopRight && !inBottomLeft) {
-    return false;
-  }
+  useEffect(() => {
+    let cancelled = false;
 
-  const localRow = row < 5 ? row : row - (qrMatrixSize - 5);
-  const localCol = col < 5 ? col : col - (qrMatrixSize - 5);
-  const isOuterFrame = localRow === 0 || localRow === 4 || localCol === 0 || localCol === 4;
-  const isCenter = localRow === 2 && localCol === 2;
-  return isOuterFrame || isCenter;
-}
+    if (!active || !value) {
+      setQrDataUrl("");
+      return;
+    }
 
-function isDataCell(row: number, col: number, seed: number) {
+    QRCode.toDataURL(value, {
+      width: 280,
+      margin: 2,
+      errorCorrectionLevel: "M",
+      color: {
+        dark: "#16351f",
+        light: "#ffffff"
+      }
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, value]);
+
   return (
-    (row * 7 + col * 11 + row * col + seed) % 5 === 0
-    || (row + col * 3 + seed) % 7 === 0
-    || (row * 2 + col + seed) % 11 === 0
-  );
-}
-
-function qrSeed(value: string) {
-  return value.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
-}
-
-function QrPreview({ active, value }: { active: boolean; value: string }) {
-  const seed = qrSeed(value);
-
-  return (
-    <div
-      className={cn(
-        "grid h-48 w-48 rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5",
-        !active && "opacity-70 grayscale"
-      )}
-      style={{ gridTemplateColumns: `repeat(${qrMatrixSize}, minmax(0, 1fr))` }}
-      aria-hidden="true"
-    >
-      {Array.from({ length: qrMatrixSize * qrMatrixSize }).map((_, index) => {
-        const row = Math.floor(index / qrMatrixSize);
-        const col = index % qrMatrixSize;
-        const filled = isFinderCell(row, col) || isDataCell(row, col, seed);
-
-        return (
-          <span
-            key={`${row}-${col}`}
-            className={cn("m-[1px] rounded-[2px]", filled ? "bg-foreground" : "bg-transparent", isFinderCell(row, col) && "rounded-[3px]")}
-          />
-        );
-      })}
+    <div className="flex flex-col items-center gap-3">
+      <div className={cn("grid h-52 w-52 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5", !active && "opacity-70 grayscale")}>
+        {qrDataUrl ? (
+          <img src={qrDataUrl} alt="PLPass student QR credential" className="h-full w-full object-contain" />
+        ) : (
+          <QrCode className="h-20 w-20 text-primary/60" aria-hidden="true" />
+        )}
+      </div>
+      {qrDataUrl ? (
+        <a
+          href={qrDataUrl}
+          download={fileName}
+          className="inline-flex h-9 items-center justify-center rounded-full border bg-background px-4 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted"
+        >
+          <Download className="mr-2 h-4 w-4 text-primary" />
+          Download QR
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -115,11 +119,23 @@ export function AttendanceMethodsPage() {
   const scope = useStudentScope();
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
+  const credentialMutations = useStudentCredentialMutations(scope.context);
   const [showChangeRequest, setShowChangeRequest] = useState(false);
+  const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
   const [showIssueReport, setShowIssueReport] = useState(false);
   const [issueProofFile, setIssueProofFile] = useState<File | null>(null);
   const [issueProofError, setIssueProofError] = useState("");
   const [issueProofInputKey, setIssueProofInputKey] = useState(0);
+  const [faceEnrollmentFile, setFaceEnrollmentFile] = useState<File | null>(null);
+  const [faceEnrollmentError, setFaceEnrollmentError] = useState("");
+  const [faceEnrollmentInputKey, setFaceEnrollmentInputKey] = useState(0);
+  const [facePreviewUrl, setFacePreviewUrl] = useState("");
+  const [faceCameraError, setFaceCameraError] = useState("");
+  const [faceCameraStarting, setFaceCameraStarting] = useState(false);
+  const [faceCameraRestartKey, setFaceCameraRestartKey] = useState(0);
+  const faceVideoRef = useRef<HTMLVideoElement | null>(null);
+  const faceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const faceStreamRef = useRef<MediaStream | null>(null);
 
   const issueForm = useForm<IssueReportFormValues>({
     resolver: zodResolver(issueReportSchema),
@@ -129,6 +145,60 @@ export function AttendanceMethodsPage() {
     resolver: zodResolver(changeRequestSchema),
     defaultValues: { reason: "" }
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function startFaceCamera() {
+      if (!showFaceEnrollment || faceEnrollmentFile) return;
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setFaceCameraError("Camera capture is not available in this browser. Use the fallback photo picker below.");
+        return;
+      }
+
+      stopFaceCamera();
+      setFaceCameraError("");
+      setFaceCameraStarting(true);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: "user",
+            width: { ideal: 960 },
+            height: { ideal: 720 }
+          }
+        });
+
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        faceStreamRef.current = stream;
+        if (faceVideoRef.current) {
+          faceVideoRef.current.srcObject = stream;
+          await faceVideoRef.current.play().catch(() => undefined);
+        }
+      } catch {
+        if (!cancelled) {
+          setFaceCameraError("Camera access was blocked or unavailable. Use the fallback photo picker below.");
+        }
+      } finally {
+        if (!cancelled) {
+          setFaceCameraStarting(false);
+        }
+      }
+    }
+
+    void startFaceCamera();
+
+    return () => {
+      cancelled = true;
+      stopFaceCamera();
+    };
+  }, [showFaceEnrollment, faceEnrollmentFile, faceCameraRestartKey]);
 
   if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
@@ -146,18 +216,8 @@ export function AttendanceMethodsPage() {
   const qrStatus = pendingQrIssue ? "Issue pending" : hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Not configured";
   const facialStatus = pendingFacialRequest ? "Request pending" : formatCredentialStatus(identityReadiness.faceStatus);
   const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
-  const qrScanCode = identityReadiness.qrCredentialId ? `PLPASS-QR:${identityReadiness.qrCredentialId}` : "";
-  const qrReference = qrScanCode || "QR not issued yet";
-
-  async function copyQrCode() {
-    if (!qrScanCode) return;
-    try {
-      await navigator.clipboard.writeText(qrScanCode);
-      toast.success("QR code copied.");
-    } catch {
-      toast.error("Unable to copy QR code.");
-    }
-  }
+  const qrScanCode = identityReadiness.qrCredentialId ? buildStudentQrPayload(student.studentNumber, identityReadiness.qrCredentialId) : "";
+  const qrDownloadFileName = `plpass-qr-${student.studentNumber}.png`;
 
   async function handleIssueSubmit(values: IssueReportFormValues) {
     try {
@@ -207,6 +267,114 @@ export function AttendanceMethodsPage() {
     }
 
     setIssueProofFile(file);
+  }
+
+  function resetFaceEnrollmentFile() {
+    if (facePreviewUrl) {
+      URL.revokeObjectURL(facePreviewUrl);
+    }
+    setFaceEnrollmentFile(null);
+    setFacePreviewUrl("");
+    setFaceEnrollmentError("");
+    setFaceEnrollmentInputKey((key) => key + 1);
+    setFaceCameraRestartKey((key) => key + 1);
+  }
+
+  function stopFaceCamera() {
+    faceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    faceStreamRef.current = null;
+    if (faceVideoRef.current) {
+      faceVideoRef.current.srcObject = null;
+    }
+  }
+
+  function setFaceEnrollmentCapture(file: File) {
+    if (facePreviewUrl) {
+      URL.revokeObjectURL(facePreviewUrl);
+    }
+    setFaceEnrollmentFile(file);
+    setFacePreviewUrl(URL.createObjectURL(file));
+    setFaceEnrollmentError("");
+    stopFaceCamera();
+  }
+
+  function handleFaceEnrollmentFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    setFaceEnrollmentError("");
+
+    if (!file) {
+      setFaceEnrollmentFile(null);
+      return;
+    }
+
+    if (!acceptedFaceEnrollmentTypes.includes(file.type)) {
+      setFaceEnrollmentFile(null);
+      setFaceEnrollmentError("Use a PNG, JPG, or WebP photo.");
+      setFaceEnrollmentInputKey((key) => key + 1);
+      return;
+    }
+
+    if (file.size > faceEnrollmentMaxBytes) {
+      setFaceEnrollmentFile(null);
+      setFaceEnrollmentError("Face photo must be 5 MB or smaller.");
+      setFaceEnrollmentInputKey((key) => key + 1);
+      return;
+    }
+
+    setFaceEnrollmentCapture(file);
+  }
+
+  function captureLiveFacePhoto() {
+    const video = faceVideoRef.current;
+    const canvas = faceCanvasRef.current;
+
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+      setFaceEnrollmentError("Camera is still loading. Please try again in a moment.");
+      return;
+    }
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setFaceEnrollmentError("Unable to capture from this camera.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setFaceEnrollmentError("Unable to capture a face photo. Please try again.");
+        return;
+      }
+
+      if (blob.size > faceEnrollmentMaxBytes) {
+        setFaceEnrollmentError("Captured photo is too large. Please try again.");
+        return;
+      }
+
+      const file = new File([blob], `face-enrollment-${student.studentNumber}.jpg`, { type: "image/jpeg" });
+      setFaceEnrollmentCapture(file);
+    }, "image/jpeg", 0.9);
+  }
+
+  async function handleFaceEnrollmentSubmit() {
+    if (!faceEnrollmentFile) {
+      setFaceEnrollmentError("Attach a clear face photo before enrolling.");
+      return;
+    }
+
+    try {
+      await credentialMutations.enrollFacialProfileMutation.mutateAsync({
+        studentId: student.id,
+        faceImage: faceEnrollmentFile
+      });
+      toast.success("Facial backup enrolled.");
+      resetFaceEnrollmentFile();
+      setShowFaceEnrollment(false);
+    } catch {
+      toast.error("Unable to enroll face. If it was already enrolled, submit a re-enrollment request.");
+    }
   }
 
   async function handleChangeRequestSubmit(values: ChangeRequestFormValues) {
@@ -282,18 +450,13 @@ export function AttendanceMethodsPage() {
                 </div>
 
                 <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-5 text-center">
-                  <QrPreview active={hasQrCredential} value={qrScanCode} />
-                  <p className="mt-4 max-w-full break-all font-mono text-sm font-semibold text-foreground">
-                    {qrReference}
+                  <QrPreview active={hasQrCredential} value={qrScanCode} fileName={qrDownloadFileName} />
+                  <p className="mt-4 text-sm font-semibold text-foreground">
+                    Student No. {student.studentNumber}
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
                     {hasQrCredential ? "Ready for organizer scanning." : "Ask an organizer or admin to issue your QR."}
                   </p>
-                  {hasQrCredential ? (
-                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={copyQrCode}>
-                      Copy QR code
-                    </Button>
-                  ) : null}
                 </div>
               </div>
 
@@ -327,46 +490,38 @@ export function AttendanceMethodsPage() {
                   </div>
 
                   <div className="mt-5 rounded-xl border border-dashed bg-muted/30 p-4">
-                      <div className="flex items-start gap-3">
-                        <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-muted-foreground">Facial setup is organizer-managed</p>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            Send a request only if the organizer asks you to update your facial backup.
+                    <div className="flex items-start gap-3">
+                      <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-muted-foreground">
+                          {identityReadiness.faceEnrolled ? "Re-enrollment requires organizer approval" : "One-time student enrollment"}
+                        </p>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {identityReadiness.faceEnrolled
+                            ? "Your face is already enrolled. Submit a re-enrollment request only if it needs to be changed."
+                            : "Attach one clear face photo. After enrollment, changes must go through a re-enrollment request."}
+                        </p>
+                        {pendingFacialRequest ? (
+                          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-success">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Request sent - awaiting organizer review.
                           </p>
-                          {pendingFacialRequest && !showChangeRequest && (
-                            <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-success">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Request sent - awaiting organizer review.
-                            </p>
-                          )}
-                          {!showChangeRequest && !pendingFacialRequest && !identityReadiness.faceEnrolled && (
-                            <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => setShowChangeRequest(true)}>
-                              Request review
+                        ) : null}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {!identityReadiness.faceEnrolled && !pendingFacialRequest ? (
+                            <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
+                              Enroll face
                             </Button>
-                          )}
+                          ) : null}
+                          {identityReadiness.faceEnrolled && !pendingFacialRequest ? (
+                            <Button type="button" variant="outline" size="sm" onClick={() => setShowChangeRequest(true)}>
+                              Request re-enrollment
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
-
-                      {showChangeRequest && (
-                        <form onSubmit={changeRequestForm.handleSubmit(handleChangeRequestSubmit)} className="mt-4 border-t pt-4">
-                          <textarea
-                            {...changeRequestForm.register("reason")}
-                            className="plpass-field min-h-24 w-full rounded-xl border p-3 text-sm"
-                            placeholder="Tell the organizer why your backup verification needs review."
-                          />
-                          {changeRequestForm.formState.errors.reason ? (
-                            <p className="mt-2 text-sm text-danger">{changeRequestForm.formState.errors.reason.message}</p>
-                          ) : null}
-                          <div className="mt-3 flex gap-2">
-                            <Button type="submit" size="sm" disabled={credentialRequestsQuery.createMutation.isPending}>
-                              {credentialRequestsQuery.createMutation.isPending ? "Sending..." : "Send request"}
-                            </Button>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => setShowChangeRequest(false)}>Cancel</Button>
-                          </div>
-                        </form>
-                      )}
                     </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -415,6 +570,172 @@ export function AttendanceMethodsPage() {
           </div>
         </aside>
       </section>
+
+      <ModalShell
+        open={showFaceEnrollment}
+        title="Enroll facial backup"
+        description="Capture a live face photo. You can enroll only once; future changes require a re-enrollment request."
+        size="md"
+        onClose={() => {
+          setShowFaceEnrollment(false);
+          resetFaceEnrollmentFile();
+        }}
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border bg-primary/5 p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                <Camera className="h-5 w-5 text-primary" />
+              </span>
+              <div>
+                <p className="font-semibold">Use a clear live front-facing photo.</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  This becomes your backup identity record for organizer-assisted verification. Make sure your face is centered and well-lit.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border bg-surface-muted/40 p-4">
+            <div className="overflow-hidden rounded-2xl border bg-black">
+              {facePreviewUrl ? (
+                <img src={facePreviewUrl} alt="Captured face preview" className="aspect-video w-full object-cover" />
+              ) : (
+                <div className="relative aspect-video w-full">
+                  <video
+                    ref={faceVideoRef}
+                    className="h-full w-full object-cover"
+                    muted
+                    playsInline
+                    autoPlay
+                  />
+                  {faceCameraStarting ? (
+                    <div className="absolute inset-0 grid place-items-center bg-black/70 text-sm font-semibold text-white">
+                      Starting camera...
+                    </div>
+                  ) : null}
+                  {faceCameraError ? (
+                    <div className="absolute inset-0 grid place-items-center bg-black/80 p-6 text-center text-sm font-medium leading-6 text-white">
+                      {faceCameraError}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <canvas ref={faceCanvasRef} className="hidden" aria-hidden="true" />
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {faceEnrollmentFile
+                    ? `Ready to enroll. File size: ${formatFileSize(faceEnrollmentFile.size)}.`
+                    : `Capture must be clear and front-facing. Maximum file size is ${formatFileSize(faceEnrollmentMaxBytes)}.`}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {faceEnrollmentFile ? (
+                  <Button type="button" variant="outline" onClick={resetFaceEnrollmentFile}>
+                    Retake photo
+                  </Button>
+                ) : (
+                  <Button type="button" onClick={captureLiveFacePhoto} disabled={faceCameraStarting || Boolean(faceCameraError)}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    Capture face
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {faceCameraError ? (
+              <div className="mt-4 rounded-xl border bg-background p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    If your device camera is blocked, use this fallback to capture/select a new face photo.
+                  </p>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-full border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted">
+                    <UploadCloud className="mr-2 h-4 w-4 text-primary" />
+                    Use fallback
+                    <input
+                      key={faceEnrollmentInputKey}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      capture="user"
+                      className="sr-only"
+                      onChange={handleFaceEnrollmentFileChange}
+                    />
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {faceEnrollmentError ? <p className="mt-2 text-sm text-danger">{faceEnrollmentError}</p> : null}
+          </div>
+
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowFaceEnrollment(false);
+                resetFaceEnrollmentFile();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={credentialMutations.enrollFacialProfileMutation.isPending || Boolean(faceEnrollmentError)}
+              onClick={handleFaceEnrollmentSubmit}
+            >
+              {credentialMutations.enrollFacialProfileMutation.isPending ? "Enrolling..." : "Enroll face"}
+            </Button>
+          </div>
+        </div>
+      </ModalShell>
+
+      <ModalShell
+        open={showChangeRequest}
+        title="Request facial re-enrollment"
+        description="Use this when your enrolled face record needs to be changed or reset by an organizer."
+        size="md"
+        onClose={() => {
+          setShowChangeRequest(false);
+          changeRequestForm.clearErrors();
+        }}
+      >
+        <form onSubmit={changeRequestForm.handleSubmit(handleChangeRequestSubmit)} className="space-y-4">
+          <label className="block">
+            <span className="text-sm font-semibold">Reason for re-enrollment</span>
+            <textarea
+              {...changeRequestForm.register("reason")}
+              className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm"
+              placeholder="Example: My facial backup needs to be updated because my previous photo is unclear."
+            />
+          </label>
+          {changeRequestForm.formState.errors.reason ? (
+            <p className="text-sm text-danger">{changeRequestForm.formState.errors.reason.message}</p>
+          ) : null}
+
+          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowChangeRequest(false);
+                changeRequestForm.clearErrors();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={credentialRequestsQuery.createMutation.isPending}>
+              {credentialRequestsQuery.createMutation.isPending ? "Sending..." : "Submit request"}
+            </Button>
+          </div>
+        </form>
+      </ModalShell>
 
       <ModalShell
         open={showIssueReport}

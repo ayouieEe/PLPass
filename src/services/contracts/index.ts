@@ -121,6 +121,7 @@ export type IssueQrCredentialInput = {
 export type EnrollFacialProfileInput = {
   studentId: string;
   enrollmentReference?: string;
+  faceImage?: File;
 };
 
 export type AttendanceSubmissionResultStatus =
