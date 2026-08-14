@@ -158,6 +158,18 @@ export type ReviewCorrectionRequestInput = {
   reason?: string;
 };
 
+export type SetStudentCredentialStatusInput = {
+  studentId: string;
+  credentialType: "qr" | "facial";
+  status: "activated" | "inactive" | "blocked";
+};
+
+export type ReviewCredentialRequestInput = {
+  requestId: string;
+  status: Extract<CredentialRequest["status"], "approved" | "rejected">;
+  remarks?: string;
+};
+
 export type SubmitEventFeedbackInput = {
   eventId: string;
   studentId: string;
@@ -250,12 +262,14 @@ export interface CorrectionRequestRepository {
 export interface CredentialRequestRepository {
   listCredentialRequests(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<CredentialRequest>>;
   createCredentialRequest(input: CreateCredentialRequestInput, context?: RepositoryContext): Promise<CredentialRequest>;
+  reviewCredentialRequest(input: ReviewCredentialRequestInput, context?: RepositoryContext): Promise<CredentialRequest>;
 }
 
 export interface StudentCredentialRepository {
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
+  setCredentialStatus(input: SetStudentCredentialStatusInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
 }
 
 export interface EventFeedbackRepository {

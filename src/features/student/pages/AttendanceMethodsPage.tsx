@@ -211,10 +211,17 @@ export function AttendanceMethodsPage() {
   const studentCredentialRequests = (credentialRequestsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
   const pendingQrIssue = studentCredentialRequests.some((request) => request.credentialType === "qr" && request.status === "pending");
   const pendingFacialRequest = studentCredentialRequests.some((request) => request.credentialType === "facial" && request.status === "pending");
+  const approvedFacialReEnrollment = studentCredentialRequests.some((request) =>
+    request.credentialType === "facial" && request.requestType === "re_enrollment" && request.status === "approved"
+  );
   const identityReadiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
   const hasQrCredential = hasUsableQrCredential(identityReadiness);
   const qrStatus = pendingQrIssue ? "Issue pending" : hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Not configured";
-  const facialStatus = pendingFacialRequest ? "Request pending" : formatCredentialStatus(identityReadiness.faceStatus);
+  const facialStatus = pendingFacialRequest
+    ? "Request pending"
+    : approvedFacialReEnrollment
+      ? "Re-enrollment approved"
+      : formatCredentialStatus(identityReadiness.faceStatus);
   const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
   const qrScanCode = identityReadiness.qrCredentialId ? buildStudentQrPayload(student.studentNumber, identityReadiness.qrCredentialId) : "";
   const qrDownloadFileName = `plpass-qr-${student.studentNumber}.png`;
@@ -513,7 +520,12 @@ export function AttendanceMethodsPage() {
                               Enroll face
                             </Button>
                           ) : null}
-                          {identityReadiness.faceEnrolled && !pendingFacialRequest ? (
+                          {identityReadiness.faceEnrolled && approvedFacialReEnrollment ? (
+                            <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
+                              Enroll face
+                            </Button>
+                          ) : null}
+                          {identityReadiness.faceEnrolled && !pendingFacialRequest && !approvedFacialReEnrollment ? (
                             <Button type="button" variant="outline" size="sm" onClick={() => setShowChangeRequest(true)}>
                               Request re-enrollment
                             </Button>

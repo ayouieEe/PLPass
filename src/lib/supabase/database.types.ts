@@ -1372,6 +1372,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      complete_facial_enrollment: {
+        Args: { p_enrollment_reference: string }
+        Returns: Database["public"]["Tables"]["facial_profiles"]["Row"]
+      }
+      issue_qr_credential: {
+        Args: { p_expires_at?: string | null; p_student_id: string }
+        Returns: Database["public"]["Tables"]["qr_credentials"]["Row"]
+      }
+      review_attendance_request: {
+        Args: { p_reason?: string | null; p_request_id: string; p_status: string }
+        Returns: Database["public"]["Tables"]["attendance_requests"]["Row"]
+      }
+      review_credential_request: {
+        Args: { p_remarks?: string | null; p_request_id: string; p_status: string }
+        Returns: Database["public"]["Tables"]["credential_requests"]["Row"]
+      }
+      set_student_credential_status: {
+        Args: { p_credential_type: string; p_status: string; p_student_id: string }
+        Returns: undefined
+      }
       submit_late_reason: {
         Args: {
           p_attendance_record_id: string

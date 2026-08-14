@@ -48,6 +48,7 @@ import type {
   ReportRepository,
   RepositoryRegistry,
   ReviewCorrectionRequestInput,
+  ReviewCredentialRequestInput,
   StudentCredentialRepository,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
@@ -1194,6 +1195,25 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
     };
     credentialRequestState = [created, ...credentialRequestState];
     return created;
+  },
+  async reviewCredentialRequest(input: ReviewCredentialRequestInput, context) {
+    await beforeRead("credentialRequests", context, ["admin", "organizer"]);
+    const existing = credentialRequestState.find((request) => request.id === input.requestId);
+    if (!existing) {
+      throw new RepositoryError("Credential request was not found.", "NOT_FOUND");
+    }
+    if (existing.status !== "pending") {
+      throw new RepositoryError("Credential request has already been reviewed.", "VALIDATION_ERROR");
+    }
+    const updated: CredentialRequest = {
+      ...existing,
+      status: input.status,
+      reviewedByUserId: contextOrDefault(context).actorUserId,
+      reviewedAt: new Date().toISOString(),
+      reviewRemarks: input.remarks
+    };
+    credentialRequestState = credentialRequestState.map((request) => request.id === input.requestId ? updated : request);
+    return updated;
   }
 };
 
@@ -1229,6 +1249,10 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
         consentRecordedAt: new Date().toISOString()
       }
     };
+  },
+  async setCredentialStatus(input, context) {
+    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    return { studentId: input.studentId };
   }
 };
 

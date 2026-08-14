@@ -110,6 +110,43 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!session || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+      return;
+    }
+
+    const supabase = getSupabaseBrowserClient();
+    const tableQueryKeys: Record<string, string[][]> = {
+      events: [["events"]],
+      event_participants: [["events"], ["eventParticipants"]],
+      event_sessions: [["attendanceSessions"], ["attendanceSession"]],
+      attendance_records: [["attendanceRecords"], ["attendanceSessions"], ["attendanceSession"], ["mlPredictions"]],
+      attendance_requests: [["correctionRequests"], ["attendanceRecords"]],
+      credential_requests: [["credentialRequests"], ["studentCredentialStatus"]],
+      qr_credentials: [["studentCredentialStatus"], ["students"]],
+      facial_profiles: [["studentCredentialStatus"], ["students"]],
+      notifications: [["notifications"]]
+    };
+
+    const channel = supabase.channel(`plpass-sync-${session.userId}`);
+    Object.entries(tableQueryKeys).forEach(([table, queryKeys]) => {
+      channel.on(
+        "postgres_changes",
+        { event: "*", schema: "public", table },
+        () => {
+          queryKeys.forEach((queryKey) => {
+            void queryClient.invalidateQueries({ queryKey });
+          });
+        }
+      );
+    });
+    channel.subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session]);
+
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setAuthError(undefined);
     queryClient.clear();

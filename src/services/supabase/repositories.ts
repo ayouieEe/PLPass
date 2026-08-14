@@ -315,13 +315,6 @@ function requireCredentialManagerContext(context?: { actorRole?: string }) {
   }
 }
 
-function generatedCredentialHash(studentId: string) {
-  const randomPart = typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random()}`;
-  return `plpass-qr-${studentId}-${randomPart}`;
-}
-
 export const supabaseAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
     return [];
@@ -907,23 +900,16 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
 
     return mapCorrectionRequest(inserted);
   },
-  async reviewCorrectionRequest(input) {
-    const profile = await currentProfile();
-    const request = await selectSingleRow("attendance_requests", input.requestId);
-    const updated = await updateRow("attendance_requests", input.requestId, {
-      request_status: input.status,
-      review_reason: input.reason ?? (input.status === "rejected" ? "Rejected by reviewer" : "Approved by reviewer"),
-      reviewed_by: String(profile.id),
-      reviewed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+  async reviewCorrectionRequest(input, context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("review_attendance_request", {
+      p_request_id: input.requestId,
+      p_status: input.status,
+      p_reason: input.reason ?? null
     });
-    if (input.status === "approved" && request.attendance_record_id) {
-      await updateRow("attendance_records", String(request.attendance_record_id), {
-        attendance_status: String(request.requested_status ?? "present"),
-        remarks: input.reason ?? "Approved attendance correction"
-      });
-    }
-    return mapCorrectionRequest(updated);
+    throwIfSupabaseError(error);
+    return mapCorrectionRequest(data as Row);
   }
 };
 
@@ -1003,6 +989,17 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
     }
 
     return mapCredentialRequest(inserted);
+  },
+  async reviewCredentialRequest(input, context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("review_credential_request", {
+      p_request_id: input.requestId,
+      p_status: input.status,
+      p_remarks: input.remarks ?? null
+    });
+    throwIfSupabaseError(error);
+    return mapCredentialRequest(data as Row);
   }
 };
 
@@ -1036,34 +1033,16 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
   async issueQrCredential(input: IssueQrCredentialInput, context) {
     requireOrganizerContext(context);
     const client = getSupabaseBrowserClient();
-    const now = new Date().toISOString();
-    const expiresAt = input.expiresAt ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { error: deactivateError } = await client
-      .from("qr_credentials")
-      .update({
-        credential_status: "inactive",
-        revoked_at: now,
-        updated_at: now
-      })
-      .eq("student_id", input.studentId)
-      .eq("credential_status", "activated");
-    throwIfSupabaseError(deactivateError);
-
-    await insertRow("qr_credentials", {
-      student_id: input.studentId,
-      token_hash: generatedCredentialHash(input.studentId),
-      credential_status: "activated",
-      issued_at: now,
-      expires_at: expiresAt
+    const { error } = await client.rpc("issue_qr_credential", {
+      p_student_id: input.studentId,
+      p_expires_at: input.expiresAt ?? null
     });
-
+    throwIfSupabaseError(error);
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
   },
   async enrollFacialProfile(input: EnrollFacialProfileInput, context) {
     requireCredentialManagerContext(context);
     const client = getSupabaseBrowserClient();
-    const now = new Date().toISOString();
     const isStudentEnrollment = context?.actorRole === "student";
     const scopedStudentId = isStudentEnrollment ? await currentStudentIdForProfile(context.actorUserId) : input.studentId;
 
@@ -1072,15 +1051,6 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     }
 
     if (isStudentEnrollment) {
-      const { data: existingProfile, error: existingProfileError } = await client
-        .from("facial_profiles")
-        .select("id")
-        .eq("student_id", scopedStudentId)
-        .maybeSingle();
-      throwIfSupabaseError(existingProfileError);
-      if (existingProfile) {
-        throw new RepositoryError("Face is already enrolled. Submit a re-enrollment request if it needs to be changed.", "VALIDATION_ERROR");
-      }
       if (!input.faceImage) {
         throw new RepositoryError("A face photo is required for student facial enrollment.", "VALIDATION_ERROR");
       }
@@ -1102,30 +1072,28 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
       enrollmentReference = filePath;
     }
 
-    const facialPayload = {
-      student_id: scopedStudentId,
-      enrollment_reference: enrollmentReference,
-      facial_status: "activated",
-      enrolled_at: now,
-      consent_recorded_at: now,
-      updated_at: now
-    };
+    if (!isStudentEnrollment) {
+      throw new RepositoryError("Facial enrollment must be completed by the signed-in student after organizer approval.", "PERMISSION_DENIED");
+    }
 
-    const { data, error } = isStudentEnrollment
-      ? await client
-        .from("facial_profiles")
-        .insert(facialPayload as never)
-        .select("*")
-        .single()
-      : await client
-        .from("facial_profiles")
-        .upsert(facialPayload as never, { onConflict: "student_id" })
-        .select("*")
-        .single();
+    const { data, error } = await client.rpc("complete_facial_enrollment", {
+      p_enrollment_reference: enrollmentReference
+    });
     throwIfSupabaseError(error);
     void data;
 
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(scopedStudentId, context);
+  },
+  async setCredentialStatus(input, context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const { error } = await client.rpc("set_student_credential_status", {
+      p_student_id: input.studentId,
+      p_credential_type: input.credentialType,
+      p_status: input.status
+    });
+    throwIfSupabaseError(error);
+    return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
   }
 };
 
