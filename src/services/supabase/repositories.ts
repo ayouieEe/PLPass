@@ -48,6 +48,7 @@ import {
   mapStudent
 } from "@/lib/supabase/mappers";
 import { RepositoryError } from "@/services/repositoryUtils";
+import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import type {
   AdminProfile,
   Department,
@@ -68,6 +69,7 @@ const eventReadSelect = "*, event_categories(category_name)";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level), programs(program_code, program_name)";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
+const facialEnrollmentBucket = "facial-enrollments";
 
 function sanitizeStorageFileName(fileName: string) {
   const safeName = fileName
@@ -220,7 +222,7 @@ async function currentStudentIdForProfile(profileId: string): Promise<string> {
 }
 
 function normalizeQrCredentialCode(rawCode: string) {
-  return rawCode.trim().replace(/^PLPASS-QR:/i, "").trim();
+  return extractQrCredentialId(rawCode);
 }
 
 function credentialScanResult(
@@ -304,6 +306,12 @@ async function studentScanSummary(studentId: string): Promise<{ displayName?: st
 function requireOrganizerContext(context?: { actorRole?: string }) {
   if (context?.actorRole && context.actorRole !== "organizer" && context.actorRole !== "admin") {
     throw new RepositoryError("Only organizers can manage student credentials.", "PERMISSION_DENIED");
+  }
+}
+
+function requireCredentialManagerContext(context?: { actorRole?: string }) {
+  if (context?.actorRole && context.actorRole !== "student" && context.actorRole !== "organizer" && context.actorRole !== "admin") {
+    throw new RepositoryError("Only students, organizers, and admins can manage this credential.", "PERMISSION_DENIED");
   }
 }
 
@@ -1053,27 +1061,71 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
   },
   async enrollFacialProfile(input: EnrollFacialProfileInput, context) {
-    requireOrganizerContext(context);
+    requireCredentialManagerContext(context);
     const client = getSupabaseBrowserClient();
     const now = new Date().toISOString();
-    const enrollmentReference = input.enrollmentReference?.trim() || `face-${input.studentId}-${Date.now()}`;
+    const isStudentEnrollment = context?.actorRole === "student";
+    const scopedStudentId = isStudentEnrollment ? await currentStudentIdForProfile(context.actorUserId) : input.studentId;
 
-    const { data, error } = await client
-      .from("facial_profiles")
-      .upsert({
-        student_id: input.studentId,
-        enrollment_reference: enrollmentReference,
-        facial_status: "activated",
-        enrolled_at: now,
-        consent_recorded_at: now,
-        updated_at: now
-      }, { onConflict: "student_id" })
-      .select("*")
-      .single();
+    if (isStudentEnrollment && scopedStudentId !== input.studentId) {
+      throw new RepositoryError("Students can only enroll their own facial profile.", "PERMISSION_DENIED");
+    }
+
+    if (isStudentEnrollment) {
+      const { data: existingProfile, error: existingProfileError } = await client
+        .from("facial_profiles")
+        .select("id")
+        .eq("student_id", scopedStudentId)
+        .maybeSingle();
+      throwIfSupabaseError(existingProfileError);
+      if (existingProfile) {
+        throw new RepositoryError("Face is already enrolled. Submit a re-enrollment request if it needs to be changed.", "VALIDATION_ERROR");
+      }
+      if (!input.faceImage) {
+        throw new RepositoryError("A face photo is required for student facial enrollment.", "VALIDATION_ERROR");
+      }
+    }
+
+    let enrollmentReference = input.enrollmentReference?.trim() || `face-${scopedStudentId}-${Date.now()}`;
+
+    if (input.faceImage) {
+      const safeFileName = sanitizeStorageFileName(input.faceImage.name || "face-enrollment.jpg");
+      const filePath = `${scopedStudentId}/${Date.now()}-${safeFileName}`;
+      const { error: uploadError } = await client.storage
+        .from(facialEnrollmentBucket)
+        .upload(filePath, input.faceImage, {
+          cacheControl: "3600",
+          contentType: input.faceImage.type || "image/jpeg",
+          upsert: false
+        });
+      throwIfSupabaseError(uploadError);
+      enrollmentReference = filePath;
+    }
+
+    const facialPayload = {
+      student_id: scopedStudentId,
+      enrollment_reference: enrollmentReference,
+      facial_status: "activated",
+      enrolled_at: now,
+      consent_recorded_at: now,
+      updated_at: now
+    };
+
+    const { data, error } = isStudentEnrollment
+      ? await client
+        .from("facial_profiles")
+        .insert(facialPayload as never)
+        .select("*")
+        .single()
+      : await client
+        .from("facial_profiles")
+        .upsert(facialPayload as never, { onConflict: "student_id" })
+        .select("*")
+        .single();
     throwIfSupabaseError(error);
     void data;
 
-    return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
+    return supabaseStudentCredentialRepository.getStudentCredentialStatus(scopedStudentId, context);
   }
 };
 

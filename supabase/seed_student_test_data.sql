@@ -520,23 +520,9 @@ begin
       and credential_status = 'activated'
   );
 
-  insert into public.facial_profiles (
-    student_id,
-    enrollment_reference,
-    facial_status,
-    enrolled_at,
-    last_verified_at,
-    consent_recorded_at
-  )
-  values (
-    v_student_id,
-    'plpass-test-face-23-00226',
-    'activated',
-    now() - interval '30 days',
-    now() - interval '5 days',
-    now() - interval '30 days'
-  )
-  on conflict (student_id) do nothing;
+  delete from public.facial_profiles
+  where student_id = v_student_id
+    and enrollment_reference = 'plpass-test-face-23-00226';
 
   insert into public.credential_requests (
     student_id,
