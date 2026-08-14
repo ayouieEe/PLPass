@@ -363,8 +363,13 @@ export function EventDetailsPage() {
     { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.organizerSession(row.original.id)}>View session</NavLink></Button> }
   ];
   async function startSession(values: SessionFormValues) {
-    const created = await mutations.createEventSessionMutation.mutateAsync({ eventId: event.id, ...values });
-    navigate(APP_ROUTES.organizerSession(created.id));
+    try {
+      const created = await mutations.createEventSessionMutation.mutateAsync({ eventId: event.id, ...values });
+      navigate(APP_ROUTES.organizerSession(created.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to start session. Please try again.";
+      toast.error(message);
+    }
   }
   const canStart = event.status === "approved" || event.status === "pending";
   return (

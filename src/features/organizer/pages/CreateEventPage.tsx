@@ -449,21 +449,26 @@ export function CreateEventPage() {
       setParticipantError("Select at least one participant.");
       return;
     }
-    const event = await mutations.createEventMutation.mutateAsync({
-      code: values.code,
-      title: values.title,
-      category: values.category,
-      venue: values.venue,
-      date: values.date,
-      startTime: values.startTime,
-      endTime: values.endTime,
-      attendanceMode: values.attendanceMode,
-      description: values.description,
-      remarks: values.remarks,
-      priorityLevel: values.priorityLevel,
-      participantStudentIds: selectedIds
-    });
-    navigate(APP_ROUTES.organizerEvent(event.id));
+    try {
+      const event = await mutations.createEventMutation.mutateAsync({
+        code: values.code,
+        title: values.title,
+        category: values.category,
+        venue: values.venue,
+        date: values.date,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        attendanceMode: values.attendanceMode,
+        description: values.description,
+        remarks: values.remarks,
+        priorityLevel: values.priorityLevel,
+        participantStudentIds: selectedIds
+      });
+      navigate(APP_ROUTES.organizerEvent(event.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create event. Please try again.";
+      toast.error(message);
+    }
   }
   return (
     <OrganizerFrame>

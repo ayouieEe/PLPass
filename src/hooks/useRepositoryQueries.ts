@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { repositories } from "@/services/repositories";
 import type {
   AddRosterStudentInput,
@@ -26,6 +27,13 @@ const queryDefaults = {
   pageIndex: 0,
   pageSize: 10
 } satisfies Pick<ListQuery, "pageIndex" | "pageSize">;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "An unexpected error occurred. Please try again.";
+}
 
 function queryWithDefaults(query?: Partial<ListQuery>): ListQuery {
   return { ...queryDefaults, ...query };
@@ -196,11 +204,17 @@ export function useEventMutations(context?: RepositoryContext) {
   return {
     createEventMutation: useMutation({
       mutationFn: (input: CreateEventInput) => repositories.eventManagement.createEvent(input, context),
-      onSuccess: invalidateEvents
+      onSuccess: invalidateEvents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     completeEventMutation: useMutation({
       mutationFn: (eventId: string) => repositories.eventManagement.completeEvent(eventId, context),
-      onSuccess: invalidateEvents
+      onSuccess: invalidateEvents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     })
   };
 }
@@ -215,6 +229,10 @@ export function useEventStatusMutation(context?: RepositoryContext) {
     }) => repositories.eventManagement.updateEventStatus(input.eventId, input.status, input.reason, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["events"] });
+      toast.success("Event status updated successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 }
@@ -257,15 +275,24 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
   return {
     createClassSessionMutation: useMutation({
       mutationFn: (input: CreateClassSessionInput) => repositories.attendanceSessions.createClassSession(input, context),
-      onSuccess: invalidateSessions
+      onSuccess: invalidateSessions,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     createEventSessionMutation: useMutation({
       mutationFn: (input: CreateEventSessionInput) => repositories.attendanceSessions.createEventSession(input, context),
-      onSuccess: invalidateSessions
+      onSuccess: invalidateSessions,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     endSessionMutation: useMutation({
       mutationFn: (input: EndAttendanceSessionInput) => repositories.attendanceSessions.endAttendanceSession(input, context),
-      onSuccess: invalidateSessions
+      onSuccess: invalidateSessions,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     })
   };
 }
@@ -295,15 +322,24 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   return {
     credentialScanMutation: useMutation({
       mutationFn: (input: AttendanceScanInput) => repositories.attendanceRecords.recordCredentialAttendance(input, context),
-      onSuccess: invalidateAttendance
+      onSuccess: invalidateAttendance,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     manualAttendanceMutation: useMutation({
       mutationFn: (input: ManualAttendanceInput) => repositories.attendanceRecords.recordManualAttendance(input, context),
-      onSuccess: invalidateAttendance
+      onSuccess: invalidateAttendance,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     submitLateReasonMutation: useMutation({
       mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
-      onSuccess: invalidateAttendance
+      onSuccess: invalidateAttendance,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     })
   };
 }
@@ -317,6 +353,10 @@ export function useSubmitLateReasonMutation(context?: RepositoryContext) {
       await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
       await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      toast.success("Late reason submitted successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 }
@@ -365,6 +405,10 @@ export function useCorrectionRequests(query?: Partial<ListQuery>, context?: Repo
       repositories.correctionRequests.createCorrectionRequest(input, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["correctionRequests"] });
+      toast.success("Correction request submitted successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
   const reviewMutation = useMutation({
@@ -373,6 +417,10 @@ export function useCorrectionRequests(query?: Partial<ListQuery>, context?: Repo
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["correctionRequests"] });
       await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      toast.success("Correction request reviewed successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 
@@ -391,6 +439,10 @@ export function useCredentialRequests(query?: Partial<ListQuery>, context?: Repo
       repositories.credentialRequests.createCredentialRequest(input, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["credentialRequests"] });
+      toast.success("Credential request submitted successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 
@@ -415,11 +467,17 @@ export function useStudentCredentialMutations(context?: RepositoryContext) {
   return {
     issueQrCredentialMutation: useMutation({
       mutationFn: (input: IssueQrCredentialInput) => repositories.studentCredentials.issueQrCredential(input, context),
-      onSuccess: invalidateCredentials
+      onSuccess: invalidateCredentials,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     }),
     enrollFacialProfileMutation: useMutation({
       mutationFn: (input: EnrollFacialProfileInput) => repositories.studentCredentials.enrollFacialProfile(input, context),
-      onSuccess: invalidateCredentials
+      onSuccess: invalidateCredentials,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     })
   };
 }
@@ -446,6 +504,10 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
       await queryClient.invalidateQueries({ queryKey: ["studentEventFeedback"] });
       await queryClient.invalidateQueries({ queryKey: ["eventObjectives", input.eventId] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+      toast.success("Feedback submitted successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 
@@ -489,6 +551,7 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
       if (mutationContext?.previous) {
         queryClient.setQueryData(queryKey, mutationContext.previous);
       }
+      toast.error("Failed to mark notification as read");
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -513,6 +576,7 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
       if (mutationContext?.previous) {
         queryClient.setQueryData(queryKey, mutationContext.previous);
       }
+      toast.error("Failed to mark all notifications as read");
     },
     onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -567,6 +631,10 @@ export function useSystemSettings(context?: RepositoryContext) {
     mutationFn: (input: UpdateSystemSettingsInput) => repositories.systemSettings.updateSettings(input, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["systemSettings"] });
+      toast.success("System settings updated successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
     }
   });
 
