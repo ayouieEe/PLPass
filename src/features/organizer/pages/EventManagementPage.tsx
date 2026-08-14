@@ -5,13 +5,17 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { eventSessionSchema } from "@/lib/validations/events";
 import type { PriorityLevel } from "@/types/enums";
 import {
   createUiExport,
@@ -72,12 +76,6 @@ type CompletedRecord = EventRecord & {
 };
 
 const lateReasons: LateReason[] = ["Traffic / Commute", "Class or Academic Conflict", "Personal / Health", "Weather / Force Majeure", "Other"];
-
-const allEvents: EventRecord[] = [];
-
-const sessionSummaries: CompletedRecord[] = [];
-
-const attendanceDetails: AttendanceRow[] = [];
 
 // Higher rank = more urgent. Used to sort events and to decide which side
 // of a conflict "wins" the recommended slot.
@@ -201,15 +199,6 @@ function isTodayEvent(event: EventRecord) {
   const today = new Date();
   const eventDate = new Date(`${event.date}T00:00:00`);
   return [today.getFullYear(), today.getMonth(), today.getDate()].join("-") === [eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate()].join("-");
-}
-
-function buildLiveRows(method: AttendanceMethod, eventCode: string): AttendanceRow[] {
-  return attendanceDetails.slice(0, 10).map((row, index) => ({
-    ...row,
-    id: `LIVE-${index + 1}`,
-    eventCode,
-    attendanceMethod: index % 2 === 0 ? method : method === "QR Code" ? "Facial Recognition" : "QR Code"
-  }));
 }
 
 function countRows(rows: AttendanceRow[]) {
@@ -339,6 +328,8 @@ const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionM
 const { completeEventMutation } = useEventMutations(context);
 const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
 const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
+const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
 
 const attendanceRecordsQuery = useAttendanceRecords(
   { sessionId: liveSessionId ?? undefined, pageSize: 100 } as never,
@@ -391,31 +382,79 @@ const studentNameById = useMemo(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
-  const repositoryEvents = useMemo<EventRecord[]>(() => {
-  return (eventsQuery.data?.items ?? [])
-    .filter((event) => event.status !== "completed" && event.status !== "cancelled")
-    .map((event) => {
-      const rec: EventRecord = {
-        id: event.id,
-        code: event.code,
-        name: event.title,
-        category: event.category,
-        venue: event.venue,
-        date: event.startsAt.slice(0, 10),
-        startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
-        endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
-        predictedTurnout: "85%",
-        objectives: ["Objective 1"],
-        priorityLevel: event.priorityLevel,
-        impactScore: event.impactScore
-      };
-      return rec;
-    });
-}, [eventsQuery.data?.items]);
+  // Fetch objectives for all events from Supabase
+  useEffect(() => {
+    const eventIds = (eventsQuery.data?.items ?? []).map((e) => e.id);
+    if (eventIds.length === 0) return;
 
+    const fetchAllObjectives = async () => {
+      const map = new Map<string, string[]>();
+      const client = getSupabaseBrowserClient();
+      
+      try {
+        // Fetch all objectives for these events in a single query
+        const { data, error } = await client
+          .from("event_objectives")
+          .select("event_id, objective_text, objective_order")
+          .in("event_id", eventIds)
+          .order("objective_order", { ascending: true });
+        
+        if (error) {
+          console.error("Error fetching objectives:", error);
+          return;
+        }
+        
+        // Group objectives by event_id
+        if (data && Array.isArray(data)) {
+          data.forEach((obj: any) => {
+            const eventId = obj.event_id;
+            const text = obj.objective_text ?? "";
+            
+            if (eventId && text) {
+              if (!map.has(eventId)) {
+                map.set(eventId, []);
+              }
+              const objectives = map.get(eventId)!;
+              objectives.push(text);
+            }
+          });
+        }
+        
+        setObjectivesByEventId(map);
+      } catch (error) {
+        console.error("Failed to fetch event objectives:", error);
+      }
+    };
+
+    void fetchAllObjectives();
+  }, [eventsQuery.data?.items]);
+
+  const repositoryEvents = useMemo<EventRecord[]>(() => {
+    return (eventsQuery.data?.items ?? [])
+      .filter((event) => event.status !== "completed" && event.status !== "cancelled")
+      .map((event) => {
+        const rec: EventRecord = {
+          id: event.id,
+          code: event.code,
+          name: event.title,
+          category: event.category,
+          venue: event.venue,
+          date: event.startsAt.slice(0, 10),
+          startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
+          endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
+          predictedTurnout: "85%",
+          objectives: objectivesByEventId.get(event.id) ?? [],
+          priorityLevel: event.priorityLevel,
+          impactScore: event.impactScore
+        };
+        return rec;
+      });
+  }, [eventsQuery.data?.items, objectivesByEventId]);
+
+  // Use only Supabase data (repositoryEvents), not UI store events
   const storeEvents = useMemo(
-    () => [...repositoryEvents, ...uiState.events.map(eventFromStore)],
-    [repositoryEvents, uiState.events]
+    () => repositoryEvents,
+    [repositoryEvents]
   );
   const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
 
@@ -514,6 +553,22 @@ const studentNameById = useMemo(() => {
     toast.error("Only events synced from Supabase can start a live session.");
     return;
   }
+
+  // Validate the session form using Zod schema
+  const validation = eventSessionSchema.safeParse({
+    venue: sessionForm.venue,
+    date: sessionForm.date,
+    startTime: sessionForm.startTime,
+    expectedEndTime: sessionForm.endTime,
+    attendanceMode: "face-to-face"
+  });
+
+  if (!validation.success) {
+    const errors = validation.error.errors.map((err) => err.message).join(", ");
+    toast.error(`Form validation failed: ${errors}`);
+    return;
+  }
+
   try {
     const session = await createEventSessionMutation.mutateAsync({
       eventId: startEvent.id,
@@ -529,7 +584,8 @@ const studentNameById = useMemo(() => {
     setSelectedEventForSession(null);
     toast.success(`${startEvent.code} live session started.`);
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "Failed to start session.");
+    const message = error instanceof Error ? error.message : "Failed to start session.";
+    toast.error(message);
   }
 }
  const endSession = useCallback(async () => {
@@ -663,6 +719,31 @@ const studentNameById = useMemo(() => {
     { accessorKey: "date", header: "Date" },
     { accessorKey: "startTime", header: "Start Time" },
     {
+      id: "objectives",
+      header: "Objectives",
+      cell: ({ row }) => {
+        const objectives = row.original.objectives ?? [];
+        if (objectives.length === 0) {
+          return <span className="text-xs text-muted-foreground">—</span>;
+        }
+        return (
+          <div
+            className="cursor-pointer hover:opacity-75 transition-opacity"
+            onClick={() => objectives.length > 1 && setSelectedObjectivesEvent(row.original)}
+          >
+            <p className="text-sm text-foreground truncate">
+              {objectives[0]}
+            </p>
+            {objectives.length > 1 && (
+              <p className="text-xs font-semibold text-primary">
+                +{objectives.length - 1} more
+              </p>
+            )}
+          </div>
+        );
+      }
+    },
+    {
       id: "priority",
       header: "Priority",
       cell: ({ row }) => <StatusBadge label={row.original.priorityLevel} tone={priorityTone(row.original.priorityLevel)} />
@@ -755,6 +836,27 @@ const studentNameById = useMemo(() => {
           {count}
         </span>
       </Button>
+    );
+  }
+
+  if (eventsQuery.isLoading && !repositoryEvents.length) {
+    return (
+      <div className="space-y-4 lg:space-y-5">
+        <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
+        <LoadingState label="Loading events..." />
+      </div>
+    );
+  }
+
+  if (eventsQuery.isError) {
+    return (
+      <div className="space-y-4 lg:space-y-5">
+        <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
+        <ErrorState
+          title="Failed to load events"
+          message="There was an error fetching events from Supabase. Please try again."
+        />
+      </div>
     );
   }
 
@@ -936,9 +1038,14 @@ const studentNameById = useMemo(() => {
                         <Button
                           type="button"
                           className="h-11 rounded-lg px-6"
+                          disabled={manualAttendanceMutation.isPending}
                           onClick={async () => {
                             if (!manualInput || !liveSessionId) {
                               toast.warning("Select a student first.");
+                              return;
+                            }
+                            if (manualStatus === "late" && !manualLateReason) {
+                              toast.warning("Please select a late arrival reason.");
                               return;
                             }
                             try {
@@ -955,11 +1062,12 @@ const studentNameById = useMemo(() => {
                               setManualStatus("present");
                               setManualLateReason("");
                             } catch (error) {
-                              toast.error(error instanceof Error ? error.message : "Failed to record attendance.");
+                              const message = error instanceof Error ? error.message : "Failed to record attendance.";
+                              toast.error(message);
                             }
                           }}
                         >
-                          Record attendance
+                          {manualAttendanceMutation.isPending ? "Recording..." : "Record attendance"}
                         </Button>
                       </div>
                     </div>
@@ -1154,8 +1262,8 @@ const studentNameById = useMemo(() => {
             Attendance will use QR Code and Facial Recognition automatically during the live session.
           </div>
           <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setStartEvent(null)}>Cancel</Button>
-            <Button type="button" onClick={startSession}><Play className="h-4 w-4" aria-hidden="true" />Start Session</Button>
+            <Button type="button" variant="outline" onClick={() => setStartEvent(null)} disabled={createEventSessionMutation.isPending}>Cancel</Button>
+            <Button type="button" onClick={startSession} disabled={createEventSessionMutation.isPending}><Play className="h-4 w-4" aria-hidden="true" />{createEventSessionMutation.isPending ? "Starting..." : "Start Session"}</Button>
           </div>
         </ModalFrame>
       ) : null}
@@ -1189,6 +1297,38 @@ const studentNameById = useMemo(() => {
           onClose={() => setCompletedModal(null)}
           onExportReport={exportReport}
         />
+      ) : null}
+
+      {selectedObjectivesEvent ? (
+        <ModalFrame onClose={() => setSelectedObjectivesEvent(null)} width="max-w-md">
+          <div className="border-b pb-4 mb-5">
+            <h2 className="text-xl font-bold text-foreground">Event Objectives</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{selectedObjectivesEvent.code}</span> · {selectedObjectivesEvent.name}
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {selectedObjectivesEvent.objectives && selectedObjectivesEvent.objectives.length > 0 ? (
+              selectedObjectivesEvent.objectives.map((objective, idx) => (
+                <div key={idx} className="flex gap-4">
+                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <p className="text-sm font-medium leading-relaxed text-foreground">
+                      {objective}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-center">
+                <p className="text-sm text-muted-foreground">No objectives defined for this event.</p>
+              </div>
+            )}
+          </div>
+        </ModalFrame>
       ) : null}
 
     </div>

@@ -6,6 +6,8 @@ import { Eye, FileDown, FileSpreadsheet, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -416,25 +418,39 @@ export function EventRecordsPage() {
             
           </div>
 
-          {pastEvents.length > 0 ? (
-            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
-              <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
-              <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
-              <SummaryTile
-                label="Avg Attendance"
-                value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
-              />
-            </div>
-          ) : null}
+          {eventsQuery.isPending ? (
+            <LoadingState />
+          ) : eventsQuery.isError ? (
+            <ErrorState title="Failed to load events" message={eventsQuery.error?.message ?? "An error occurred while loading events. Please try again."} />
+          ) : pastEvents.length > 0 ? (
+            <>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
+                <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
+                <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
+                <SummaryTile
+                  label="Avg Attendance"
+                  value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
+                />
+              </div>
 
-          <PLPassDataGrid
-            label="Completed events"
-            data={pastEvents}
-            columns={pastColumns}
-            emptyTitle="No completed events"
-            emptyDescription="Completed events will appear here."
-          />
+              <PLPassDataGrid
+                label="Completed events"
+                data={pastEvents}
+                columns={pastColumns}
+                emptyTitle="No completed events"
+                emptyDescription="Completed events will appear here."
+              />
+            </>
+          ) : (
+            <PLPassDataGrid
+              label="Completed events"
+              data={pastEvents}
+              columns={pastColumns}
+              emptyTitle="No completed events"
+              emptyDescription="Completed events will appear here."
+            />
+          )}
         </section>
       </section>
 
