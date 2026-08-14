@@ -14,8 +14,10 @@ import type {
   IssueQrCredentialInput,
   ManualAttendanceInput,
   ReviewCorrectionRequestInput,
+  ReviewCredentialRequestInput,
   SubmitEventFeedbackInput,
   SubmitLateReasonInput,
+  SetStudentCredentialStatusInput,
   UpdateSystemSettingsInput
 } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -446,7 +448,25 @@ export function useCredentialRequests(query?: Partial<ListQuery>, context?: Repo
     }
   });
 
-  return { ...listQueryResult, createMutation };
+  const reviewMutation = useMutation({
+    mutationFn: (input: ReviewCredentialRequestInput) =>
+      repositories.credentialRequests.reviewCredentialRequest(input, context),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["credentialRequests"] }),
+        queryClient.invalidateQueries({ queryKey: ["studentCredentialStatus"] }),
+        queryClient.invalidateQueries({ queryKey: ["students"] }),
+        queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+        queryClient.invalidateQueries({ queryKey: ["auditLogs"] })
+      ]);
+      toast.success("Credential request reviewed successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
+    }
+  });
+
+  return { ...listQueryResult, createMutation, reviewMutation };
 }
 
 export function useStudentCredentialStatus(studentId: string | undefined, context?: RepositoryContext) {
@@ -474,6 +494,14 @@ export function useStudentCredentialMutations(context?: RepositoryContext) {
     }),
     enrollFacialProfileMutation: useMutation({
       mutationFn: (input: EnrollFacialProfileInput) => repositories.studentCredentials.enrollFacialProfile(input, context),
+      onSuccess: invalidateCredentials,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
+    }),
+    setCredentialStatusMutation: useMutation({
+      mutationFn: (input: SetStudentCredentialStatusInput) =>
+        repositories.studentCredentials.setCredentialStatus(input, context),
       onSuccess: invalidateCredentials,
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));

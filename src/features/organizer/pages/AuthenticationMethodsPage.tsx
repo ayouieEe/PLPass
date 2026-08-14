@@ -8,7 +8,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCredentialRequests, useOrganizerProfiles, useStudents } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudents } from "@/hooks/useRepositoryQueries";
 import {
   exportQrCredentialsXlsx,
   exportQrCredentialsPdf,
@@ -378,6 +378,7 @@ export function AuthenticationMethodsPage() {
   const scope = useOrganizerScope();
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
+  const credentialMutations = useStudentCredentialMutations(scope.context);
 
   const rawStudents = studentsQuery.data?.items ?? [];
   const rawRequests = credentialRequestsQuery.data?.items ?? [];
@@ -414,7 +415,7 @@ export function AuthenticationMethodsPage() {
       const todayStr = new Date().toISOString().slice(0, 10);
       setQrRows(
         rawStudents.map((student) => ({
-          studentId: student.studentNumber || student.id,
+          studentId: student.id,
           studentName: student.formattedName || student.fullName || student.studentNumber,
           status: student.status === "enrolled" ? "Active" : "Disabled",
           dateGenerated: student.createdAt ? student.createdAt.slice(0, 10) : todayStr,
@@ -424,7 +425,7 @@ export function AuthenticationMethodsPage() {
 
       setFacialRows(
         rawStudents.map((student) => ({
-          studentId: student.studentNumber || student.id,
+          studentId: student.id,
           studentName: student.formattedName || student.fullName || student.studentNumber,
           enrollmentDate: student.createdAt ? student.createdAt.slice(0, 10) : todayStr,
           status: student.status === "enrolled" ? "Activated" : "Inactive",
@@ -560,18 +561,25 @@ export function AuthenticationMethodsPage() {
     });
   }
 
-  function confirmModalAction() {
+  async function confirmModalAction() {
     if (!activeModal) return;
 
     if (activeModal.type === "qr" && activeModal.studentName) {
+      const student = qrRows.find((row) => row.studentName === activeModal.studentName);
+      if (!student) {
+        toast.error("Student credential could not be found.");
+        setActiveModal(null);
+        return;
+      }
       if (activeModal.title.includes("Regenerate")) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        setQrRows((current) =>
-          current.map((row) => (row.studentName === activeModal.studentName ? { ...row, status: "Active", dateGenerated: todayStr, lastUsed: "-" } : row))
-        );
+        await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
         toast.success(`QR credential regenerated for ${activeModal.studentName}.`);
       } else if (activeModal.title.includes("Disable")) {
-        setQrRows((current) => current.map((row) => (row.studentName === activeModal.studentName ? { ...row, status: "Disabled", lastUsed: "-" } : row)));
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "qr",
+          status: "inactive"
+        });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
       } else {
         toast.success(`QR credential for ${activeModal.studentName} opened.`);
@@ -579,12 +587,20 @@ export function AuthenticationMethodsPage() {
     }
 
     if (activeModal.type === "facial" && activeModal.studentName) {
+      const student = facialRows.find((row) => row.studentName === activeModal.studentName);
+      if (!student) {
+        toast.error("Student facial credential could not be found.");
+        setActiveModal(null);
+        return;
+      }
       if (activeModal.title.includes("Re-enroll")) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        setFacialRows((current) => current.map((row) => (row.studentName === activeModal.studentName ? { ...row, status: "Activated", enrollmentDate: todayStr, lastScan: "-" } : row)));
-        toast.success(`Facial enrollment re-initiated for ${activeModal.studentName}.`);
+        toast.info(`${activeModal.studentName} must submit a re-enrollment request before a face can be replaced.`);
       } else if (activeModal.title.includes("Deactivate")) {
-        setFacialRows((current) => current.map((row) => (row.studentName === activeModal.studentName ? { ...row, status: "Inactive", lastScan: "-" } : row)));
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "facial",
+          status: "inactive"
+        });
         toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
       } else {
         toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
@@ -592,9 +608,11 @@ export function AuthenticationMethodsPage() {
     }
 
     if (activeModal.type === "request" && activeModal.requestId) {
-      setRegenerationRequestsState((current) => current.map((request) => (request.id === activeModal.requestId ? { ...request, status: "Approved" } : request)));
-      setFacialRequestsState((current) => current.map((request) => (request.id === activeModal.requestId ? { ...request, status: "Approved" } : request)));
-      toast.success(`Request ${activeModal.requestId} approved.`);
+      await credentialRequestsQuery.reviewMutation.mutateAsync({
+        requestId: activeModal.requestId,
+        status: "approved",
+        remarks: "Approved by organizer"
+      });
     }
 
     setActiveModal(null);
@@ -818,7 +836,7 @@ export function AuthenticationMethodsPage() {
                         <td className="px-3 py-2">{request.reason}</td>
                         <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
                         <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveRequest(request.id)} disabled={request.status === "Approved"}>Approve</Button>
+                          <Button type="button" size="sm" onClick={() => handleApproveRequest(request.rawId)} disabled={request.status === "Approved" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
                         </td>
                       </tr>
                     ))
@@ -931,7 +949,7 @@ export function AuthenticationMethodsPage() {
                         <td className="px-3 py-2">{request.dateRequested}</td>
                         <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
                         <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(request.id)} disabled={request.status === "Approved"}>Approve</Button>
+                          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(request.rawId)} disabled={request.status === "Approved" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
                         </td>
                       </tr>
                     ))
