@@ -125,7 +125,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       credential_requests: [["credentialRequests"], ["studentCredentialStatus"]],
       qr_credentials: [["studentCredentialStatus"], ["students"]],
       facial_profiles: [["studentCredentialStatus"], ["students"]],
-      notifications: [["notifications"]]
+      notifications: [["notifications"]],
+      audit_logs: [["auditLogs"]]
     };
 
     const channel = supabase.channel(`plpass-sync-${session.userId}`);

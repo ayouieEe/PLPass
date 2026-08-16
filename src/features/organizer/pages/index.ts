@@ -10,3 +10,4 @@ export { AuthenticationMethodsPage } from "./AuthenticationMethodsPage";
 export { OrganizerAnalyticsPage } from "./OrganizerAnalyticsPage";
 export { OrganizerProfilePage } from "./OrganizerProfilePage";
 export { OrganizerCorrectionRequestsPage } from "./OrganizerCorrectionRequestsPage";
+export { OrganizerAuditLogsPage } from "./OrganizerAuditLogsPage";

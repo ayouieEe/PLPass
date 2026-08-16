@@ -34,7 +34,8 @@ import {
   useCorrectionRequests,
   useOrganizerProfiles,
   useStudentCredentialMutations,
-  useStudents
+  useStudents,
+  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import {
   approveOrganizerCorrectionRequest,
@@ -496,7 +497,8 @@ function ReportExportModal({
   sections,
   activeProgramFilter,
   activeSectionFilter,
-  activeStatusFilter
+  activeStatusFilter,
+  onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -506,6 +508,7 @@ function ReportExportModal({
   activeProgramFilter: string;
   activeSectionFilter: string;
   activeStatusFilter: string;
+  onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"students" | "participation">("students");
   const [exportProgram, setExportProgram] = useState(activeProgramFilter);
@@ -585,6 +588,22 @@ function ReportExportModal({
         toast.success(`Exported participation summary for ${data.length} student(s) as PDF.`);
       }
     }
+
+    onExportAction(
+      reportType === "students" ? "Exported Student Directory" : "Exported Participation Summary",
+      "export_action",
+      {
+        reportType,
+        format: exportFormat,
+        recordCount: filteredStudents.length,
+        filters: {
+          program: exportProgram,
+          section: exportSection,
+          status: exportStatus,
+          attendance: exportAttendance
+        }
+      }
+    );
 
     onClose();
   }
@@ -838,6 +857,7 @@ export function OrganizerUserManagementPage() {
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
 
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [query, setQuery] = useState("");
@@ -928,6 +948,13 @@ export function OrganizerUserManagementPage() {
       await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId });
       setUiState((current) => regenerateOrganizerQr(current, studentId));
       toast.success("QR credential issued in Supabase.");
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Regenerated QR Credential",
+        targetType: "student_credential",
+        targetId: studentId,
+        metadata: { studentId }
+      });
     } catch {
       setUiState((current) => regenerateOrganizerQr(current, studentId));
       toast.warning("QR credential updated locally only. Supabase did not accept this student record.");
@@ -939,6 +966,13 @@ export function OrganizerUserManagementPage() {
       await credentialMutations.enrollFacialProfileMutation.mutateAsync({ studentId });
       setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
       toast.success("Facial backup enrolled in Supabase.");
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Marked Facial Profile Ready",
+        targetType: "student_credential",
+        targetId: studentId,
+        metadata: { studentId }
+      });
     } catch {
       setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
       toast.warning("Facial backup updated locally only. Supabase did not accept this student record.");
@@ -948,6 +982,13 @@ export function OrganizerUserManagementPage() {
   function approveCorrection(requestId: string) {
     setUiState((current) => approveOrganizerCorrectionRequest(current, requestId, "Approved from organizer user management."));
     toast.success(`${requestId} approved locally.`);
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Approved Correction Request",
+      targetType: "correction_request",
+      targetId: requestId,
+      metadata: { requestId }
+    });
   }
 
   function rejectCorrection(requestId: string) {
@@ -1197,6 +1238,13 @@ export function OrganizerUserManagementPage() {
         activeProgramFilter={programFilter}
         activeSectionFilter={sectionFilter}
         activeStatusFilter={statusFilter}
+        onExportAction={(action, targetType, metadata) => {
+          void auditLogMutations.logActionMutation.mutateAsync({
+            action,
+            targetType,
+            metadata
+          });
+        }}
       />
     </div>
   );

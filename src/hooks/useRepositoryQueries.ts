@@ -640,6 +640,24 @@ export function useAuditLogs(query?: Partial<ListQuery>, context?: RepositoryCon
   });
 }
 
+export function useAuditLogMutations(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+
+  return {
+    logActionMutation: useMutation({
+      mutationFn: (input: { action: string; targetType: string; targetId?: string; metadata?: Record<string, unknown> }) =>
+        repositories.auditLogs.logClientAction(input, context),
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      },
+      onError: (error: unknown) => {
+        console.error("Failed to log client action:", error);
+        toast.error("Failed to log client action: " + getErrorMessage(error));
+      }
+    })
+  };
+}
+
 export function useMlPredictions(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({

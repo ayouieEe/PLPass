@@ -51,10 +51,10 @@ import {
   useEventParticipants,
   useEvents,
   useMlPredictions,
-  useNfcTapAttempts,
   useOrganizerProfiles,
   useReports,
-  useStudents
+  useStudents,
+  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
@@ -387,9 +387,9 @@ export function CreateEventPage() {
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [participantError, setParticipantError] = useState("");
-  const studentsQuery = useStudents({ pageSize: 500, search, programId: programId || undefined, yearLevel: yearLevel ? Number(yearLevel) : undefined, section: section || undefined }, scope.context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     defaultValues: {
@@ -464,6 +464,14 @@ export function CreateEventPage() {
         priorityLevel: values.priorityLevel,
         participantStudentIds: selectedIds
       });
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Published Event",
+        targetType: "event",
+        targetId: event.id,
+        metadata: { eventCode: event.code, participantCount: selectedIds.length }
+      });
+      
       navigate(APP_ROUTES.organizerEvent(event.id));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create event. Please try again.";
