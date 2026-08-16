@@ -8,7 +8,7 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudents } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import {
   exportQrCredentialsXlsx,
   exportQrCredentialsPdf,
@@ -108,6 +108,7 @@ function ReportExportModal({
   qrRows: QrRow[];
   facialRows: FacialRow[];
   activeTab: ActiveTab;
+  onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -160,6 +161,19 @@ function ReportExportModal({
         toast.success(`Exported ${data.length} facial enrollment record(s) as PDF.`);
       }
     }
+
+    onExportAction(
+      reportType === "qr" ? "Exported QR Credentials" : "Exported Facial Profiles",
+      "export_action",
+      {
+        reportType,
+        format: exportFormat,
+        recordCount: count,
+        filters: {
+          status: statusFilter
+        }
+      }
+    );
 
     onClose();
   }
@@ -379,6 +393,7 @@ export function AuthenticationMethodsPage() {
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
 
   const rawStudents = studentsQuery.data?.items ?? [];
   const rawRequests = credentialRequestsQuery.data?.items ?? [];
@@ -574,6 +589,13 @@ export function AuthenticationMethodsPage() {
       if (activeModal.title.includes("Regenerate")) {
         await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
         toast.success(`QR credential regenerated for ${activeModal.studentName}.`);
+        
+        void auditLogMutations.logActionMutation.mutateAsync({
+          action: "Regenerated QR Credential",
+          targetType: "student_credential",
+          targetId: student.studentId,
+          metadata: { studentId: student.studentId }
+        });
       } else if (activeModal.title.includes("Disable")) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
@@ -581,6 +603,13 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
+        
+        void auditLogMutations.logActionMutation.mutateAsync({
+          action: "Disabled QR Credential",
+          targetType: "student_credential",
+          targetId: student.studentId,
+          metadata: { studentId: student.studentId }
+        });
       } else {
         toast.success(`QR credential for ${activeModal.studentName} opened.`);
       }
@@ -602,6 +631,13 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
+        
+        void auditLogMutations.logActionMutation.mutateAsync({
+          action: "Deactivated Facial Enrollment",
+          targetType: "student_credential",
+          targetId: student.studentId,
+          metadata: { studentId: student.studentId }
+        });
       } else {
         toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
       }
@@ -612,6 +648,13 @@ export function AuthenticationMethodsPage() {
         requestId: activeModal.requestId,
         status: "approved",
         remarks: "Approved by organizer"
+      });
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Approved Credential Request",
+        targetType: "credential_request",
+        targetId: activeModal.requestId,
+        metadata: { requestId: activeModal.requestId }
       });
     }
 
@@ -967,6 +1010,13 @@ export function AuthenticationMethodsPage() {
         qrRows={qrRows}
         facialRows={facialRows}
         activeTab={activeTab}
+        onExportAction={(action, targetType, metadata) => {
+          void auditLogMutations.logActionMutation.mutateAsync({
+            action,
+            targetType,
+            metadata
+          });
+        }}
       />
     </div>
   );

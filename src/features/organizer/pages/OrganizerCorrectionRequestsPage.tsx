@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCorrectionRequests, useOrganizerProfiles, useStudents } from "@/hooks/useRepositoryQueries";
+import { useCorrectionRequests, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
   approveOrganizerCorrectionRequest,
@@ -101,12 +101,14 @@ function ReportExportModal({
   isOpen,
   onClose,
   requests,
-  activeStatusFilter
+  activeStatusFilter,
+  onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
   requests: CorrectionRequest[];
   activeStatusFilter: string;
+  onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"directory" | "summary">("directory");
   const [exportStatus, setExportStatus] = useState(activeStatusFilter);
@@ -152,6 +154,20 @@ function ReportExportModal({
       exportCorrectionRequestsPdf(data);
       toast.success(`Exported ${data.length} correction request(s) as PDF.`);
     }
+
+    onExportAction(
+      "Exported Correction Requests",
+      "export_action",
+      {
+        reportType,
+        format: exportFormat,
+        recordCount: filtered.length,
+        filters: {
+          status: exportStatus,
+          requestType: exportTypeFilter
+        }
+      }
+    );
 
     onClose();
   }
@@ -418,6 +434,7 @@ export function OrganizerCorrectionRequestsPage() {
   const scope = useOrganizerScope();
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
@@ -517,6 +534,13 @@ export function OrganizerCorrectionRequestsPage() {
         status: "approved",
         reason: remark
       });
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Approved Correction Request",
+        targetType: "correction_request",
+        targetId: selectedRequest.id,
+        metadata: { requestId: selectedRequest.id, remark }
+      });
     } catch {
       // ignore local ui sync
     }
@@ -542,6 +566,13 @@ export function OrganizerCorrectionRequestsPage() {
         requestId: selectedRequest.id,
         status: "rejected",
         reason: remark
+      });
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Rejected Correction Request",
+        targetType: "correction_request",
+        targetId: selectedRequest.id,
+        metadata: { requestId: selectedRequest.id, remark }
       });
     } catch {
       // ignore local ui sync
@@ -664,6 +695,13 @@ export function OrganizerCorrectionRequestsPage() {
         onClose={() => setIsExportModalOpen(false)}
         requests={requests}
         activeStatusFilter={statusFilter}
+        onExportAction={(action, targetType, metadata) => {
+          void auditLogMutations.logActionMutation.mutateAsync({
+            action,
+            targetType,
+            metadata
+          });
+        }}
       />
 
       {selectedRequest ? (

@@ -22,7 +22,8 @@ import {
   OrganizerDashboardPage,
   OrganizerProfilePage,
   OrganizerUserManagementPage,
-  OrganizerRootPage
+  OrganizerRootPage,
+  OrganizerAuditLogsPage
 } from "@/features/organizer/pages";
 import {
   CorrectionRequestsPage as StudentCorrectionRequestsPage,
@@ -66,6 +67,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
               <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
+              <Route path={APP_ROUTES.organizerAuditLogs} element={<OrganizerAuditLogsPage />} />
               <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>

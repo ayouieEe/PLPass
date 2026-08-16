@@ -455,6 +455,6 @@ export function mapAuditLog(row: Row): AuditLog {
     targetType: stringValue(row, ["target_type", "session_type"]),
     targetId: stringValue(row, ["target_id", "session_id"]),
     timestamp: stringValue(row, ["created_at", "timestamp"], new Date().toISOString()),
-    metadata: {}
+    metadata: (row["metadata"] as Record<string, string | number | boolean>) || {}
   };
 }

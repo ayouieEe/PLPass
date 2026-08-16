@@ -13,7 +13,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import type { PriorityLevel } from "@/types/enums";
@@ -327,6 +327,7 @@ export function EventManagementPage() {
 const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
 const { completeEventMutation } = useEventMutations(context);
 const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
+const auditLogMutations = useAuditLogMutations(context);
 const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
 const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
 const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
@@ -546,6 +547,13 @@ const studentNameById = useMemo(() => {
       })
     );
     toast.warning(`${event.code} has been cancelled.`);
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Cancelled Event",
+      targetType: "event",
+      targetId: event.id,
+      metadata: { eventCode: event.code }
+    });
   }
 
  async function startSession() {
@@ -583,6 +591,13 @@ const studentNameById = useMemo(() => {
     setStartEvent(null);
     setSelectedEventForSession(null);
     toast.success(`${startEvent.code} live session started.`);
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Started Live Session",
+      targetType: "attendance_session",
+      targetId: session.id,
+      metadata: { eventCode: startEvent.code, sessionId: session.id }
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start session.";
     toast.error(message);
@@ -594,6 +609,13 @@ const studentNameById = useMemo(() => {
     await endSessionMutation.mutateAsync({ sessionId: liveSessionId, reason: "Organizer ended session" });
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     setSummaryOpen(true);
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Ended Live Session",
+      targetType: "attendance_session",
+      targetId: liveSessionId,
+      metadata: { eventCode: activeEvent.code, sessionId: liveSessionId }
+    });
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Failed to end session.");
   }
@@ -644,6 +666,12 @@ const studentNameById = useMemo(() => {
 
   function exportReport(label: string) {
     toast.success(createUiExport(label));
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Event Action",
+      targetType: "export_action",
+      metadata: { label }
+    });
   }
 
   const startSessionToolbar = (
@@ -1243,7 +1271,18 @@ const studentNameById = useMemo(() => {
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setEditEvent(null)}>Cancel</Button>
-            <Button type="button" onClick={() => { toast.success(`${editEvent.code} changes saved.`); setEditEvent(null); }}>Save Changes</Button>
+            <Button type="button" onClick={() => { 
+              toast.success(`${editEvent.code} changes saved.`); 
+              
+              void auditLogMutations.logActionMutation.mutateAsync({
+                action: "Edited Event",
+                targetType: "event",
+                targetId: editEvent.id,
+                metadata: { eventCode: editEvent.code }
+              });
+              
+              setEditEvent(null); 
+            }}>Save Changes</Button>
           </div>
         </ModalFrame>
       ) : null}

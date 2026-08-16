@@ -53,10 +53,10 @@ import {
   useEventParticipants,
   useEvents,
   useMlPredictions,
-  useNfcTapAttempts,
   useOrganizerProfiles,
   useReports,
-  useStudents
+  useStudents,
+  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
@@ -306,6 +306,7 @@ export function EventAttendancePage() {
   const tapsQuery = useNfcTapAttempts({ pageSize: 500 }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   const attendanceMutations = useAttendanceSubmissionMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
   const [qrEnabled, setQrEnabled] = useState(false);
   const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
   const [manualStudentId, setManualStudentId] = useState("");
@@ -428,6 +429,13 @@ export function EventAttendancePage() {
       setManualStatus("present");
       setManualLateReason("");
       toast(result.resultStatus, { description: result.safeMessage });
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Submitted Manual Attendance",
+        targetType: "attendance_record",
+        targetId: manualStudentId,
+        metadata: { studentId: manualStudentId, sessionId: session.id, status: manualStatus }
+      });
     } catch {
       toast.error("Manual attendance was not saved", { description: "Select a participant, reason, and remarks." });
     }
@@ -435,6 +443,14 @@ export function EventAttendancePage() {
   async function confirmEnd() {
     await mutations.endSessionMutation.mutateAsync({ sessionId: session.id, reason: endReason });
     setEndOpen(false);
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Ended Live Session",
+      targetType: "attendance_session",
+      targetId: session.id,
+      metadata: { sessionId: session.id, reason: endReason }
+    });
+    
     navigate(APP_ROUTES.organizerRecords);
   }
   return (

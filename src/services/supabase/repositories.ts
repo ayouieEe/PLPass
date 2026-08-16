@@ -1265,6 +1265,22 @@ export const supabaseAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query) {
     const rows = await selectRows("audit_logs", query);
     return pageResult(rows.items.map(mapAuditLog), rows.total, query);
+  },
+  async logClientAction(input) {
+    console.log("[logClientAction] Called with input:", input);
+    const client = getSupabaseBrowserClient();
+    const { error } = await client.rpc("log_client_action", {
+      p_action: input.action,
+      p_target_type: input.targetType,
+      p_target_id: input.targetId ?? null,
+      p_metadata: input.metadata ?? {}
+    });
+    if (error) {
+      console.error("[logClientAction] Supabase error:", error);
+    } else {
+      console.log("[logClientAction] Success!");
+    }
+    throwIfSupabaseError(error);
   }
 };
 

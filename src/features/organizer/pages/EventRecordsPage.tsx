@@ -11,7 +11,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { formatDisplayTime } from "@/lib/utils/date";
 import type { PriorityLevel } from "@/types/enums";
@@ -238,6 +238,7 @@ export function EventRecordsPage() {
   const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
+  const auditLogMutations = useAuditLogMutations(context);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -309,6 +310,12 @@ export function EventRecordsPage() {
 
   function exportReport(label: string) {
     toast.success(createUiExport(label));
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Event Record",
+      targetType: "export_action",
+      metadata: { label }
+    });
   }
 
   const pastColumns: ColumnDef<CompletedRecord>[] = [

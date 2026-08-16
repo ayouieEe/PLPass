@@ -288,8 +288,16 @@ export interface NotificationRepository {
   markAllNotificationsRead(context?: RepositoryContext): Promise<Notification[]>;
 }
 
+export type CreateAuditLogInput = {
+  action: string;
+  targetType: string;
+  targetId?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export interface AuditLogRepository {
   listAuditLogs(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AuditLog>>;
+  logClientAction(input: CreateAuditLogInput, context?: RepositoryContext): Promise<void>;
 }
 
 export interface AnalyticsMlRepository {

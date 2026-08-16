@@ -9,7 +9,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAcademicCatalog, useOrganizerProfiles, useUser } from "@/hooks/useRepositoryQueries";
+import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { Department } from "@/types/domain";
 
@@ -45,6 +45,7 @@ export function OrganizerProfilePage() {
   const userQuery = useUser(session?.userId, context);
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
+  const auditLogMutations = useAuditLogMutations(context);
 
   const [avatarUrl, setAvatarUrl] = useState("");
   const [oldPassword, setOldPassword] = useState("");
@@ -101,6 +102,13 @@ export function OrganizerProfilePage() {
         setAvatarUrl(dataUrl);
         localStorage.setItem("plpass-organizer-avatar", dataUrl);
         toast.success("Profile picture updated successfully!");
+        
+        void auditLogMutations.logActionMutation.mutateAsync({
+          action: "Updated Profile Picture",
+          targetType: "organizer_profile",
+          targetId: session?.userId,
+          metadata: { userId: session?.userId }
+        });
       };
       
       reader.readAsDataURL(file);
@@ -132,6 +140,13 @@ export function OrganizerProfilePage() {
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Changed Password",
+        targetType: "organizer_profile",
+        targetId: session?.userId,
+        metadata: { userId: session?.userId }
+      });
     }, 1000);
   }
 

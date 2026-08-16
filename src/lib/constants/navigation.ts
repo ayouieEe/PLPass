@@ -24,6 +24,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Correction Requests", path: APP_ROUTES.organizerCorrections, icon: AlertCircle, group: "Attendance" },
     { label: "Authentication Methods", path: APP_ROUTES.organizerReports, icon: FileText, group: "Insights" },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights" },
+    { label: "Audit Logs", path: APP_ROUTES.organizerAuditLogs, icon: ClipboardList, group: "Account" },
     { label: "Profile", path: APP_ROUTES.organizerProfile, icon: UserCircle, group: "Account" }
   ],
   student: [

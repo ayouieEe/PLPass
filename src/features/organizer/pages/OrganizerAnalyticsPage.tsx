@@ -77,7 +77,8 @@ import {
   useNfcTapAttempts,
   useOrganizerProfiles,
   useReports,
-  useStudents
+  useStudents,
+  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
@@ -486,6 +487,8 @@ export function OrganizerAnalyticsPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("prediction");
   const [eventFilter, setEventFilter] = useState("all");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const scope = useOrganizerScope();
+  const auditLogMutations = useAuditLogMutations(scope.context);
 
   const [uiState] = useState(() => loadOrganizerUiState());
   const eventData = useMemo(
@@ -606,6 +609,12 @@ export function OrganizerAnalyticsPage() {
 
   function handleExportReport(label: string) {
     toast.success(createUiExport(`${label}`));
+    
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Analytics",
+      targetType: "export_action",
+      metadata: { label }
+    });
   }
 
   const objectivePerformance = useMemo(() => {
