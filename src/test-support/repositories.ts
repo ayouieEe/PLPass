@@ -832,6 +832,38 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     const updated = { ...event, status: "completed" as const };
     eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
     return updated;
+  },
+  async rescheduleEvent(input: RescheduleEventInput, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, input.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only reschedule their own events.", "PERMISSION_DENIED");
+    }
+
+    // Build updated event with provided fields
+    const updated: Event = {
+      ...event,
+      venue: input.venue || event.venue,
+      startsAt: input.date && input.startTime 
+        ? `${input.date}T${input.startTime}:00.000Z` 
+        : event.startsAt,
+      endsAt: input.date && input.endTime
+        ? `${input.date}T${input.endTime}:00.000Z`
+        : event.endsAt
+    };
+
+    eventState = eventState.map((entry) => (entry.id === input.eventId ? updated : entry));
+
+    // Archive existing sessions for this event (simulation)
+    // In real implementation, sessions would be marked archived with rescheduled metadata
+    sessionState = sessionState.map((session) =>
+      session.eventId === input.eventId && session.status === "scheduled"
+        ? { ...session, status: "cancelled" as const }
+        : session
+    );
+
+    return updated;
   }
 };
 

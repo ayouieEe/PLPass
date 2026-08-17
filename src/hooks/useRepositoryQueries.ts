@@ -13,6 +13,7 @@ import type {
   EnrollFacialProfileInput,
   IssueQrCredentialInput,
   ManualAttendanceInput,
+  RescheduleEventInput,
   ReviewCorrectionRequestInput,
   ReviewCredentialRequestInput,
   SubmitEventFeedbackInput,
@@ -21,7 +22,7 @@ import type {
   UpdateSystemSettingsInput
 } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
-import type { AttendanceAttempt } from "@/types/domain";
+import type { AttendanceAttempt, AttendanceRecord } from "@/types/domain";
 import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
@@ -239,6 +240,22 @@ export function useEventStatusMutation(context?: RepositoryContext) {
   });
 }
 
+export function useEventRescheduleMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: RescheduleEventInput) => repositories.eventManagement.rescheduleEvent(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["events"] });
+      await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      toast.success("Event rescheduled successfully");
+    },
+    onError: (error: unknown) => {
+      toast.error(getErrorMessage(error));
+    }
+  });
+}
+
 export function useEventParticipants(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
@@ -310,7 +327,43 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
 
 export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
-  const invalidateAttendance = async () => {
+  type AttendanceCacheRecord = Partial<Pick<AttendanceRecord, "id" | "sessionId" | "studentId" | "status" | "checkedOutAt" | "lateReason" | "recordedAt">>;
+  type AttendanceMutationResult = AttendanceCacheRecord | { attendanceRecord?: AttendanceCacheRecord };
+
+  const updateAttendanceCache = (record: AttendanceCacheRecord | undefined) => {
+    if (!record?.id) {
+      return;
+    }
+
+    queryClient.setQueriesData({ queryKey: ["attendanceRecords"] }, (previous: any) => {
+      if (!previous || typeof previous !== "object" || !Array.isArray((previous as any).items)) {
+        return previous;
+      }
+
+      const nextItems = (previous as any).items.some((item: any) => item.id === record.id)
+        ? (previous as any).items.map((item: any) => (item.id === record.id ? { ...item, ...record } : item))
+        : [{ ...record }, ...(previous as any).items];
+
+      return {
+        ...(previous as any),
+        items: nextItems,
+        total: Math.max((previous as any).total ?? 0, nextItems.length)
+      };
+    });
+  };
+
+  const invalidateAttendance = async (result?: AttendanceMutationResult) => {
+    const attendanceRecord =
+      result && typeof result === "object" && "attendanceRecord" in result && result.attendanceRecord
+        ? result.attendanceRecord
+        : result && typeof result === "object" && "id" in result
+          ? result
+          : undefined;
+
+    if (attendanceRecord) {
+      updateAttendanceCache(attendanceRecord as AttendanceCacheRecord);
+    }
+
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] }),
       queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] }),
@@ -324,21 +377,23 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   return {
     credentialScanMutation: useMutation({
       mutationFn: (input: AttendanceScanInput) => repositories.attendanceRecords.recordCredentialAttendance(input, context),
-      onSuccess: invalidateAttendance,
+      onSuccess: (result) => void invalidateAttendance(result),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
     }),
     manualAttendanceMutation: useMutation({
       mutationFn: (input: ManualAttendanceInput) => repositories.attendanceRecords.recordManualAttendance(input, context),
-      onSuccess: invalidateAttendance,
+      onSuccess: (result) => void invalidateAttendance(result),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
     }),
     submitLateReasonMutation: useMutation({
       mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
-      onSuccess: invalidateAttendance,
+      onSuccess: (result) => void invalidateAttendance(
+        
+      ),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }

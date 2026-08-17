@@ -53,6 +53,7 @@ import {
   useEventParticipants,
   useEvents,
   useMlPredictions,
+  useNfcTapAttempts,
   useOrganizerProfiles,
   useReports,
   useStudents,

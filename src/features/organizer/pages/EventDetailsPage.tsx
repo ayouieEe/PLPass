@@ -310,16 +310,6 @@ export function EventDetailsPage() {
     }
   }, [selectedEvent, setHeaderOverride]);
 
-  const form = useForm<SessionFormValues>({
-    resolver: zodResolver(sessionFormSchema),
-    values: {
-      venue: eventQuery.data?.venue ?? "",
-      date: dateKey(eventQuery.data?.startsAt),
-      startTime: eventQuery.data?.startsAt.slice(11, 16) ?? "",
-      expectedEndTime: eventQuery.data?.endsAt.slice(11, 16) ?? "",
-      attendanceMode: "face-to-face"
-    }
-  });
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -362,79 +352,106 @@ export function EventDetailsPage() {
     { id: "absent", header: "Absent count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).absent },
     { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.organizerSession(row.original.id)}>View session</NavLink></Button> }
   ];
-  async function startSession(values: SessionFormValues) {
-    try {
-      const created = await mutations.createEventSessionMutation.mutateAsync({ eventId: event.id, ...values });
-      navigate(APP_ROUTES.organizerSession(created.id));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to start session. Please try again.";
-      toast.error(message);
-    }
-  }
-  const canStart = event.status === "approved" || event.status === "pending";
   return (
     <OrganizerFrame>
       <PageHeader title={eventLabel(event)} description={`${event.category} at ${event.venue}`} />
+      
+      {/* Event Overview Stats */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Total participants" value={String(participants.length)} icon={Users} />
         <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} />
         <StatCard title="Average participation" value={`${attendanceRate(records)}%`} icon={BarChart3} />
         <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} />
       </section>
-      <section className="rounded-lg border bg-surface p-5">
-        <div className="grid gap-3 md:grid-cols-3">
-          <StatusBadge label={`Approval: ${event.status}`} tone={statusTone(event.status)} />
-          <StatusBadge label={`Event: ${event.status}`} tone={statusTone(event.status)} />
-          <span className="text-sm text-muted-foreground">{formatDate(event.startsAt)} {formatTime(event.startsAt)} - {formatTime(event.endsAt)}</span>
-        </div>
-        <p className="mt-3 text-sm text-muted-foreground">Attendance mode is selected when an event session is started. Face-to-face uses QR, facial, and manual verification options. Online mode shows an online verification placeholder.</p>
-      </section>
-      {canStart ? (
-        <form className="space-y-4 rounded-lg border bg-surface p-5" onSubmit={form.handleSubmit(startSession)}>
-          <h2 className="font-semibold">Start event session</h2>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <TextField control={form.control} name="venue" label="Venue" />
-            <DatePickerField control={form.control} name="date" label="Date" />
-            <TimePickerField control={form.control} name="startTime" label="Start time" />
-            <TimePickerField control={form.control} name="expectedEndTime" label="Expected end time" />
-            <SelectField control={form.control} name="attendanceMode" label="Attendance mode" options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]} />
-          </div>
-          <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">Face-to-face: QR, facial, and manual verification options. Online: online verification placeholder only.</div>
-          <SubmitButton isSubmitting={mutations.createEventSessionMutation.isPending}>Start event session</SubmitButton>
-        </form>
-      ) : (
-        <EmptyState title="Start Session unavailable" description="This event status does not allow starting a attendance session." />
-      )}
-      <div className="flex flex-wrap gap-2 rounded-lg border bg-surface p-3">
-        {["participants", "sessions", "summary", "information"].map((item) => <Button key={item} type="button" variant={tab === item ? "default" : "outline"} onClick={() => setTab(item)}>{item}</Button>)}
-      </div>
-      {tab === "participants" ? <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" /> : null}
-      {tab === "sessions" ? <PLPassDataGrid label="Event sessions" data={sessions} columns={sessionColumns} emptyTitle="No event sessions" /> : null}
-      {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
-      {tab === "information" ? (
-        <section className="rounded-lg border bg-surface p-5">
-          <dl className="grid gap-3 md:grid-cols-2">
-            {[
-              ["Event code", event.code],
-              ["Event name", event.title],
-              ["Category", event.category],
-              ["Description", "Event details"],
-              ["Venue", event.venue],
-              ["Date", formatDate(event.startsAt)],
-              ["Start time", formatTime(event.startsAt)],
-              ["End time", formatTime(event.endsAt)],
-              ["Approval status", event.status],
-              ["Event status", event.status],
-              ["Participant count", participants.length]
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border bg-background p-3">
-                <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-                <dd className="mt-1 text-sm font-semibold">{value}</dd>
+
+      {/* Event Details Card */}
+      <section className="rounded-lg border bg-surface p-6 shadow-sm">
+        <div className="grid gap-6 md:grid-cols-2">
+          <div>
+            <h3 className="font-semibold text-foreground mb-4">Event Information</h3>
+            <dl className="space-y-3">
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Event Code</dt>
+                <dd className="mt-1 text-sm font-semibold">{event.code}</dd>
               </div>
-            ))}
-          </dl>
-        </section>
-      ) : null}
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Category</dt>
+                <dd className="mt-1 text-sm font-semibold">{event.category}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Venue</dt>
+                <dd className="mt-1 text-sm font-semibold">{event.venue}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Status</dt>
+                <dd className="mt-1"><StatusBadge label={event.status} tone={statusTone(event.status)} /></dd>
+              </div>
+            </dl>
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground mb-4">Schedule</h3>
+            <dl className="space-y-3">
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Date</dt>
+                <dd className="mt-1 text-sm font-semibold">{formatDate(event.startsAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Start Time</dt>
+                <dd className="mt-1 text-sm font-semibold">{formatTime(event.startsAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">End Time</dt>
+                <dd className="mt-1 text-sm font-semibold">{formatTime(event.endsAt)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium text-muted-foreground uppercase">Participant Count</dt>
+                <dd className="mt-1 text-sm font-semibold">{participants.length}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      {/* Tabs Navigation */}
+      <section className="space-y-4">
+        {/* Only show tabs that have data */}
+        {(participantList.length > 0 || (records.length > 0 && sessions.length > 0)) && (
+          <div className="flex flex-wrap gap-2 border-b">
+            {participantList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setTab("participants")}
+                className={`px-4 py-2 font-medium text-sm capitalize border-b-2 transition-colors ${
+                  tab === "participants"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Participants ({participantList.length})
+              </button>
+            )}
+
+            {records.length > 0 && sessions.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setTab("summary")}
+                className={`px-4 py-2 font-medium text-sm capitalize border-b-2 transition-colors ${
+                  tab === "summary"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Summary
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="rounded-lg border bg-surface p-5">
+          {tab === "participants" ? <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" /> : null}
+          {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
+        </div>
+      </section>
     </OrganizerFrame>
   );
 }

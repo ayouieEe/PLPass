@@ -193,12 +193,13 @@ export type AttendanceRecord = {
   studentId: string;
   status: AttendanceStatus;
   verificationMethod: VerificationMethod;
+  checkoutVerificationMethod?: VerificationMethod;
   recordedAt: string;
   recordedByUserId?: string;
   note?: string;
   lateReasonCategory?: string;
   timeIn?: string;
-  timeOut?: string;
+  checkedOutAt?: string;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 };
 

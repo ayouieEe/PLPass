@@ -11,54 +11,81 @@ function timeToMinutes(value: string): number {
 }
 
 /**
+ * Helper to check if date is today or in the future
+ */
+function isTodayOrFuture(dateString: string): boolean {
+  if (!dateString) return false;
+  const eventDate = new Date(`${dateString}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return eventDate >= today;
+}
+
+/**
  * Validation schema for event creation and updates
  * Based on the Event domain type and CreateEventInput contract
  */
-export const eventFormSchema = z
-  .object({
-    code: z
-      .string()
-      .trim()
-      .min(1, "Event code is required")
-      .min(2, "Event code must be at least 2 characters"),
-    title: z
-      .string()
-      .trim()
-      .min(1, "Event title is required")
-      .min(3, "Event title must be at least 3 characters")
-      .max(255, "Event title must not exceed 255 characters"),
-    category: z.string().trim().min(1, "Category is required"),
-    venue: z
-      .string()
-      .trim()
-      .min(1, "Venue is required")
-      .min(2, "Venue must be at least 2 characters"),
-    date: z.string().min(1, "Event date is required"),
-    startTime: z.string().min(1, "Start time is required"),
-    endTime: z.string().min(1, "End time is required"),
-    description: z
-      .string()
-      .trim()
-      .optional()
-      .refine((val) => !val || val.length >= 3, {
-        message: "Description must be at least 3 characters if provided"
-      })
-      .refine((val) => !val || val.length <= 1000, {
-        message: "Description must not exceed 1000 characters"
-      }),
-    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"], {
-      errorMap: () => ({ message: "Priority level must be Time-Sensitive, Business-Critical, or Flexible" })
+export const eventBaseSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(1, "Event code is required")
+    .min(2, "Event code must be at least 2 characters"),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Event title is required")
+    .min(3, "Event title must be at least 3 characters")
+    .max(255, "Event title must not exceed 255 characters"),
+  category: z.string().trim().min(1, "Category is required"),
+  venue: z
+    .string()
+    .trim()
+    .min(1, "Venue is required")
+    .min(2, "Venue must be at least 2 characters"),
+  date: z.string().min(1, "Event date is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().min(1, "End time is required"),
+  attendanceMode: z.enum(["face-to-face", "online"]),
+  description: z
+    .string()
+    .trim()
+    .optional()
+    .refine((val) => !val || val.length >= 3, {
+      message: "Description must be at least 3 characters if provided"
+    })
+    .refine((val) => !val || val.length <= 1000, {
+      message: "Description must not exceed 1000 characters"
     }),
-    impactScore: z
-      .number()
-      .min(0, "Impact score must be at least 0")
-      .max(10, "Impact score must not exceed 10")
-      .nullable()
-      .optional()
-  })
+  remarks: z
+    .string()
+    .trim()
+    .optional()
+    .refine((val) => !val || val.length >= 3, {
+      message: "Remarks must be at least 3 characters if provided"
+    })
+    .refine((val) => !val || val.length <= 1000, {
+      message: "Remarks must not exceed 1000 characters"
+    }),
+  priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"], {
+    errorMap: () => ({ message: "Priority level must be Time-Sensitive, Business-Critical, or Flexible" })
+  }),
+  impactScore: z
+    .number()
+    .min(0, "Impact score must be at least 0")
+    .max(10, "Impact score must not exceed 10")
+    .nullable()
+    .optional()
+});
+
+export const eventFormSchema = eventBaseSchema
   .refine((value) => timeToMinutes(value.endTime) > timeToMinutes(value.startTime), {
     path: ["endTime"],
     message: "End time must be after start time"
+  })
+  .refine((value) => isTodayOrFuture(value.date), {
+    path: ["date"],
+    message: "Event date must be today or in the future"
   });
 
 /**

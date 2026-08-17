@@ -3,8 +3,11 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -13,9 +16,11 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
+import { APP_ROUTES } from "@/lib/constants/routes";
+import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import {
   createUiExport,
@@ -94,6 +99,23 @@ function priorityTone(level: PriorityLevel) {
   }
   return "muted" as const;
 }
+
+// Reschedule event form schema
+const rescheduleEventSchema = z.object({
+  venue: z.string().optional(),
+  date: z.string().optional(),
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
+  reason: z.string().optional()
+}).refine(
+  (data) => !data.startTime || !data.endTime || data.endTime > data.startTime,
+  {
+    message: "End time must be after start time",
+    path: ["endTime"]
+  }
+);
+
+type RescheduleEventFormValues = z.infer<typeof rescheduleEventSchema>;
 
 // Combined ranking score: priority tier first, impact score as a tiebreaker
 // within the same tier. Events without an impact score are treated as 0
@@ -201,12 +223,167 @@ function isTodayEvent(event: EventRecord) {
   return [today.getFullYear(), today.getMonth(), today.getDate()].join("-") === [eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate()].join("-");
 }
 
+export function hasValidEventSchedule(event: Pick<EventRecord, "date" | "startTime" | "endTime">): boolean {
+  if (!event.date || !event.startTime || !event.endTime) {
+    return false;
+  }
+
+  const start = parseDateTime(event.date, event.startTime);
+  const end = parseDateTime(event.date, event.endTime);
+  if (!start || !end) {
+    return false;
+  }
+
+  return end.getTime() > start.getTime();
+}
+
+export function shouldDisplayInEventTab(
+  event: EventRecord,
+  tab: "today" | "incoming",
+  options: {
+    activeEventCode?: string;
+    cancelledCodes: string[];
+    completedCodes: Set<string>;
+    sessionsList: Array<{ eventId?: string; date?: string }>;
+  }
+): boolean {
+  if (options.activeEventCode && event.code === options.activeEventCode) {
+    return false;
+  }
+
+  if (options.cancelledCodes.includes(event.code)) {
+    return false;
+  }
+
+  if (options.completedCodes.has(event.code)) {
+    return false;
+  }
+
+  if (!hasValidEventSchedule(event)) {
+    return false;
+  }
+
+  if (tab === "today") {
+    return event.status === "today" || isTodayEvent(event);
+  }
+
+  if (isPastDate(event.date) && !hasAttendanceSession(event.id, event.date, options.sessionsList)) {
+    return false;
+  }
+
+  return event.status === "incoming" || !isTodayEvent(event);
+}
+
+function isPastDate(dateString: string): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const eventDate = new Date(`${dateString}T00:00:00`);
+  return eventDate < today;
+}
+
+function hasAttendanceSession(eventId: string | undefined, eventDate: string, sessions: Array<{ eventId?: string; date?: string }>): boolean {
+  if (!eventId) return false;
+  return sessions.some((session) => session.eventId === eventId && session.date === eventDate);
+}
+
 function countRows(rows: AttendanceRow[]) {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
   const late = rows.filter((row) => row.attendanceStatus === "late").length;
   const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
   const rate = rows.length ? Math.round(((present + late) / rows.length) * 100) : 0;
   return { present, late, absent, rate };
+}
+
+function normalizeStudentLookup(value: string) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function resolveStudentLookupId(
+  input: string,
+  students: Array<{ id: string; studentNumber?: string; fullName?: string }>
+): string | null {
+  const query = normalizeStudentLookup(input);
+  if (!query) {
+    return null;
+  }
+
+  const matchedStudent = students.find((student) => {
+    const id = normalizeStudentLookup(student.id);
+    const studentNumber = normalizeStudentLookup(student.studentNumber ?? "");
+    const fullName = normalizeStudentLookup(student.fullName ?? "");
+
+    return id === query || studentNumber === query || fullName === query;
+  });
+
+  return matchedStudent?.id ?? null;
+}
+
+export function resolveManualAttendanceLookup(
+  input: string,
+  students: Array<{ id: string; studentNumber?: string; fullName?: string }>
+): { isValid: boolean; matchedStudentId: string | null } {
+  const query = input.trim();
+  if (!query) {
+    return { isValid: false, matchedStudentId: null };
+  }
+
+  const matchedStudentId = resolveStudentLookupId(query, students);
+  return {
+    isValid: matchedStudentId !== null,
+    matchedStudentId
+  };
+}
+
+export function resolveLateStudentManualState({
+  manualInput,
+  students,
+  activeRows
+}: {
+  manualInput: string;
+  students: Array<{ id: string; studentNumber?: string; fullName?: string }>;
+  activeRows: Array<{ studentId: string; attendanceStatus: AttendanceStatus; lateReason?: string }>;
+}):
+  | {
+      isLateLocked: false;
+      lockedStatus: ManualAttendanceStatus;
+      lockedLateReason: "";
+      matchedStudentId: string | null;
+    }
+  | {
+      isLateLocked: true;
+      lockedStatus: "late";
+      lockedLateReason: LateReason | "";
+      matchedStudentId: string | null;
+    } {
+  const query = manualInput.trim();
+  if (!query) {
+    return {
+      isLateLocked: false,
+      lockedStatus: "present",
+      lockedLateReason: "",
+      matchedStudentId: null
+    };
+  }
+
+  const matchedStudentId = resolveStudentLookupId(query, students);
+  const targetStudentId = matchedStudentId ?? query;
+  const matchedRecord = activeRows.find((row) => row.studentId === targetStudentId);
+
+  if (!matchedRecord || matchedRecord.attendanceStatus !== "late") {
+    return {
+      isLateLocked: false,
+      lockedStatus: "present",
+      lockedLateReason: "",
+      matchedStudentId: matchedStudentId
+    };
+  }
+
+  return {
+    isLateLocked: true,
+    lockedStatus: "late",
+    lockedLateReason: (matchedRecord.lateReason as LateReason | undefined) ?? "",
+    matchedStudentId: matchedStudentId
+  };
 }
 
 function lateBreakdown(rows: AttendanceRow[]) {
@@ -283,6 +460,111 @@ function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
   };
 }
 
+interface EditEventModalComponentProps {
+  event: EventRecord;
+  onClose: () => void;
+  context?: RepositoryContext;
+}
+
+function EditEventModalComponent({ event, onClose, context }: EditEventModalComponentProps) {
+  const rescheduleEventMutation = useEventRescheduleMutation(context);
+  const form = useForm<RescheduleEventFormValues>({
+    resolver: zodResolver(rescheduleEventSchema),
+    defaultValues: {
+      venue: event.venue || "",
+      date: event.date || "",
+      startTime: event.startTime || "",
+      endTime: event.endTime || "",
+      reason: ""
+    }
+  });
+
+  async function onSubmit(values: RescheduleEventFormValues) {
+    try {
+      await rescheduleEventMutation.mutateAsync({
+        eventId: event.id || "",
+        venue: values.venue,
+        date: values.date,
+        startTime: values.startTime,
+        endTime: values.endTime,
+        reason: values.reason
+      });
+      onClose();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to reschedule event";
+      toast.error(message);
+    }
+  }
+
+  return (
+    <ModalFrame onClose={onClose} width="max-w-2xl">
+      <h2 className="text-xl font-semibold">Reschedule Event</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{event.code} - {event.name}</p>
+      <form className="mt-5 space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Venue</label>
+            <input 
+              type="text"
+              className="w-full rounded-lg border bg-background px-3 py-2"
+              placeholder={event.venue}
+              {...form.register("venue")}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Date</label>
+            <input 
+              type="date"
+              className="w-full rounded-lg border bg-background px-3 py-2"
+              {...form.register("date")}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Start Time</label>
+            <input 
+              type="time"
+              className="w-full rounded-lg border bg-background px-3 py-2"
+              {...form.register("startTime")}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">End Time</label>
+            <input 
+              type="time"
+              className="w-full rounded-lg border bg-background px-3 py-2"
+              {...form.register("endTime")}
+            />
+            {form.formState.errors.endTime && (
+              <p className="text-sm text-danger">{form.formState.errors.endTime.message}</p>
+            )}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Reschedule Reason</label>
+          <textarea 
+            className="w-full rounded-lg border bg-background px-3 py-2 min-h-[80px]"
+            placeholder="Why is this event being rescheduled?"
+            {...form.register("reason")}
+          />
+        </div>
+        <div className="rounded-lg border bg-blue-50 p-3 text-sm text-blue-900">
+          <p className="font-medium">Note:</p>
+          <p className="mt-1">Rescheduling will archive all existing sessions for this event. Students will be notified of the change.</p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button 
+            type="submit" 
+            disabled={rescheduleEventMutation.isPending}
+          >
+            {rescheduleEventMutation.isPending ? "Rescheduling..." : "Reschedule Event"}
+          </Button>
+        </div>
+      </form>
+    </ModalFrame>
+  );
+}
+
 export function EventManagementPage() {
   const location = useLocation();
   const tabFromQuery = useMemo(() => {
@@ -323,21 +605,32 @@ export function EventManagementPage() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
   );
- const eventsQuery = useEvents({ pageSize: 100 }, context);
-const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
-const { completeEventMutation } = useEventMutations(context);
-const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
-const auditLogMutations = useAuditLogMutations(context);
-const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
-const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
-const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
+  const eventsQuery = useEvents({ pageSize: 100 }, context);
+  const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
+  const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
+  const { completeEventMutation } = useEventMutations(context);
+  const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
+  const auditLogMutations = useAuditLogMutations(context);
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
+  const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
 
-const attendanceRecordsQuery = useAttendanceRecords(
-  { sessionId: liveSessionId ?? undefined, pageSize: 100 } as never,
-  context
-);
-const studentsQuery = useStudents({ pageSize: 200 }, context);
-const studentNameById = useMemo(() => {
+  const attendanceRecordsQuery = useAttendanceRecords(
+    { sessionId: liveSessionId ?? undefined, pageSize: 100 } as never,
+    context
+  );
+  const studentsQuery = useStudents({ pageSize: 200 }, context);
+  const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
+  const manualLateLock = useMemo(
+    () =>
+      resolveLateStudentManualState({
+        manualInput,
+        students: studentsQuery.data?.items ?? [],
+        activeRows
+      }),
+    [activeRows, manualInput, studentsQuery.data?.items]
+  );
+  const studentNameById = useMemo(() => {
   const map = new Map<string, string>();
   (studentsQuery.data?.items ?? []).forEach((s) => map.set(s.id, s.fullName ?? s.studentNumber));
   return map;
@@ -382,6 +675,17 @@ const studentNameById = useMemo(() => {
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
+
+  useEffect(() => {
+    if (manualLateLock.isLateLocked) {
+      setManualStatus("late");
+      setManualLateReason(manualLateLock.lockedLateReason as LateReason | "");
+      return;
+    }
+
+    setManualStatus("present");
+    setManualLateReason("");
+  }, [manualInput, manualLateLock.isLateLocked, manualLateLock.lockedLateReason]);
 
   // Fetch objectives for all events from Supabase
   useEffect(() => {
@@ -479,14 +783,16 @@ const studentNameById = useMemo(() => {
       sortByPriority(
         storeEvents.filter(
           (event) =>
-            !cancelledCodes.includes(event.code) &&
-            !completedCodes.has(event.code) &&
-            event.code !== activeEvent?.code &&
-            (event.status === "today" || isTodayEvent(event)) &&
+            shouldDisplayInEventTab(event, "today", {
+              activeEventCode: activeEvent?.code,
+              cancelledCodes,
+              completedCodes,
+              sessionsList
+            }) &&
             matchesSearch(event, search)
         )
       ),
-    [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
+    [activeEvent, cancelledCodes, completedCodes, search, sessionsList, storeEvents]
   );
 
   const incomingEvents = useMemo(
@@ -494,14 +800,16 @@ const studentNameById = useMemo(() => {
       sortByPriority(
         storeEvents.filter(
           (event) =>
-            !cancelledCodes.includes(event.code) &&
-            !completedCodes.has(event.code) &&
-            event.code !== activeEvent?.code &&
-            (event.status === "incoming" || !isTodayEvent(event)) &&
+            shouldDisplayInEventTab(event, "incoming", {
+              activeEventCode: activeEvent?.code,
+              cancelledCodes,
+              completedCodes,
+              sessionsList
+            }) &&
             matchesSearch(event, search)
         )
       ),
-    [activeEvent, cancelledCodes, completedCodes, search, storeEvents]
+    [activeEvent, cancelledCodes, completedCodes, search, sessionsList, storeEvents]
   );
 
   // Conflicts are computed across every non-cancelled, non-completed event
@@ -625,20 +933,58 @@ const studentNameById = useMemo(() => {
     if (!activeEvent) {
       return;
     }
-    const endDate = parseDateTime(activeEvent.date, activeEvent.endTime);
-    if (!endDate) {
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [activeEvent]);
+
+  async function submitManualAttendance() {
+    if (!manualInput || !liveSessionId) {
+      toast.warning("Please select a student.");
       return;
     }
-    const timeoutMs = endDate.getTime() - Date.now();
-    if (timeoutMs <= 0) {
+
+    const lookupResult = resolveManualAttendanceLookup(manualInput, studentsQuery.data?.items ?? []);
+    if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
+      toast.warning("Please enter a valid student ID or name.");
       return;
     }
-    const timeoutId = window.setTimeout(() => {
-      toast(`Session ${activeEvent.code} has ended.`, { description: "The live session was closed automatically at the scheduled end time." });
-      void endSession();
-    }, timeoutMs);
-    return () => window.clearTimeout(timeoutId);
-  }, [activeEvent, endSession]);
+
+    const resolvedStudentId = lookupResult.matchedStudentId;
+    const resolvedStatus = manualLateLock.isLateLocked ? manualLateLock.lockedStatus : manualStatus;
+
+    if (resolvedStatus === "late" && !manualLateLock.isLateLocked && !manualLateReason) {
+      toast.warning("Please select a reason.");
+      return;
+    }
+
+    try {
+      const result = await manualAttendanceMutation.mutateAsync({
+        sessionId: liveSessionId,
+        studentId: resolvedStudentId,
+        reason: "Manual entry",
+        remarks: "",
+        statusOverride: resolvedStatus,
+        lateReason:
+          resolvedStatus === "late" && !manualLateLock.isLateLocked && manualLateReason
+            ? manualLateReason
+            : undefined
+      });
+      toast.success(result.safeMessage);
+      setManualInput("");
+      setManualStatus("present");
+      setManualLateReason("");
+    } catch {
+      // The mutation hook already surfaces the validation error once.
+    }
+  }
 
   function viewEventRecordFromSummary() {
     if (!activeEvent) {
@@ -999,28 +1345,48 @@ const studentNameById = useMemo(() => {
                             <button
                               type="button"
                               className={`rounded-full px-4 py-2 text-sm ${manualStatus === "present" ? "bg-primary text-white" : "text-muted-foreground"}`}
-                              onClick={() => setManualStatus("present")}
+                              onClick={() => {
+                                if (!manualLateLock.isLateLocked) {
+                                  setManualStatus("present");
+                                }
+                              }}
+                              disabled={manualLateLock.isLateLocked}
                             >
                               Present
                             </button>
                             <button
                               type="button"
-                              className={`rounded-full px-4 py-2 text-sm ${manualStatus === "late" ? "bg-primary text-white" : "text-muted-foreground"}`}
-                              onClick={() => setManualStatus("late")}
+                              className={`rounded-full px-4 py-2 text-sm ${manualStatus === "late" || manualLateLock.isLateLocked ? "bg-primary text-white" : "text-muted-foreground"}`}
+                              onClick={() => {
+                                if (!manualLateLock.isLateLocked) {
+                                  setManualStatus("late");
+                                }
+                              }}
+                              disabled={manualLateLock.isLateLocked}
                             >
                               Late
                             </button>
                           </div>
                         </div>
 
-                        {manualStatus === "late" ? (
+                        {(manualStatus === "late" || manualLateLock.isLateLocked) && (
                           <div className="mt-4 rounded-2xl border border-border bg-white p-4">
+                            {manualLateLock.isLateLocked ? (
+                              <p className="mb-2 text-xs text-muted-foreground">
+                                This student is already marked late. The late status and reason stay locked for checkout.
+                              </p>
+                            ) : null}
                             <label className="space-y-2 text-sm font-medium">
                               Reason for late arrival
                               <select
-                                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-muted/50 disabled:text-muted-foreground"
                                 value={manualLateReason}
-                                onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
+                                onChange={(e) => {
+                                  if (!manualLateLock.isLateLocked) {
+                                    setManualLateReason(e.target.value as LateReason | "");
+                                  }
+                                }}
+                                disabled={manualLateLock.isLateLocked}
                               >
                                 <option value="">Select a reason</option>
                                 {lateReasons.map((reason) => (
@@ -1031,33 +1397,24 @@ const studentNameById = useMemo(() => {
                               </select>
                             </label>
                           </div>
-                        ) : null}
+                        )}
                       </div>
 
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3">
                         <label className="space-y-2 text-sm font-medium">
                           Student lookup
                           <input
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void submitManualAttendance();
+                              }
+                            }}
                             placeholder="Enter student ID or name"
                             className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
                           />
-                        </label>
-                        <label className="space-y-2 text-sm font-medium">
-                          Student selection
-                          <select
-                            value={manualInput}
-                            onChange={(e) => setManualInput(e.target.value)}
-                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
-                          >
-                            <option value="">Select a student</option>
-                            {[...studentNameById.entries()].map(([id, name]) => (
-                              <option key={id} value={id}>
-                                {name}
-                              </option>
-                            ))}
-                          </select>
                         </label>
                       </div>
 
@@ -1067,33 +1424,7 @@ const studentNameById = useMemo(() => {
                           type="button"
                           className="h-11 rounded-lg px-6"
                           disabled={manualAttendanceMutation.isPending}
-                          onClick={async () => {
-                            if (!manualInput || !liveSessionId) {
-                              toast.warning("Select a student first.");
-                              return;
-                            }
-                            if (manualStatus === "late" && !manualLateReason) {
-                              toast.warning("Please select a late arrival reason.");
-                              return;
-                            }
-                            try {
-                              const result = await manualAttendanceMutation.mutateAsync({
-                                sessionId: liveSessionId,
-                                studentId: manualInput,
-                                reason: "Manual entry",
-                                remarks: "",
-                                statusOverride: manualStatus,
-                                lateReason: manualStatus === "late" && manualLateReason ? manualLateReason : undefined
-                              });
-                              toast.success(result.safeMessage);
-                              setManualInput("");
-                              setManualStatus("present");
-                              setManualLateReason("");
-                            } catch (error) {
-                              const message = error instanceof Error ? error.message : "Failed to record attendance.";
-                              toast.error(message);
-                            }
-                          }}
+                          onClick={() => void submitManualAttendance()}
                         >
                           {manualAttendanceMutation.isPending ? "Recording..." : "Record attendance"}
                         </Button>
@@ -1234,6 +1565,10 @@ const studentNameById = useMemo(() => {
             status={getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes)}
             conflicts={conflictsByCode.get(eventModal.code) ?? []}
             onCancel={() => setConfirmCancelEvent(eventModal)}
+            onEdit={(event) => {
+              setEditEvent(event);
+              setEventModal(null);
+            }}
           />
         </ModalFrame>
       ) : null}
@@ -1260,31 +1595,11 @@ const studentNameById = useMemo(() => {
       ) : null}
 
       {editEvent ? (
-        <ModalFrame onClose={() => setEditEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Edit Event</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{editEvent.code} - {editEvent.name}</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="space-y-2 text-sm font-medium">Venue<input className="w-full rounded-lg border bg-background px-3 py-2" defaultValue={editEvent.venue} /></label>
-            <label className="space-y-2 text-sm font-medium">Date<input className="w-full rounded-lg border bg-background px-3 py-2" defaultValue={editEvent.date} /></label>
-            <label className="space-y-2 text-sm font-medium">Start Time<input className="w-full rounded-lg border bg-background px-3 py-2" defaultValue={editEvent.startTime} /></label>
-            <label className="space-y-2 text-sm font-medium">End Time<input className="w-full rounded-lg border bg-background px-3 py-2" defaultValue={editEvent.endTime} /></label>
-          </div>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setEditEvent(null)}>Cancel</Button>
-            <Button type="button" onClick={() => { 
-              toast.success(`${editEvent.code} changes saved.`); 
-              
-              void auditLogMutations.logActionMutation.mutateAsync({
-                action: "Edited Event",
-                targetType: "event",
-                targetId: editEvent.id,
-                metadata: { eventCode: editEvent.code }
-              });
-              
-              setEditEvent(null); 
-            }}>Save Changes</Button>
-          </div>
-        </ModalFrame>
+        <EditEventModalComponent 
+          event={editEvent} 
+          onClose={() => setEditEvent(null)} 
+          context={context}
+        />
       ) : null}
 
       {startEvent ? (
@@ -1383,10 +1698,17 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, conflicts = [], onCancel }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void }) {
+function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void; onEdit?: (event: EventRecord) => void }) {
   return (
     <div>
-      <p className="text-sm font-semibold text-primary">Event Details</p>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-primary">Event Details</p>
+        {event.id ? (
+          <a href={`/organizer/events/${event.id}`} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
+            View Full Details →
+          </a>
+        ) : null}
+      </div>
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <h2 className="text-2xl font-semibold">{event.code} - {event.name}</h2>
         <StatusBadge label={event.priorityLevel} tone={priorityTone(event.priorityLevel)} />
@@ -1435,14 +1757,21 @@ function EventDetails({ event, status, conflicts = [], onCancel }: { event: Even
           {event.objectives.map((objective, index) => <p key={objective} className="text-sm text-muted-foreground">{index + 1}. {objective}</p>)}
         </div>
       </section>
-      {onCancel ? (
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="destructive" onClick={() => onCancel?.()}>
-            <XCircle className="h-4 w-4" aria-hidden="true" />
-            Cancel Event
-          </Button>
+      <div className="mt-6 border-t pt-4">
+        <div className="flex justify-end gap-2">
+          {onEdit ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => onEdit(event)}>
+              Edit Event
+            </Button>
+          ) : null}
+          {onCancel ? (
+            <Button type="button" variant="destructive" size="sm" onClick={() => onCancel?.()}>
+              <XCircle className="h-4 w-4" aria-hidden="true" />
+              Cancel Event
+            </Button>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
