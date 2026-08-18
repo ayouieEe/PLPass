@@ -583,6 +583,24 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       }
     }
 
+    const trimmedObjectives = (input.objectives ?? [])
+      .map((objective) => objective.trim())
+      .filter((objective) => objective.length > 0);
+
+    if (trimmedObjectives.length > 0) {
+      const { error: objectiveError } = await client.from("event_objectives").insert(
+        trimmedObjectives.map((objective, index) => ({
+          event_id: eventRow.id,
+          objective_order: index + 1,
+          objective_text: objective
+        }))
+      );
+      if (objectiveError) {
+        await client.from("events").delete().eq("id", eventRow.id);
+        throwIfSupabaseError(objectiveError);
+      }
+    }
+
     return mapEvent(eventRow as Row);
   },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason) {

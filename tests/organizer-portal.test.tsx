@@ -164,6 +164,13 @@ describe("organizer repository scoping and workflows", () => {
         endTime: "11:00",
         attendanceMode: "face-to-face",
         participantStudentIds: ["student-1", "student-2"],
+        objectives: [
+          "Build professional confidence",
+          "Improve teamwork skills",
+          "Practice career readiness",
+          "Strengthen communication with employers",
+          "Apply industry-specific knowledge"
+        ],
         priorityLevel: "Flexible"
       },
       organizerTestContext
@@ -173,9 +180,17 @@ describe("organizer repository scoping and workflows", () => {
       { pageIndex: 0, pageSize: 20 },
       organizerTestContext
     );
+    const objectives = await repositories.eventFeedback.listEventObjectives(created.id, organizerTestContext);
 
     expect(created.status).toBe("pending");
     expect(participants.total).toBe(2);
+    expect(objectives.map((objective) => objective.text)).toEqual([
+      "Build professional confidence",
+      "Improve teamwork skills",
+      "Practice career readiness",
+      "Strengthen communication with employers",
+      "Apply industry-specific knowledge"
+    ]);
   });
 
   it("validates session creation and end-session reason", async () => {

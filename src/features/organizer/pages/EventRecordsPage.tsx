@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
 import { Eye, FileDown, FileSpreadsheet, Search, X } from "lucide-react";
 import { toast } from "sonner";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -210,6 +211,7 @@ function completedFromRepositoryEvent(event: {
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   predictedTurnout: number | null;
+  objectives?: string[];
 }): CompletedRecord {
   return {
     id: event.id,
@@ -221,7 +223,7 @@ function completedFromRepositoryEvent(event: {
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
-    objectives: [],
+    objectives: event.objectives ?? [],
     priorityLevel: event.priorityLevel,
     impactScore: event.impactScore,
     present: 0,
@@ -246,6 +248,43 @@ export function EventRecordsPage() {
   );
   const auditLogMutations = useAuditLogMutations(context);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
+  const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
+
+  useEffect(() => {
+    const eventIds = (eventsQuery.data?.items ?? []).map((event) => event.id);
+    if (eventIds.length === 0) {
+      setObjectivesByEventId(new Map());
+      return;
+    }
+
+    const fetchObjectives = async () => {
+      const client = getSupabaseBrowserClient();
+      const { data, error } = await client
+        .from("event_objectives")
+        .select("event_id, objective_text, objective_order")
+        .in("event_id", eventIds)
+        .order("objective_order", { ascending: true });
+
+      if (error) {
+        console.error("Failed to load event objectives for records page:", error);
+        setObjectivesByEventId(new Map());
+        return;
+      }
+
+      const map = new Map<string, string[]>();
+      for (const row of data ?? []) {
+        const eventId = String(row.event_id ?? "");
+        const objectiveText = String(row.objective_text ?? "").trim();
+        if (!eventId || !objectiveText) continue;
+        const existing = map.get(eventId) ?? [];
+        existing.push(objectiveText);
+        map.set(eventId, existing);
+      }
+      setObjectivesByEventId(map);
+    };
+
+    void fetchObjectives();
+  }, [eventsQuery.data?.items]);
 
   const repositoryCompletedEvents = useMemo<CompletedRecord[]>(() => {
     return (eventsQuery.data?.items ?? [])
@@ -261,10 +300,11 @@ export function EventRecordsPage() {
           endsAt: event.endsAt,
           priorityLevel: event.priorityLevel,
           impactScore: event.impactScore,
-          predictedTurnout: event.predictedTurnout
+          predictedTurnout: event.predictedTurnout,
+          objectives: objectivesByEventId.get(event.id) ?? []
         })
       );
-  }, [eventsQuery.data?.items]);
+  }, [eventsQuery.data?.items, objectivesByEventId]);
 
   // Real attendance/late/absent/rate + attendee rows for every completed
   // event, fetched in one batched query keyed by event id.
