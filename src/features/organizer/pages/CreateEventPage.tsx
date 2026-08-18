@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -7,6 +7,7 @@ import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { eventBaseSchema } from "@/lib/validations/events";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -56,6 +57,7 @@ import {
   useStudents,
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
+import { repositories } from "@/services/repositories";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -124,27 +126,11 @@ function timeToMinutes(value: string) {
   return (Number.isNaN(hours) ? 0 : hours) * 60 + (Number.isNaN(minutes) ? 0 : minutes);
 }
 
-const eventFormSchema = z
-  .object({
-    code: z.string().min(2, "Event code is required."),
-    title: z.string().min(3, "Event name is required."),
-    category: z.string().min(2, "Category is required."),
-    venue: z.string().min(2, "Venue is required."),
-    date: z.string().min(1, "Date is required."),
-    startTime: z.string().min(1, "Start time is required."),
-    endTime: z.string().min(1, "End time is required."),
-    attendanceMode: z.enum(["face-to-face", "online"]),
-    description: z.string().min(3, "Description is required."),
-    objectives: z
-      .array(z.object({ value: z.string().min(3, "Objective is required.") }))
-      .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`),
-    remarks: z.string().min(3, "Remarks are required."),
-    priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"]).default("Flexible")
-  })
-  .refine((value) => timeToMinutes(value.endTime) > timeToMinutes(value.startTime), {
-    path: ["endTime"],
-    message: "End time must be after start time."
-  });
+const eventFormSchemaWithObjectives = eventBaseSchema.extend({
+  objectives: z
+    .array(z.object({ value: z.string().min(3, "Objective is required.") }))
+    .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
+});
 
 const sessionFormSchema = z
   .object({
@@ -159,7 +145,7 @@ const sessionFormSchema = z
     message: "Expected end time must be after start time."
   });
 
-type EventFormValues = z.infer<typeof eventFormSchema>;
+type EventFormValues = z.infer<typeof eventFormSchemaWithObjectives>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
@@ -390,8 +376,9 @@ export function CreateEventPage() {
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
+  const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
   const form = useForm<EventFormValues>({
-    resolver: zodResolver(eventFormSchema),
+    resolver: zodResolver(eventFormSchemaWithObjectives),
     defaultValues: {
       code: "",
       title: "",
@@ -404,7 +391,8 @@ export function CreateEventPage() {
       description: "",
       objectives: [{ value: "" }, { value: "" }, { value: "" }],
       remarks: "",
-      priorityLevel: "Flexible"
+      priorityLevel: "Flexible",
+      impactScore: null
     }
   });
   const {
@@ -415,6 +403,34 @@ export function CreateEventPage() {
     control: form.control,
     name: "objectives"
   });
+  
+  // Auto-generate event code on component mount (once)
+  useEffect(() => {
+    let isMounted = true;
+    
+    async function loadEventCode() {
+      try {
+        const nextCode = await repositories.eventManagement.generateNextEventCode();
+        if (isMounted) {
+          form.setValue("code", nextCode, { shouldValidate: true, shouldDirty: true });
+        }
+      } catch (error) {
+        console.error("Failed to generate event code:", error);
+        // Set a fallback code if generation fails
+        if (isMounted) {
+          const fallbackCode = `EVT-${new Date().getFullYear()}-001`;
+          form.setValue("code", fallbackCode, { shouldValidate: true, shouldDirty: true });
+        }
+      }
+    }
+    
+    void loadEventCode();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [form]);
+  
   const watchedCategory = form.watch("category");
   const watchedAttendanceMode = form.watch("attendanceMode");
   const watchedStartTime = form.watch("startTime");
@@ -462,6 +478,7 @@ export function CreateEventPage() {
         description: values.description,
         remarks: values.remarks,
         priorityLevel: values.priorityLevel,
+        impactScore: values.impactScore ?? null,
         participantStudentIds: selectedIds
       });
       
@@ -493,7 +510,7 @@ export function CreateEventPage() {
             />
 
             <div className="grid gap-4 md:grid-cols-2">
-              <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" />
+              <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
               <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
               <SelectField
                 control={form.control}
@@ -516,7 +533,19 @@ export function CreateEventPage() {
                 placeholder="Select priority"
                 options={PRIORITY_OPTIONS}
               />
-              <DatePickerField control={form.control} name="date" label="Date" />
+              <TextField 
+                control={form.control} 
+                name="impactScore" 
+                label="Impact Score (0-10)" 
+                placeholder="Optional: 0-10"
+                type="number"
+              />
+              <DatePickerField 
+                control={form.control} 
+                name="date" 
+                label="Date"
+                min={new Date().toISOString().split('T')[0]}
+              />
               <TimePickerField control={form.control} name="startTime" label="Start Time" />
               <TimePickerField control={form.control} name="endTime" label="End Time" />
               <SelectField
@@ -527,6 +556,9 @@ export function CreateEventPage() {
               />
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="description" label="Description" rows={3} />
+              </div>
+              <div className="md:col-span-2">
+                <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
               </div>
             </div>
 

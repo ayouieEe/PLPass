@@ -69,6 +69,15 @@ export type CreateEventInput = {
   impactScore?: number | null;
 };
 
+export type RescheduleEventInput = {
+  eventId: string;
+  venue?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  reason?: string;
+};
+
 export type CreateEventSessionInput = {
   eventId: string;
   venue: string;
@@ -228,9 +237,11 @@ export interface EventManagementRepository {
   listEvents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Event>>;
   getEventById(eventId: string, context?: RepositoryContext): Promise<Event>;
   listEventParticipants(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventParticipant>>;
+  generateNextEventCode(context?: RepositoryContext): Promise<string>;
   createEvent(input: CreateEventInput, context?: RepositoryContext): Promise<Event>;
   updateEventStatus(eventId: string, status: Extract<EventStatus, "approved" | "rejected">, reason?: string, context?: RepositoryContext): Promise<Event>;
   completeEvent(eventId: string, context?: RepositoryContext): Promise<Event>;
+  rescheduleEvent(input: RescheduleEventInput, context?: RepositoryContext): Promise<Event>;
 }
 
 export interface AttendanceSessionRepository {
@@ -328,3 +339,5 @@ export type RepositoryRegistry = {
   analyticsMl: AnalyticsMlRepository;
   systemSettings: SystemSettingsRepository;
 };
+
+export type { RepositoryContext } from "@/services/repositoryUtils";

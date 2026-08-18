@@ -13,20 +13,45 @@ export function DatePickerField<TFieldValues extends FieldValues>({
   control,
   name,
   label,
-  disabled
-  ,min
+  disabled,
+  min,
 }: DatePickerFieldProps<TFieldValues>) {
   return (
     <Controller
       control={control}
       name={name}
-      render={({ field, fieldState }) => (
-        <label className="space-y-1.5">
-          <span className={labelClass}>{label}</span>
-          <input {...field} className={fieldBaseClass} type="date" disabled={disabled} min={min} />
-          {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
-        </label>
-      )}
+      render={({ field, fieldState }) => {
+        const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+          const nextValue = event.target.value;
+
+          if (min && nextValue) {
+            const selectedDate = new Date(`${nextValue}T00:00:00`);
+            const minimumDate = new Date(`${min}T00:00:00`);
+
+            if (selectedDate < minimumDate) {
+              field.onChange("");
+              return;
+            }
+          }
+
+          field.onChange(nextValue);
+        };
+
+        return (
+          <label className="space-y-1.5">
+            <span className={labelClass}>{label}</span>
+            <input
+              {...field}
+              className={fieldBaseClass}
+              type="date"
+              disabled={disabled}
+              min={min}
+              onChange={handleChange}
+            />
+            {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+          </label>
+        );
+      }}
     />
   );
 }

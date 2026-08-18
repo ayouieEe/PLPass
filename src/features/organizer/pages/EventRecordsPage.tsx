@@ -238,13 +238,13 @@ export function EventRecordsPage() {
   const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
-  const auditLogMutations = useAuditLogMutations(context);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
   );
+  const auditLogMutations = useAuditLogMutations(context);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
 
   const repositoryCompletedEvents = useMemo<CompletedRecord[]>(() => {

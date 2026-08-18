@@ -356,12 +356,13 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     studentId: stringValue(row, ["student_id"]),
     status: stringValue(row, ["attendance_status", "status"], "present") as AttendanceStatus,
     verificationMethod: stringValue(row, ["verification_method"], "manual") as VerificationMethod,
+    checkoutVerificationMethod: optionalString(row, ["checkout_verification_method"]) as VerificationMethod | undefined,
     recordedAt: stringValue(row, ["recorded_at", "time_in", "created_at"], new Date().toISOString()),
     recordedByUserId: optionalString(row, ["recorded_by", "created_by"]),
     note: optionalString(row, ["remarks", "note"]),
     lateReasonCategory: optionalString(row, ["late_reason_category"]),
     timeIn: optionalString(row, ["time_in"]),
-    timeOut: optionalString(row, ["time_out"]),
+    checkedOutAt: optionalString(row, ["time_out"]),
     lateReason: optionalString(row, ["late_reason_category", "late_reason"]) as AttendanceRecord["lateReason"]
   };
   return base as AttendanceRecord;

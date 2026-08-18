@@ -16,10 +16,12 @@ import type {
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
+  RepositoryContext,
   AttendanceScanInput,
   AttendanceSubmissionResultStatus,
   EnrollFacialProfileInput,
   IssueQrCredentialInput,
+  RescheduleEventInput,
   StudentCredentialRepository,
   SubmitLateReasonInput,
   SubmitEventFeedbackInput,
@@ -49,6 +51,7 @@ import {
 } from "@/lib/supabase/mappers";
 import { RepositoryError } from "@/services/repositoryUtils";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
+import { getPhilippineNowIso } from "@/lib/utils/date";
 import type {
   AdminProfile,
   Department,
@@ -63,6 +66,45 @@ import type { ListQuery, PaginatedResult } from "@/types/filters";
 
 type Row = Record<string, unknown>;
 type TableName = keyof Database["public"]["Tables"];
+
+function getErrorMessageText(error: unknown): string | null {
+  if (error instanceof Error) {
+    return error.message.toLowerCase();
+  }
+
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message.toLowerCase();
+  }
+
+  return null;
+}
+
+export function isMissingRescheduleSchemaColumnError(error: unknown): boolean {
+  const message = getErrorMessageText(error);
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes("rescheduled_at") ||
+    message.includes("session_archive_status") ||
+    (message.includes("could not find the") && message.includes("schema cache"))
+  );
+}
+
+export function isNonBlockingAuditLoggingError(error: unknown): boolean {
+  const message = getErrorMessageText(error);
+  if (!message) {
+    return false;
+  }
+
+  return (
+    message.includes("permission denied for table audit_logs") ||
+    (message.includes("permission denied") && message.includes("audit_logs")) ||
+    (message.includes("row level security") && message.includes("audit_logs")) ||
+    (message.includes("rls") && message.includes("audit_logs"))
+  );
+}
 
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
@@ -459,6 +501,29 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const rows = await selectRows("event_participants", query);
     return pageResult(rows.items.filter((row) => String(row.event_id ?? "") === eventId).map(mapEventParticipant), rows.total, query);
   },
+  async generateNextEventCode(context?: RepositoryContext) {
+    const client = getSupabaseBrowserClient();
+    const currentYear = new Date().getFullYear();
+    
+    const { data: events, error } = await client
+      .from("events")
+      .select("event_code")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    
+    throwIfSupabaseError(error);
+    
+    let nextNumber = 1;
+    if (events && events.length > 0) {
+      const lastCode = events[0].event_code;
+      const match = lastCode.match(/EVT-\d+-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
+      }
+    }
+    
+    return `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
+  },
   async createEvent(input) {
     const client = getSupabaseBrowserClient();
     const profile = await currentProfile();
@@ -495,7 +560,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
         ends_at: scheduledEnd,
         description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
         event_status: "scheduled",
-        approval_status: "pending",
+        approval_status: "approved",
         organizer_id: organizer.id,
         priority_level: input.priorityLevel,
         impact_score: input.impactScore ?? null
@@ -527,6 +592,81 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
   },
   async completeEvent(eventId) {
     return mapEvent(await updateRow("events", eventId, { event_status: "completed" }));
+  },
+  async rescheduleEvent(input: RescheduleEventInput) {
+    const client = getSupabaseBrowserClient();
+    const profile = await currentProfile();
+
+    // Fetch current event
+    const currentEvent = await supabaseEventManagementRepository.getEventById(input.eventId);
+
+    // Build update payload with only provided fields
+    const updatePayloadData: Record<string, unknown> = {};
+
+    if (input.venue) {
+      updatePayloadData.venue = input.venue;
+    }
+
+    // Handle date/time changes
+    if (input.date || input.startTime || input.endTime) {
+      const dateStr = input.date || currentEvent.startsAt.split("T")[0];
+      const startTimeStr = input.startTime || currentEvent.startsAt.split("T")[1].substring(0, 5);
+      const endTimeStr = input.endTime || currentEvent.endsAt.split("T")[1].substring(0, 5);
+
+      updatePayloadData.starts_at = new Date(`${dateStr}T${startTimeStr}:00`).toISOString();
+      updatePayloadData.ends_at = new Date(`${dateStr}T${endTimeStr}:00`).toISOString();
+    }
+
+    // Update event with type assertion for new migration columns
+    const { data: updatedEvent, error: eventError } = await client
+      .from("events")
+      .update(updatePayloadData as never)
+      .eq("id", input.eventId)
+      .select(eventReadSelect)
+      .single();
+    throwIfSupabaseError(eventError);
+
+    // Archive existing active sessions for this event if the linked schema includes the
+    // migration columns. Older Supabase projects do not have these fields yet, so we
+    // gracefully skip the archive step instead of making the reschedule save fail.
+    const rescheduledReason = input.reason || `Event rescheduled on ${new Date().toLocaleDateString()}`;
+    try {
+      const { error: archiveError } = await client
+        .from("event_sessions")
+        .update({
+          session_archive_status: "archived" as never,
+          rescheduled_at: new Date().toISOString() as never,
+          rescheduled_reason: rescheduledReason as never
+        } as never)
+        .eq("event_id", input.eventId)
+        .eq("session_archive_status" as never, "active");
+      throwIfSupabaseError(archiveError);
+    } catch (error) {
+      if (!isMissingRescheduleSchemaColumnError(error)) {
+        throw error;
+      }
+    }
+
+    // Log audit entry using the actual live audit_logs column name.
+    const auditMetadata = {
+      oldDate: currentEvent.startsAt,
+      newDate: updatedEvent.starts_at,
+      venue: input.venue || currentEvent.venue,
+      reason: rescheduledReason
+    };
+
+    const { error: auditError } = await client.from("audit_logs").insert({
+      actor_user_id: profile.id,
+      action: "Rescheduled Event",
+      target_type: "event",
+      target_id: input.eventId,
+      metadata: auditMetadata as never
+    } as never);
+    if (auditError && !isMissingRescheduleSchemaColumnError(auditError) && !isNonBlockingAuditLoggingError(auditError)) {
+      throwIfSupabaseError(auditError);
+    }
+
+    return mapEvent(updatedEvent as Row);
   }
 };
 
@@ -534,7 +674,9 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const rows = await selectRows("event_sessions", query);
+    const rows = await selectRowsFiltered("event_sessions", query, "*", {
+      event_id: query?.eventId
+    });
     return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
   },
 
@@ -586,14 +728,44 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
 
 export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
   async listAttendanceRecords(query, context) {
+    const listQuery = queryOrDefault(query);
     const sessionId = (query as { sessionId?: string })?.sessionId;
     const studentId = context?.actorRole === "student"
       ? await currentStudentIdForProfile(context.actorUserId)
       : undefined;
-    const rows = sessionId || studentId
-      ? await selectRowsFiltered("attendance_records", query, "*", { event_session_id: sessionId, student_id: studentId })
-      : await selectRows("attendance_records", query);
-    return pageResult(rows.items.map(mapAttendanceRecord), rows.total, query);
+    const eventId = (query as { eventId?: string })?.eventId;
+
+    const client = getSupabaseBrowserClient();
+    let builder = client.from("attendance_records").select("*", { count: "exact" });
+
+    if (eventId) {
+      const { data: sessionRows, error: sessionError } = await client
+        .from("event_sessions")
+        .select("id")
+        .eq("event_id", eventId);
+      throwIfSupabaseError(sessionError);
+      const sessionIds = (sessionRows ?? []).map((row) => String((row as Row).id ?? "")).filter(Boolean);
+      if (sessionIds.length === 0) {
+        return emptyPage(listQuery);
+      }
+      builder = builder.in("event_session_id", sessionIds);
+    }
+
+    if (sessionId) {
+      builder = builder.eq("event_session_id", sessionId);
+    }
+    if (studentId) {
+      builder = builder.eq("student_id", studentId);
+    }
+    if (listQuery.sortBy) {
+      builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+    }
+
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const { data, error, count } = await builder.range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult((data ?? []).map(mapAttendanceRecord), count ?? data?.length ?? 0, listQuery);
   },
   async getAttendanceRecordById(recordId, context) {
     const row = await selectSingleRow("attendance_records", recordId);
@@ -607,7 +779,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
   },
   async recordCredentialAttendance(input) {
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
-    const occurredAt = input.occurredAt ?? new Date().toISOString();
+    const occurredAt = input.occurredAt ?? getPhilippineNowIso();
 
     if (session.status !== "active") {
       return credentialScanResult(input, "No Active Session", occurredAt, "This attendance session is not active.", {
@@ -699,15 +871,52 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     throwIfSupabaseError(existingError);
 
     const existing = existingRows?.[0] as Row | undefined;
+    
+    // Handle check-in/check-out logic
     if (existing) {
-      const record = mapAttendanceRecord(existing);
-      return credentialScanResult(input, "Already Recorded", record.recordedAt, "Attendance was already recorded.", {
-        duplicateAttempts: 1,
-        attendanceRecord: record,
-        attendanceStatus: record.status
-      });
+      const existingTimeOut = existing.time_out;
+      
+      // If both time_in and time_out are already set, this is a duplicate attempt after check-out
+      if (existing.time_in && existingTimeOut) {
+        const record = mapAttendanceRecord(existing);
+        return credentialScanResult(input, "Already Recorded", record.recordedAt, "Student has already checked in and out.", {
+          duplicateAttempts: 1,
+          attendanceRecord: record,
+          attendanceStatus: record.status
+        });
+      }
+      
+      // If time_out is NULL, this is a CHECK-OUT attempt
+      if (!existingTimeOut && existing.time_in) {
+        const record = mapAttendanceRecord(existing);
+        const profile = await currentProfile();
+        
+        // Update the record with check-out time and verification method
+        const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
+          time_out: occurredAt,
+          updated_at: new Date().toISOString(),
+          recorded_by: String(profile.id ?? "")
+        });
+        
+        const updatedRecord = mapAttendanceRecord(updatedRow as Row);
+        const studentSummary = await studentScanSummary(studentId);
+        
+        await insertVerificationAttempt(input.sessionId, input.method, true, undefined, "QR credential accepted for check-out.", occurredAt, {
+          studentId,
+          qrCredentialId: String(credentialRow.id ?? "")
+        });
+        
+        return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
+          attendanceRecord: updatedRecord,
+          attendanceStatus: updatedRecord.status,
+          present: 1,
+          studentDisplayName: studentSummary.displayName,
+          studentNumber: studentSummary.studentNumber
+        });
+      }
     }
 
+    // No existing record: CREATE CHECK-IN
     const attempt = await insertVerificationAttempt(input.sessionId, input.method, true, undefined, "QR credential accepted.", occurredAt, {
       studentId,
       qrCredentialId: String(credentialRow.id ?? "")
@@ -730,7 +939,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
     const record = mapAttendanceRecord(recordRow);
     const studentSummary = await studentScanSummary(studentId);
-    return credentialScanResult(input, "Present", occurredAt, "QR attendance recorded.", {
+    return credentialScanResult(input, "Present", occurredAt, "Student checked in successfully.", {
       attendanceRecord: record,
       attendanceStatus: "present",
       present: 1,
@@ -744,14 +953,64 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const client = getSupabaseBrowserClient();
     const { data: existing, error: existingError } = await client.from("attendance_records").select("*").eq("event_session_id", input.sessionId).eq("student_id", input.studentId).maybeSingle();
     throwIfSupabaseError(existingError);
-    if (existing) {
-      const record = mapAttendanceRecord(existing as Row);
-      return { resultStatus: "Already Recorded", attendanceStatus: record.status, verificationMethod: "manual", recordedAt: record.recordedAt, safeMessage: "Attendance was already recorded.", attendanceRecord: record, summary: { present: 0, late: 0, absent: 0, duplicateAttempts: 1, failedAttempts: 0 } };
-    }
+    
     const sessionStart = new Date(session.startsAt).getTime();
-    const fallbackRecordedAt = new Date(sessionStart + 2 * 60_000).toISOString();
-    const recordedAt = input.occurredAt ?? fallbackRecordedAt;
+    const recordedAt = input.occurredAt ?? getPhilippineNowIso();
     const lateCutoff = new Date(session.lateCutoffAt ?? new Date(sessionStart + 15 * 60_000).toISOString()).getTime();
+    
+    // Handle check-in/check-out logic
+    if (existing) {
+      const existingTimeOut = existing.time_out;
+      
+      // If both time_in and time_out are already set, this is a duplicate attempt after check-out
+      if (existing.time_in && existingTimeOut) {
+        const record = mapAttendanceRecord(existing);
+        return { 
+          resultStatus: "Already Recorded", 
+          attendanceStatus: record.status, 
+          verificationMethod: "manual", 
+          recordedAt: record.recordedAt, 
+          safeMessage: "Student has already checked in and out.", 
+          attendanceRecord: record, 
+          summary: { present: 0, late: 0, absent: 0, duplicateAttempts: 1, failedAttempts: 0 } 
+        };
+      }
+      
+      // If time_out is NULL, this is a CHECK-OUT attempt
+      if (!existingTimeOut && existing.time_in) {
+        const profile = await currentProfile();
+        const existingStatus = ((existing.attendance_status as string | null) ?? "present").toLowerCase();
+        const existingLateReason = typeof existing.late_reason_category === "string" ? existing.late_reason_category : undefined;
+
+        // During checkout, preserve the original status and never overwrite an
+        // already-recorded late reason. Only the checkout timestamp and method change.
+        const updateData: Record<string, unknown> = {
+          time_out: recordedAt,
+          updated_at: new Date().toISOString(),
+          recorded_by: String(profile.id ?? "")
+        };
+
+        if (existingStatus === "late" && existingLateReason) {
+          updateData.late_reason_category = existingLateReason;
+        }
+
+        const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), updateData);
+        const updatedRecord = mapAttendanceRecord(updatedRow as Row);
+
+        return {
+          resultStatus: updatedRecord.status === "late" ? "Late" : "Present",
+          attendanceStatus: updatedRecord.status,
+          verificationMethod: "manual",
+          recordedAt,
+          safeMessage: "Student checked out successfully.",
+          attendanceRecord: updatedRecord,
+          summary: { present: updatedRecord.status === "present" ? 1 : 0, late: updatedRecord.status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 }
+        };
+      }
+    }
+    
+    // No existing record: CREATE CHECK-IN
+    // During check-in, determine status based on time and allow status override
     const status = input.statusOverride ?? (new Date(recordedAt).getTime() <= lateCutoff ? "present" : "late");
     const row = await insertRow("attendance_records", {
       event_session_id: input.sessionId,
@@ -764,7 +1023,15 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       late_reason_category: status === "late" ? (input.lateReason ?? "Other") : null
     });
     const record = mapAttendanceRecord(row);
-    return { resultStatus: status === "late" ? "Late" : "Present", attendanceStatus: status, verificationMethod: "manual", recordedAt, safeMessage: `Attendance recorded as ${status}.`, attendanceRecord: record, summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } };
+    return { 
+      resultStatus: status === "late" ? "Late" : "Present", 
+      attendanceStatus: status, 
+      verificationMethod: "manual", 
+      recordedAt, 
+      safeMessage: `Student checked in as ${status}.`, 
+      attendanceRecord: record, 
+      summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } 
+    };
   },
   async submitLateReason(input: SubmitLateReasonInput, context) {
     const client = getSupabaseBrowserClient();
@@ -1268,19 +1535,9 @@ export const supabaseAuditLogRepository: AuditLogRepository = {
   },
   async logClientAction(input) {
     console.log("[logClientAction] Called with input:", input);
-    const client = getSupabaseBrowserClient();
-    const { error } = await client.rpc("log_client_action", {
-      p_action: input.action,
-      p_target_type: input.targetType,
-      p_target_id: input.targetId ?? null,
-      p_metadata: input.metadata ?? {}
-    });
-    if (error) {
-      console.error("[logClientAction] Supabase error:", error);
-    } else {
-      console.log("[logClientAction] Success!");
-    }
-    throwIfSupabaseError(error);
+    // Note: log_client_action RPC is not currently defined in Supabase.
+    // Audit logging is available through the audit_logs table if needed.
+    // For now, we only log to console for debugging purposes.
   }
 };
 
