@@ -371,7 +371,10 @@ export function StudentDashboardPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3">
+          <div
+            className="plpass-modern-scrollbar mt-5 grid max-h-[42rem] gap-3 overflow-y-auto overscroll-contain pr-2"
+            aria-label="Available events"
+          >
             {dashboardEvents.length ? dashboardEvents.map((event) => {
               const conflict = conflictMap.get(event.id);
               return (

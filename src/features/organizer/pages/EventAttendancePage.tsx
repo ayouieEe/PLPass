@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -60,6 +60,8 @@ import {
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { extractFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -321,6 +323,12 @@ export function EventAttendancePage() {
   const [methodFilter, setMethodFilter] = useState("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
+  const [facialStudentId, setFacialStudentId] = useState("");
+  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
+  const [facialStatus, setFacialStatus] = useState("");
+  const [facialVerifying, setFacialVerifying] = useState(false);
+  const facialVideoRef = useRef<HTMLVideoElement | null>(null);
+  const facialStreamRef = useRef<MediaStream | null>(null);
 
   const selectedSession = sessionQuery.data;
   const selectedEvent = eventsQuery.data?.items.find((item) => item.id === selectedSession?.eventId);
@@ -334,6 +342,26 @@ export function EventAttendancePage() {
       });
     }
   }, [selectedSession, selectedEvent, setHeaderOverride]);
+
+  useEffect(() => {
+    if (!facialCameraOpen) return;
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        facialStreamRef.current = stream;
+        if (facialVideoRef.current) facialVideoRef.current.srcObject = stream;
+      })
+      .catch(() => setFacialStatus("Camera access was not granted. Use QR or manual attendance instead."));
+    return () => {
+      cancelled = true;
+      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
+      facialStreamRef.current = null;
+    };
+  }, [facialCameraOpen]);
 
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
@@ -353,6 +381,7 @@ export function EventAttendancePage() {
   const participantStudents = participants
     .map((participant) => students.find((student) => student.id === participant.studentId))
     .filter((student): student is Student => Boolean(student));
+
   const attempts = (tapsQuery.data?.items ?? []).filter((attempt) => attempt.sessionId === session.id);
   const counts = attendanceCounts(records);
   const duplicateAttempts = attempts.filter((attempt) => attempt.message === "Already recorded").length;
@@ -398,18 +427,50 @@ export function EventAttendancePage() {
     }
     return session.startsAt ? new Date(new Date(session.startsAt).getTime() + 120_000).toISOString() : undefined;
   }
-  async function submitCredentialScan(code: string, method: "qr", outcome?: string) {
+  async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
     try {
       const result = await attendanceMutations.credentialScanMutation.mutateAsync({
         sessionId: session.id,
         credentialCode: code,
         method,
+        faceSimilarity: similarity,
         occurredAt: simulatedTime(outcome)
       });
       setLatestResult(result);
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
       toast.error("Attendance simulation failed", { description: "The attendance service rejected the scan." });
+    }
+  }
+  async function verifyFacialAttendance() {
+    const video = facialVideoRef.current;
+    if (!facialStudentId || !video) {
+      setFacialStatus("Choose an enrolled student and start the camera first.");
+      return;
+    }
+    setFacialVerifying(true);
+    setFacialStatus("Checking the live face…");
+    try {
+      const client = getSupabaseBrowserClient();
+      const { data, error } = await client
+        .rpc("get_facial_descriptor_for_organizer", { p_student_id: facialStudentId });
+      if (error) throw error;
+      const reference = Array.isArray(data) ? data.filter((value): value is number => typeof value === "number") : [];
+      if (reference.length < 32) {
+        throw new Error("This student does not have an active live facial enrollment.");
+      }
+      const capture = await extractFaceDescriptor(video);
+      const similarity = faceSimilarity(reference, capture.descriptor);
+      if (similarity < 0.82) {
+        setFacialStatus("Face was not a close enough match. Ask the student to face the camera clearly, or use QR/manual attendance.");
+        return;
+      }
+      await submitCredentialScan(facialStudentId, "facial", undefined, similarity);
+      setFacialStatus(`Face verified (${Math.round(similarity * 100)}% match).`);
+    } catch (error) {
+      setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
+    } finally {
+      setFacialVerifying(false);
     }
   }
   async function submitManualAttendance() {
@@ -469,16 +530,22 @@ export function EventAttendancePage() {
             <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
           </div>
           <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
-          <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification status">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-semibold">Facial verification</p>
-                <p className="mt-1 text-sm text-muted-foreground">Facial enrollment is Supabase-backed, but live camera matching is not enabled yet.</p>
-              </div>
-              <Button type="button" variant="outline" disabled>
-                Coming soon
-              </Button>
+          <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
+            <p className="font-semibold">Facial verification</p>
+            <p className="mt-1 text-sm text-muted-foreground">Organizer backup only. The live camera is matched to the student’s approved enrollment.</p>
+            <label className="mt-3 block text-sm font-medium">
+              Enrolled student
+              <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialStudentId} onChange={(event) => setFacialStudentId(event.target.value)}>
+                <option value="">Choose a participant</option>
+                {participantStudents.map((student) => <option key={student.id} value={student.id}>{studentName(student)} ({student.studentNumber})</option>)}
+              </select>
+            </label>
+            {facialCameraOpen ? <video ref={facialVideoRef} autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover" /> : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
+              <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || attendanceMutations.credentialScanMutation.isPending} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Verifying…" : "Verify face"}</Button>
             </div>
+            {facialStatus ? <p className="mt-3 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
           </section>
           <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
             <h2 className="font-semibold">Manual entry</h2>

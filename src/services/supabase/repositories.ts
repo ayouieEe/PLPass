@@ -805,13 +805,101 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       });
     }
 
+    const client = getSupabaseBrowserClient();
     if (input.method === "facial") {
-      return credentialScanResult(input, "Invalid Credential", occurredAt, "Facial verification is not enabled for live check-in yet.", {
-        failedAttempts: 1
+      const studentId = input.credentialCode.trim();
+      const similarity = input.faceSimilarity ?? 0;
+      if (!studentId || similarity < 0.82) {
+        await insertVerificationAttempt(input.sessionId, "facial", false, "facial_no_match", "Face did not meet the attendance verification threshold.", occurredAt, {
+          studentId: studentId || undefined
+        });
+        return credentialScanResult(input, "Invalid Credential", occurredAt, "Face could not be verified for attendance.", { failedAttempts: 1 });
+      }
+
+      const { data: facialProfile, error: facialProfileError } = await client
+        .from("facial_profiles")
+        .select("id, facial_status")
+        .eq("student_id", studentId)
+        .maybeSingle();
+      throwIfSupabaseError(facialProfileError);
+      const facialProfileRow = facialProfile as Row | null;
+      if (!facialProfileRow || facialProfileRow.facial_status !== "activated") {
+        await insertVerificationAttempt(input.sessionId, "facial", false, "facial_not_enrolled", "Student has no active facial enrollment.", occurredAt, { studentId });
+        return credentialScanResult(input, "Blocked Credential", occurredAt, "Student has no active facial enrollment.", { failedAttempts: 1 });
+      }
+
+      const { data: participant, error: participantError } = await client
+        .from("event_participants")
+        .select("id")
+        .eq("event_id", session.eventId ?? "")
+        .eq("student_id", studentId)
+        .maybeSingle();
+      throwIfSupabaseError(participantError);
+      if (!participant) {
+        await insertVerificationAttempt(input.sessionId, "facial", false, "not_enrolled", "Student is not enrolled in this event.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+        return credentialScanResult(input, "Student Not Enrolled", occurredAt, "Student is not enrolled in this event.", { failedAttempts: 1 });
+      }
+
+      const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
+      const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
+      const scannedAt = new Date(occurredAt).getTime();
+      const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
+      if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime()) || scannedAt > lateCutoff) {
+        await insertVerificationAttempt(input.sessionId, "facial", false, "outside_window", "Facial verification is outside the attendance window.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is outside the attendance window or needs late review.", { failedAttempts: 1 });
+      }
+
+      const { data: existingRows, error: existingError } = await client
+        .from("attendance_records")
+        .select("*")
+        .eq("event_session_id", input.sessionId)
+        .eq("student_id", studentId)
+        .limit(1);
+      throwIfSupabaseError(existingError);
+      const existing = existingRows?.[0] as Row | undefined;
+      const studentSummary = await studentScanSummary(studentId);
+
+      if (existing?.time_in && existing.time_out) {
+        const record = mapAttendanceRecord(existing);
+        return credentialScanResult(input, "Already Recorded", record.recordedAt, "Student has already checked in and out.", {
+          duplicateAttempts: 1, attendanceRecord: record, attendanceStatus: record.status, ...studentSummary
+        });
+      }
+
+      const profile = await currentProfile();
+      if (existing?.time_in) {
+        const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
+          time_out: occurredAt,
+          checkout_verification_method: "facial",
+          updated_at: new Date().toISOString(),
+          recorded_by: String(profile.id ?? "")
+        });
+        const updatedRecord = mapAttendanceRecord(updatedRow);
+        await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-out.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+        await updateRow("facial_profiles", String(facialProfileRow.id), { last_verified_at: occurredAt, updated_at: new Date().toISOString() });
+        return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
+          attendanceRecord: updatedRecord, attendanceStatus: updatedRecord.status, present: 1, ...studentSummary
+        });
+      }
+
+      const attempt = await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-in.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+      const recordRow = await insertRow("attendance_records", {
+        event_session_id: input.sessionId,
+        student_id: studentId,
+        verification_attempt_id: String(attempt.id ?? ""),
+        attendance_status: "present",
+        verification_method: "facial",
+        time_in: occurredAt,
+        recorded_at: occurredAt,
+        recorded_by: String(profile.id ?? "")
+      });
+      await updateRow("facial_profiles", String(facialProfileRow.id), { last_verified_at: occurredAt, updated_at: new Date().toISOString() });
+      const record = mapAttendanceRecord(recordRow);
+      return credentialScanResult(input, "Present", occurredAt, "Student checked in successfully.", {
+        attendanceRecord: record, attendanceStatus: "present", present: 1, ...studentSummary
       });
     }
 
-    const client = getSupabaseBrowserClient();
     const code = normalizeQrCredentialCode(input.credentialCode);
 
     if (!code) {
@@ -1339,6 +1427,9 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
       if (!input.faceImage) {
         throw new RepositoryError("A face photo is required for student facial enrollment.", "VALIDATION_ERROR");
       }
+      if (!input.faceDescriptor || input.faceDescriptor.length < 32) {
+        throw new RepositoryError("A clear live face descriptor is required for facial enrollment.", "VALIDATION_ERROR");
+      }
     }
 
     let enrollmentReference = input.enrollmentReference?.trim() || `face-${scopedStudentId}-${Date.now()}`;
@@ -1366,6 +1457,11 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     });
     throwIfSupabaseError(error);
     void data;
+
+    const { error: descriptorError } = await client.rpc("store_facial_descriptor", {
+      p_face_descriptor: input.faceDescriptor ?? []
+    });
+    throwIfSupabaseError(descriptorError);
 
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(scopedStudentId, context);
   },

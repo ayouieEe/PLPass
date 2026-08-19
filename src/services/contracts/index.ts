@@ -97,6 +97,7 @@ export type AttendanceScanInput = {
   sessionId: string;
   credentialCode: string;
   method: Extract<VerificationMethod, "qr" | "facial">;
+  faceSimilarity?: number;
   occurredAt?: string;
 };
 
@@ -132,6 +133,7 @@ export type EnrollFacialProfileInput = {
   studentId: string;
   enrollmentReference?: string;
   faceImage?: File;
+  faceDescriptor?: number[];
 };
 
 export type AttendanceSubmissionResultStatus =

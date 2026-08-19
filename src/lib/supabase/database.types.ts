@@ -780,8 +780,11 @@ export type Database = {
         Row: {
           consent_recorded_at: string
           created_at: string
+          descriptor_model: string | null
+          descriptor_updated_at: string | null
           enrolled_at: string
           enrollment_reference: string
+          face_descriptor: Json | null
           facial_status: string
           id: string
           last_verified_at: string | null
@@ -791,8 +794,11 @@ export type Database = {
         Insert: {
           consent_recorded_at: string
           created_at?: string
+          descriptor_model?: string | null
+          descriptor_updated_at?: string | null
           enrolled_at?: string
           enrollment_reference: string
+          face_descriptor?: Json | null
           facial_status?: string
           id?: string
           last_verified_at?: string | null
@@ -802,8 +808,11 @@ export type Database = {
         Update: {
           consent_recorded_at?: string
           created_at?: string
+          descriptor_model?: string | null
+          descriptor_updated_at?: string | null
           enrolled_at?: string
           enrollment_reference?: string
+          face_descriptor?: Json | null
           facial_status?: string
           id?: string
           last_verified_at?: string | null
@@ -1387,6 +1396,14 @@ export type Database = {
       review_credential_request: {
         Args: { p_remarks?: string | null; p_request_id: string; p_status: string }
         Returns: Database["public"]["Tables"]["credential_requests"]["Row"]
+      }
+      get_facial_descriptor_for_organizer: {
+        Args: { p_student_id: string }
+        Returns: Json
+      }
+      store_facial_descriptor: {
+        Args: { p_face_descriptor: Json }
+        Returns: Database["public"]["Tables"]["facial_profiles"]["Row"]
       }
       set_student_credential_status: {
         Args: { p_credential_type: string; p_status: string; p_student_id: string }
