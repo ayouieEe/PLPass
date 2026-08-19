@@ -12,6 +12,7 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+drop policy if exists attendance_request_proofs_read on storage.objects;
 create policy attendance_request_proofs_read on storage.objects
   for select to authenticated
   using (
@@ -22,6 +23,7 @@ create policy attendance_request_proofs_read on storage.objects
     )
   );
 
+drop policy if exists attendance_request_proofs_insert_self on storage.objects;
 create policy attendance_request_proofs_insert_self on storage.objects
   for insert to authenticated
   with check (
@@ -29,6 +31,7 @@ create policy attendance_request_proofs_insert_self on storage.objects
     and (storage.foldername(name))[1] = (select private.current_student_id())::text
   );
 
+drop policy if exists attendance_request_proofs_delete_self on storage.objects;
 create policy attendance_request_proofs_delete_self on storage.objects
   for delete to authenticated
   using (

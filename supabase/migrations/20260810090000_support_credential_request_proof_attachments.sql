@@ -12,7 +12,10 @@ set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
-create table public.credential_request_attachments (
+-- This table may already exist in projects where the attachment feature was
+-- provisioned before its migration history was recorded. Keep that data and
+-- continue applying the access controls below.
+create table if not exists public.credential_request_attachments (
   id uuid primary key default gen_random_uuid(),
   request_id uuid not null references public.credential_requests(id) on delete cascade,
   storage_bucket text not null,
@@ -28,13 +31,14 @@ create table public.credential_request_attachments (
   constraint credential_request_attachments_request_path_unique unique (request_id, storage_object_path)
 );
 
-create index credential_request_attachments_request_id_idx
+create index if not exists credential_request_attachments_request_id_idx
   on public.credential_request_attachments (request_id);
 
 alter table public.credential_request_attachments enable row level security;
 
 grant select, insert, delete on public.credential_request_attachments to authenticated;
 
+drop policy if exists credential_request_attachments_read on public.credential_request_attachments;
 create policy credential_request_attachments_read on public.credential_request_attachments
   for select to authenticated
   using (exists (
@@ -47,6 +51,7 @@ create policy credential_request_attachments_read on public.credential_request_a
       )
   ));
 
+drop policy if exists credential_request_attachments_insert_self on public.credential_request_attachments;
 create policy credential_request_attachments_insert_self on public.credential_request_attachments
   for insert to authenticated
   with check (exists (
@@ -57,6 +62,7 @@ create policy credential_request_attachments_insert_self on public.credential_re
       and credential_requests.request_status = 'pending'
   ));
 
+drop policy if exists credential_request_attachments_delete_self on public.credential_request_attachments;
 create policy credential_request_attachments_delete_self on public.credential_request_attachments
   for delete to authenticated
   using (exists (
@@ -67,6 +73,7 @@ create policy credential_request_attachments_delete_self on public.credential_re
       and credential_requests.request_status = 'pending'
   ));
 
+drop policy if exists credential_request_proofs_read on storage.objects;
 create policy credential_request_proofs_read on storage.objects
   for select to authenticated
   using (
@@ -77,6 +84,7 @@ create policy credential_request_proofs_read on storage.objects
     )
   );
 
+drop policy if exists credential_request_proofs_insert_self on storage.objects;
 create policy credential_request_proofs_insert_self on storage.objects
   for insert to authenticated
   with check (
@@ -84,6 +92,7 @@ create policy credential_request_proofs_insert_self on storage.objects
     and (storage.foldername(name))[1] = (select private.current_student_id())::text
   );
 
+drop policy if exists credential_request_proofs_delete_self on storage.objects;
 create policy credential_request_proofs_delete_self on storage.objects
   for delete to authenticated
   using (

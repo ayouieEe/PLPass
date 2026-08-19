@@ -27,6 +27,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
 import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
+import { extractFaceDescriptorFromFile, prepareFaceRecognition } from "@/lib/biometrics/humanFace";
 import { cn } from "@/lib/utils/cn";
 import {
   ensureStudentIdentityReadiness,
@@ -128,6 +129,8 @@ export function AttendanceMethodsPage() {
   const [issueProofInputKey, setIssueProofInputKey] = useState(0);
   const [faceEnrollmentFile, setFaceEnrollmentFile] = useState<File | null>(null);
   const [faceEnrollmentError, setFaceEnrollmentError] = useState("");
+  const [faceEnrollmentProcessing, setFaceEnrollmentProcessing] = useState(false);
+  const [faceRecognitionPreparing, setFaceRecognitionPreparing] = useState(false);
   const [faceEnrollmentInputKey, setFaceEnrollmentInputKey] = useState(0);
   const [facePreviewUrl, setFacePreviewUrl] = useState("");
   const [faceCameraError, setFaceCameraError] = useState("");
@@ -199,6 +202,22 @@ export function AttendanceMethodsPage() {
       stopFaceCamera();
     };
   }, [showFaceEnrollment, faceEnrollmentFile, faceCameraRestartKey]);
+
+  useEffect(() => {
+    if (!showFaceEnrollment) return;
+    let cancelled = false;
+    setFaceRecognitionPreparing(true);
+    void prepareFaceRecognition()
+      .catch(() => {
+        if (!cancelled) setFaceEnrollmentError("Face recognition could not start. Please check your connection and try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setFaceRecognitionPreparing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showFaceEnrollment]);
 
   if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
@@ -372,15 +391,23 @@ export function AttendanceMethodsPage() {
     }
 
     try {
+      setFaceEnrollmentError("");
+      setFaceEnrollmentProcessing(true);
+      const { descriptor } = await extractFaceDescriptorFromFile(faceEnrollmentFile);
       await credentialMutations.enrollFacialProfileMutation.mutateAsync({
         studentId: student.id,
-        faceImage: faceEnrollmentFile
+        faceImage: faceEnrollmentFile,
+        faceDescriptor: descriptor
       });
       toast.success("Facial backup enrolled.");
       resetFaceEnrollmentFile();
       setShowFaceEnrollment(false);
-    } catch {
-      toast.error("Unable to enroll face. If it was already enrolled, submit a re-enrollment request.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to enroll face.";
+      setFaceEnrollmentError(message);
+      toast.error(`${message} If it was already enrolled, submit a re-enrollment request.`);
+    } finally {
+      setFaceEnrollmentProcessing(false);
     }
   }
 
@@ -684,6 +711,7 @@ export function AttendanceMethodsPage() {
             ) : null}
 
             {faceEnrollmentError ? <p className="mt-2 text-sm text-danger">{faceEnrollmentError}</p> : null}
+            {faceRecognitionPreparing ? <p className="mt-2 text-xs text-muted-foreground">Preparing face recognition in the background…</p> : null}
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
@@ -699,10 +727,10 @@ export function AttendanceMethodsPage() {
             </Button>
             <Button
               type="button"
-              disabled={credentialMutations.enrollFacialProfileMutation.isPending || Boolean(faceEnrollmentError)}
+              disabled={credentialMutations.enrollFacialProfileMutation.isPending || faceEnrollmentProcessing || !faceEnrollmentFile || Boolean(faceEnrollmentError)}
               onClick={handleFaceEnrollmentSubmit}
             >
-              {credentialMutations.enrollFacialProfileMutation.isPending ? "Enrolling..." : "Enroll face"}
+              {faceEnrollmentProcessing ? "Checking face..." : credentialMutations.enrollFacialProfileMutation.isPending ? "Enrolling..." : "Enroll face"}
             </Button>
           </div>
         </div>

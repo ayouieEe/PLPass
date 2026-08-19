@@ -4,7 +4,11 @@ begin;
 -- This allows the system to record different check-in and check-out methods
 -- (e.g., QR code for check-in, facial recognition for check-out)
 alter table public.attendance_records
-  add column checkout_verification_method text,
+  add column if not exists checkout_verification_method text;
+
+alter table public.attendance_records
+  drop constraint if exists attendance_records_checkout_method_valid,
+  drop constraint if exists attendance_records_checkout_requires_time_out,
   add constraint attendance_records_checkout_method_valid
     check (
       checkout_verification_method is null

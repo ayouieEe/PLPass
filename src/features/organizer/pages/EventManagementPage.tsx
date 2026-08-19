@@ -621,6 +621,14 @@ export function EventManagementPage() {
   );
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
+  const resolvedLiveSessionId = useMemo(() => {
+    if (liveSessionId) return liveSessionId;
+
+    const activeForEvent = sessionsList.find((candidate) =>
+      candidate.status === "active" && (!activeEvent?.id || candidate.eventId === activeEvent.id)
+    );
+    return activeForEvent?.id ?? null;
+  }, [activeEvent?.id, liveSessionId, sessionsList]);
   const manualLateLock = useMemo(
     () =>
       resolveLateStudentManualState({
@@ -899,6 +907,7 @@ export function EventManagementPage() {
     setStartEvent(null);
     setSelectedEventForSession(null);
     toast.success(`${startEvent.code} live session started.`);
+    navigate(APP_ROUTES.organizerSession(session.id));
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Started Live Session",
@@ -1331,7 +1340,21 @@ export function EventManagementPage() {
                         <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">Face scan ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Align the student&apos;s face in the frame and verify the match before logging attendance.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Open live verification to select an enrolled participant, use the camera, and record attendance.</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => {
+                          if (!resolvedLiveSessionId) {
+                            toast.error("The active session is still loading. Please wait a moment and try again.");
+                            return;
+                          }
+                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
+                        }}
+                      >
+                        Open live verification
+                      </Button>
                     </div>
                   ) : captureMode === "Manual" ? (
                     <div className="space-y-4">

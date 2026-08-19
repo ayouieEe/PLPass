@@ -25,6 +25,7 @@ alter table public.request_email_outbox enable row level security;
 
 grant select on public.request_email_outbox to authenticated;
 
+drop policy if exists request_email_outbox_read_self on public.request_email_outbox;
 create policy request_email_outbox_read_self on public.request_email_outbox
   for select to authenticated
   using (recipient_profile_id = (select auth.uid()));
