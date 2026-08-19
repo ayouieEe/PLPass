@@ -238,9 +238,9 @@ export function MyAttendancePage() {
     feedbackSubmitted: Boolean(selectedFeedbackSubmitted),
     correctionStatus: selectedCorrection?.status
   }) : undefined;
-  const feedbackObjectives = ((feedbackObjectivesQuery.data?.length ?? 0) > 0 ? feedbackObjectivesQuery.data ?? [] : []).slice(0, 3);
-  const hasConfiguredObjectives = (feedbackObjectivesQuery.data?.length ?? 0) > 0;
-  const displayObjectives = feedbackObjectives.slice(0, 3);
+  const feedbackObjectives = feedbackObjectivesQuery.data ?? [];
+  const hasConfiguredObjectives = feedbackObjectives.length > 0;
+  const displayObjectives = feedbackObjectives;
   const canSubmitFeedback = hasConfiguredObjectives
     ? feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0)
     : feedbackComment.trim().length >= 5;

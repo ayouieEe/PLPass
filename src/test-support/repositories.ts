@@ -267,6 +267,7 @@ let correctionRequestState = correctionRequestFixtures.map((entry) => ({ ...entr
 let credentialRequestState: CredentialRequest[] = [];
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
+let eventObjectiveState: Array<{ id: string; eventId: string; order: number; text: string }> = [];
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let systemSettingsState = { ...systemSettingsFixture };
@@ -287,6 +288,7 @@ export function resetSimulatedRepositoryState() {
   credentialRequestState = [];
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
+  eventObjectiveState = [];
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   systemSettingsState = { ...systemSettingsFixture };
@@ -796,8 +798,18 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       studentId,
       registeredAt: new Date().toISOString()
     }));
+    const objectives = (input.objectives ?? [])
+      .map((objective) => objective.trim())
+      .filter((objective) => objective.length > 0)
+      .map((objective, index) => ({
+        id: `objective-${created.id}-${index + 1}`,
+        eventId: created.id,
+        order: index + 1,
+        text: objective
+      }));
     eventState = [created, ...eventState];
     eventParticipantState = [...participants, ...eventParticipantState];
+    eventObjectiveState = [...objectives, ...eventObjectiveState.filter((entry) => entry.eventId !== created.id)];
     auditLogState = [
       {
         id: `audit-event-published-${Date.now()}`,
@@ -1289,8 +1301,16 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
 };
 
 export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
-  async listEventObjectives() {
-    return [];
+  async listEventObjectives(eventId) {
+    return eventObjectiveState
+      .filter((entry) => entry.eventId === eventId)
+      .sort((a, b) => a.order - b.order)
+      .map((entry) => ({
+        id: entry.id,
+        eventId: entry.eventId,
+        order: entry.order,
+        text: entry.text
+      }));
   },
   async listStudentFeedback() {
     return [];

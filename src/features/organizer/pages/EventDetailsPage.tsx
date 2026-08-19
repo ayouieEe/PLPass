@@ -26,6 +26,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
@@ -51,6 +52,7 @@ import {
   useCorrectionRequests,
   useEvent,
   useEventMutations,
+  useEventObjectives,
   useEventParticipants,
   useEvents,
   useMlPredictions,
@@ -188,7 +190,7 @@ function eventLabel(event: Event | undefined) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+  return student ? student.fullName ?? student.formattedName ?? student.studentNumber : "Unknown student";
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {
@@ -290,11 +292,14 @@ export function EventDetailsPage() {
   const navigate = useNavigate();
   const { setHeaderOverride } = useHeader();
   const [tab, setTab] = useState("participants");
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const eventQuery = useEvent(eventId, scope.context);
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
+  const objectivesQuery = useEventObjectives(eventId, scope.context);
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   
@@ -320,27 +325,41 @@ export function EventDetailsPage() {
   if (eventQuery.isError || !eventQuery.data) {
     return <ErrorState title="Event unavailable" message="This event was not found or is outside the signed-in organizer scope." />;
   }
-  if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading) {
+  if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || catalog.programs.isLoading || objectivesQuery.isLoading) {
     return <LoadingState label="Loading event workspace" />;
   }
   const event = eventQuery.data;
+  const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const participants = participantsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
   const students = studentsQuery.data?.items ?? [];
+  const objectives = objectivesQuery.data ?? [];
   const participantList = participantStudents(participants, students);
   const counts = attendanceCounts(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
   const participantColumns: ColumnDef<Student>[] = [
     { id: "name", header: "Student name", cell: ({ row }) => studentName(row.original) },
     { accessorKey: "studentNumber", header: "Student number" },
-    { accessorKey: "programId", header: "Program" },
+    {
+      accessorKey: "programId",
+      header: "Program",
+      cell: ({ row }) => programById.get(row.original.programId) ?? row.original.programId ?? "Unknown program"
+    },
     { accessorKey: "yearLevel", header: "Year level" },
     { accessorKey: "section", header: "Section" },
     { accessorKey: "status", header: "Student status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
     { id: "rate", header: "Participation rate", cell: () => `${attendanceRate(records)}%` },
     { id: "risk", header: "Risk status", cell: ({ row }) => <StatusBadge label={flagged.some((prediction) => prediction.studentId === row.original.id) ? "flagged" : "normal"} tone={flagged.some((prediction) => prediction.studentId === row.original.id) ? "warning" : "success"} /> },
-    { id: "action", header: "View", cell: () => <Button variant="outline" size="sm" disabled>View details</Button> }
+    {
+      id: "action",
+      header: "View",
+      cell: ({ row }) => (
+        <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>
+          View details
+        </Button>
+      )
+    }
   ];
   const sessionColumns: ColumnDef<AttendanceSession>[] = [
     { id: "date", header: "Session date", cell: ({ row }) => formatDate(row.original.startsAt) },
@@ -412,6 +431,21 @@ export function EventDetailsPage() {
         </div>
       </section>
 
+      <section className="rounded-lg border bg-surface p-5 shadow-sm">
+        <h3 className="font-semibold text-foreground">Event objectives</h3>
+        <div className="mt-3 space-y-2">
+          {objectives.length > 0 ? (
+            objectives.map((objective, index) => (
+              <p key={objective.id} className="text-sm text-muted-foreground">
+                {index + 1}. {objective.text}
+              </p>
+            ))
+          ) : (
+            <p className="text-sm text-muted-foreground">No objectives defined for this event yet.</p>
+          )}
+        </div>
+      </section>
+
       {/* Tabs Navigation */}
       <section className="space-y-4">
         {/* Only show tabs that have data */}
@@ -452,6 +486,51 @@ export function EventDetailsPage() {
           {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
         </div>
       </section>
+
+      <ModalShell
+        open={Boolean(selectedStudent)}
+        title={selectedStudent ? studentName(selectedStudent) : "Student details"}
+        description={selectedStudent ? `${selectedStudent.studentNumber} • Year ${selectedStudent.yearLevel} • Section ${selectedStudent.section}` : undefined}
+        size="md"
+        onClose={() => setSelectedStudent(null)}
+      >
+        {selectedStudent ? (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border bg-background p-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">Student number</p>
+                <p className="mt-2 text-base font-semibold text-foreground">{selectedStudent.studentNumber}</p>
+              </div>
+              <div className="rounded-lg border bg-background p-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">Status</p>
+                <p className="mt-2 text-base font-semibold text-foreground">{selectedStudent.status}</p>
+              </div>
+              <div className="rounded-lg border bg-background p-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">Program</p>
+                <p className="mt-2 text-base font-semibold text-foreground">{programById.get(selectedStudent.programId) ?? selectedStudent.programId ?? "Unknown program"}</p>
+              </div>
+              <div className="rounded-lg border bg-background p-3">
+                <p className="text-xs font-medium uppercase text-muted-foreground">Section</p>
+                <p className="mt-2 text-base font-semibold text-foreground">{selectedStudent.section}</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-background p-4">
+              <p className="text-sm font-medium text-foreground">Participation summary</p>
+              <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                <span>Attendance rate</span>
+                <span className="font-semibold text-foreground">{attendanceRate(records)}%</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
+                <span>Risk status</span>
+                <span className="font-semibold text-foreground">
+                  {flagged.some((prediction) => prediction.studentId === selectedStudent.id) ? "Flagged" : "Normal"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </ModalShell>
     </OrganizerFrame>
   );
 }

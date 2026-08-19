@@ -26,13 +26,35 @@ export function TextField<TFieldValues extends FieldValues>({
     <Controller
       control={control}
       name={name}
-      render={({ field, fieldState }) => (
-        <label className="space-y-1.5">
-          <span className={labelClass}>{label}</span>
-          <input {...field} className={`${fieldBaseClass} ${className ?? ""}`} type={type} placeholder={placeholder} disabled={disabled} readOnly={readOnly} />
-          {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
-        </label>
-      )}
+      render={({ field, fieldState }) => {
+        const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+          const rawValue = event.target.value;
+
+          if (type === "number") {
+            field.onChange(rawValue === "" ? null : Number(rawValue));
+            return;
+          }
+
+          field.onChange(rawValue);
+        };
+
+        return (
+          <label className="space-y-1.5">
+            <span className={labelClass}>{label}</span>
+            <input
+              {...field}
+              value={field.value ?? ""}
+              className={`${fieldBaseClass} ${className ?? ""}`}
+              type={type}
+              placeholder={placeholder}
+              disabled={disabled}
+              readOnly={readOnly}
+              onChange={handleChange}
+            />
+            {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+          </label>
+        );
+      }}
     />
   );
 }

@@ -63,6 +63,7 @@ export type CreateEventInput = {
   endTime: string;
   attendanceMode: "face-to-face" | "online";
   participantStudentIds: string[];
+  objectives?: string[];
   description?: string;
   remarks?: string;
   priorityLevel: "Time-Sensitive" | "Business-Critical" | "Flexible";

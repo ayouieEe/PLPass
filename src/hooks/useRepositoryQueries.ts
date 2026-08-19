@@ -201,6 +201,7 @@ export function useEventMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   const invalidateEvents = async () => {
     await queryClient.invalidateQueries({ queryKey: ["events"] });
+    await queryClient.invalidateQueries({ queryKey: ["eventObjectives"] });
     await queryClient.invalidateQueries({ queryKey: ["eventParticipants"] });
     await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
   };

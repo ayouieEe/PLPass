@@ -479,7 +479,10 @@ export function CreateEventPage() {
         remarks: values.remarks,
         priorityLevel: values.priorityLevel,
         impactScore: values.impactScore ?? null,
-        participantStudentIds: selectedIds
+        participantStudentIds: selectedIds,
+        objectives: values.objectives
+          .map((objective) => objective.value.trim())
+          .filter((objective) => objective.length > 0)
       });
       
       void auditLogMutations.logActionMutation.mutateAsync({
