@@ -567,6 +567,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 
 export function EventManagementPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");

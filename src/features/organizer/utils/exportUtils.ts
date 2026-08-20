@@ -1,5 +1,6 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 
 /**
  * Export utilities for organizer reports.
@@ -55,6 +56,22 @@ function buildCsvString(headers: string[], rows: (string | number)[][]): string 
 
 function downloadFile(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+}
+
+function downloadWorkbook(rows: Record<string, string | number>[], filename: string) {
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
+  const content = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([content], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -443,6 +460,86 @@ export function exportFacialProfilesPdf(rows: ExportFacialProfileRow[]) {
   });
 
   doc.save(`facial-profiles-${todayLabel()}.pdf`);
+}
+
+export type ExportEventAttendanceRow = {
+  eventCode: string;
+  eventName: string;
+  studentName: string;
+  attendanceStatus: string;
+  checkInTime: string;
+  checkOutTime: string;
+  attendanceMethod: string;
+  lateReason: string;
+};
+
+export type ExportEventSummaryRow = {
+  eventCode: string;
+  eventName: string;
+  priority: string;
+  date: string;
+  venue: string;
+  totalRegistered: number;
+  present: number;
+  late: number;
+  absent: number;
+  attendanceRate: string;
+};
+
+export function exportEventAttendanceXlsx(rows: ExportEventAttendanceRow[]) {
+  downloadWorkbook(rows.map((row) => ({
+    "Event Code": row.eventCode,
+    "Event Name": row.eventName,
+    "Student Name": row.studentName,
+    "Attendance Status": row.attendanceStatus,
+    "Check-in Time": row.checkInTime,
+    "Check-out Time": row.checkOutTime,
+    "Attendance Method": row.attendanceMethod,
+    "Late Arrival": row.lateReason
+  })), `event-attendance-${todayLabel()}.xlsx`);
+}
+
+export function exportEventAttendancePdf(rows: ExportEventAttendanceRow[]) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.setFontSize(16);
+  doc.text("Event Attendance Report", 14, 18);
+  autoTable(doc, {
+    startY: 25,
+    head: [["Event Code", "Event Name", "Student", "Status", "Check-in", "Check-out", "Method", "Late Arrival"]],
+    body: rows.map((row) => [row.eventCode, row.eventName, row.studentName, row.attendanceStatus, row.checkInTime, row.checkOutTime, row.attendanceMethod, row.lateReason]),
+    theme: "striped",
+    styles: { fontSize: 8, cellPadding: 3 }
+  });
+  doc.save(`event-attendance-${todayLabel()}.pdf`);
+}
+
+export function exportEventSummaryXlsx(rows: ExportEventSummaryRow[]) {
+  downloadWorkbook(rows.map((row) => ({
+    "Event Code": row.eventCode,
+    "Event Name": row.eventName,
+    Priority: row.priority,
+    Date: row.date,
+    Venue: row.venue,
+    "Total Registered": row.totalRegistered,
+    Present: row.present,
+    Late: row.late,
+    Absent: row.absent,
+    "Attendance Rate": row.attendanceRate
+  })), `event-summary-${todayLabel()}.xlsx`);
+}
+
+export function exportEventSummaryPdf(rows: ExportEventSummaryRow[]) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.setFontSize(16);
+  doc.text("Event Summary Report", 14, 18);
+  autoTable(doc, {
+    startY: 25,
+    head: [["Event Code", "Event Name", "Priority", "Date", "Venue", "Registered", "Present", "Late", "Absent", "Rate"]],
+    body: rows.map((row) => [row.eventCode, row.eventName, row.priority, row.date, row.venue, row.totalRegistered, row.present, row.late, row.absent, row.attendanceRate]),
+    theme: "striped",
+    styles: { fontSize: 8, cellPadding: 3 }
+  });
+  doc.save(`event-summary-${todayLabel()}.pdf`);
 }
 
 

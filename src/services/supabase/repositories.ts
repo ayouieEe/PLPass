@@ -113,6 +113,19 @@ const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 const facialEnrollmentBucket = "facial-enrollments";
 
+async function requestEventEmailDelivery(eventId: string) {
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client.functions.invoke("send-event-emails", {
+    body: { eventId }
+  });
+  if (error) {
+    throw new RepositoryError(`Event email delivery failed: ${error.message}`, "SERVER_ERROR");
+  }
+  if (data?.failed > 0) {
+    throw new RepositoryError(`Event email delivery failed for ${data.failed} recipient(s).`, "SERVER_ERROR");
+  }
+}
+
 function sanitizeStorageFileName(fileName: string) {
   const safeName = fileName
     .trim()
@@ -505,24 +518,23 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const client = getSupabaseBrowserClient();
     const currentYear = new Date().getFullYear();
     
-    const { data: events, error } = await client
+    const { data: allEvents, error } = await client
       .from("events")
-      .select("event_code")
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .select("event_code");
     
     throwIfSupabaseError(error);
     
+    const existingCodes = new Set((allEvents ?? []).map((e) => String(e.event_code ?? "")));
     let nextNumber = 1;
-    if (events && events.length > 0) {
-      const lastCode = events[0].event_code;
-      const match = lastCode.match(/EVT-\d+-(\d+)/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
-      }
+    let candidateCode = `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
+    
+    // Retry until we find a unique code (max 1000 attempts)
+    while (existingCodes.has(candidateCode) && nextNumber < 1000) {
+      nextNumber += 1;
+      candidateCode = `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
     }
     
-    return `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
+    return candidateCode;
   },
   async createEvent(input) {
     const client = getSupabaseBrowserClient();
@@ -549,25 +561,57 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
     const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
     const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
-    const { data: eventRow, error: eventError } = await client
-      .from("events")
-      .insert({
-        event_code: input.code,
-        title: input.title,
-        category_id: category.id,
-        venue: input.venue,
-        starts_at: scheduledStart,
-        ends_at: scheduledEnd,
-        description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
-        event_status: "scheduled",
-        approval_status: "approved",
-        organizer_id: organizer.id,
-        priority_level: input.priorityLevel,
-        impact_score: input.impactScore ?? null
-      })
-      .select(eventReadSelect)
-      .single();
+    
+    // Retry event insertion if event code collision occurs
+    let eventRow = null;
+    let eventError = null;
+    let attempts = 0;
+    let currentCode = input.code;
+    
+    while (attempts < 5 && !eventRow) {
+      const result = await client
+        .from("events")
+        .insert({
+          event_code: currentCode,
+          title: input.title,
+          category_id: category.id,
+          venue: input.venue,
+          starts_at: scheduledStart,
+          ends_at: scheduledEnd,
+          description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
+          event_status: "scheduled",
+          approval_status: "approved",
+          organizer_id: organizer.id,
+          priority_level: input.priorityLevel,
+          impact_score: input.impactScore ?? null
+        })
+        .select(eventReadSelect)
+        .single();
+      
+      eventError = result.error;
+      eventRow = result.data;
+      
+      if (eventError) {
+        const errorMsg = getErrorMessageText(eventError) || "";
+        const isCodeCollision = errorMsg.includes("events_code_unique") || errorMsg.includes("duplicate key");
+        
+        if (isCodeCollision && attempts < 4) {
+          // Code collision - generate new code and retry
+          attempts++;
+          const currentYear = new Date().getFullYear();
+          currentCode = `EVT-${currentYear}-${String(Math.random() * 10000 | 0).padStart(3, "0")}`;
+          eventError = null;
+          eventRow = null;
+          continue;
+        }
+      }
+      break;
+    }
+    
     throwIfSupabaseError(eventError);
+    if (!eventRow) {
+      throw new RepositoryError("Unable to create event after retrying event code generation.", "SERVER_ERROR");
+    }
 
     if (input.participantStudentIds.length > 0) {
       const { error: participantError } = await client.from("event_participants").insert(
@@ -600,6 +644,8 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
         throwIfSupabaseError(objectiveError);
       }
     }
+
+    await requestEventEmailDelivery(String(eventRow.id));
 
     return mapEvent(eventRow as Row);
   },
@@ -683,6 +729,8 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     if (auditError && !isMissingRescheduleSchemaColumnError(auditError) && !isNonBlockingAuditLoggingError(auditError)) {
       throwIfSupabaseError(auditError);
     }
+
+    await requestEventEmailDelivery(input.eventId);
 
     return mapEvent(updatedEvent as Row);
   }

@@ -7,6 +7,11 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   label: string;
   placeholder?: string;
   type?: "text" | "email" | "password" | "number" | "tel";
+  min?: number;
+  max?: number;
+  step?: number;
+  minError?: string;
+  maxError?: string;
   disabled?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -18,6 +23,11 @@ export function TextField<TFieldValues extends FieldValues>({
   label,
   placeholder,
   type = "text",
+  min,
+  max,
+  step,
+  minError,
+  maxError,
   disabled,
   readOnly,
   className
@@ -38,6 +48,15 @@ export function TextField<TFieldValues extends FieldValues>({
           field.onChange(rawValue);
         };
 
+        const numericRangeError = type === "number" && typeof field.value === "number"
+          ? min !== undefined && field.value < min
+            ? minError ?? `Value must be at least ${min}.`
+            : max !== undefined && field.value > max
+              ? maxError ?? `Value must not exceed ${max}.`
+              : undefined
+          : undefined;
+        const errorMessage = numericRangeError ?? fieldState.error?.message;
+
         return (
           <label className="space-y-1.5">
             <span className={labelClass}>{label}</span>
@@ -47,11 +66,14 @@ export function TextField<TFieldValues extends FieldValues>({
               className={`${fieldBaseClass} ${className ?? ""}`}
               type={type}
               placeholder={placeholder}
+              min={min}
+              max={max}
+              step={step}
               disabled={disabled}
               readOnly={readOnly}
               onChange={handleChange}
             />
-            {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+            {errorMessage ? <p className={fieldErrorClass}>{errorMessage}</p> : null}
           </label>
         );
       }}

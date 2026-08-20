@@ -49,6 +49,7 @@ import type {
   RepositoryRegistry,
   ReviewCorrectionRequestInput,
   ReviewCredentialRequestInput,
+  RescheduleEventInput,
   StudentCredentialRepository,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
@@ -741,6 +742,14 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     }
     return event;
   },
+  async generateNextEventCode() {
+    const year = new Date().getFullYear();
+    const nextNumber = eventState.reduce((highest, event) => {
+      const match = event.code.match(/^EVT-\d+-(\d+)$/);
+      return match ? Math.max(highest, Number.parseInt(match[1], 10)) : highest;
+    }, 0) + 1;
+    return `EVT-${year}-${String(nextNumber).padStart(3, "0")}`;
+  },
   async listEventParticipants(eventId, query, context) {
     await beforeRead("eventManagement", context, ["admin", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -869,8 +878,8 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
 
     // Archive existing sessions for this event (simulation)
     // In real implementation, sessions would be marked archived with rescheduled metadata
-    sessionState = sessionState.map((session) =>
-      session.eventId === input.eventId && session.status === "scheduled"
+    attendanceSessionState = attendanceSessionState.map((session) =>
+      session.eventId === input.eventId && session.status === "active"
         ? { ...session, status: "cancelled" as const }
         : session
     );

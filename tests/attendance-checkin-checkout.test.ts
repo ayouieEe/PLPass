@@ -43,7 +43,7 @@ describe("Supabase event-scoped attendance queries", () => {
       const filters: Record<string, unknown> = {};
       const builder = {
         select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockImplementation(function (field: string, value: unknown) {
+        eq: vi.fn().mockImplementation(function (this: { eq: typeof builder.eq }, field: string, value: unknown) {
           filters[field] = value;
           return this;
         }),

@@ -542,6 +542,11 @@ export function CreateEventPage() {
                 label="Impact Score (0-10)" 
                 placeholder="Optional: 0-10"
                 type="number"
+                min={0}
+                max={10}
+                step={1}
+                minError="Impact score must be at least 0."
+                maxError="Impact score must not exceed 10."
               />
               <DatePickerField 
                 control={form.control} 

@@ -101,7 +101,8 @@ function ReportExportModal({
   onClose,
   qrRows,
   facialRows,
-  activeTab
+  activeTab,
+  onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;

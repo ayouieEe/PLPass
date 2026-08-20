@@ -4,6 +4,7 @@ import {
   hasValidEventSchedule,
   shouldDisplayInEventTab
 } from "@/features/organizer/pages/EventManagementPage";
+import { resolveEventAttendanceCode } from "@/features/organizer/hooks/useEventAttendance";
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -34,5 +35,10 @@ describe("event page validation helpers", () => {
       completedCodes: new Set(),
       sessionsList: []
     })).toBe(false);
+  });
+
+  it("uses the persisted event code for attendance rows", () => {
+    expect(resolveEventAttendanceCode({ "event-id": "EVT-2026-001" }, "event-id")).toBe("EVT-2026-001");
+    expect(resolveEventAttendanceCode({}, "event-id")).toBe("event-id");
   });
 });
