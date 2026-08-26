@@ -10,6 +10,20 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src")
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom)[\\/]/.test(id)) return "react-vendor";
+          if (id.includes("node_modules/@supabase/")) return "supabase-vendor";
+          if (id.includes("node_modules/@tanstack/")) return "query-vendor";
+          if (id.includes("node_modules/lucide-react/")) return "icons-vendor";
+          return undefined;
+        }
+      }
+    }
+  },
   test: {
     environment: "jsdom",
     globals: true,

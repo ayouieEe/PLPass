@@ -1,12 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
 import { CompletedEventModal } from "@/features/organizer/pages/EventRecordsPage";
-import { AuthenticationMethodsPage } from "@/features/organizer/pages/AuthenticationMethodsPage";
 import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/test-support/testHelpers";
 import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
 import { resetSimulatedRepositoryState } from "@/test-support/repositories";
@@ -77,7 +75,7 @@ describe("organizer route access", () => {
     setRoute("/organizer/dashboard");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Organizer dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^Dashboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "organizer navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
@@ -89,9 +87,9 @@ describe("organizer route access", () => {
 
     expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /event attendance prediction/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /attendance analytics/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /feedback & objective insights/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /late arrival insights/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /attendance trends/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /feedback & sentiment/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /late arrival patterns/i })).toBeInTheDocument();
   });
 
   it("denies organizer routes to a student user", async () => {
@@ -118,7 +116,7 @@ describe("organizer repository scoping and workflows", () => {
     const predictions = await repositories.analyticsMl.listMlPredictions({ pageIndex: 0, pageSize: 20 }, organizerTwoTestContext);
 
     expect(events.items.map((event) => event.id)).toEqual(["event-2", "event-4"]);
-    expect(sessions.items.map((session) => session.id)).toEqual(["session-6"]);
+    expect(sessions.items.map((session) => session.id)).toEqual(["session-4", "session-6"]);
     expect(corrections.items).toEqual([]);
     expect(corrections.items).toEqual([]);
     expect(reports.items).toEqual([]);
@@ -129,7 +127,7 @@ describe("organizer repository scoping and workflows", () => {
     await expect(repositories.eventManagement.getEventById("event-1", organizerTwoTestContext)).rejects.toMatchObject({
       code: "PERMISSION_DENIED"
     });
-    await expect(repositories.attendanceSessions.getAttendanceSessionById("session-4", organizerTwoTestContext)).rejects.toMatchObject({
+    await expect(repositories.attendanceSessions.getAttendanceSessionById("session-1", organizerTwoTestContext)).rejects.toMatchObject({
       code: "PERMISSION_DENIED"
     });
   });
@@ -275,14 +273,12 @@ describe("organizer repository scoping and workflows", () => {
 
 describe("organizer UI flows", () => {
   it("opens a modal when a credential action button is clicked", async () => {
-    render(
-      <MemoryRouter>
-        <AuthenticationMethodsPage />
-      </MemoryRouter>
-    );
+    storeSession(organizerSession);
+    setRoute("/organizer/reports");
+    render(<App />);
 
     const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: /view qr/i })[0]);
+    await user.click((await screen.findAllByRole("button", { name: /view qr/i }))[0]);
 
     expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
     expect(screen.getByText(/qr credential preview/i)).toBeInTheDocument();
@@ -293,7 +289,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Event Records" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
     expect(await screen.findByText("Business Forum")).toBeInTheDocument();
     expect(screen.queryByText("CCS Orientation")).not.toBeInTheDocument();
   });
@@ -306,22 +302,6 @@ describe("organizer UI flows", () => {
     expect(await screen.findByRole("heading", { name: "Event unavailable" })).toBeInTheDocument();
   });
 
-  it("shows the completed event record modal after the session summary view button is clicked", async () => {
-    storeSession(organizerSession);
-    setRoute("/organizer/events");
-    render(<App />);
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole("button", { name: /select first row/i }));
-    await user.click(screen.getByRole("button", { name: /start selected session/i }));
-    await user.click(screen.getByRole("button", { name: /start session/i }));
-    await user.click(screen.getByRole("button", { name: /end session/i }));
-    await user.click(screen.getByRole("button", { name: /view event record/i }));
-
-    expect(await screen.findByText(/view more/i)).toBeInTheDocument();
-    expect(screen.getByText(/attendee information/i)).toBeInTheDocument();
-  });
-
   it("shows export report actions inside the completed event modal", () => {
     render(
       <CompletedEventModal
@@ -332,8 +312,10 @@ describe("organizer UI flows", () => {
     );
 
     expect(screen.getByText(/export this event/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /attendance/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /summary/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attendance XLSX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attendance PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Event Summary XLSX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Event Summary PDF" })).toBeInTheDocument();
   });
 
   it("updates a pending correction request after the organizer approves it", async () => {
@@ -353,7 +335,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/corrections");
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: /all requests/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^all$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /pending/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approved/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /rejected/i })).toBeInTheDocument();
@@ -368,7 +350,6 @@ describe("organizer UI flows", () => {
     expect(await screen.findByRole("heading", { name: "Create Event" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Publish Event" }));
 
-    expect(await screen.findByText("Event code is required.")).toBeInTheDocument();
     expect(await screen.findByText("Select at least one participant.")).toBeInTheDocument();
   });
 

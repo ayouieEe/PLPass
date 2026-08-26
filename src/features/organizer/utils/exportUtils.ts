@@ -40,11 +40,48 @@ export type ExportParticipationRow = {
 // ---------------------------------------------------------------------------
 
 function escapeCsv(value: string | number): string {
-  const str = String(value ?? "");
+  const raw = String(value ?? "");
+  const str = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
   if (str.includes(",") || str.includes('"') || str.includes("\n")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
+}
+
+export type ExportTableRow = Record<string, string | number | boolean | null | undefined>;
+
+function reportFileName(title: string) {
+  const safeTitle = title.toLowerCase().replace(/\b(?:xlsx|pdf)\b/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${safeTitle || "organizer-report"}-${todayLabel()}`;
+}
+
+export function exportTabularReportCsv(title: string, rows: ExportTableRow[]) {
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const data = rows.map((row) => headers.map((header) => String(row[header] ?? "")));
+  downloadFile(buildCsvString(headers, data), `${reportFileName(title)}.csv`, "text/csv;charset=utf-8;");
+}
+
+export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  doc.setFontSize(16);
+  doc.text(title.replace(/\s+(?:XLSX|PDF)$/i, ""), 14, 18);
+  doc.setFontSize(9);
+  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
+  autoTable(doc, {
+    startY: 28,
+    head: [headers],
+    body: rows.map((row) => headers.map((header) => String(row[header] ?? ""))),
+    theme: "striped",
+    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+    styles: { fontSize: 7, cellPadding: 2 }
+  });
+  doc.save(`${reportFileName(title)}.pdf`);
+}
+
+export function exportTabularReport(title: string, rows: ExportTableRow[]) {
+  if (/pdf$/i.test(title.trim())) exportTabularReportPdf(title, rows);
+  else exportTabularReportCsv(title, rows);
 }
 
 function buildCsvString(headers: string[], rows: (string | number)[][]): string {

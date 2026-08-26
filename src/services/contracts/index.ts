@@ -26,6 +26,7 @@ import type {
   DevelopmentAccount,
   EventFeedback,
   EventObjective
+  ,EventResource
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -68,6 +69,10 @@ export type CreateEventInput = {
   remarks?: string;
   priorityLevel: "Time-Sensitive" | "Business-Critical" | "Flexible";
   impactScore?: number | null;
+  visibility?: "assigned" | "public";
+  publishReason?: string;
+  resourceTitle?: string;
+  resourceUrl?: string;
 };
 
 export type RescheduleEventInput = {
@@ -240,10 +245,12 @@ export interface EventManagementRepository {
   listEvents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Event>>;
   getEventById(eventId: string, context?: RepositoryContext): Promise<Event>;
   listEventParticipants(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventParticipant>>;
+  listEventResources(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventResource>>;
   generateNextEventCode(context?: RepositoryContext): Promise<string>;
   createEvent(input: CreateEventInput, context?: RepositoryContext): Promise<Event>;
   updateEventStatus(eventId: string, status: Extract<EventStatus, "approved" | "rejected">, reason?: string, context?: RepositoryContext): Promise<Event>;
   completeEvent(eventId: string, context?: RepositoryContext): Promise<Event>;
+  cancelEvent(eventId: string, reason: string, context?: RepositoryContext): Promise<Event>;
   rescheduleEvent(input: RescheduleEventInput, context?: RepositoryContext): Promise<Event>;
 }
 
@@ -280,6 +287,7 @@ export interface CredentialRequestRepository {
 }
 
 export interface StudentCredentialRepository {
+  listStudentCredentialStatuses(context?: RepositoryContext): Promise<StudentCredentialStatus[]>;
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;

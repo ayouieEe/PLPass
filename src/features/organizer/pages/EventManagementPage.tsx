@@ -23,7 +23,17 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import {
-  createUiExport,
+  hasValidEventSchedule,
+  isTodayEvent,
+  resolveLateStudentManualState,
+  resolveManualAttendanceLookup,
+  shouldDisplayInEventTab,
+  type AttendanceStatus,
+  type EventRecord,
+  type LateReason,
+  type ManualAttendanceStatus
+} from "@/features/organizer/utils/eventManagement";
+import {
   endOrganizerSession,
   loadOrganizerUiState,
   saveOrganizerUiState,
@@ -32,34 +42,13 @@ import {
   type OrganizerAttendanceRow,
   type OrganizerEvent
 } from "@/features/organizer/data/organizerUiStore";
+import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 
 // Event Records is organized around three lifecycle tabs: Today, Incoming,
 // and Completed. A live session is a full-page state entered after Start Session.
 type EventTab = "today" | "incoming";
 type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
-type AttendanceStatus = "present" | "late" | "absent";
-type ManualAttendanceStatus = Extract<AttendanceStatus, "present" | "late">;
-
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
-const dashboardActiveSessionEventCode = "EVT-2026-004";
-type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
-
-type EventRecord = {
-  id?: string;
-  code: string;
-  name: string;
-  category: string;
-  venue: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  predictedTurnout: string;
-  objectives: string[];
-  description?: string;
-  status?: OrganizerEvent["status"];
-  priorityLevel: PriorityLevel;
-  impactScore: number | null;
-};
 
 type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
@@ -106,7 +95,7 @@ const rescheduleEventSchema = z.object({
   date: z.string().optional(),
   startTime: z.string().optional(),
   endTime: z.string().optional(),
-  reason: z.string().optional()
+  reason: z.string().trim().min(5, "Provide a brief reason for rescheduling")
 }).refine(
   (data) => !data.startTime || !data.endTime || data.endTime > data.startTime,
   {
@@ -150,19 +139,6 @@ function toMinutes(time: string) {
   return hours * 60 + minutes;
 }
 
-function parseDateTime(date: string, time: string) {
-  const ampmMatch = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (ampmMatch) {
-    let hours = Number(ampmMatch[1]) % 12;
-    if (ampmMatch[3].toUpperCase() === "PM") {
-      hours += 12;
-    }
-    return new Date(`${date}T${hours.toString().padStart(2, "0")}:${ampmMatch[2]}:00`);
-  }
-  const isoDate = `${date}T${time}:00`;
-  const parsed = new Date(isoDate);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
 
 function timeRangesOverlap(startA: string, endA: string, startB: string, endB: string) {
   const startAMin = toMinutes(startA);
@@ -170,6 +146,27 @@ function timeRangesOverlap(startA: string, endA: string, startB: string, endB: s
   const startBMin = toMinutes(startB);
   const endBMin = toMinutes(endB);
   return startAMin < endBMin && startBMin < endAMin;
+}
+
+function sessionStartAvailability(event: EventRecord, now = new Date()) {
+  const eventDate = new Date(`${event.date}T00:00:00`);
+  const startMinutes = toMinutes(event.startTime);
+  const endMinutes = toMinutes(event.endTime);
+  const scheduledStart = new Date(eventDate);
+  const scheduledEnd = new Date(eventDate);
+  scheduledStart.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+  scheduledEnd.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+  if (Number.isNaN(scheduledStart.getTime()) || Number.isNaN(scheduledEnd.getTime())) {
+    return { allowed: false, message: "This event has an invalid schedule. Edit the event before starting attendance." };
+  }
+  if (scheduledEnd <= now) {
+    return { allowed: false, message: "This event's scheduled end time has passed. Reschedule it before starting attendance." };
+  }
+  const earliestStart = new Date(scheduledStart.getTime() - 30 * 60 * 1000);
+  if (now < earliestStart) {
+    return { allowed: false, message: `Attendance can be started at ${formatDisplayTime(earliestStart.toISOString())}, 30 minutes before the event.` };
+  }
+  return { allowed: true, message: "Starting now opens QR and facial-recognition attendance for assigned participants." };
 }
 
 // Client-side conflict detection: same venue, same date, overlapping time
@@ -213,78 +210,6 @@ function matchesSearch(event: EventRecord, search: string) {
   return [event.code, event.name, event.venue, event.category].some((item) => normalized(item).includes(query));
 }
 
-function isTodayEvent(event: EventRecord) {
-  if (event.code === dashboardActiveSessionEventCode) {
-    return true;
-  }
-
-  const today = new Date();
-  const eventDate = new Date(`${event.date}T00:00:00`);
-  return [today.getFullYear(), today.getMonth(), today.getDate()].join("-") === [eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate()].join("-");
-}
-
-export function hasValidEventSchedule(event: Pick<EventRecord, "date" | "startTime" | "endTime">): boolean {
-  if (!event.date || !event.startTime || !event.endTime) {
-    return false;
-  }
-
-  const start = parseDateTime(event.date, event.startTime);
-  const end = parseDateTime(event.date, event.endTime);
-  if (!start || !end) {
-    return false;
-  }
-
-  return end.getTime() > start.getTime();
-}
-
-export function shouldDisplayInEventTab(
-  event: EventRecord,
-  tab: "today" | "incoming",
-  options: {
-    activeEventCode?: string;
-    cancelledCodes: string[];
-    completedCodes: Set<string>;
-    sessionsList: Array<{ eventId?: string; date?: string }>;
-  }
-): boolean {
-  if (options.activeEventCode && event.code === options.activeEventCode) {
-    return false;
-  }
-
-  if (options.cancelledCodes.includes(event.code)) {
-    return false;
-  }
-
-  if (options.completedCodes.has(event.code)) {
-    return false;
-  }
-
-  if (!hasValidEventSchedule(event)) {
-    return false;
-  }
-
-  if (tab === "today") {
-    return event.status === "today" || isTodayEvent(event);
-  }
-
-  if (isPastDate(event.date) && !hasAttendanceSession(event.id, event.date, options.sessionsList)) {
-    return false;
-  }
-
-  return event.status === "incoming" || !isTodayEvent(event);
-}
-
-function isPastDate(dateString: string): boolean {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const eventDate = new Date(`${dateString}T00:00:00`);
-  return eventDate < today;
-}
-
-function hasAttendanceSession(eventId: string | undefined, eventDate: string, sessions: Array<{ eventId?: string; date?: string }>): boolean {
-  if (!eventId) return false;
-  return sessions.some((session) => session.eventId === eventId && session.date === eventDate);
-}
 
 function countRows(rows: AttendanceRow[]) {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
@@ -292,98 +217,6 @@ function countRows(rows: AttendanceRow[]) {
   const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
   const rate = rows.length ? Math.round(((present + late) / rows.length) * 100) : 0;
   return { present, late, absent, rate };
-}
-
-function normalizeStudentLookup(value: string) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
-function resolveStudentLookupId(
-  input: string,
-  students: Array<{ id: string; studentNumber?: string; fullName?: string }>
-): string | null {
-  const query = normalizeStudentLookup(input);
-  if (!query) {
-    return null;
-  }
-
-  const matchedStudent = students.find((student) => {
-    const id = normalizeStudentLookup(student.id);
-    const studentNumber = normalizeStudentLookup(student.studentNumber ?? "");
-    const fullName = normalizeStudentLookup(student.fullName ?? "");
-
-    return id === query || studentNumber === query || fullName === query;
-  });
-
-  return matchedStudent?.id ?? null;
-}
-
-export function resolveManualAttendanceLookup(
-  input: string,
-  students: Array<{ id: string; studentNumber?: string; fullName?: string }>
-): { isValid: boolean; matchedStudentId: string | null } {
-  const query = input.trim();
-  if (!query) {
-    return { isValid: false, matchedStudentId: null };
-  }
-
-  const matchedStudentId = resolveStudentLookupId(query, students);
-  return {
-    isValid: matchedStudentId !== null,
-    matchedStudentId
-  };
-}
-
-export function resolveLateStudentManualState({
-  manualInput,
-  students,
-  activeRows
-}: {
-  manualInput: string;
-  students: Array<{ id: string; studentNumber?: string; fullName?: string }>;
-  activeRows: Array<{ studentId: string; attendanceStatus: AttendanceStatus; lateReason?: string }>;
-}):
-  | {
-      isLateLocked: false;
-      lockedStatus: ManualAttendanceStatus;
-      lockedLateReason: "";
-      matchedStudentId: string | null;
-    }
-  | {
-      isLateLocked: true;
-      lockedStatus: "late";
-      lockedLateReason: LateReason | "";
-      matchedStudentId: string | null;
-    } {
-  const query = manualInput.trim();
-  if (!query) {
-    return {
-      isLateLocked: false,
-      lockedStatus: "present",
-      lockedLateReason: "",
-      matchedStudentId: null
-    };
-  }
-
-  const matchedStudentId = resolveStudentLookupId(query, students);
-  const targetStudentId = matchedStudentId ?? query;
-  const matchedRecord = activeRows.find((row) => row.studentId === targetStudentId);
-
-  if (!matchedRecord || matchedRecord.attendanceStatus !== "late") {
-    return {
-      isLateLocked: false,
-      lockedStatus: "present",
-      lockedLateReason: "",
-      matchedStudentId: matchedStudentId
-    };
-  }
-
-  return {
-    isLateLocked: true,
-    lockedStatus: "late",
-    lockedLateReason: (matchedRecord.lateReason as LateReason | undefined) ?? "",
-    matchedStudentId: matchedStudentId
-  };
 }
 
 function lateBreakdown(rows: AttendanceRow[]) {
@@ -567,6 +400,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 
 export function EventManagementPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -588,6 +422,7 @@ export function EventManagementPage() {
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
@@ -608,7 +443,7 @@ export function EventManagementPage() {
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
-  const { completeEventMutation } = useEventMutations(context);
+  const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
@@ -697,7 +532,9 @@ export function EventManagementPage() {
 
   // Fetch objectives for all events from Supabase
   useEffect(() => {
-    const eventIds = (eventsQuery.data?.items ?? []).map((e) => e.id);
+    const eventIds = (eventsQuery.data?.items ?? [])
+      .map((event) => event.id)
+      .filter((eventId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(eventId));
     if (eventIds.length === 0) return;
 
     const fetchAllObjectives = async () => {
@@ -719,7 +556,7 @@ export function EventManagementPage() {
         
         // Group objectives by event_id
         if (data && Array.isArray(data)) {
-          data.forEach((obj: any) => {
+          data.forEach((obj) => {
             const eventId = obj.event_id;
             const text = obj.objective_text ?? "";
             
@@ -727,8 +564,7 @@ export function EventManagementPage() {
               if (!map.has(eventId)) {
                 map.set(eventId, []);
               }
-              const objectives = map.get(eventId)!;
-              objectives.push(text);
+              map.get(eventId)?.push(text);
             }
           });
         }
@@ -854,22 +690,17 @@ export function EventManagementPage() {
     });
   }
 
-  function cancelEvent(event: EventRecord) {
+  async function cancelEvent(event: EventRecord) {
+    if (!event.id || cancelReason.trim().length < 5) {
+      toast.error("Provide a cancellation reason of at least 5 characters.");
+      return;
+    }
+    await cancelEventMutation.mutateAsync({ eventId: event.id, reason: cancelReason.trim() });
     setCancelledCodes((current) => (current.includes(event.code) ? current : [...current, event.code]));
-    setUiState((current) =>
-      saveOrganizerUiState({
-        ...current,
-        events: current.events.map((item) => (item.code === event.code ? { ...item, status: "cancelled" } : item))
-      })
-    );
+    setConfirmCancelEvent(null);
+    setEventModal(null);
+    setCancelReason("");
     toast.warning(`${event.code} has been cancelled.`);
-    
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Cancelled Event",
-      targetType: "event",
-      targetId: event.id,
-      metadata: { eventCode: event.code }
-    });
   }
 
  async function startSession() {
@@ -893,6 +724,18 @@ export function EventManagementPage() {
     return;
   }
 
+  const availability = sessionStartAvailability({
+    ...startEvent,
+    venue: sessionForm.venue,
+    date: sessionForm.date,
+    startTime: sessionForm.startTime,
+    endTime: sessionForm.endTime
+  });
+  if (!availability.allowed) {
+    toast.error(availability.message);
+    return;
+  }
+
   try {
     const session = await createEventSessionMutation.mutateAsync({
       eventId: startEvent.id,
@@ -903,11 +746,11 @@ export function EventManagementPage() {
       attendanceMode: "face-to-face"
     });
     setLiveSessionId(session.id);
+    setCaptureMode(defaultAttendanceMethod);
     setActiveEvent({ ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
     setStartEvent(null);
     setSelectedEventForSession(null);
     toast.success(`${startEvent.code} live session started.`);
-    navigate(APP_ROUTES.organizerSession(session.id));
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Started Live Session",
@@ -936,7 +779,7 @@ export function EventManagementPage() {
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Failed to end session.");
   }
-}, [activeEvent?.id, liveSessionId, endSessionMutation, completeEventMutation]);
+}, [activeEvent?.code, activeEvent?.id, auditLogMutations.logActionMutation, liveSessionId, endSessionMutation, completeEventMutation]);
 
   useEffect(() => {
     if (!activeEvent) {
@@ -1020,7 +863,20 @@ export function EventManagementPage() {
   }
 
   function exportReport(label: string) {
-    toast.success(createUiExport(label));
+    const rows = completedEvents.map((event) => ({
+      "Event Code": event.code,
+      "Event Name": event.name,
+      Category: event.category,
+      Venue: event.venue,
+      Date: event.date,
+      Present: event.present,
+      Late: event.late,
+      Absent: event.absent,
+      "Total Registered": event.totalRegistered,
+      "Attendance Rate": event.attendanceRate
+    }));
+    exportTabularReport(label, rows);
+    toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Action",
@@ -1249,43 +1105,45 @@ export function EventManagementPage() {
 
 
       {activeEvent ? (
-        // Per spec: after Start Session, the organizer is redirected to the
-        // Live Session interface. It takes over the page until End Session.
-        <section className="rounded-lg border bg-surface p-4">
-          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        // The original Live Session workspace stays inside Event Management.
+        // Advanced QR and facial camera tools open only when requested.
+        <section className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-border bg-background/40 p-5 lg:flex-row lg:items-center lg:justify-between lg:p-6">
             <div>
               <div className="flex items-center gap-2">
-                <Play className="h-5 w-5 text-primary" aria-hidden="true" />
-                <h2 className="text-lg font-semibold">Live Session</h2>
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary"><Play className="h-4 w-4" aria-hidden="true" /></span>
+                <h2 className="text-xl font-semibold">Live Session</h2>
                 <StatusBadge label="Active" tone="success" />
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {activeEvent.code} - {activeEvent.name} | {activeEvent.venue} | {sessionForm.method}
+              <p className="mt-2 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{activeEvent.code} · {activeEvent.name}</span>
+                <span className="mx-2" aria-hidden="true">•</span>{activeEvent.venue}
               </p>
             </div>
-            <Button type="button" variant="destructive" onClick={endSession}>
+            <Button type="button" variant="destructive" disabled={endSessionMutation.isPending} onClick={endSession}>
               <Square className="h-4 w-4" aria-hidden="true" />
-              End Session
+              {endSessionMutation.isPending ? "Ending…" : "End Session"}
             </Button>
           </div>
-          <div className="mb-4 grid gap-3 md:grid-cols-4">
-            <SummaryTile label="Present" value={activeCounts.present.toString()} />
-            <SummaryTile label="Late" value={activeCounts.late.toString()} />
-            <SummaryTile label="Absent" value={activeCounts.absent.toString()} />
-            <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
-          </div>
+          <div className="space-y-5 p-5 lg:p-6">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <SummaryTile label="Present" value={activeCounts.present.toString()} />
+              <SummaryTile label="Late" value={activeCounts.late.toString()} />
+              <SummaryTile label="Absent" value={activeCounts.absent.toString()} />
+              <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
+            </div>
 
-          <section className="mb-4 rounded-lg border bg-surface p-4 shadow-sm">
+          <section className="rounded-2xl border border-border bg-background/40 p-4 lg:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Choose the live method for check-ins and manage attendance as the session runs.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Choose a verification method. Records update automatically below.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-sm">
                 <Button
                   type="button"
                   variant={captureMode === "QR Code" ? "default" : "outline"}
-                  className="gap-2"
+                  className="gap-2 rounded-lg shadow-none"
                   onClick={() => setCaptureMode("QR Code")}
                   aria-pressed={captureMode === "QR Code"}
                 >
@@ -1295,7 +1153,7 @@ export function EventManagementPage() {
                 <Button
                   type="button"
                   variant={captureMode === "Facial Recognition" ? "default" : "outline"}
-                  className="gap-2"
+                  className="gap-2 rounded-lg shadow-none"
                   onClick={() => setCaptureMode("Facial Recognition")}
                   aria-pressed={captureMode === "Facial Recognition"}
                 >
@@ -1305,7 +1163,7 @@ export function EventManagementPage() {
                 <Button
                   type="button"
                   variant={captureMode === "Manual" ? "default" : "outline"}
-                  className="gap-2"
+                  className="gap-2 rounded-lg shadow-none"
                   onClick={() => setCaptureMode("Manual")}
                   aria-pressed={captureMode === "Manual"}
                 >
@@ -1315,8 +1173,8 @@ export function EventManagementPage() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-              <div className="rounded-2xl border border-border bg-background p-4">
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.6fr)]">
+              <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Current mode</p>
@@ -1325,7 +1183,7 @@ export function EventManagementPage() {
                   <StatusBadge label="Live" tone="success" />
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-border bg-surface p-4">
+                <div className="mt-4 rounded-xl border border-border bg-background/40 p-5">
                   {captureMode === "QR Code" ? (
                     <div className="text-center">
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
@@ -1333,6 +1191,20 @@ export function EventManagementPage() {
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">QR scanner ready</p>
                       <p className="mt-2 text-sm text-muted-foreground">Point the camera at a student QR code to log attendance instantly.</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => {
+                          if (!resolvedLiveSessionId) {
+                            toast.error("The active session is still loading. Please wait a moment and try again.");
+                            return;
+                          }
+                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
+                        }}
+                      >
+                        Open QR scanner
+                      </Button>
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
                     <div className="text-center">
@@ -1462,12 +1334,13 @@ export function EventManagementPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-border bg-background p-4">
-                <p className="text-sm font-semibold">Supported methods</p>
+              <aside className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                <p className="text-sm font-semibold">Session guide</p>
                 <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  <li>• QR Code for fast contactless check-ins</li>
-                  <li>• Facial Recognition for hands-free identity confirmation</li>
-                  <li>• Automatic late-arrival categories for late check-ins</li>
+                  <li>• QR Code for fast contactless check-in and checkout</li>
+                  <li>• Facial Recognition for enrolled participants</li>
+                  <li>• Manual entry for verified exceptions</li>
+                  <li>• Late arrivals require a recorded category</li>
                 </ul>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {captureMode ? (
@@ -1476,14 +1349,15 @@ export function EventManagementPage() {
                     </span>
                   ) : null}
                   <span className="rounded-full border bg-background px-3 py-1 text-sm text-muted-foreground">
-                    Preview
+                    Supabase connected
                   </span>
                 </div>
-              </div>
+              </aside>
             </div>
           </section>
 
           <PLPassDataGrid label="Live attendance list" data={activeRows} columns={liveColumns} emptyTitle="No check-ins yet" emptyDescription="Live QR or facial recognition attendance logs will appear here." />
+          </div>
         </section>
       ) : (
         <>
@@ -1520,7 +1394,7 @@ export function EventManagementPage() {
                   setSelectedEventForSession(null);
                 }}
                 className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
-                  activeTab === "today" ? "bg-emerald-500 text-white shadow" : "text-muted-foreground"
+                  activeTab === "today" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
                 }`}
               >
                 <span className="text-sm font-semibold">Today</span>
@@ -1537,7 +1411,7 @@ export function EventManagementPage() {
                   setSelectedEventForSession(null);
                 }}
                 className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
-                  activeTab === "incoming" ? "bg-emerald-500 text-white shadow" : "text-muted-foreground"
+                  activeTab === "incoming" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
                 }`}
               >
                 <span className="text-sm font-semibold">Incoming</span>
@@ -1600,16 +1474,17 @@ export function EventManagementPage() {
         <ModalFrame onClose={() => setConfirmCancelEvent(null)} width="max-w-md">
           <h2 className="text-lg font-semibold">Confirm Cancel</h2>
           <p className="mt-2 text-sm text-muted-foreground">Are you sure you want to cancel <span className="font-medium">{confirmCancelEvent.code}</span>? This action cannot be undone.</p>
+          <label className="mt-4 block space-y-2 text-sm font-medium">
+            Cancellation reason
+            <textarea className="min-h-20 w-full rounded-lg border bg-background px-3 py-2" value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="Explain why the event is being cancelled" />
+          </label>
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setConfirmCancelEvent(null)}>Close</Button>
             <Button
               type="button"
               variant="destructive"
-              onClick={() => {
-                cancelEvent(confirmCancelEvent);
-                setConfirmCancelEvent(null);
-                setEventModal(null);
-              }}
+              disabled={cancelEventMutation.isPending || cancelReason.trim().length < 5}
+              onClick={() => void cancelEvent(confirmCancelEvent)}
             >
               Cancel Event
             </Button>
@@ -1627,16 +1502,53 @@ export function EventManagementPage() {
 
       {startEvent ? (
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Session Modal</h2>
+          <h2 className="text-xl font-semibold">Start Session</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="space-y-2 text-sm font-medium">Venue<input className="w-full rounded-lg border bg-background px-3 py-2" value={sessionForm.venue} onChange={(event) => setSessionForm((current) => ({ ...current, venue: event.target.value }))} /></label>
-            <label className="space-y-2 text-sm font-medium">Schedule Date<input type="date" className="w-full rounded-lg border bg-background px-3 py-2" value={sessionForm.date} onChange={(event) => setSessionForm((current) => ({ ...current, date: event.target.value }))} /></label>
-            <label className="space-y-2 text-sm font-medium">Start Time<input type="time" className="w-full rounded-lg border bg-background px-3 py-2" value={sessionForm.startTime} onChange={(event) => setSessionForm((current) => ({ ...current, startTime: event.target.value }))} /></label>
-            <label className="space-y-2 text-sm font-medium">End Time<input type="time" className="w-full rounded-lg border bg-background px-3 py-2" value={sessionForm.endTime} onChange={(event) => setSessionForm((current) => ({ ...current, endTime: event.target.value }))} /></label>
+            <label className="block space-y-2 text-sm font-medium">
+              <span>Venue <span className="text-destructive" aria-hidden="true">*</span></span>
+              <input
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
+                value={sessionForm.venue}
+                onChange={(event) => setSessionForm((current) => ({ ...current, venue: event.target.value }))}
+                placeholder="Enter session venue"
+                autoComplete="off"
+                required
+              />
+            </label>
+            <label className="block space-y-2 text-sm font-medium">
+              <span>Schedule Date <span className="text-destructive" aria-hidden="true">*</span></span>
+              <input
+                type="date"
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                value={sessionForm.date}
+                onChange={(event) => setSessionForm((current) => ({ ...current, date: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="block space-y-2 text-sm font-medium">
+              <span>Start Time <span className="text-destructive" aria-hidden="true">*</span></span>
+              <input
+                type="time"
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                value={sessionForm.startTime}
+                onChange={(event) => setSessionForm((current) => ({ ...current, startTime: event.target.value }))}
+                required
+              />
+            </label>
+            <label className="block space-y-2 text-sm font-medium">
+              <span>End Time <span className="text-destructive" aria-hidden="true">*</span></span>
+              <input
+                type="time"
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                value={sessionForm.endTime}
+                onChange={(event) => setSessionForm((current) => ({ ...current, endTime: event.target.value }))}
+                required
+              />
+            </label>
           </div>
-          <div className="mt-4 rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-            Attendance will use QR Code and Facial Recognition automatically during the live session.
+          <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+            Attendance will use <span className="font-medium text-foreground">QR Code</span> and <span className="font-medium text-foreground">Facial Recognition</span> automatically during the live session.
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setStartEvent(null)} disabled={createEventSessionMutation.isPending}>Cancel</Button>

@@ -14,6 +14,7 @@ import {
   toSafeAuthErrorMessage
 } from "@/app/providers/supabaseSessionResolver";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { repositories } from "@/services/repositories";
 
 const supabaseRestoreTimeoutMs = 8000;
 
@@ -151,6 +152,25 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setAuthError(undefined);
     queryClient.clear();
+    if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+      const accounts = await repositories.authentication.listDevelopmentAccounts();
+      const account = accounts.find((candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase());
+      if (!account || !password) {
+        setAuthError("Invalid email or password.");
+        setSession(null);
+        return null;
+      }
+      const nextSession: DevelopmentSession = {
+        userId: account.userId,
+        role: account.role,
+        displayName: account.displayName,
+        email: account.email,
+        isAuthenticated: true
+      };
+      window.localStorage.setItem("plpass-development-session", JSON.stringify(nextSession));
+      setSession(nextSession);
+      return nextSession;
+    }
     let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
     try {
       supabase = getSupabaseBrowserClient();
@@ -179,11 +199,12 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     queryClient.clear();
-    void getSupabaseBrowserClient().auth.signOut();
     window.localStorage.removeItem("plpass-development-session");
     setSession(null);
+    const { error } = await getSupabaseBrowserClient().auth.signOut();
+    if (error) throw error;
   }, []);
 
   const value = useMemo<DevelopmentSessionContextValue>(

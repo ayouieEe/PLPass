@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import { DashboardLayout } from "@/app/layouts/DashboardLayout";
-import { HeaderProvider } from "@/app/providers/HeaderContext";
+import { HeaderProvider } from "@/app/providers/HeaderProvider";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 

@@ -1,15 +1,10 @@
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { ClientSideRowModelModule, ModuleRegistry } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import type { AttendanceStatus, LiveAttendanceRecord } from "@/features/attendance/types";
-
-// Registering the client-side row model is required once before any AgGridReact renders.
-// If MyClassesPage.tsx or ClassDetailsPage.tsx already register this at module load, this
-// call is a harmless no-op (ag-grid ignores duplicate registrations).
-ModuleRegistry.registerModules([ClientSideRowModelModule]);
+import "@/components/data-display/agGridModules";
 
 type LiveAttendanceListProps = {
   records: LiveAttendanceRecord[];
@@ -81,16 +76,14 @@ export function LiveAttendanceList({ records }: LiveAttendanceListProps) {
   const defaultColDef: ColDef = { sortable: true, resizable: true, filter: true };
 
   return (
-    <section className="rounded-lg border bg-surface p-3">
-      <div className="border-b p-4">
-        <h2 className="font-semibold">Live attendance</h2>
-      </div>
+    <section className="min-w-0 rounded-lg border bg-surface p-4">
       <div
-        className="ag-theme-quartz mt-3 overflow-hidden rounded-lg border shadow-sm"
-        style={{ height: 420, width: "100%", ...gridThemeVars }}
+        className="live-attendance-grid ag-theme-quartz min-w-0 overflow-hidden rounded-lg border shadow-sm"
+        style={{ width: "100%", ...gridThemeVars }}
       >
         <AgGridReact<LiveAttendanceRecord>
           theme="legacy"
+          domLayout="autoHeight"
           rowData={records}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}

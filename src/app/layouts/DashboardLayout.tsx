@@ -54,9 +54,13 @@ export function DashboardLayout({
   const navigate = useNavigate();
   const location = useLocation();
   const closeDrawerRef = useRef<HTMLButtonElement>(null);
+  const openDrawerRef = useRef<HTMLButtonElement>(null);
   const drawerPanelRef = useRef<HTMLDivElement>(null);
+  const accountDetailsRef = useRef<HTMLDetailsElement>(null);
+  const accountSummaryRef = useRef<HTMLElement>(null);
   const [collapsed, setCollapsed] = useState(readCollapsedState);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const isDark = theme === "dark";
   const notificationContext = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const unreadCount = useNotificationUnreadCount(notificationContext);
@@ -65,6 +69,9 @@ export function DashboardLayout({
   const currentTitle = title ?? headerOverride.title ?? routeMeta.title;
   const currentDescription = description ?? headerOverride.description ?? routeMeta.description ?? "PLPass authenticated workspace";
   const currentPrimaryAction = primaryAction ?? headerOverride.primaryAction;
+  const routeAnnouncement = typeof location.state === "object" && location.state && "announcement" in location.state
+    ? String((location.state as { announcement?: unknown }).announcement ?? "")
+    : "";
 
 
   useEffect(() => {
@@ -82,7 +89,7 @@ export function DashboardLayout({
     closeDrawerRef.current?.focus();
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setDrawerOpen(false);
+        closeDrawer();
         return;
       }
 
@@ -112,17 +119,49 @@ export function DashboardLayout({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [drawerOpen]);
 
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    function closeAccountMenu(event: MouseEvent | globalThis.KeyboardEvent) {
+      if (event instanceof globalThis.KeyboardEvent) {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        setAccountMenuOpen(false);
+        accountSummaryRef.current?.focus();
+        return;
+      }
+      if (!accountDetailsRef.current?.contains(event.target as Node)) setAccountMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeAccountMenu);
+    document.addEventListener("keydown", closeAccountMenu);
+    return () => {
+      document.removeEventListener("mousedown", closeAccountMenu);
+      document.removeEventListener("keydown", closeAccountMenu);
+    };
+  }, [accountMenuOpen]);
+
   function handleLogout() {
     logout();
     queryClient.clear();
     navigate(APP_ROUTES.login, { replace: true });
   }
 
+  function closeDrawer({ restoreFocus = true } = {}) {
+    setDrawerOpen(false);
+    if (restoreFocus) window.requestAnimationFrame(() => openDrawerRef.current?.focus());
+  }
+
   return (
     <div className={cn(
-      "h-screen overflow-hidden bg-background",
+      "fixed inset-0 overflow-hidden bg-background",
       role === "student" && "student-bg-gradient font-sans text-[#4F5654] antialiased"
     )}>
+      <a
+        href="#main-content"
+        className="fixed left-4 top-4 z-[10000] -translate-y-24 rounded-md bg-primary px-4 py-2 font-semibold text-primary-foreground shadow-lg transition-transform focus:translate-y-0 motion-reduce:transition-none"
+      >
+        Skip to main content
+      </a>
+      {routeAnnouncement ? <p className="sr-only" role="status" aria-live="polite">{routeAnnouncement}</p> : null}
       <RoleBasedSidebar
         role={role}
         userLabel={userLabel}
@@ -136,7 +175,7 @@ export function DashboardLayout({
             type="button"
             aria-label="Close navigation overlay"
             className="absolute inset-0 bg-foreground/40 motion-reduce:transition-none"
-            onClick={() => setDrawerOpen(false)}
+            onClick={() => closeDrawer()}
           />
           <div
             ref={drawerPanelRef}
@@ -145,7 +184,7 @@ export function DashboardLayout({
             <RoleBasedSidebar
               role={role}
               userLabel={userLabel}
-              onNavigate={() => setDrawerOpen(false)}
+              onNavigate={() => closeDrawer({ restoreFocus: false })}
               className={cn(
                 role === "student" && "student-glass-sidebar"
               )}
@@ -157,7 +196,7 @@ export function DashboardLayout({
                   size="icon"
                   className="text-sidebar-foreground hover:bg-sidebar-active hover:text-sidebar-foreground"
                   aria-label="Close navigation menu"
-                  onClick={() => setDrawerOpen(false)}
+                  onClick={() => closeDrawer()}
                 >
                   <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
@@ -167,11 +206,11 @@ export function DashboardLayout({
         </div>
       ) : null}
 
-      <div className={cn("flex h-screen min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
+      <div className={cn("flex h-full min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
         <header className="z-30 shrink-0 border-b bg-surface/95 shadow-sm backdrop-blur">
           <PageContainer className="flex h-[72px] min-w-0 items-center justify-between gap-3 py-0">
             <div className="flex min-w-0 items-center gap-3">
-              <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
+              <Button ref={openDrawerRef} type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
               <Button
@@ -188,7 +227,7 @@ export function DashboardLayout({
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
                   <div>
-                    <h1 className="truncate text-base font-semibold text-foreground sm:text-lg">{currentTitle}</h1>
+                    <p className="truncate text-base font-semibold text-foreground sm:text-lg">{currentTitle}</p>
                     {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
                   {currentPrimaryAction ? <div className="hidden md:block">{currentPrimaryAction}</div> : null}
@@ -207,7 +246,7 @@ export function DashboardLayout({
                 )}
                 asChild
               >
-                <NavLink to={APP_ROUTES.notifications}>
+                <NavLink to={APP_ROUTES.notifications} aria-label={unreadCount.data ? `Notifications, ${unreadCount.data} unread` : "Notifications"}>
                   <Bell className="h-4 w-4" aria-hidden="true" />
                   <span className="hidden sm:inline">Notifications</span>
                   {unreadCount.data ? (
@@ -230,17 +269,32 @@ export function DashboardLayout({
               >
                 {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
               </Button>
-              <details className="relative">
-                <summary className="flex h-9 max-w-[12rem] cursor-pointer list-none items-center gap-2 rounded-full border border-input bg-surface px-3 text-sm font-semibold shadow-sm transition hover:bg-surface-muted sm:max-w-[17rem]">
+              <details ref={accountDetailsRef} open={accountMenuOpen} onToggle={(event) => setAccountMenuOpen(event.currentTarget.open)} className="relative">
+                <summary
+                  ref={accountSummaryRef}
+                  role="button"
+                  className="flex h-9 max-w-[12rem] cursor-pointer list-none items-center gap-2 rounded-full border border-input bg-surface px-3 text-sm font-semibold shadow-sm transition hover:bg-surface-muted sm:max-w-[17rem]"
+                  aria-label={`Open account menu for ${userLabel}`}
+                  aria-haspopup="menu"
+                  aria-expanded={accountMenuOpen}
+                  onKeyDown={(event) => {
+                    if (event.key !== "ArrowDown") return;
+                    event.preventDefault();
+                    setAccountMenuOpen(true);
+                    window.requestAnimationFrame(() => accountDetailsRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus());
+                  }}
+                >
                   <UserCircle className="h-4 w-4 text-brand-green-primary" aria-hidden="true" />
                   <span className="hidden min-w-0 truncate sm:inline">{userLabel}</span>
                 </summary>
-                <div className="absolute right-0 z-30 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
+                <div role="menu" aria-label="Account actions" className="absolute right-0 z-30 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
                   <div className="border-b px-3 py-2">
                     <p className="font-medium">{userLabel}</p>
                     <p className="text-xs capitalize text-muted-foreground">{role}</p>
                   </div>
                     <NavLink
+                      role="menuitem"
+                      onClick={() => setAccountMenuOpen(false)}
                       className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-muted"
                       to={
                         session?.role === "organizer"
@@ -255,8 +309,12 @@ export function DashboardLayout({
                     </NavLink>
                   <button
                     type="button"
+                    role="menuitem"
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-muted"
-                    onClick={handleLogout}
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      handleLogout();
+                    }}
                   >
                     <LogOut className="h-4 w-4" aria-hidden="true" />
                     Logout
@@ -268,7 +326,7 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        <main className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
+        <main id="main-content" tabIndex={-1} className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>
               <section className="min-w-0">{children}</section>

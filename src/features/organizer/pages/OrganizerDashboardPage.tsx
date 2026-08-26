@@ -44,11 +44,12 @@ function DashboardMetricCard({ title, value, detail, icon: Icon, tone = "default
   );
 }
 
-function ChartPanel({ title, description, children, empty, emptyMessage, className = "" }: { title: string; description: string; children: ReactNode; empty?: boolean; emptyMessage?: string; className?: string }) {
+function ChartPanel({ title, description, summary, children, empty, emptyMessage, className = "" }: { title: string; description: string; summary?: string; children: ReactNode; empty?: boolean; emptyMessage?: string; className?: string }) {
   return (
     <section className={`rounded-lg border bg-surface p-4 shadow-sm ${className}`}>
       <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">{title}</h2><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>
-      <div className="mt-3 h-52 sm:h-56">{empty ? <div className="grid h-full place-items-center rounded-md border border-dashed bg-background px-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : children}</div>
+      {summary && !empty ? <p className="sr-only" data-chart-summary>{summary}</p> : null}
+      <div className="mt-3 h-52 sm:h-56" aria-hidden={summary && !empty ? "true" : undefined}>{empty ? <div className="grid h-full place-items-center rounded-md border border-dashed bg-background px-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : children}</div>
     </section>
   );
 }
@@ -63,7 +64,7 @@ export function OrganizerDashboardPage() {
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const { semesters: semestersQuery } = useAcademicCatalog({ pageSize: 100 }, context);
   const studentsQuery = useStudents({ pageSize: 1 }, context);
-  const events = eventsQuery.data?.items ?? [];
+  const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
   const analyticsQuery = useOrganizerDashboardAnalytics(events.map(({ id, code, startsAt }) => ({ id, code, startsAt })));
   const today = useMemo(() => new Date(), []);
   const activeEvents = useMemo(() => events.filter((event) => event.status !== "rejected" && event.status !== "cancelled"), [events]);
@@ -105,7 +106,15 @@ export function OrganizerDashboardPage() {
           {activeEvent ? <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2"><EventDetail label="Event" value={activeEvent.code} detail={activeEvent.title} /><EventDetail label="Venue" value={activeEvent.venue} detail={activeEvent.category} /><EventDetail label="Schedule" value={formatDate(activeEvent.startsAt)} detail={formatTimeRange(activeEvent.startsAt, activeEvent.endsAt)} /><EventDetail label="Turnout" value={activeEvent.predictedTurnout != null ? `${activeEvent.predictedTurnout}%` : "N/A"} detail="Predicted attendance" /></div> : <div className="mt-4 rounded-md border border-dashed bg-background px-3 py-4 text-sm text-muted-foreground">There is no event scheduled for today yet.</div>}
           
         </section>
-        <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></ChartPanel>
+        <div>
+          <div className="sr-only" data-chart-summary>
+            <p>{`Prediction chart data: ${predictionOverviewData.map((item) => `${item.title}, ${item.predictedAttend}% predicted attendance and ${item.predictedMiss}% predicted non-attendance`).join("; ")}.`}</p>
+            <p>{`Attendance trend chart data: ${trend.map((item) => `${item.label}, ${item.attendanceRate}% attendance`).join("; ")}.`}</p>
+            <p>{`Feedback sentiment chart data: ${(analyticsQuery.data?.sentiment ?? []).map((item) => `${item.name}, ${item.value}%`).join("; ")}.`}</p>
+            <p>{`Late-arrival chart data: ${(analyticsQuery.data?.lateArrivals ?? []).map((item) => `${item.label}, ${item.count} late check-ins`).join("; ")}.`}</p>
+          </div>
+          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></ChartPanel>
+        </div>
       </section>
 
       {analyticsQuery.isError ? <section className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-sm text-muted-foreground">Analytics could not be loaded. Refresh the page to try again.</section> : analyticsQuery.isLoading ? <section className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">Loading attendance analytics…</section> : <>

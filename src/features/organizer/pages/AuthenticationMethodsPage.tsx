@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Camera, CheckCircle2, Download, FileSpreadsheet, FileText, QrCode, RefreshCw, ScanLine, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
@@ -8,15 +8,8 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
-import {
-  exportQrCredentialsXlsx,
-  exportQrCredentialsPdf,
-  exportFacialProfilesXlsx,
-  exportFacialProfilesPdf,
-  type ExportQrCredentialRow,
-  type ExportFacialProfileRow
-} from "@/features/organizer/utils/exportUtils";
+import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 
 type FacialStatus = "Activated" | "Damaged" | "Inactive";
 type QRStatus = "Active" | "Expired" | "Disabled";
@@ -101,7 +94,8 @@ function ReportExportModal({
   onClose,
   qrRows,
   facialRows,
-  activeTab
+  activeTab,
+  onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -113,6 +107,7 @@ function ReportExportModal({
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
   const [statusFilter, setStatusFilter] = useState("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
@@ -124,11 +119,20 @@ function ReportExportModal({
     setStatusFilter("all");
   }
 
-  function handleExport() {
+  async function handleExport() {
     if (count === 0) {
       toast.warning("No records match the selected export criteria.");
       return;
     }
+
+    setIsExportLoading(true);
+    const exportTools = await import("@/features/organizer/utils/exportUtils")
+      .catch(() => {
+        toast.error("Unable to prepare the export. Please try again.");
+        return null;
+      })
+      .finally(() => setIsExportLoading(false));
+    if (!exportTools) return;
 
     if (reportType === "qr") {
       const data: ExportQrCredentialRow[] = filteredQr.map((r) => ({
@@ -139,10 +143,10 @@ function ReportExportModal({
         lastUsed: r.lastUsed
       }));
       if (exportFormat === "xlsx") {
-        exportQrCredentialsXlsx(data);
+        exportTools.exportQrCredentialsXlsx(data);
         toast.success(`Exported ${data.length} QR credential record(s) as CSV.`);
       } else {
-        exportQrCredentialsPdf(data);
+        exportTools.exportQrCredentialsPdf(data);
         toast.success(`Exported ${data.length} QR credential record(s) as PDF.`);
       }
     } else {
@@ -154,10 +158,10 @@ function ReportExportModal({
         lastScan: r.lastScan
       }));
       if (exportFormat === "xlsx") {
-        exportFacialProfilesXlsx(data);
+        exportTools.exportFacialProfilesXlsx(data);
         toast.success(`Exported ${data.length} facial enrollment record(s) as CSV.`);
       } else {
-        exportFacialProfilesPdf(data);
+        exportTools.exportFacialProfilesPdf(data);
         toast.success(`Exported ${data.length} facial enrollment record(s) as PDF.`);
       }
     }
@@ -374,11 +378,11 @@ function ReportExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={count === 0}
+              disabled={count === 0 || isExportLoading}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
-              Export {exportFormat.toUpperCase()}
+              {isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}
             </button>
           </div>
         </div>
@@ -392,11 +396,12 @@ export function AuthenticationMethodsPage() {
   const scope = useOrganizerScope();
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
 
-  const rawStudents = studentsQuery.data?.items ?? [];
-  const rawRequests = credentialRequestsQuery.data?.items ?? [];
+  const rawStudents = useMemo(() => studentsQuery.data?.items ?? [], [studentsQuery.data?.items]);
+  const rawRequests = useMemo(() => credentialRequestsQuery.data?.items ?? [], [credentialRequestsQuery.data?.items]);
 
   const studentMap = useMemo(() => {
     const map = new Map<string, { name: string; studentNumber: string }>();
@@ -422,38 +427,33 @@ export function AuthenticationMethodsPage() {
     requestId?: string;
   }>(null);
 
-  const [qrRows, setQrRows] = useState<QrRow[]>([]);
-  const [facialRows, setFacialRows] = useState<FacialRow[]>([]);
+  const credentialMap = useMemo(
+    () => new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status])),
+    [credentialStatusesQuery.data]
+  );
+  const qrRows = useMemo<QrRow[]>(() => rawStudents.map((student) => {
+    const credential = credentialMap.get(student.id)?.qrCredential;
+    const expired = Boolean(credential?.expiresAt && new Date(credential.expiresAt).getTime() <= Date.now());
+    return {
+      studentId: student.id,
+      studentName: student.formattedName || student.fullName || student.studentNumber,
+      status: !credential || credential.revokedAt || credential.status !== "activated" ? "Disabled" : expired ? "Expired" : "Active",
+      dateGenerated: credential?.issuedAt?.slice(0, 10) ?? "-",
+      lastUsed: credential?.lastSuccessfulCheckInAt?.slice(0, 10) ?? "-"
+    };
+  }), [credentialMap, rawStudents]);
+  const facialRows = useMemo<FacialRow[]>(() => rawStudents.map((student) => {
+    const profile = credentialMap.get(student.id)?.facialProfile;
+    return {
+      studentId: student.id,
+      studentName: student.formattedName || student.fullName || student.studentNumber,
+      enrollmentDate: profile?.enrolledAt?.slice(0, 10) ?? "-",
+      status: !profile || profile.status === "inactive" ? "Inactive" : profile.status === "activated" ? "Activated" : "Damaged",
+      lastScan: profile?.lastVerifiedAt?.slice(0, 10) ?? "-"
+    };
+  }), [credentialMap, rawStudents]);
 
-  useEffect(() => {
-    if (rawStudents.length > 0) {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      setQrRows(
-        rawStudents.map((student) => ({
-          studentId: student.id,
-          studentName: student.formattedName || student.fullName || student.studentNumber,
-          status: student.status === "enrolled" ? "Active" : "Disabled",
-          dateGenerated: student.createdAt ? student.createdAt.slice(0, 10) : todayStr,
-          lastUsed: student.createdAt ? student.createdAt.slice(0, 10) : "-"
-        }))
-      );
-
-      setFacialRows(
-        rawStudents.map((student) => ({
-          studentId: student.id,
-          studentName: student.formattedName || student.fullName || student.studentNumber,
-          enrollmentDate: student.createdAt ? student.createdAt.slice(0, 10) : todayStr,
-          status: student.status === "enrolled" ? "Activated" : "Inactive",
-          lastScan: student.createdAt ? student.createdAt.slice(0, 10) : "-"
-        }))
-      );
-    }
-  }, [rawStudents]);
-
-  const [regenerationRequestsState, setRegenerationRequestsState] = useState<RegenerationRequest[]>([]);
-  const [facialRequestsState, setFacialRequestsState] = useState<FacialEnrollmentRequest[]>([]);
-
-  useEffect(() => {
+  const { regenerationRequestsState, facialRequestsState } = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const mappedQrReqs: RegenerationRequest[] = rawRequests
@@ -484,8 +484,7 @@ export function AuthenticationMethodsPage() {
         };
       });
 
-    setRegenerationRequestsState(mappedQrReqs);
-    setFacialRequestsState(mappedFacialReqs);
+    return { regenerationRequestsState: mappedQrReqs, facialRequestsState: mappedFacialReqs };
   }, [rawRequests, studentMap]);
 
   function handleViewQr(studentName: string) {
@@ -589,13 +588,6 @@ export function AuthenticationMethodsPage() {
       if (activeModal.title.includes("Regenerate")) {
         await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
         toast.success(`QR credential regenerated for ${activeModal.studentName}.`);
-        
-        void auditLogMutations.logActionMutation.mutateAsync({
-          action: "Regenerated QR Credential",
-          targetType: "student_credential",
-          targetId: student.studentId,
-          metadata: { studentId: student.studentId }
-        });
       } else if (activeModal.title.includes("Disable")) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
@@ -603,13 +595,6 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
-        
-        void auditLogMutations.logActionMutation.mutateAsync({
-          action: "Disabled QR Credential",
-          targetType: "student_credential",
-          targetId: student.studentId,
-          metadata: { studentId: student.studentId }
-        });
       } else {
         toast.success(`QR credential for ${activeModal.studentName} opened.`);
       }
@@ -631,13 +616,6 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
-        
-        void auditLogMutations.logActionMutation.mutateAsync({
-          action: "Deactivated Facial Enrollment",
-          targetType: "student_credential",
-          targetId: student.studentId,
-          metadata: { studentId: student.studentId }
-        });
       } else {
         toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
       }
@@ -648,13 +626,6 @@ export function AuthenticationMethodsPage() {
         requestId: activeModal.requestId,
         status: "approved",
         remarks: "Approved by organizer"
-      });
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Approved Credential Request",
-        targetType: "credential_request",
-        targetId: activeModal.requestId,
-        metadata: { requestId: activeModal.requestId }
       });
     }
 
@@ -879,7 +850,7 @@ export function AuthenticationMethodsPage() {
                         <td className="px-3 py-2">{request.reason}</td>
                         <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
                         <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveRequest(request.rawId)} disabled={request.status === "Approved" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
+                          <Button type="button" size="sm" onClick={() => handleApproveRequest(request.rawId)} disabled={request.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
                         </td>
                       </tr>
                     ))
@@ -992,7 +963,7 @@ export function AuthenticationMethodsPage() {
                         <td className="px-3 py-2">{request.dateRequested}</td>
                         <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
                         <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(request.rawId)} disabled={request.status === "Approved" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
+                          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(request.rawId)} disabled={request.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
                         </td>
                       </tr>
                     ))

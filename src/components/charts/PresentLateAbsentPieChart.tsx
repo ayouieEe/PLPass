@@ -12,7 +12,7 @@ export function PresentLateAbsentPieChart({ data }: PresentLateAbsentPieChartPro
   const hasData = data.some((slice) => slice.value > 0);
 
   return (
-    <ChartFrame title="Present / Late / Absent" description="Attendance outcome distribution." empty={!hasData}>
+    <ChartFrame title="Present / Late / Absent" description="Attendance outcome distribution." summary={`Chart data: ${data.map((slice) => `${slice.name}, ${slice.value}`).join("; ")}.`} empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie data={data} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>

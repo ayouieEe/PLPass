@@ -95,9 +95,13 @@ function QrPreview({ active, value, fileName }: { active: boolean; value: string
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className={cn("grid h-52 w-52 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5", !active && "opacity-70 grayscale")}>
+      <div
+        className={cn("grid h-52 w-52 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5", !active && "opacity-70 grayscale")}
+        role="img"
+        aria-label={active ? "PLPass student QR credential, ready for organizer scanning" : "PLPass student QR credential unavailable; contact an organizer or administrator"}
+      >
         {qrDataUrl ? (
-          <img src={qrDataUrl} alt="PLPass student QR credential" className="h-full w-full object-contain" />
+          <img src={qrDataUrl} alt="" className="h-full w-full object-contain" />
         ) : (
           <QrCode className="h-20 w-20 text-primary/60" aria-hidden="true" />
         )}
@@ -636,6 +640,7 @@ export function AttendanceMethodsPage() {
           </div>
 
           <div className="rounded-2xl border bg-surface-muted/40 p-4">
+            <p id="face-camera-instructions" className="sr-only">Live camera preview for facial enrollment. Center your face in the frame with even lighting, then choose Capture face. If the camera is unavailable, use the file fallback.</p>
             <div className="overflow-hidden rounded-2xl border bg-black">
               {facePreviewUrl ? (
                 <img src={facePreviewUrl} alt="Captured face preview" className="aspect-video w-full object-cover" />
@@ -643,6 +648,8 @@ export function AttendanceMethodsPage() {
                 <div className="relative aspect-video w-full">
                   <video
                     ref={faceVideoRef}
+                    aria-label="Live facial enrollment camera preview"
+                    aria-describedby="face-camera-instructions"
                     className="h-full w-full object-cover"
                     muted
                     playsInline
@@ -751,12 +758,14 @@ export function AttendanceMethodsPage() {
             <span className="text-sm font-semibold">Reason for re-enrollment</span>
             <textarea
               {...changeRequestForm.register("reason")}
+              aria-invalid={Boolean(changeRequestForm.formState.errors.reason)}
+              aria-describedby={changeRequestForm.formState.errors.reason ? "facial-reenrollment-reason-error" : undefined}
               className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm"
               placeholder="Example: My facial backup needs to be updated because my previous photo is unclear."
             />
           </label>
           {changeRequestForm.formState.errors.reason ? (
-            <p className="text-sm text-danger">{changeRequestForm.formState.errors.reason.message}</p>
+            <p id="facial-reenrollment-reason-error" role="alert" className="text-sm text-danger">{changeRequestForm.formState.errors.reason.message}</p>
           ) : null}
 
           <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
@@ -792,7 +801,7 @@ export function AttendanceMethodsPage() {
           <div className="rounded-2xl border bg-warning/5 p-4">
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-warning/10">
-                <AlertTriangle className="h-5 w-5 text-warning" />
+                <AlertTriangle aria-hidden="true" className="h-5 w-5 text-warning" />
               </span>
               <div>
                 <p className="font-semibold">Before sending, check with the event organizer first.</p>
@@ -807,12 +816,14 @@ export function AttendanceMethodsPage() {
             <span className="text-sm font-semibold">What happened?</span>
             <textarea
               {...issueForm.register("issueDescription")}
+              aria-invalid={Boolean(issueForm.formState.errors.issueDescription)}
+              aria-describedby={issueForm.formState.errors.issueDescription ? "attendance-issue-description-error" : undefined}
               className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm"
               placeholder="Example: My QR could not be scanned during EVT-2026-005 at the venue entrance."
             />
           </label>
           {issueForm.formState.errors.issueDescription ? (
-            <p className="text-sm text-danger">{issueForm.formState.errors.issueDescription.message}</p>
+            <p id="attendance-issue-description-error" role="alert" className="text-sm text-danger">{issueForm.formState.errors.issueDescription.message}</p>
           ) : null}
 
           <div className="rounded-2xl border bg-surface-muted/40 p-4">

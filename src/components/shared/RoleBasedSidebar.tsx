@@ -87,7 +87,7 @@ export function RoleBasedSidebar({
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground/80 transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+                        "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
                         collapsed && "justify-center px-0",
                         isActive && "plpass-sidebar-active"
                       )

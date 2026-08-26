@@ -1,5 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { useLocation } from "react-router-dom";
+import { createContext, useContext, type ReactNode } from "react";
 
 export type HeaderOverride = {
   title?: string;
@@ -8,27 +7,12 @@ export type HeaderOverride = {
   primaryAction?: ReactNode;
 };
 
-type HeaderContextType = {
+export type HeaderContextType = {
   headerOverride: HeaderOverride;
   setHeaderOverride: (override: HeaderOverride) => void;
 };
 
 export const HeaderContext = createContext<HeaderContextType | undefined>(undefined);
-
-export function HeaderProvider({ children }: { children: ReactNode }) {
-  const [headerOverride, setHeaderOverride] = useState<HeaderOverride>({});
-  const location = useLocation();
-
-  useEffect(() => {
-    setHeaderOverride({});
-  }, [location.pathname]);
-
-  return (
-    <HeaderContext.Provider value={{ headerOverride, setHeaderOverride }}>
-      {children}
-    </HeaderContext.Provider>
-  );
-}
 
 export function useHeader() {
   const context = useContext(HeaderContext);

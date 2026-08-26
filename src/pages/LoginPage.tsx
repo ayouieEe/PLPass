@@ -57,23 +57,23 @@ export function LoginPage() {
       ) : null}
       {authError ? <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">{authError}</div> : null}
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSignIn(); }}>
-        <label className="block text-sm font-medium">
-          Email
+        <div className="block text-sm font-medium">
+          <label htmlFor="plpass-login-email">Email</label>
           <span className="relative mt-1 block">
             <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <input className="plpass-field h-12 w-full rounded-lg border bg-surface pl-10 pr-3 text-sm outline-none" type="email" value={email} autoComplete="email" placeholder="name@plpasig.edu.ph" onChange={(event) => setEmail(event.target.value)} />
+            <input id="plpass-login-email" className="plpass-field h-12 w-full rounded-lg border bg-surface pl-10 pr-3 text-sm outline-none" type="email" value={email} autoComplete="email" placeholder="name@plpasig.edu.ph" onChange={(event) => setEmail(event.target.value)} />
           </span>
-        </label>
-        <label className="block text-sm font-medium">
-          Password
+        </div>
+        <div className="block text-sm font-medium">
+          <label htmlFor="plpass-login-password">Password</label>
           <span className="relative mt-1 block">
             <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <input className="plpass-field h-12 w-full rounded-lg border bg-surface pl-10 pr-12 text-sm outline-none" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} />
+            <input id="plpass-login-password" className="plpass-field h-12 w-full rounded-lg border bg-surface pl-10 pr-12 text-sm outline-none" type={showPassword ? "text" : "password"} value={password} autoComplete="current-password" placeholder="Enter your password" onChange={(event) => setPassword(event.target.value)} />
             <button type="button" className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((value) => !value)}>
               {showPassword ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
             </button>
           </span>
-        </label>
+        </div>
         <Button type="submit" className="h-12 w-full rounded-lg" disabled={!email || !password || isSubmitting}>{isSubmitting ? "Signing in..." : "Sign in"}</Button>
         <Button type="button" variant="link" asChild><a href={APP_ROUTES.forgotPassword}>Forgot password?</a></Button>
       </form>

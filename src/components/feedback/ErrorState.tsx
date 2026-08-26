@@ -7,7 +7,7 @@ type ErrorStateProps = {
 
 export function ErrorState({ title, message }: ErrorStateProps) {
   return (
-    <div className="plpass-error-state rounded-lg border p-4">
+    <div className="plpass-error-state rounded-lg border p-4" role="alert" aria-live="assertive">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 text-danger" aria-hidden="true" />
         <div>

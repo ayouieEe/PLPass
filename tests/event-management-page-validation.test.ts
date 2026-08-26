@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasValidEventSchedule,
-  shouldDisplayInEventTab
-} from "@/features/organizer/pages/EventManagementPage";
+  shouldDisplayInEventTab,
+  type EventRecord
+} from "@/features/organizer/utils/eventManagement";
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -26,7 +27,7 @@ describe("event page validation helpers", () => {
       impactScore: null,
       predictedTurnout: "0%",
       objectives: []
-    } as any;
+    } satisfies EventRecord;
 
     expect(shouldDisplayInEventTab(event, "incoming", {
       activeEventCode: undefined,

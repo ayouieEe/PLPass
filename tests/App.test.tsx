@@ -7,6 +7,6 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: /Sign in to PLPass/i })).toBeInTheDocument();
-    expect(screen.getByText(/Choose a development account/i)).toBeInTheDocument();
+    expect(screen.getByText(/Use your PLPass account to open your assigned workspace/i)).toBeInTheDocument();
   });
 });

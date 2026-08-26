@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
+
+configure({ asyncUtilTimeout: 5000 });
 
 vi.stubEnv("VITE_DATA_SOURCE", "mock");
 
@@ -22,8 +25,21 @@ Object.defineProperty(window, "matchMedia", {
 });
 
 class ResizeObserverMock {
-  observe() {
-    return undefined;
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
+  observe(target: Element) {
+    const rect = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 400,
+      top: 0,
+      right: 800,
+      bottom: 400,
+      left: 0,
+      toJSON: () => ({})
+    } as DOMRectReadOnly;
+    this.callback([{ target, contentRect: rect } as ResizeObserverEntry], this as unknown as ResizeObserver);
   }
 
   unobserve() {

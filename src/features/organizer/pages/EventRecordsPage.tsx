@@ -16,13 +16,8 @@ import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAud
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { formatDisplayTime } from "@/lib/utils/date";
 import type { PriorityLevel } from "@/types/enums";
-import {
-  createUiExport,
-  loadOrganizerUiState,
-  type OrganizerCompletedEvent,
-  type OrganizerEvent,
-  type OrganizerAttendanceRow
-} from "@/features/organizer/data/organizerUiStore";
+import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
+import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 
 // Lets column defs pass a className through to PLPassDataGrid's <th>/<td>.
 // PLPassDataGrid must read column.columnDef.meta?.headerClassName /
@@ -165,36 +160,6 @@ function ModalFrame({
   );
 }
 
-// Local-only completed events (older UI store demo data) are still merged in
-// so nothing that previously worked disappears; real Supabase-backed
-// completed events are the primary source now.
-function eventFromStore(event: OrganizerEvent): EventRecord {
-  return {
-    code: event.code,
-    name: event.name,
-    category: event.category,
-    venue: event.venue,
-    date: event.date,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    predictedTurnout: `${event.predictedTurnout}%`,
-    objectives: event.objectives
-  };
-}
-
-function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
-  return {
-    ...eventFromStore(event),
-    present: event.present,
-    late: event.late,
-    absent: event.absent,
-    totalRegistered: event.totalRegistered,
-    attendanceRate: `${event.attendanceRate}%`,
-    sentiment: event.sentiment,
-    feedbackComments: event.feedbackComments
-  };
-}
-
 // Completed events synced from Supabase. Attendance counts start at zero
 // here and are filled in by real attendance_records data once
 // useAttendanceSummaries resolves (see repositoryCompletedEventsWithAttendance
@@ -237,7 +202,6 @@ function completedFromRepositoryEvent(event: {
 }
 
 export function EventRecordsPage() {
-  const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
 
@@ -331,15 +295,7 @@ export function EventRecordsPage() {
     });
   }, [repositoryCompletedEvents, attendanceSummariesQuery.data]);
 
-  const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
-
-  const completedRows = useMemo(
-    () =>
-      [...repositoryCompletedEventsWithAttendance, ...storeCompletedEvents].filter(
-        (event, index, events) => events.findIndex((item) => item.code === event.code) === index
-      ),
-    [repositoryCompletedEventsWithAttendance, storeCompletedEvents]
-  );
+  const completedRows = repositoryCompletedEventsWithAttendance;
 
   const pastEvents = useMemo(
     () => completedRows.filter((event) => matchesSearch(event, search)),
@@ -349,7 +305,20 @@ export function EventRecordsPage() {
   const pastEventsStats = useMemo(() => completedStats(pastEvents), [pastEvents]);
 
   function exportReport(label: string) {
-    toast.success(createUiExport(label));
+    const rows = pastEvents.map((event) => ({
+      "Event Code": event.code,
+      "Event Name": event.name,
+      Category: event.category,
+      Venue: event.venue,
+      Date: event.date,
+      Present: event.present,
+      Late: event.late,
+      Absent: event.absent,
+      "Total Registered": event.totalRegistered,
+      "Attendance Rate": event.attendanceRate
+    }));
+    exportTabularReport(label, rows);
+    toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Record",
@@ -505,9 +474,7 @@ export function EventRecordsPage() {
         <CompletedEventModal
           record={completedModal}
           rows={
-            completedModal.id
-              ? attendanceSummariesQuery.data?.[completedModal.id]?.rows ?? []
-              : uiState.attendanceRows.filter((row) => row.eventCode === completedModal.code)
+            completedModal.id ? attendanceSummariesQuery.data?.[completedModal.id]?.rows ?? [] : []
           }
           onClose={() => setCompletedModal(null)}
           onExportReport={exportReport}
@@ -549,10 +516,10 @@ function ReportExportRow({
         <span className="min-w-0 text-xs font-medium text-foreground">{label}</span>
       </div>
       <div className="flex shrink-0 gap-1.5">
-        <Button type="button" variant="outline" size="sm" onClick={onExportXlsx}>
+        <Button type="button" variant="outline" size="sm" aria-label={`${label} XLSX`} onClick={onExportXlsx}>
           XLSX
         </Button>
-        <Button type="button" variant="default" size="sm" className="min-w-[5rem]" onClick={onExportPdf}>
+        <Button type="button" variant="default" size="sm" className="min-w-[5rem]" aria-label={`${label} PDF`} onClick={onExportPdf}>
           PDF
         </Button>
       </div>

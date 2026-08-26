@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -10,16 +10,18 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
       attendance_records: {
         Row: {
           attendance_status: string
+          checkout_verification_method: string | null
           created_at: string
           event_session_id: string
           id: string
+          late_reason: string | null
           late_reason_category: string | null
           minutes_late: number | null
           recorded_at: string
@@ -34,9 +36,11 @@ export type Database = {
         }
         Insert: {
           attendance_status: string
+          checkout_verification_method?: string | null
           created_at?: string
           event_session_id: string
           id?: string
+          late_reason?: string | null
           late_reason_category?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -51,9 +55,11 @@ export type Database = {
         }
         Update: {
           attendance_status?: string
+          checkout_verification_method?: string | null
           created_at?: string
           event_session_id?: string
           id?: string
+          late_reason?: string | null
           late_reason_category?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -240,6 +246,47 @@ export type Database = {
           },
         ]
       }
+      credential_request_attachments: {
+        Row: {
+          file_size_bytes: number
+          id: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at: string
+        }
+        Insert: {
+          file_size_bytes: number
+          id?: string
+          mime_type: string
+          original_file_name: string
+          request_id: string
+          storage_bucket: string
+          storage_object_path: string
+          uploaded_at?: string
+        }
+        Update: {
+          file_size_bytes?: number
+          id?: string
+          mime_type?: string
+          original_file_name?: string
+          request_id?: string
+          storage_bucket?: string
+          storage_object_path?: string
+          uploaded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_request_attachments_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "credential_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       credential_requests: {
         Row: {
           created_at: string
@@ -297,47 +344,6 @@ export type Database = {
           },
         ]
       }
-      credential_request_attachments: {
-        Row: {
-          file_size_bytes: number
-          id: string
-          mime_type: string
-          original_file_name: string
-          request_id: string
-          storage_bucket: string
-          storage_object_path: string
-          uploaded_at: string
-        }
-        Insert: {
-          file_size_bytes: number
-          id?: string
-          mime_type: string
-          original_file_name: string
-          request_id: string
-          storage_bucket: string
-          storage_object_path: string
-          uploaded_at?: string
-        }
-        Update: {
-          file_size_bytes?: number
-          id?: string
-          mime_type?: string
-          original_file_name?: string
-          request_id?: string
-          storage_bucket?: string
-          storage_object_path?: string
-          uploaded_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "credential_request_attachments_request_id_fkey"
-            columns: ["request_id"]
-            isOneToOne: false
-            referencedRelation: "credential_requests"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       departments: {
         Row: {
           created_at: string
@@ -382,6 +388,75 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      event_email_outbox: {
+        Row: {
+          body: string
+          created_at: string
+          delivery_status: string
+          error_message: string | null
+          event_code: string
+          event_id: string
+          event_revision: string
+          event_title: string
+          id: string
+          notification_type: string
+          provider_message_id: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          sent_at: string | null
+          subject: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          delivery_status?: string
+          error_message?: string | null
+          event_code: string
+          event_id: string
+          event_revision: string
+          event_title: string
+          id?: string
+          notification_type: string
+          provider_message_id?: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          sent_at?: string | null
+          subject: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          delivery_status?: string
+          error_message?: string | null
+          event_code?: string
+          event_id?: string
+          event_revision?: string
+          event_title?: string
+          id?: string
+          notification_type?: string
+          provider_message_id?: string | null
+          recipient_email?: string
+          recipient_profile_id?: string
+          sent_at?: string | null
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_email_outbox_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_email_outbox_recipient_profile_id_fkey"
+            columns: ["recipient_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       event_feedback: {
         Row: {
@@ -557,6 +632,57 @@ export type Database = {
           },
         ]
       }
+      event_resources: {
+        Row: {
+          created_at: string
+          created_by: string
+          event_id: string
+          external_url: string | null
+          id: string
+          resource_title: string
+          storage_bucket: string | null
+          storage_object_path: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          event_id: string
+          external_url?: string | null
+          id?: string
+          resource_title: string
+          storage_bucket?: string | null
+          storage_object_path?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          event_id?: string
+          external_url?: string | null
+          id?: string
+          resource_title?: string
+          storage_bucket?: string | null
+          storage_object_path?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_resources_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_resources_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_sessions: {
         Row: {
           actual_end: string | null
@@ -570,10 +696,14 @@ export type Database = {
           id: string
           late_cutoff_at: string | null
           mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
           scheduled_end: string
           scheduled_start: string
+          session_archive_status: string | null
           session_name: string
           session_status: string
+          superseded_by: string | null
           updated_at: string
           venue: string
         }
@@ -589,10 +719,14 @@ export type Database = {
           id?: string
           late_cutoff_at?: string | null
           mode?: string
+          rescheduled_at?: string | null
+          rescheduled_reason?: string | null
           scheduled_end: string
           scheduled_start: string
+          session_archive_status?: string | null
           session_name: string
           session_status?: string
+          superseded_by?: string | null
           updated_at?: string
           venue: string
         }
@@ -608,10 +742,14 @@ export type Database = {
           id?: string
           late_cutoff_at?: string | null
           mode?: string
+          rescheduled_at?: string | null
+          rescheduled_reason?: string | null
           scheduled_end?: string
           scheduled_start?: string
+          session_archive_status?: string | null
           session_name?: string
           session_status?: string
+          superseded_by?: string | null
           updated_at?: string
           venue?: string
         }
@@ -628,6 +766,13 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_sessions_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "event_sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -695,6 +840,9 @@ export type Database = {
         Row: {
           approval_reason: string | null
           approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           category_id: string
           created_at: string
           department_id: string | null
@@ -703,18 +851,26 @@ export type Database = {
           event_code: string
           event_status: string
           id: string
+          impact_score: number | null
+          last_rescheduled_at: string | null
           organizer_id: string
           predicted_turnout_percent: number | null
           priority_level: string
-          impact_score: number | null
+          published_at: string | null
+          published_by: string | null
+          reschedule_count: number | null
           starts_at: string
           title: string
           updated_at: string
           venue: string
+          visibility: string
         }
         Insert: {
           approval_reason?: string | null
           approval_status?: string
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           category_id: string
           created_at?: string
           department_id?: string | null
@@ -723,18 +879,26 @@ export type Database = {
           event_code: string
           event_status?: string
           id?: string
+          impact_score?: number | null
+          last_rescheduled_at?: string | null
           organizer_id: string
           predicted_turnout_percent?: number | null
           priority_level?: string
-          impact_score?: number | null
+          published_at?: string | null
+          published_by?: string | null
+          reschedule_count?: number | null
           starts_at: string
           title: string
           updated_at?: string
           venue: string
+          visibility?: string
         }
         Update: {
           approval_reason?: string | null
           approval_status?: string
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           category_id?: string
           created_at?: string
           department_id?: string | null
@@ -743,16 +907,28 @@ export type Database = {
           event_code?: string
           event_status?: string
           id?: string
+          impact_score?: number | null
+          last_rescheduled_at?: string | null
           organizer_id?: string
           predicted_turnout_percent?: number | null
           priority_level?: string
-          impact_score?: number | null  
+          published_at?: string | null
+          published_by?: string | null
+          reschedule_count?: number | null
           starts_at?: string
           title?: string
           updated_at?: string
           venue?: string
+          visibility?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "events_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "events_category_id_fkey"
             columns: ["category_id"]
@@ -772,6 +948,71 @@ export type Database = {
             columns: ["organizer_id"]
             isOneToOne: false
             referencedRelation: "organizers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facial_enrollment_history: {
+        Row: {
+          created_at: string
+          created_by: string
+          credential_request_id: string | null
+          enrollment_kind: string
+          enrollment_reference: string
+          enrollment_status: string
+          id: string
+          replaced_profile_id: string | null
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          credential_request_id?: string | null
+          enrollment_kind: string
+          enrollment_reference: string
+          enrollment_status?: string
+          id?: string
+          replaced_profile_id?: string | null
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          credential_request_id?: string | null
+          enrollment_kind?: string
+          enrollment_reference?: string
+          enrollment_status?: string
+          id?: string
+          replaced_profile_id?: string | null
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facial_enrollment_history_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facial_enrollment_history_credential_request_id_fkey"
+            columns: ["credential_request_id"]
+            isOneToOne: false
+            referencedRelation: "credential_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facial_enrollment_history_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
             referencedColumns: ["id"]
           },
         ]
@@ -1166,6 +1407,62 @@ export type Database = {
           },
         ]
       }
+      request_email_outbox: {
+        Row: {
+          body: string
+          created_at: string
+          delivery_status: string
+          error_message: string | null
+          id: string
+          provider_message_id: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          request_id: string
+          request_status: string
+          request_table: string
+          sent_at: string | null
+          subject: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          delivery_status?: string
+          error_message?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_email: string
+          recipient_profile_id: string
+          request_id: string
+          request_status: string
+          request_table: string
+          sent_at?: string | null
+          subject: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          delivery_status?: string
+          error_message?: string | null
+          id?: string
+          provider_message_id?: string | null
+          recipient_email?: string
+          recipient_profile_id?: string
+          request_id?: string
+          request_status?: string
+          request_table?: string
+          sent_at?: string | null
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_email_outbox_recipient_profile_id_fkey"
+            columns: ["recipient_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sections: {
         Row: {
           academic_year: string
@@ -1245,6 +1542,7 @@ export type Database = {
           created_at: string
           department_id: string
           id: string
+          initial_facial_enrollment_completed_at: string | null
           profile_id: string
           program_id: string
           section_id: string
@@ -1257,6 +1555,7 @@ export type Database = {
           created_at?: string
           department_id: string
           id?: string
+          initial_facial_enrollment_completed_at?: string | null
           profile_id: string
           program_id: string
           section_id: string
@@ -1269,6 +1568,7 @@ export type Database = {
           created_at?: string
           department_id?: string
           id?: string
+          initial_facial_enrollment_completed_at?: string | null
           profile_id?: string
           program_id?: string
           section_id?: string
@@ -1381,40 +1681,422 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cancel_organizer_event: {
+        Args: { p_event_id: string; p_reason: string }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          id: string
+          impact_score: number | null
+          last_rescheduled_at: string | null
+          organizer_id: string
+          predicted_turnout_percent: number | null
+          priority_level: string
+          published_at: string | null
+          published_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          title: string
+          updated_at: string
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       complete_facial_enrollment: {
         Args: { p_enrollment_reference: string }
-        Returns: Database["public"]["Tables"]["facial_profiles"]["Row"]
+        Returns: {
+          consent_recorded_at: string
+          created_at: string
+          descriptor_model: string | null
+          descriptor_updated_at: string | null
+          enrolled_at: string
+          enrollment_reference: string
+          face_descriptor: Json | null
+          facial_status: string
+          id: string
+          last_verified_at: string | null
+          student_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "facial_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
-      issue_qr_credential: {
-        Args: { p_expires_at?: string | null; p_student_id: string }
-        Returns: Database["public"]["Tables"]["qr_credentials"]["Row"]
+      create_organizer_event: {
+        Args: {
+          p_category_id: string
+          p_description: string
+          p_ends_at: string
+          p_event_code: string
+          p_impact_score: number
+          p_objectives: string[]
+          p_participant_ids: string[]
+          p_priority_level: string
+          p_publish_reason?: string
+          p_resource_title?: string
+          p_resource_url?: string
+          p_starts_at: string
+          p_title: string
+          p_venue: string
+          p_visibility: string
+        }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          id: string
+          impact_score: number | null
+          last_rescheduled_at: string | null
+          organizer_id: string
+          predicted_turnout_percent: number | null
+          priority_level: string
+          published_at: string | null
+          published_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          title: string
+          updated_at: string
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
-      review_attendance_request: {
-        Args: { p_reason?: string | null; p_request_id: string; p_status: string }
-        Returns: Database["public"]["Tables"]["attendance_requests"]["Row"]
+      end_event_attendance_session: {
+        Args: { p_reason: string; p_session_id: string }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
-      review_credential_request: {
-        Args: { p_remarks?: string | null; p_request_id: string; p_status: string }
-        Returns: Database["public"]["Tables"]["credential_requests"]["Row"]
+      get_conflicting_events: {
+        Args: never
+        Returns: {
+          conflicts_with: string[]
+          ends_at: string
+          event_code: string
+          event_id: string
+          impact_score: number
+          priority_level: string
+          starts_at: string
+          title: string
+        }[]
       }
       get_facial_descriptor_for_organizer: {
-        Args: { p_student_id: string }
+        Args: { p_event_session_id: string; p_student_id: string }
         Returns: Json
+      }
+      issue_qr_credential: {
+        Args: { p_expires_at?: string; p_student_id: string }
+        Returns: {
+          created_at: string
+          credential_status: string
+          expires_at: string | null
+          id: string
+          issued_at: string
+          last_successful_check_in_at: string | null
+          revoked_at: string | null
+          student_id: string
+          token_hash: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "qr_credentials"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      log_client_action: {
+        Args: {
+          p_action: string
+          p_metadata?: Json
+          p_target_id?: string
+          p_target_type: string
+        }
+        Returns: undefined
+      }
+      queue_emails_for_event: {
+        Args: { p_event_id: string }
+        Returns: undefined
+      }
+      record_manual_event_attendance: {
+        Args: {
+          p_late_reason?: string
+          p_occurred_at?: string
+          p_reason: string
+          p_remarks?: string
+          p_session_id: string
+          p_status: string
+          p_student_id: string
+        }
+        Returns: {
+          attendance_status: string
+          checkout_verification_method: string | null
+          created_at: string
+          event_session_id: string
+          id: string
+          late_reason: string | null
+          late_reason_category: string | null
+          minutes_late: number | null
+          recorded_at: string
+          recorded_by: string | null
+          remarks: string | null
+          student_id: string
+          time_in: string | null
+          time_out: string | null
+          updated_at: string
+          verification_attempt_id: string | null
+          verification_method: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attendance_records"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reschedule_organizer_event: {
+        Args: {
+          p_ends_at: string
+          p_event_id: string
+          p_reason: string
+          p_starts_at: string
+          p_venue: string
+        }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          id: string
+          impact_score: number | null
+          last_rescheduled_at: string | null
+          organizer_id: string
+          predicted_turnout_percent: number | null
+          priority_level: string
+          published_at: string | null
+          published_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          title: string
+          updated_at: string
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      review_attendance_request: {
+        Args: { p_reason?: string; p_request_id: string; p_status: string }
+        Returns: {
+          attendance_record_id: string
+          created_at: string
+          explanation: string
+          id: string
+          request_status: string
+          requested_status: string
+          review_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          student_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attendance_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      review_credential_request: {
+        Args: { p_remarks?: string; p_request_id: string; p_status: string }
+        Returns: {
+          created_at: string
+          credential_type: string
+          id: string
+          reason: string
+          request_status: string
+          request_type: string
+          review_remarks: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          student_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "credential_requests"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      set_student_credential_status: {
+        Args: {
+          p_credential_type: string
+          p_status: string
+          p_student_id: string
+        }
+        Returns: undefined
+      }
+      start_event_attendance_session: {
+        Args: {
+          p_event_id: string
+          p_late_cutoff_minutes?: number
+          p_mode: string
+          p_scheduled_end: string
+          p_scheduled_start: string
+          p_venue: string
+        }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       store_facial_descriptor: {
         Args: { p_face_descriptor: Json }
-        Returns: Database["public"]["Tables"]["facial_profiles"]["Row"]
-      }
-      set_student_credential_status: {
-        Args: { p_credential_type: string; p_status: string; p_student_id: string }
-        Returns: undefined
+        Returns: {
+          consent_recorded_at: string
+          created_at: string
+          descriptor_model: string | null
+          descriptor_updated_at: string | null
+          enrolled_at: string
+          enrollment_reference: string
+          face_descriptor: Json | null
+          facial_status: string
+          id: string
+          last_verified_at: string | null
+          student_id: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "facial_profiles"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       submit_late_reason: {
-        Args: {
-          p_attendance_record_id: string
-          p_late_reason_category: string
+        Args: { p_attendance_record_id: string; p_late_reason_category: string }
+        Returns: {
+          attendance_status: string
+          checkout_verification_method: string | null
+          created_at: string
+          event_session_id: string
+          id: string
+          late_reason: string | null
+          late_reason_category: string | null
+          minutes_late: number | null
+          recorded_at: string
+          recorded_by: string | null
+          remarks: string | null
+          student_id: string
+          time_in: string | null
+          time_out: string | null
+          updated_at: string
+          verification_attempt_id: string | null
+          verification_method: string
         }
-        Returns: Database["public"]["Tables"]["attendance_records"]["Row"]
+        SetofOptions: {
+          from: "*"
+          to: "attendance_records"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
     }
     Enums: {

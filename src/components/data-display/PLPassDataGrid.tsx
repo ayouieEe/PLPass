@@ -1,8 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
-  AllCommunityModule,
-  ModuleRegistry,
   type ColDef,
   type GridApi,
   type GridReadyEvent,
@@ -17,10 +15,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { plpassDataGridClassName, plpassDefaultColumnDef } from "@/components/data-display/plpassDataGridTheme";
 import type { PLPassDataGridProps } from "@/components/data-display/plpassDataGridTypes";
+import "@/components/data-display/agGridModules";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
-
-ModuleRegistry.registerModules([AllCommunityModule]);
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -122,6 +119,9 @@ export function PLPassDataGrid<TData extends object>({
   toolbarActions,
   hideHeader = false
 }: PLPassDataGridProps<TData>) {
+  const gridTitleId = useId();
+  const gridInstructionsId = useId();
+  const gridStatusId = useId();
   const gridShellRef = useRef<HTMLDivElement>(null);
   const gridApiRef = useRef<GridApi<TData> | null>(null);
   const [quickFilterText, setQuickFilterText] = useState("");
@@ -177,9 +177,10 @@ export function PLPassDataGrid<TData extends object>({
   const handleGridReady = useCallback(
     (event: GridReadyEvent<TData>) => {
       gridApiRef.current = event.api;
+      event.api.setGridAriaProperty("label", label);
       updateDisplayedRowCount(event.api);
     },
-    [updateDisplayedRowCount]
+    [label, updateDisplayedRowCount]
   );
 
   const handleModelUpdated = useCallback(
@@ -222,17 +223,30 @@ export function PLPassDataGrid<TData extends object>({
 
   const resolvedRowHeight = rowHeight ?? 52;
   const resolvedHeaderHeight = headerHeight ?? 44;
+  const resolvedRowSelection = rowSelection
+    ? {
+        mode: rowSelection === "single" ? ("singleRow" as const) : ("multiRow" as const),
+        enableClickSelection: !suppressRowClickSelection
+      }
+    : undefined;
 
   return (
     <section
       className={cn("plpass-data-grid-shell rounded-2xl border border-border bg-surface shadow-sm", hideHeader ? "p-4" : "p-6")}
       aria-label={label}
+      aria-describedby={`${gridInstructionsId} ${gridStatusId}`}
     >
+      <p id={gridInstructionsId} className="sr-only">
+        Data grid. Use the arrow keys to move between cells. Use Tab to move into interactive controls inside a cell and to leave the grid.
+      </p>
+      <p id={gridStatusId} className="sr-only" role="status" aria-live="polite">
+        {hasRows ? `Showing rows ${firstRow} through ${lastRow} of ${displayedRowCount}. Page ${currentPage + 1} of ${totalPages}.` : "No records to display."}
+      </p>
       {!hideHeader ? (
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-4">
             <span className="h-9 w-1 rounded-full bg-primary" aria-hidden="true" />
-            <p className="min-w-0 truncate text-lg font-bold text-foreground">{label}</p>
+            <h2 id={gridTitleId} className="min-w-0 truncate text-lg font-bold text-foreground">{label}</h2>
             <span className="rounded-full border bg-surface-muted px-3.5 py-1.5 font-mono text-xs text-muted-foreground">
               {hasRows ? `${firstRow}-${lastRow} of ${displayedRowCount}` : "0 records"}
             </span>
@@ -302,9 +316,9 @@ export function PLPassDataGrid<TData extends object>({
           pagination={hasRows}
           suppressPaginationPanel
           paginationPageSize={DEFAULT_PAGE_SIZE}
-          quickFilterText={quickFilterText}
-          rowSelection={rowSelection}
-          suppressRowClickSelection={suppressRowClickSelection}
+          paginationPageSizeSelector={false}
+          quickFilterText={enableQuickFilter ? quickFilterText : undefined}
+          rowSelection={resolvedRowSelection}
           rowHeight={resolvedRowHeight}
           headerHeight={resolvedHeaderHeight}
           noRowsOverlayComponent={NoRowsOverlay}

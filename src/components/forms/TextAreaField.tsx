@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
@@ -18,6 +19,7 @@ export function TextAreaField<TFieldValues extends FieldValues>({
   rows = 4,
   disabled
 }: TextAreaFieldProps<TFieldValues>) {
+  const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
     <Controller
       control={control}
@@ -31,8 +33,10 @@ export function TextAreaField<TFieldValues extends FieldValues>({
             placeholder={placeholder}
             rows={rows}
             disabled={disabled}
+            aria-invalid={Boolean(fieldState.error)}
+            aria-describedby={fieldState.error ? errorId : undefined}
           />
-          {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+          {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}
     />
