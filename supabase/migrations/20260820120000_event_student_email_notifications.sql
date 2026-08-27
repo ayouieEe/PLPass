@@ -1,5 +1,4 @@
 begin;
-
 create table if not exists public.event_email_outbox (
   id uuid primary key default gen_random_uuid(),
   recipient_profile_id uuid not null references public.profiles(id) on delete cascade,
@@ -19,24 +18,18 @@ create table if not exists public.event_email_outbox (
   constraint event_email_outbox_delivery_valid check (delivery_status in ('pending', 'sent', 'failed', 'skipped')),
   constraint event_email_outbox_revision_unique unique (event_id, recipient_profile_id, notification_type, event_revision)
 );
-
 alter table public.event_email_outbox
-  add column if not exists event_code text,
-  add column if not exists event_title text,
   add column if not exists notification_type text,
   add column if not exists event_revision timestamptz;
-
 update public.event_email_outbox outbox
 set notification_type = coalesce(outbox.notification_type, 'published'),
     event_revision = coalesce(outbox.event_revision, events.created_at)
 from public.events
 where events.id = outbox.event_id
   and (outbox.notification_type is null or outbox.event_revision is null);
-
 alter table public.event_email_outbox
   alter column notification_type set not null,
   alter column event_revision set not null;
-
 do $$
 begin
   if not exists (
@@ -59,15 +52,12 @@ begin
   end if;
 end;
 $$;
-
 create index if not exists event_email_outbox_pending_idx
   on public.event_email_outbox (delivery_status, created_at)
   where delivery_status = 'pending';
-
 alter table public.event_email_outbox enable row level security;
 revoke all on public.event_email_outbox from anon, authenticated;
 grant select, update on public.event_email_outbox to service_role;
-
 create or replace function private.queue_event_student_email(
   p_event_id uuid,
   p_student_id uuid,
@@ -154,7 +144,6 @@ begin
   on conflict (event_id, recipient_profile_id, notification_type, event_revision) do nothing;
 end;
 $$;
-
 create or replace function private.queue_event_student_emails_for_event(
   p_event_id uuid,
   p_notification_type text,
@@ -183,9 +172,7 @@ begin
   end loop;
 end;
 $$;
-
 drop function if exists public.queue_emails_for_event(uuid);
-
 create function public.queue_emails_for_event(p_event_id uuid)
 returns void
 language plpgsql
@@ -207,10 +194,8 @@ begin
   );
 end;
 $$;
-
 revoke all on function public.queue_emails_for_event(uuid) from public, anon, authenticated;
 grant execute on function public.queue_emails_for_event(uuid) to service_role;
-
 create or replace function private.queue_event_email_after_participant_insert()
 returns trigger
 language plpgsql
@@ -227,7 +212,6 @@ begin
   return new;
 end;
 $$;
-
 create or replace function private.queue_event_email_after_reschedule()
 returns trigger
 language plpgsql
@@ -244,17 +228,14 @@ begin
   return new;
 end;
 $$;
-
 drop trigger if exists queue_event_email_after_participant_insert on public.event_participants;
 create trigger queue_event_email_after_participant_insert
 after insert on public.event_participants
 for each row
 execute function private.queue_event_email_after_participant_insert();
-
 drop trigger if exists queue_event_email_after_reschedule on public.events;
 create trigger queue_event_email_after_reschedule
 after update of starts_at, ends_at, venue on public.events
 for each row
 execute function private.queue_event_email_after_reschedule();
-
 commit;

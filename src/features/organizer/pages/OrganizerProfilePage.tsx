@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useEffect, useState } from "react";
 import { Camera, Key, LogOut, Mail, ShieldAlert, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { Department } from "@/types/domain";
 
 type ProfileFieldProps = {
@@ -52,15 +52,27 @@ export function OrganizerProfilePage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   useEffect(() => {
-    const savedAvatar = localStorage.getItem("plpass-organizer-avatar");
-    if (savedAvatar) {
-      setAvatarUrl(savedAvatar);
-    } else {
-      setAvatarUrl(`https://api.dicebear.com/7.x/initials/svg?seed=${session?.displayName ?? "Organizer"}`);
+    const storedAvatar = userQuery.data?.avatarUrl;
+    const fallback = `https://api.dicebear.com/7.x/initials/svg?seed=${session?.displayName ?? "Organizer"}`;
+    if (!storedAvatar?.startsWith("profile-avatars:")) {
+      setAvatarUrl(storedAvatar ?? fallback);
+      return;
     }
-  }, [session]);
+    let cancelled = false;
+    const objectPath = storedAvatar.slice("profile-avatars:".length);
+    void getSupabaseBrowserClient().storage
+      .from("profile-avatars")
+      .createSignedUrl(objectPath, 3600)
+      .then(({ data, error }) => {
+        if (!cancelled) setAvatarUrl(error ? fallback : data.signedUrl);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.displayName, userQuery.data?.avatarUrl]);
 
   if (!session) {
     return <ErrorState title="No active session" message="Sign in with an organizer account to view this page." />;
@@ -85,37 +97,79 @@ export function OrganizerProfilePage() {
   if (!user || !organizer) {
     return <ErrorState title="Profile not found" message="No organizer profile details were found for this account." />;
   }
+  const organizerUserId = session.userId;
+  const organizerEmail = user.email;
 
-  function handleLogout() {
-    logout();
-    queryClient.clear();
-    navigate(APP_ROUTES.login, { replace: true });
-  }
-
-  function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
-    if (event.target.files && event.target.files.length > 0) {
-      const file = event.target.files[0];
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string;
-        setAvatarUrl(dataUrl);
-        localStorage.setItem("plpass-organizer-avatar", dataUrl);
-        toast.success("Profile picture updated successfully!");
-        
-        void auditLogMutations.logActionMutation.mutateAsync({
-          action: "Updated Profile Picture",
-          targetType: "organizer_profile",
-          targetId: session?.userId,
-          metadata: { userId: session?.userId }
-        });
-      };
-      
-      reader.readAsDataURL(file);
+  async function handleLogout() {
+    try {
+      await logout();
+      navigate(APP_ROUTES.login, { replace: true });
+    } catch {
+      toast.error("The local session was cleared, but Supabase could not confirm sign-out.");
+      navigate(APP_ROUTES.login, { replace: true });
     }
   }
 
-  function handlePasswordSubmit(event: React.FormEvent) {
+  async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || isUploadingAvatar) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Use a JPG, PNG, or WebP profile picture.");
+      input.value = "";
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Profile pictures must be 2 MB or smaller.");
+      input.value = "";
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const client = getSupabaseBrowserClient();
+      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      const objectPath = `${organizerUserId}/avatar.${extension}`;
+      const { error: uploadError } = await client.storage
+        .from("profile-avatars")
+        .upload(objectPath, file, { contentType: file.type, cacheControl: "3600", upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: signedUrlData, error: signedUrlError } = await client.storage
+        .from("profile-avatars")
+        .createSignedUrl(objectPath, 3600);
+      if (signedUrlError) throw signedUrlError;
+      const storedAvatarPath = `profile-avatars:${objectPath}`;
+      const { error: profileError } = await client
+        .from("profiles")
+        .update({ profile_picture: storedAvatarPath, updated_at: new Date().toISOString() })
+        .eq("id", organizerUserId)
+        .select("profile_picture")
+        .single();
+      if (profileError) throw profileError;
+
+      setAvatarUrl(signedUrlData.signedUrl);
+      await queryClient.invalidateQueries({ queryKey: ["user", organizerUserId] });
+      toast.success("Profile picture updated successfully!");
+      try {
+        await auditLogMutations.logActionMutation.mutateAsync({
+          action: "Updated Profile Picture",
+          targetType: "organizer_profile",
+          targetId: organizerUserId,
+          metadata: { storageBucket: "profile-avatars" }
+        });
+      } catch {
+        // The profile update is already committed; audit feedback is handled separately.
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to update the profile picture.");
+    } finally {
+      setIsUploadingAvatar(false);
+      input.value = "";
+    }
+  }
+
+  async function handlePasswordSubmit(event: React.FormEvent) {
     event.preventDefault();
 
     if (!oldPassword || !newPassword || !confirmPassword) {
@@ -123,8 +177,13 @@ export function OrganizerProfilePage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters long.");
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters long.");
+      return;
+    }
+
+    if (newPassword === oldPassword) {
+      toast.error("Your new password must be different from your current password.");
       return;
     }
 
@@ -134,20 +193,45 @@ export function OrganizerProfilePage() {
     }
 
     setIsChangingPassword(true);
-    setTimeout(() => {
-      setIsChangingPassword(false);
-      toast.success("Password changed successfully!");
+    try {
+      const client = getSupabaseBrowserClient();
+      const email = organizerEmail.trim();
+      if (!email) {
+        throw new Error("Your organizer account does not have an email address.");
+      }
+
+      const { error: reauthenticationError } = await client.auth.signInWithPassword({
+        email,
+        password: oldPassword
+      });
+      if (reauthenticationError) {
+        throw new Error("The current password is incorrect.");
+      }
+
+      const { error: updateError } = await client.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+
+      toast.success("Password changed successfully.");
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Changed Password",
-        targetType: "organizer_profile",
-        targetId: session?.userId,
-        metadata: { userId: session?.userId }
-      });
-    }, 1000);
+
+      try {
+        await auditLogMutations.logActionMutation.mutateAsync({
+          action: "Changed Password",
+          targetType: "organizer_profile",
+          targetId: organizerUserId,
+          metadata: { method: "reauthenticated_password_change" }
+        });
+      } catch {
+        // The password update already succeeded. The audit mutation reports its
+        // own error and must not incorrectly tell the organizer that it failed.
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to change the password.");
+    } finally {
+      setIsChangingPassword(false);
+    }
   }
 
 
@@ -171,7 +255,7 @@ export function OrganizerProfilePage() {
             </div>
             <label className="absolute bottom-1 right-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105">
               <Camera className="h-4 w-4" />
-              <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={isUploadingAvatar} className="hidden" />
             </label>
           </div>
 

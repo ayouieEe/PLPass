@@ -219,6 +219,14 @@ export function useEventMutations(context?: RepositoryContext) {
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
+    }),
+    cancelEventMutation: useMutation({
+      mutationFn: (input: { eventId: string; reason: string }) =>
+        repositories.eventManagement.cancelEvent(input.eventId, input.reason, context),
+      onSuccess: invalidateEvents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
     })
   };
 }
@@ -262,6 +270,15 @@ export function useEventParticipants(eventId: string, query?: Partial<ListQuery>
   return useQuery({
     queryKey: ["eventParticipants", eventId, listQuery, context],
     queryFn: () => repositories.eventManagement.listEventParticipants(eventId, listQuery, context),
+    enabled: Boolean(eventId)
+  });
+}
+
+export function useEventResources(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext) {
+  const listQuery = queryWithDefaults(query);
+  return useQuery({
+    queryKey: ["eventResources", eventId, listQuery, context],
+    queryFn: () => repositories.eventManagement.listEventResources(eventId, listQuery, context),
     enabled: Boolean(eventId)
   });
 }
@@ -336,19 +353,19 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
       return;
     }
 
-    queryClient.setQueriesData({ queryKey: ["attendanceRecords"] }, (previous: any) => {
-      if (!previous || typeof previous !== "object" || !Array.isArray((previous as any).items)) {
+    queryClient.setQueriesData<PaginatedResult<AttendanceRecord>>({ queryKey: ["attendanceRecords"] }, (previous) => {
+      if (!previous || !Array.isArray(previous.items)) {
         return previous;
       }
 
-      const nextItems = (previous as any).items.some((item: any) => item.id === record.id)
-        ? (previous as any).items.map((item: any) => (item.id === record.id ? { ...item, ...record } : item))
-        : [{ ...record }, ...(previous as any).items];
+      const nextItems = previous.items.some((item) => item.id === record.id)
+        ? previous.items.map((item) => (item.id === record.id ? { ...item, ...record } : item))
+        : [{ ...record } as AttendanceRecord, ...previous.items];
 
       return {
-        ...(previous as any),
+        ...previous,
         items: nextItems,
-        total: Math.max((previous as any).total ?? 0, nextItems.length)
+        total: Math.max(previous.total, nextItems.length)
       };
     });
   };
@@ -392,9 +409,7 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
     }),
     submitLateReasonMutation: useMutation({
       mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
-      onSuccess: (result) => void invalidateAttendance(
-        
-      ),
+      onSuccess: (result) => void invalidateAttendance(result),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
@@ -533,10 +548,21 @@ export function useStudentCredentialStatus(studentId: string | undefined, contex
   });
 }
 
+export function useStudentCredentialStatuses(context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["studentCredentialStatuses", context],
+    queryFn: () => repositories.studentCredentials.listStudentCredentialStatuses(context),
+    enabled: Boolean(context?.actorUserId)
+  });
+}
+
 export function useStudentCredentialMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   const invalidateCredentials = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["studentCredentialStatus"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["studentCredentialStatus"] }),
+      queryClient.invalidateQueries({ queryKey: ["studentCredentialStatuses"] })
+    ]);
     await queryClient.invalidateQueries({ queryKey: ["students"] });
   };
 

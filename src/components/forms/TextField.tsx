@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldBaseClass, fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
@@ -7,11 +8,6 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   label: string;
   placeholder?: string;
   type?: "text" | "email" | "password" | "number" | "tel";
-  min?: number;
-  max?: number;
-  step?: number;
-  minError?: string;
-  maxError?: string;
   disabled?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -23,15 +19,11 @@ export function TextField<TFieldValues extends FieldValues>({
   label,
   placeholder,
   type = "text",
-  min,
-  max,
-  step,
-  minError,
-  maxError,
   disabled,
   readOnly,
   className
 }: TextFieldProps<TFieldValues>) {
+  const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
     <Controller
       control={control}
@@ -48,15 +40,6 @@ export function TextField<TFieldValues extends FieldValues>({
           field.onChange(rawValue);
         };
 
-        const numericRangeError = type === "number" && typeof field.value === "number"
-          ? min !== undefined && field.value < min
-            ? minError ?? `Value must be at least ${min}.`
-            : max !== undefined && field.value > max
-              ? maxError ?? `Value must not exceed ${max}.`
-              : undefined
-          : undefined;
-        const errorMessage = numericRangeError ?? fieldState.error?.message;
-
         return (
           <label className="space-y-1.5">
             <span className={labelClass}>{label}</span>
@@ -66,14 +49,13 @@ export function TextField<TFieldValues extends FieldValues>({
               className={`${fieldBaseClass} ${className ?? ""}`}
               type={type}
               placeholder={placeholder}
-              min={min}
-              max={max}
-              step={step}
               disabled={disabled}
               readOnly={readOnly}
               onChange={handleChange}
+              aria-invalid={Boolean(fieldState.error)}
+              aria-describedby={fieldState.error ? errorId : undefined}
             />
-            {errorMessage ? <p className={fieldErrorClass}>{errorMessage}</p> : null}
+            {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
           </label>
         );
       }}

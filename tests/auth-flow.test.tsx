@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
@@ -51,14 +51,14 @@ async function signIn(displayName: string) {
   };
   const email = emailMap[displayName] ?? "organizer.one@plpass.test";
   await user.type(await screen.findByLabelText(/email/i), email);
-  await user.type(screen.getByLabelText(/password/i), "password123");
+  await user.type(screen.getByLabelText(/^password$/i), "password123");
   await user.click(screen.getByRole("button", { name: "Sign in" }));
 }
 
 describe("mock authentication flow", () => {
   it.each([
-    ["Organizer One", "Organizer dashboard"],
-    ["Student 01", "Student dashboard"]
+    ["Organizer One", /^Dashboard$/i],
+    ["Student 01", /Welcome back/i]
   ])("logs in as %s and redirects by role", async (displayName, expectedHeading) => {
     setRoute("/login");
     await signIn(displayName);
@@ -77,14 +77,14 @@ describe("mock authentication flow", () => {
     setRoute("/organizer/dashboard");
     await signIn("Organizer One");
 
-    await screen.findByRole("heading", { name: "Organizer dashboard" });
+    await screen.findByRole("heading", { name: /^Dashboard$/i });
   });
 
   it("redirects cross-role login attempts to the signed-in role dashboard", async () => {
     setRoute("/student/dashboard");
     await signIn("Organizer One");
 
-    await screen.findByRole("heading", { name: "Organizer dashboard" });
+    await screen.findByRole("heading", { name: /^Dashboard$/i });
   });
 
   it("shows access denied for authenticated cross-role routes", async () => {
@@ -101,7 +101,7 @@ describe("mock authentication flow", () => {
     setRoute("/organizer/dashboard");
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Organizer dashboard" });
+    await screen.findByRole("heading", { name: /^Dashboard$/i });
   });
 
   it("keeps the login page accessible when a session already exists", async () => {
@@ -121,7 +121,7 @@ describe("mock authentication flow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Profile" });
-    await user.click(screen.getAllByRole("button", { name: /logout/i })[1]);
+    await user.click(within(screen.getByRole("main")).getByRole("button", { name: /logout/i }));
     await screen.findByRole("heading", { name: /sign in to plpass/i });
     expect(window.localStorage.getItem("plpass-development-session")).toBeNull();
   });

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasValidEventSchedule,
-  shouldDisplayInEventTab
-} from "@/features/organizer/pages/EventManagementPage";
-import { resolveEventAttendanceCode } from "@/features/organizer/hooks/useEventAttendance";
+  shouldDisplayInEventTab,
+  type EventRecord
+} from "@/features/organizer/utils/eventManagement";
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -27,7 +27,7 @@ describe("event page validation helpers", () => {
       impactScore: null,
       predictedTurnout: "0%",
       objectives: []
-    } as any;
+    } satisfies EventRecord;
 
     expect(shouldDisplayInEventTab(event, "incoming", {
       activeEventCode: undefined,
@@ -35,10 +35,5 @@ describe("event page validation helpers", () => {
       completedCodes: new Set(),
       sessionsList: []
     })).toBe(false);
-  });
-
-  it("uses the persisted event code for attendance rows", () => {
-    expect(resolveEventAttendanceCode({ "event-id": "EVT-2026-001" }, "event-id")).toBe("EVT-2026-001");
-    expect(resolveEventAttendanceCode({}, "event-id")).toBe("event-id");
   });
 });

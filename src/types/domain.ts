@@ -138,6 +138,9 @@ export type Event = {
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   predictedTurnout: number | null;
+  visibility?: "assigned" | "public";
+  approvalReason?: string;
+  cancellationReason?: string;
 };
 
 export type EventParticipant = {
@@ -152,6 +155,15 @@ export type EventObjective = {
   eventId: ID;
   order: number;
   text: string;
+};
+
+export type EventResource = {
+  id: ID;
+  eventId: ID;
+  title: string;
+  externalUrl?: string;
+  storageBucket?: string;
+  storageObjectPath?: string;
 };
 
 export type EventFeedbackRating = {

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { supabaseAttendanceRecordRepository, supabaseAttendanceSessionRepository } from "@/services/supabase/repositories";
-import { resolveLateStudentManualState, resolveManualAttendanceLookup } from "@/features/organizer/pages/EventManagementPage";
+import { supabaseAttendanceSessionRepository } from "@/services/supabase/repositories";
+import { resolveLateStudentManualState, resolveManualAttendanceLookup } from "@/features/organizer/utils/eventManagement";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import type { AttendanceScanInput, ManualAttendanceInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -31,7 +30,8 @@ describe("Supabase event-scoped attendance queries", () => {
   };
 
   it("filters event sessions by eventId", async () => {
-    let lastBuilder: any;
+    type EventSessionRow = { id: string; event_id: string; session_status: string; scheduled_start: string };
+    let lastBuilder: { eq: ReturnType<typeof vi.fn> } | undefined;
     mockSupabaseClient.from.mockImplementation((table: string) => {
       const data = table === "event_sessions"
         ? [
@@ -43,13 +43,13 @@ describe("Supabase event-scoped attendance queries", () => {
       const filters: Record<string, unknown> = {};
       const builder = {
         select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockImplementation(function (this: { eq: typeof builder.eq }, field: string, value: unknown) {
+        eq: vi.fn().mockImplementation((field: string, value: unknown) => {
           filters[field] = value;
-          return this;
+          return builder;
         }),
         order: vi.fn().mockReturnThis(),
         range: vi.fn().mockImplementation(async () => {
-          const filtered = data.filter((row: any) => {
+          const filtered = data.filter((row: EventSessionRow) => {
             if (filters.event_id !== undefined && String(row.event_id) !== String(filters.event_id)) {
               return false;
             }
@@ -65,30 +65,12 @@ describe("Supabase event-scoped attendance queries", () => {
     const sessions = await supabaseAttendanceSessionRepository.listAttendanceSessions({ pageIndex: 0, pageSize: 20, eventId: "evt-1" }, mockContext);
 
     expect(sessions.items.map((session) => session.id)).toEqual(["session-1"]);
-    expect(lastBuilder.eq).toHaveBeenCalledWith("event_id", "evt-1");
+    expect(lastBuilder?.eq).toHaveBeenCalledWith("event_id", "evt-1");
   });
 
 });
 
 describe("Attendance Check-In/Check-Out Logic", () => {
-  const mockContext: RepositoryContext = {
-    actorUserId: "user-organizer-1",
-    actorRole: "organizer"
-  };
-
-  const mockSession = {
-    id: "session-1",
-    eventId: "event-1",
-    status: "active" as const,
-    startsAt: new Date().toISOString(),
-    endsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    lateCutoffAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-    attendanceWindowStartAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-    attendanceWindowEndAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    venueId: "venue-1",
-    recordedByUserId: "user-organizer-1"
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
   });

@@ -10,7 +10,7 @@ export function AttendanceTrendChart({ data }: AttendanceTrendChartProps) {
   const hasData = data.some((point) => point.present > 0 || point.late > 0 || point.absent > 0);
 
   return (
-    <ChartFrame title="Attendance Trend" description="Stacked attendance outcomes across recent sessions." empty={!hasData}>
+    <ChartFrame title="Attendance Trend" description="Stacked attendance outcomes across recent sessions." summary={`Chart data: ${data.map((point) => `${point.label}, ${point.present} present, ${point.late} late, ${point.absent} absent`).join("; ")}.`} empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />

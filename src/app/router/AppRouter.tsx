@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthenticatedLayout, PublicLayout } from "@/app/layouts/AppLayout";
 import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
@@ -10,37 +11,36 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
-import {
-  CreateEventPage,
-  EventAttendancePage,
-  EventDetailsPage,
-  EventManagementPage,
-  EventRecordsPage,
-  AuthenticationMethodsPage,
-  OrganizerAnalyticsPage,
-  OrganizerCorrectionRequestsPage,
-  OrganizerDashboardPage,
-  OrganizerProfilePage,
-  OrganizerUserManagementPage,
-  OrganizerRootPage,
-  OrganizerAuditLogsPage
-} from "@/features/organizer/pages";
-import {
-  CorrectionRequestsPage as StudentCorrectionRequestsPage,
-  MyAttendancePage,
-  AttendanceMethodsPage,
-  StudentEventDetailsPage,
-  StudentDashboardPage,
-  StudentSchedulePage,
-  StudentUpcomingEventsPage,
-  RequestHistoryPage,
-  StudentProfilePage,
-  StudentRootPage
-} from "@/features/student/pages";
+import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
+
+const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
+const OrganizerDashboardPage = lazy(() => import("@/features/organizer/pages/OrganizerDashboardPage").then((module) => ({ default: module.OrganizerDashboardPage })));
+const EventManagementPage = lazy(() => import("@/features/organizer/pages/EventManagementPage").then((module) => ({ default: module.EventManagementPage })));
+const CreateEventPage = lazy(() => import("@/features/organizer/pages/CreateEventPage").then((module) => ({ default: module.CreateEventPage })));
+const OrganizerUserManagementPage = lazy(() => import("@/features/organizer/pages/OrganizerUserManagement").then((module) => ({ default: module.OrganizerUserManagementPage })));
+const EventDetailsPage = lazy(() => import("@/features/organizer/pages/EventDetailsPage").then((module) => ({ default: module.EventDetailsPage })));
+const EventAttendancePage = lazy(() => import("@/features/organizer/pages/EventAttendancePage").then((module) => ({ default: module.EventAttendancePage })));
+const EventRecordsPage = lazy(() => import("@/features/organizer/pages/EventRecordsPage").then((module) => ({ default: module.EventRecordsPage })));
+const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/AuthenticationMethodsPage").then((module) => ({ default: module.AuthenticationMethodsPage })));
+const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
+const OrganizerCorrectionRequestsPage = lazy(() => import("@/features/organizer/pages/OrganizerCorrectionRequestsPage").then((module) => ({ default: module.OrganizerCorrectionRequestsPage })));
+const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/OrganizerAuditLogsPage").then((module) => ({ default: module.OrganizerAuditLogsPage })));
+const OrganizerProfilePage = lazy(() => import("@/features/organizer/pages/OrganizerProfilePage").then((module) => ({ default: module.OrganizerProfilePage })));
+const StudentRootPage = lazy(() => import("@/features/student/pages/StudentRootPage").then((module) => ({ default: module.StudentRootPage })));
+const StudentDashboardPage = lazy(() => import("@/features/student/pages/StudentDashboardPage").then((module) => ({ default: module.StudentDashboardPage })));
+const StudentSchedulePage = lazy(() => import("@/features/student/pages/StudentSchedulePage").then((module) => ({ default: module.StudentSchedulePage })));
+const StudentUpcomingEventsPage = lazy(() => import("@/features/student/pages/StudentUpcomingEventsPage").then((module) => ({ default: module.StudentUpcomingEventsPage })));
+const StudentEventDetailsPage = lazy(() => import("@/features/student/pages/StudentEventDetailsPage").then((module) => ({ default: module.StudentEventDetailsPage })));
+const MyAttendancePage = lazy(() => import("@/features/student/pages/MyAttendancePage").then((module) => ({ default: module.MyAttendancePage })));
+const AttendanceMethodsPage = lazy(() => import("@/features/student/pages/AttendanceMethodsPage").then((module) => ({ default: module.AttendanceMethodsPage })));
+const RequestHistoryPage = lazy(() => import("@/features/student/pages/RequestHistoryPage").then((module) => ({ default: module.RequestHistoryPage })));
+const StudentCorrectionRequestsPage = lazy(() => import("@/features/student/pages/CorrectionRequestsPage").then((module) => ({ default: module.CorrectionRequestsPage })));
+const StudentProfilePage = lazy(() => import("@/features/student/pages/StudentProfilePage").then((module) => ({ default: module.StudentProfilePage })));
 
 export function AppRouter() {
   return (
+    <Suspense fallback={<LoadingState label="Loading workspace" />}>
     <Routes>
       <Route element={<PublicLayout />}>
         <Route index element={<Navigate to={APP_ROUTES.login} replace />} />
@@ -89,5 +89,6 @@ export function AppRouter() {
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
+    </Suspense>
   );
 }

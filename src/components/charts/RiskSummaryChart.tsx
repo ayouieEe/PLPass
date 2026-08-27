@@ -10,7 +10,7 @@ export function RiskSummaryChart({ data }: RiskSummaryChartProps) {
   const hasData = data.some((point) => point.watchlist > 0 || point.atRisk > 0);
 
   return (
-    <ChartFrame title="Risk Summary" description="Students needing attention by period." empty={!hasData}>
+    <ChartFrame title="Risk Summary" description="Students needing attention by period." summary={`Chart data: ${data.map((point) => `${point.label}, ${point.watchlist} on watchlist, ${point.atRisk} at risk`).join("; ")}.`} empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />

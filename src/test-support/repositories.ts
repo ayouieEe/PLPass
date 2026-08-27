@@ -43,13 +43,13 @@ import type {
   EventFeedbackRepository,
   EventManagementRepository,
   ManualAttendanceInput,
+  RescheduleEventInput,
   AttendanceAttemptRepository,
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
   ReviewCorrectionRequestInput,
   ReviewCredentialRequestInput,
-  RescheduleEventInput,
   StudentCredentialRepository,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
@@ -725,7 +725,15 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
   async listEvents(query, context) {
     await beforeRead("eventManagement", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
-    const items = filterEvents(query).filter((event) => isEventInOrganizerScope(event, currentContext) && isEventInStudentScope(event, currentContext));
+    const items = filterEvents(query)
+      .filter((event) => isEventInOrganizerScope(event, currentContext) && isEventInStudentScope(event, currentContext))
+      .map((event) => {
+        if (currentContext.actorRole !== "student") return event;
+        const completedSession = attendanceSessionState.some(
+          (session) => session.eventId === event.id && session.status === "completed"
+        );
+        return completedSession ? { ...event, status: "completed" as const } : event;
+      });
     return currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
@@ -741,14 +749,6 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       throw new RepositoryError("Students can only access events they are registered for.", "PERMISSION_DENIED");
     }
     return event;
-  },
-  async generateNextEventCode() {
-    const year = new Date().getFullYear();
-    const nextNumber = eventState.reduce((highest, event) => {
-      const match = event.code.match(/^EVT-\d+-(\d+)$/);
-      return match ? Math.max(highest, Number.parseInt(match[1], 10)) : highest;
-    }, 0) + 1;
-    return `EVT-${year}-${String(nextNumber).padStart(3, "0")}`;
   },
   async listEventParticipants(eventId, query, context) {
     await beforeRead("eventManagement", context, ["admin", "organizer", "student"]);
@@ -769,6 +769,21 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
+  },
+  async listEventResources(_eventId, query, context) {
+    await beforeRead("eventManagement", context);
+    return paginate([], query);
+  },
+  async generateNextEventCode(context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentYear = new Date().getFullYear();
+    const prefix = `EVT-${currentYear}-`;
+    const highestExistingNumber = eventState.reduce((highest, event) => {
+      if (!event.code.startsWith(prefix)) return highest;
+      const sequence = Number.parseInt(event.code.slice(prefix.length), 10);
+      return Number.isFinite(sequence) ? Math.max(highest, sequence) : highest;
+    }, 0);
+    return `${prefix}${String(highestExistingNumber + 1).padStart(3, "0")}`;
   },
   async createEvent(input: CreateEventInput, context) {
     await beforeRead("eventManagement", context, ["organizer"]);
@@ -854,6 +869,18 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
     return updated;
   },
+  async cancelEvent(eventId, reason, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    if (!reason.trim()) throw new RepositoryError("A cancellation reason is required.", "VALIDATION_ERROR");
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only cancel their own events.", "PERMISSION_DENIED");
+    }
+    const updated = { ...event, status: "cancelled" as const, cancellationReason: reason.trim() };
+    eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
+    return updated;
+  },
   async rescheduleEvent(input: RescheduleEventInput, context) {
     await beforeRead("eventManagement", context, ["organizer"]);
     const currentContext = contextOrDefault(context);
@@ -879,7 +906,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     // Archive existing sessions for this event (simulation)
     // In real implementation, sessions would be marked archived with rescheduled metadata
     attendanceSessionState = attendanceSessionState.map((session) =>
-      session.eventId === input.eventId && session.status === "active"
+      session.eventId === input.eventId && (session.status === "draft" || session.status === "active")
         ? { ...session, status: "cancelled" as const }
         : session
     );
@@ -1271,6 +1298,10 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
 };
 
 export const simulatedStudentCredentialRepository: StudentCredentialRepository = {
+  async listStudentCredentialStatuses(context) {
+    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    return [];
+  },
   async getStudentCredentialStatus(studentId, context) {
     await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
     return { studentId };
@@ -1409,7 +1440,13 @@ export const simulatedAuditLogRepository: AuditLogRepository = {
   },
   async logClientAction(input, context) {
     const currentContext = contextOrDefault(context);
-    addSafeAudit(currentContext, input.action, input.targetType, input.targetId || "", input.metadata as any);
+    const metadata = Object.fromEntries(
+      Object.entries(input.metadata ?? {}).filter(
+        (entry): entry is [string, string | number | boolean] =>
+          typeof entry[1] === "string" || typeof entry[1] === "number" || typeof entry[1] === "boolean"
+      )
+    );
+    addSafeAudit(currentContext, input.action, input.targetType, input.targetId || "", metadata);
   }
 };
 

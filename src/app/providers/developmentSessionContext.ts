@@ -15,7 +15,7 @@ export type DevelopmentSessionContextValue = {
   isSessionRestored: boolean;
   authError?: string;
   signInWithPassword: (email: string, password: string) => Promise<DevelopmentSession | null>;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
 export const DevelopmentSessionContext = createContext<DevelopmentSessionContextValue | null>(null);
