@@ -98,6 +98,7 @@ export function OrganizerProfilePage() {
     return <ErrorState title="Profile not found" message="No organizer profile details were found for this account." />;
   }
   const organizerUserId = session.userId;
+  const organizerEmail = user.email;
 
   async function handleLogout() {
     try {
@@ -194,7 +195,7 @@ export function OrganizerProfilePage() {
     setIsChangingPassword(true);
     try {
       const client = getSupabaseBrowserClient();
-      const email = user!.email?.trim();
+      const email = organizerEmail.trim();
       if (!email) {
         throw new Error("Your organizer account does not have an email address.");
       }
@@ -219,7 +220,7 @@ export function OrganizerProfilePage() {
         await auditLogMutations.logActionMutation.mutateAsync({
           action: "Changed Password",
           targetType: "organizer_profile",
-          targetId: session!.userId,
+          targetId: organizerUserId,
           metadata: { method: "reauthenticated_password_change" }
         });
       } catch {

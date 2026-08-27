@@ -26,7 +26,8 @@ export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRF
     let stream: MediaStream | undefined;
     let timer: number | undefined;
     const detectorApi = window as typeof window & { BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } };
-    if (!detectorApi.BarcodeDetector) {
+    const BarcodeDetector = detectorApi.BarcodeDetector;
+    if (!BarcodeDetector) {
       setCameraMessage("Camera QR detection is not supported by this browser. Paste or scan the code into the field below.");
       setCameraOpen(false);
       return;
@@ -36,7 +37,7 @@ export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRF
         if (cancelled) return mediaStream.getTracks().forEach((track) => track.stop());
         stream = mediaStream;
         if (videoRef.current) videoRef.current.srcObject = mediaStream;
-        const detector = new detectorApi.BarcodeDetector!({ formats: ["qr_code"] });
+        const detector = new BarcodeDetector({ formats: ["qr_code"] });
         timer = window.setInterval(async () => {
           if (!videoRef.current || videoRef.current.readyState < 2) return;
           const codes = await detector.detect(videoRef.current).catch(() => []);

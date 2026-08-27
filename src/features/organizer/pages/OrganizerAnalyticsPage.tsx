@@ -587,7 +587,7 @@ export function OrganizerAnalyticsPage() {
     return reasons.length > 0
       ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
       : { category: "No late records", share: 0 };
-  }, [eventFilter, filteredLateReasons]);
+  }, [filteredLateReasons]);
 
   const predictionFactors = useMemo(() => {
     const baseFactors = [
