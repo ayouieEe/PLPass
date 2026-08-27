@@ -21,6 +21,7 @@ test.describe("high-risk visual regression", () => {
   test.skip(({ browserName }) => browserName !== "chromium", "Chromium owns the canonical visual baselines.");
 
   test.beforeEach(async ({ page }) => {
+    await page.clock.setFixedTime(new Date("2026-08-27T12:00:00+08:00"));
     await page.emulateMedia({ reducedMotion: "reduce" });
   });
 
