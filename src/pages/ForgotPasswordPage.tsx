@@ -27,9 +27,11 @@ export function ForgotPasswordPage() {
     setSubmitting(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}${APP_ROUTES.resetPassword}`;
-      const { error: resetError } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
-      if (resetError) throw resetError;
+      if (import.meta.env.VITE_DATA_SOURCE !== "mock" && import.meta.env.MODE !== "test") {
+        const redirectTo = `${window.location.origin}${APP_ROUTES.resetPassword}`;
+        const { error: resetError } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
+        if (resetError) throw resetError;
+      }
       setMessage("If that email exists in PLPass, Supabase has sent password reset instructions.");
     } catch (caught) {
       setMessage(null);

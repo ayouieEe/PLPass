@@ -203,6 +203,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     queryClient.clear();
     window.localStorage.removeItem("plpass-development-session");
     setSession(null);
+    if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
     const { error } = await getSupabaseBrowserClient().auth.signOut();
     if (error) throw error;
   }, []);
