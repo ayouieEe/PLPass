@@ -7,31 +7,18 @@ import {
 import { queryClient } from "@/app/providers/queryClient";
 import {
   authFailure,
+  authTimeoutFailure,
   createSupabaseSessionReader,
   missingAuthSessionFailure,
   resolveSupabaseSessionUser,
   shouldSignOutAfterAuthFailure,
   toSafeAuthErrorMessage
 } from "@/app/providers/supabaseSessionResolver";
+import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTimeout";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
 
-const supabaseRestoreTimeoutMs = 8000;
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise
-      .then((value) => {
-        window.clearTimeout(timeout);
-        resolve(value);
-      })
-      .catch((error: unknown) => {
-        window.clearTimeout(timeout);
-        reject(error);
-      });
-  });
-}
+const supabaseAuthDeadlineMs = 12_000;
 
 export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<DevelopmentSession | null>(null);
@@ -71,22 +58,17 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
         supabase = getSupabaseBrowserClient();
-        const { data, error } = await withTimeout(
-          supabase.auth.getUser(),
-          supabaseRestoreTimeoutMs,
-          "Supabase session restore timed out. Please sign in again."
-        );
-        if (error || !data.user) {
-          if (isMounted) {
-            setSession(null);
-            setIsSessionRestored(true);
-          }
-          return;
-        }
-        const nextSession = await withTimeout(
-          resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id: data.user.id, email: data.user.email ?? "" }),
-          supabaseRestoreTimeoutMs,
-          "Supabase account resolution timed out. Please sign in again."
+        const nextSession = await withRequestTimeout(
+          (async () => {
+            const { data, error } = await supabase.auth.getUser();
+            if (error || !data.user) return null;
+            return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
+              id: data.user.id,
+              email: data.user.email ?? ""
+            });
+          })(),
+          supabaseAuthDeadlineMs,
+          "Session restore took too long. Please sign in again."
         );
         if (isMounted) {
           setSession(nextSession);
@@ -98,7 +80,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           if (shouldSignOutAfterAuthFailure(error) && supabase) {
             void supabase.auth.signOut();
           }
-          setAuthError(toSafeAuthErrorMessage(error));
+          setAuthError(error instanceof RequestTimeoutError ? error.message : toSafeAuthErrorMessage(error));
           setSession(null);
           setIsSessionRestored(true);
         }
@@ -174,23 +156,26 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
     try {
       supabase = getSupabaseBrowserClient();
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        throw authFailure(error.message);
-      }
-      if (!data.session?.user) {
-        throw missingAuthSessionFailure();
-      }
-      const nextSession = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
-        id: data.session.user.id,
-        email: data.session.user.email ?? ""
-      });
+      const nextSession = await withRequestTimeout(
+        (async () => {
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+          if (error) throw authFailure(error.message);
+          if (!data.session?.user) throw missingAuthSessionFailure();
+          return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
+            id: data.session.user.id,
+            email: data.session.user.email ?? ""
+          });
+        })(),
+        supabaseAuthDeadlineMs,
+        "Sign-in took too long. Check your connection and try again."
+      );
       setSession(nextSession);
       return nextSession;
     } catch (error) {
-      const message = toSafeAuthErrorMessage(error);
+      const resolvedError = error instanceof RequestTimeoutError ? authTimeoutFailure() : error;
+      const message = toSafeAuthErrorMessage(resolvedError);
       queryClient.clear();
-      if (shouldSignOutAfterAuthFailure(error) && supabase) {
+      if (shouldSignOutAfterAuthFailure(resolvedError) && supabase) {
         void supabase.auth.signOut();
       }
       setAuthError(message);

@@ -6,6 +6,7 @@ import type { UserRole } from "@/types/roles";
 
 export type SupabaseAuthFailureCode =
   | "AUTH_FAILED"
+  | "AUTH_TIMEOUT"
   | "AUTH_SESSION_MISSING"
   | "PROFILE_MISSING"
   | "ACCOUNT_INACTIVE"
@@ -143,6 +144,14 @@ export function authFailure(message: string): SupabaseAuthResolutionError {
   return new SupabaseAuthResolutionError("AUTH_FAILED", message, false);
 }
 
+export function authTimeoutFailure(): SupabaseAuthResolutionError {
+  return new SupabaseAuthResolutionError(
+    "AUTH_TIMEOUT",
+    "Sign-in took too long. Check your connection and try again.",
+    true
+  );
+}
+
 export function missingAuthSessionFailure(): SupabaseAuthResolutionError {
   return new SupabaseAuthResolutionError("AUTH_SESSION_MISSING", "Supabase did not return an authenticated session.", true);
 }
@@ -180,9 +189,13 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
   };
 }
 
-async function assertSupabaseRoleRecord(reader: SupabaseSessionReader, userId: string, role: UserRole) {
+function assertSupabaseRoleRecord(
+  role: UserRole,
+  studentResult: SupabaseQueryResult<RoleRecord>,
+  organizerResult: SupabaseQueryResult<RoleRecord>
+) {
   if (role === "student") {
-    const { data, error } = await reader.readStudentRecord(userId);
+    const { data, error } = studentResult;
     if (error) {
       throw databaseQueryError(error);
     }
@@ -200,7 +213,7 @@ async function assertSupabaseRoleRecord(reader: SupabaseSessionReader, userId: s
     );
   }
 
-  const { data, error } = await reader.readOrganizerRecord(userId);
+  const { data, error } = organizerResult;
   if (error) {
     throw databaseQueryError(error);
   }
@@ -211,7 +224,12 @@ async function assertSupabaseRoleRecord(reader: SupabaseSessionReader, userId: s
 
 export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, authUser: SupabaseAuthUser): Promise<DevelopmentSession> {
   try {
-    const { data: profile, error: profileError } = await reader.readProfile(authUser.id);
+    const [profileResult, studentResult, organizerResult] = await Promise.all([
+      reader.readProfile(authUser.id),
+      reader.readStudentRecord(authUser.id),
+      reader.readOrganizerRecord(authUser.id)
+    ]);
+    const { data: profile, error: profileError } = profileResult;
     if (profileError) {
       throw databaseQueryError(profileError);
     }
@@ -234,7 +252,7 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
     } catch {
       throw new SupabaseAuthResolutionError("MAPPER_ERROR", "Unexpected mapper error while resolving the signed-in profile.", true);
     }
-    await assertSupabaseRoleRecord(reader, mappedUser.id, mappedUser.role);
+    assertSupabaseRoleRecord(mappedUser.role, studentResult, organizerResult);
 
     return {
       userId: mappedUser.id,

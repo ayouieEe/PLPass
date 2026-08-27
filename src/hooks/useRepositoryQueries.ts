@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTimeout";
 import { repositories } from "@/services/repositories";
 import type {
   AddRosterStudentInput,
@@ -30,6 +31,16 @@ const queryDefaults = {
   pageIndex: 0,
   pageSize: 10
 } satisfies Pick<ListQuery, "pageIndex" | "pageSize">;
+
+const dashboardRequestDeadlineMs = 12_000;
+
+function boundedDashboardRequest<T>(operation: Promise<T>, label: string) {
+  return withRequestTimeout(operation, dashboardRequestDeadlineMs, `${label} took too long to load. Please retry.`);
+}
+
+function retryUnlessTimedOut(failureCount: number, error: Error) {
+  return !(error instanceof RequestTimeoutError) && failureCount < 1;
+}
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -76,7 +87,8 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["students", listQuery, context],
-    queryFn: () => repositories.userManagement.listStudents(listQuery, context),
+    queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudents(listQuery, context), "Student data"),
+    retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
 }
@@ -94,7 +106,8 @@ export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: Repos
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["organizerProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listOrganizerProfiles(listQuery, context),
+    queryFn: () => boundedDashboardRequest(repositories.userManagement.listOrganizerProfiles(listQuery, context), "Organizer data"),
+    retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
 }
@@ -183,7 +196,8 @@ export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContex
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["events", listQuery, context],
-    queryFn: () => repositories.eventManagement.listEvents(listQuery, context),
+    queryFn: () => boundedDashboardRequest(repositories.eventManagement.listEvents(listQuery, context), "Events"),
+    retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
 }
@@ -287,7 +301,8 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceSessions", listQuery, context],
-    queryFn: () => repositories.attendanceSessions.listAttendanceSessions(listQuery, context),
+    queryFn: () => boundedDashboardRequest(repositories.attendanceSessions.listAttendanceSessions(listQuery, context), "Attendance sessions"),
+    retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
 }
@@ -338,7 +353,8 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceRecords", listQuery, context],
-    queryFn: () => repositories.attendanceRecords.listAttendanceRecords(listQuery, context),
+    queryFn: () => boundedDashboardRequest(repositories.attendanceRecords.listAttendanceRecords(listQuery, context), "Attendance records"),
+    retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
 }
