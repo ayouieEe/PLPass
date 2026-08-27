@@ -34,25 +34,10 @@ import {
   useCorrectionRequests,
   useOrganizerProfiles,
   useStudentCredentialMutations,
+  useStudentCredentialStatuses,
   useStudents,
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
-import {
-  approveOrganizerCorrectionRequest,
-  loadOrganizerUiState,
-  regenerateOrganizerQr,
-  rejectOrganizerCorrectionRequest,
-  updateOrganizerFacialStatus,
-  type AttendanceMethod,
-  type OrganizerUiState,
-  type OrganizerStudent
-} from "@/features/organizer/data/organizerUiStore";
-import {
-  exportStudentListXlsx,
-  exportStudentListPdf,
-  exportParticipationHistoryXlsx,
-  exportParticipationHistoryPdf
-} from "@/features/organizer/utils/exportUtils";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -104,64 +89,6 @@ type StudentAccount = {
   participationHistory: ParticipationRecord[];
   correctionRequests: CorrectionRequest[];
 };
-const STUDENTS: StudentAccount[] = [];
-
-function titleCaseStatus(status: "present" | "late" | "absent"): "Present" | "Late" | "Absent" {
-  if (status === "present") return "Present";
-  if (status === "late") return "Late";
-  return "Absent";
-}
-
-function compactMethod(method: AttendanceMethod): "QR" | "Facial" | "Manual" {
-  if (method === "Manual") {
-    return "Manual";
-  }
-  return method === "QR Code" ? "QR" : "Facial";
-}
-
-function buildStudentAccounts(state: OrganizerUiState): StudentAccount[] {
-  const eventsByCode = new Map(state.events.map((event) => [event.code, event]));
-  const sourceStudents = state.students || [];
-
-  return sourceStudents.map((student: OrganizerStudent) => {
-    const rows = state.attendanceRows.filter((row) => row.studentId === student.id);
-    const attendedRows = rows.filter((row) => row.attendanceStatus === "present" || row.attendanceStatus === "late");
-    const correctionRequests = state.correctionRequests
-      .filter((request) => request.studentName === student.name)
-      .map((request) => ({
-        id: request.id,
-        eventCode: request.eventCode,
-        type: request.requestType,
-        status: request.status
-      }));
-
-    return {
-      id: student.id,
-      studentId: student.schoolId || student.id,
-      name: student.name,
-      email: student.email,
-      program: student.program ?? "BSIT",
-      yearLevel: student.yearLevel ?? 3,
-      section: student.section,
-      status: student.accountStatus,
-      attendanceRate: rows.length ? Math.round((attendedRows.length / rows.length) * 100) : 0,
-      eventsJoined: attendedRows.length,
-      qrStatus: student.qrStatus,
-      facialStatus: student.facialStatus,
-      participationHistory: rows.map((row) => {
-        const event = eventsByCode.get(row.eventCode);
-        return {
-          eventCode: row.eventCode,
-          eventTitle: event?.name ?? row.eventCode,
-          date: event?.date ?? "",
-          status: titleCaseStatus(row.attendanceStatus),
-          method: compactMethod(row.attendanceMethod)
-        };
-      }),
-      correctionRequests
-    };
-  });
-}
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
@@ -516,6 +443,7 @@ function ReportExportModal({
   const [exportStatus, setExportStatus] = useState(activeStatusFilter);
   const [exportAttendance, setExportAttendance] = useState("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) {
     return null;
@@ -539,11 +467,20 @@ function ReportExportModal({
     setExportAttendance("all");
   }
 
-  function handleExport() {
+  async function handleExport() {
     if (filteredStudents.length === 0) {
       toast.warning("No student records match the selected export criteria.");
       return;
     }
+
+    setIsExportLoading(true);
+    const exportTools = await import("@/features/organizer/utils/exportUtils")
+      .catch(() => {
+        toast.error("Unable to prepare the export. Please try again.");
+        return null;
+      })
+      .finally(() => setIsExportLoading(false));
+    if (!exportTools) return;
 
     if (reportType === "students") {
       const data = filteredStudents.map((s) => ({
@@ -562,10 +499,10 @@ function ReportExportModal({
       }));
 
       if (exportFormat === "xlsx") {
-        exportStudentListXlsx(data);
+        exportTools.exportStudentListXlsx(data);
         toast.success(`Exported ${data.length} student record(s) as CSV.`);
       } else {
-        exportStudentListPdf(data);
+        exportTools.exportStudentListPdf(data);
         toast.success(`Exported ${data.length} student record(s) as PDF.`);
       }
     } else {
@@ -581,10 +518,10 @@ function ReportExportModal({
       }));
 
       if (exportFormat === "xlsx") {
-        exportParticipationHistoryXlsx(data);
+        exportTools.exportParticipationHistoryXlsx(data);
         toast.success(`Exported participation summary for ${data.length} student(s) as CSV.`);
       } else {
-        exportParticipationHistoryPdf(data);
+        exportTools.exportParticipationHistoryPdf(data);
         toast.success(`Exported participation summary for ${data.length} student(s) as PDF.`);
       }
     }
@@ -836,11 +773,11 @@ function ReportExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={filteredStudents.length === 0}
+              disabled={filteredStudents.length === 0 || isExportLoading}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
-              Export {exportFormat.toUpperCase()}
+              {isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}
             </button>
           </div>
         </div>
@@ -856,10 +793,10 @@ export function OrganizerUserManagementPage() {
   const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
 
-  const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
@@ -868,6 +805,7 @@ export function OrganizerUserManagementPage() {
   const studentAccounts = useMemo<StudentAccount[]>(() => {
     const rawStudents = studentsQuery.data?.items ?? [];
     const programsMap = new Map((academicCatalog.programs.data?.items ?? []).map((p) => [p.id, p.code]));
+    const credentialMap = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
 
     const dbAccounts = rawStudents.map((student) => {
       const studentRecords = (attendanceRecordsQuery.data?.items ?? []).filter((r) => r.studentId === student.id);
@@ -884,6 +822,10 @@ export function OrganizerUserManagementPage() {
         }));
 
       const programCode = student.programCode || programsMap.get(student.programId) || "BSIT";
+      const credentials = credentialMap.get(student.id);
+      const qrCredential = credentials?.qrCredential;
+      const facialProfile = credentials?.facialProfile;
+      const qrExpired = Boolean(qrCredential?.expiresAt && new Date(qrCredential.expiresAt).getTime() <= Date.now());
 
       return {
         id: student.id,
@@ -896,23 +838,15 @@ export function OrganizerUserManagementPage() {
         status: student.status === "enrolled" ? ("Active" as StudentStatus) : ("Suspended" as StudentStatus),
         attendanceRate: rate,
         eventsJoined: attendedCount,
-        qrStatus: "Ready" as CredentialStatus,
-        facialStatus: "Ready" as CredentialStatus,
+        qrStatus: (!qrCredential ? "Missing" : qrExpired || qrCredential.revokedAt || qrCredential.status !== "activated" ? "Inactive" : "Ready") as CredentialStatus,
+        facialStatus: (!facialProfile ? "Missing" : facialProfile.status === "activated" ? "Ready" : facialProfile.status === "inactive" ? "Inactive" : "Needs Review") as CredentialStatus,
         participationHistory: [],
         correctionRequests: studentCorrections
       };
     });
 
-    const storeAccounts = buildStudentAccounts(uiState);
-    const combined = [...dbAccounts, ...storeAccounts];
-    const seen = new Set<string>();
-    return combined.filter((account) => {
-      if (seen.has(account.id) || seen.has(account.studentId)) return false;
-      seen.add(account.id);
-      seen.add(account.studentId);
-      return true;
-    });
-  }, [studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, correctionRequestsQuery.data?.items, uiState]);
+    return dbAccounts;
+  }, [studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, correctionRequestsQuery.data?.items, credentialStatusesQuery.data]);
   const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -946,54 +880,35 @@ export function OrganizerUserManagementPage() {
   async function regenerateQrCredential(studentId: string) {
     try {
       await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId });
-      setUiState((current) => regenerateOrganizerQr(current, studentId));
       toast.success("QR credential issued in Supabase.");
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Regenerated QR Credential",
-        targetType: "student_credential",
-        targetId: studentId,
-        metadata: { studentId }
-      });
     } catch {
-      setUiState((current) => regenerateOrganizerQr(current, studentId));
-      toast.warning("QR credential updated locally only. Supabase did not accept this student record.");
+      // The repository mutation reports the backend error; never simulate success locally.
     }
   }
 
   async function markFacialReady(studentId: string) {
     try {
-      await credentialMutations.enrollFacialProfileMutation.mutateAsync({ studentId });
-      setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
-      toast.success("Facial backup enrolled in Supabase.");
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Marked Facial Profile Ready",
-        targetType: "student_credential",
-        targetId: studentId,
-        metadata: { studentId }
-      });
+      await credentialMutations.setCredentialStatusMutation.mutateAsync({ studentId, credentialType: "facial", status: "activated" });
+      toast.success("Facial credential activated in Supabase.");
     } catch {
-      setUiState((current) => updateOrganizerFacialStatus(current, studentId, "Ready"));
-      toast.warning("Facial backup updated locally only. Supabase did not accept this student record.");
+      // The repository mutation reports the backend error; never simulate success locally.
     }
   }
 
-  function approveCorrection(requestId: string) {
-    setUiState((current) => approveOrganizerCorrectionRequest(current, requestId, "Approved from organizer user management."));
-    toast.success(`${requestId} approved locally.`);
-    
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Approved Correction Request",
-      targetType: "correction_request",
-      targetId: requestId,
-      metadata: { requestId }
+  async function approveCorrection(requestId: string) {
+    await correctionRequestsQuery.reviewMutation.mutateAsync({
+      requestId,
+      status: "approved",
+      reason: "Approved from organizer user management."
     });
   }
 
-  function rejectCorrection(requestId: string) {
-    setUiState((current) => rejectOrganizerCorrectionRequest(current, requestId, "Rejected from organizer user management."));
-    toast.warning(`${requestId} rejected locally.`);
+  async function rejectCorrection(requestId: string) {
+    await correctionRequestsQuery.reviewMutation.mutateAsync({
+      requestId,
+      status: "rejected",
+      reason: "Rejected from organizer user management."
+    });
   }
   const studentColumns = useMemo<ColDef<StudentAccount>[]>(
     () => [

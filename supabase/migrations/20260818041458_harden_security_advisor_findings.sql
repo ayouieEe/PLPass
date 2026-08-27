@@ -20,7 +20,15 @@ $$;
 
 -- Email delivery must be initiated by trusted server-side code only. It is
 -- not an action that anonymous or ordinary signed-in users should invoke.
-revoke all on function public.queue_emails_for_event(uuid) from public, anon, authenticated;
-grant execute on function public.queue_emails_for_event(uuid) to service_role;
+-- Hosted projects may already contain this helper, while a clean local replay
+-- creates it in the later event-notification migration.
+do $$
+begin
+  if to_regprocedure('public.queue_emails_for_event(uuid)') is not null then
+    execute 'revoke all on function public.queue_emails_for_event(uuid) from public, anon, authenticated';
+    execute 'grant execute on function public.queue_emails_for_event(uuid) to service_role';
+  end if;
+end;
+$$;
 
 commit;

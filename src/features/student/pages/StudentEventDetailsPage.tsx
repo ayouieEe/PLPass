@@ -22,13 +22,11 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   buildStudentEventWorkflow,
-  eventResourceLabel,
-  getEventResource,
   getStudentFeedbackDeadlineStatus,
   lateReasonOptions,
   recordsForStudentEvents,
@@ -200,6 +198,7 @@ export function StudentEventDetailsPage() {
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const submitLateReasonMutation = useSubmitLateReasonMutation(scope.context);
   const objectivesQuery = useEventObjectives(eventId, scope.context);
+  const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
   const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [ratings, setRatings] = useState<RatingState>({});
   const [comment, setComment] = useState("");
@@ -244,7 +243,7 @@ export function StudentEventDetailsPage() {
   const feedbackDeadline = currentRecord ? getStudentFeedbackDeadlineStatus(currentRecord) : null;
   const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason);
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
-  const eventResource = getEventResource(event);
+  const eventResources = resourcesQuery.data?.items ?? [];
 
   async function submitLateReason(reason: string) {
     if (!currentRecord) return;
@@ -411,29 +410,27 @@ export function StudentEventDetailsPage() {
 
         <section className="rounded-2xl border bg-surface p-6 shadow-sm">
           <h2 className="text-lg font-semibold tracking-tight">Resources</h2>
-          <div className="mt-5 flex flex-col gap-4 rounded-xl bg-background p-4">
-            <div className="flex items-center gap-3">
+          <div className="mt-5 space-y-3">
+            {eventResources.map((resource) => <div key={resource.id} className="flex flex-col gap-4 rounded-xl bg-background p-4">
+              <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10">
                 <FileText className="h-4 w-4 text-primary" />
               </span>
               <div>
-                <p className="text-sm font-semibold">{eventResourceLabel(event)}</p>
-                <p className="text-sm text-muted-foreground">{eventResource.description}</p>
+                <p className="text-sm font-semibold">{resource.title}</p>
+                <p className="text-sm text-muted-foreground">Organizer-provided event resource</p>
               </div>
-            </div>
-            {eventResource.url ? (
+              </div>
+            {resource.externalUrl ? (
               <Button asChild variant="outline">
-                <a href={eventResource.url} target="_blank" rel="noreferrer">
+                <a href={resource.externalUrl} target="_blank" rel="noreferrer">
                   <Download className="mr-2 h-4 w-4" />
                   Open / Download
                 </a>
               </Button>
-            ) : (
-              <Button variant="outline" disabled>
-                <Download className="mr-2 h-4 w-4" />
-                No resource link
-              </Button>
-            )}
+            ) : null}
+            </div>)}
+            {!resourcesQuery.isLoading && eventResources.length === 0 ? <p className="rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">No resources have been added for this event.</p> : null}
           </div>
         </section>
       </div>

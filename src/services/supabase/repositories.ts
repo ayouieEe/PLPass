@@ -16,7 +16,6 @@ import type {
   NotificationRepository,
   ReportRepository,
   RepositoryRegistry,
-  RepositoryContext,
   AttendanceScanInput,
   AttendanceSubmissionResultStatus,
   EnrollFacialProfileInput,
@@ -28,7 +27,7 @@ import type {
   SystemSettingsRepository,
   UserManagementRepository
 } from "@/services/contracts";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, Json } from "@/lib/supabase/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { mapSupabaseError, throwIfSupabaseError } from "@/lib/supabase/errors";
 import {
@@ -59,6 +58,7 @@ import type {
   Program,
   Semester,
   Student,
+  StudentCredentialStatus,
   SystemSettings
 } from "@/types/domain";
 import type { AttendanceStatus, EventStatus } from "@/types/enums";
@@ -501,7 +501,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const rows = await selectRows("event_participants", query);
     return pageResult(rows.items.filter((row) => String(row.event_id ?? "") === eventId).map(mapEventParticipant), rows.total, query);
   },
-  async generateNextEventCode(context?: RepositoryContext) {
+  async generateNextEventCode() {
     const client = getSupabaseBrowserClient();
     const currentYear = new Date().getFullYear();
     
@@ -526,17 +526,6 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
   },
   async createEvent(input) {
     const client = getSupabaseBrowserClient();
-    const profile = await currentProfile();
-    const { data: organizer, error: organizerError } = await client
-      .from("organizers")
-      .select("id")
-      .eq("profile_id", String(profile.id))
-      .maybeSingle();
-    throwIfSupabaseError(organizerError);
-    if (!organizer) {
-      throw new RepositoryError("The signed-in account is not linked to an organizer profile.", "PERMISSION_DENIED");
-    }
-
     const { data: category, error: categoryError } = await client
       .from("event_categories")
       .select("id")
@@ -549,142 +538,81 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
     const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
     const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
-    const { data: eventRow, error: eventError } = await client
-      .from("events")
-      .insert({
-        event_code: input.code,
-        title: input.title,
-        category_id: category.id,
-        venue: input.venue,
-        starts_at: scheduledStart,
-        ends_at: scheduledEnd,
-        description: [input.description, input.remarks].filter(Boolean).join("\n\n") || null,
-        event_status: "scheduled",
-        approval_status: "approved",
-        organizer_id: organizer.id,
-        priority_level: input.priorityLevel,
-        impact_score: input.impactScore ?? null
-      })
-      .select(eventReadSelect)
-      .single();
-    throwIfSupabaseError(eventError);
-
-    if (input.participantStudentIds.length > 0) {
-      const { error: participantError } = await client.from("event_participants").insert(
-        input.participantStudentIds.map((studentId) => ({
-          event_id: eventRow.id,
-          student_id: studentId,
-          participant_status: "invited" as const
-        }))
-      );
-      if (participantError) {
-        await client.from("events").delete().eq("id", eventRow.id);
-        throwIfSupabaseError(participantError);
-      }
-    }
-
     const trimmedObjectives = (input.objectives ?? [])
       .map((objective) => objective.trim())
       .filter((objective) => objective.length > 0);
-
-    if (trimmedObjectives.length > 0) {
-      const { error: objectiveError } = await client.from("event_objectives").insert(
-        trimmedObjectives.map((objective, index) => ({
-          event_id: eventRow.id,
-          objective_order: index + 1,
-          objective_text: objective
-        }))
-      );
-      if (objectiveError) {
-        await client.from("events").delete().eq("id", eventRow.id);
-        throwIfSupabaseError(objectiveError);
-      }
-    }
-
+    const { data: eventRow, error: eventError } = await client.rpc("create_organizer_event", {
+      p_event_code: input.code,
+      p_category_id: category.id,
+      p_title: input.title,
+      p_description: [input.description, input.remarks].filter(Boolean).join("\n\n"),
+      p_venue: input.venue,
+      p_starts_at: scheduledStart,
+      p_ends_at: scheduledEnd,
+      p_priority_level: input.priorityLevel,
+      p_impact_score: input.impactScore ?? 0,
+      p_visibility: input.visibility ?? "assigned",
+      p_participant_ids: input.participantStudentIds,
+      p_objectives: trimmedObjectives,
+      ...(input.resourceTitle?.trim() ? { p_resource_title: input.resourceTitle.trim() } : {}),
+      ...(input.resourceUrl?.trim() ? { p_resource_url: input.resourceUrl.trim() } : {}),
+      p_publish_reason: input.publishReason ?? "Published by event organizer"
+    });
+    throwIfSupabaseError(eventError);
     return mapEvent(eventRow as Row);
+  },
+  async listEventResources(eventId, query) {
+    const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
+    return pageResult(rows.items.map((row) => ({
+      id: String(row.id ?? ""),
+      eventId: String(row.event_id ?? ""),
+      title: String(row.resource_title ?? "Event resource"),
+      externalUrl: typeof row.external_url === "string" ? row.external_url : undefined,
+      storageBucket: typeof row.storage_bucket === "string" ? row.storage_bucket : undefined,
+      storageObjectPath: typeof row.storage_object_path === "string" ? row.storage_object_path : undefined
+    })), rows.total, query);
   },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason) {
     const approvalStatus = status === "approved" ? "approved" : "declined";
-    void reason;
-    return mapEvent(await updateRow("events", eventId, { approval_status: approvalStatus }));
+    if (status === "rejected" && !reason?.trim()) {
+      throw new RepositoryError("A rejection reason is required.", "VALIDATION_ERROR");
+    }
+    return mapEvent(await updateRow("events", eventId, {
+      approval_status: approvalStatus,
+      approval_reason: reason?.trim() || (status === "approved" ? "Approved by organizer" : null)
+    }));
   },
   async completeEvent(eventId) {
     return mapEvent(await updateRow("events", eventId, { event_status: "completed" }));
   },
+  async cancelEvent(eventId, reason) {
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) throw new RepositoryError("A cancellation reason is required.", "VALIDATION_ERROR");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("cancel_organizer_event", {
+      p_event_id: eventId,
+      p_reason: trimmedReason
+    });
+    throwIfSupabaseError(error);
+    return mapEvent(data as Row);
+  },
   async rescheduleEvent(input: RescheduleEventInput) {
     const client = getSupabaseBrowserClient();
-    const profile = await currentProfile();
-
-    // Fetch current event
     const currentEvent = await supabaseEventManagementRepository.getEventById(input.eventId);
-
-    // Build update payload with only provided fields
-    const updatePayloadData: Record<string, unknown> = {};
-
-    if (input.venue) {
-      updatePayloadData.venue = input.venue;
-    }
-
-    // Handle date/time changes
-    if (input.date || input.startTime || input.endTime) {
-      const dateStr = input.date || currentEvent.startsAt.split("T")[0];
-      const startTimeStr = input.startTime || currentEvent.startsAt.split("T")[1].substring(0, 5);
-      const endTimeStr = input.endTime || currentEvent.endsAt.split("T")[1].substring(0, 5);
-
-      updatePayloadData.starts_at = new Date(`${dateStr}T${startTimeStr}:00`).toISOString();
-      updatePayloadData.ends_at = new Date(`${dateStr}T${endTimeStr}:00`).toISOString();
-    }
-
-    // Update event with type assertion for new migration columns
-    const { data: updatedEvent, error: eventError } = await client
-      .from("events")
-      .update(updatePayloadData as never)
-      .eq("id", input.eventId)
-      .select(eventReadSelect)
-      .single();
-    throwIfSupabaseError(eventError);
-
-    // Archive existing active sessions for this event if the linked schema includes the
-    // migration columns. Older Supabase projects do not have these fields yet, so we
-    // gracefully skip the archive step instead of making the reschedule save fail.
-    const rescheduledReason = input.reason || `Event rescheduled on ${new Date().toLocaleDateString()}`;
-    try {
-      const { error: archiveError } = await client
-        .from("event_sessions")
-        .update({
-          session_archive_status: "archived" as never,
-          rescheduled_at: new Date().toISOString() as never,
-          rescheduled_reason: rescheduledReason as never
-        } as never)
-        .eq("event_id", input.eventId)
-        .eq("session_archive_status" as never, "active");
-      throwIfSupabaseError(archiveError);
-    } catch (error) {
-      if (!isMissingRescheduleSchemaColumnError(error)) {
-        throw error;
-      }
-    }
-
-    // Log audit entry using the actual live audit_logs column name.
-    const auditMetadata = {
-      oldDate: currentEvent.startsAt,
-      newDate: updatedEvent.starts_at,
-      venue: input.venue || currentEvent.venue,
-      reason: rescheduledReason
-    };
-
-    const { error: auditError } = await client.from("audit_logs").insert({
-      actor_user_id: profile.id,
-      action: "Rescheduled Event",
-      target_type: "event",
-      target_id: input.eventId,
-      metadata: auditMetadata as never
-    } as never);
-    if (auditError && !isMissingRescheduleSchemaColumnError(auditError) && !isNonBlockingAuditLoggingError(auditError)) {
-      throwIfSupabaseError(auditError);
-    }
-
-    return mapEvent(updatedEvent as Row);
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length < 5) throw new RepositoryError("A rescheduling reason is required.", "VALIDATION_ERROR");
+    const date = input.date || currentEvent.startsAt.split("T")[0];
+    const startTime = input.startTime || currentEvent.startsAt.split("T")[1].substring(0, 5);
+    const endTime = input.endTime || currentEvent.endsAt.split("T")[1].substring(0, 5);
+    const { data, error } = await client.rpc("reschedule_organizer_event", {
+      p_event_id: input.eventId,
+      p_venue: input.venue?.trim() || currentEvent.venue,
+      p_starts_at: new Date(`${date}T${startTime}:00`).toISOString(),
+      p_ends_at: new Date(`${date}T${endTime}:00`).toISOString(),
+      p_reason: reason
+    });
+    throwIfSupabaseError(error);
+    return mapEvent(data as Row);
   }
 };
 
@@ -706,41 +634,42 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
     throw new RepositoryError("Class sessions are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
 },
  async createEventSession(input) {
-  const profile = await currentProfile();
   const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
   const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
-  const inserted = await insertRow("event_sessions", {
-    event_id: input.eventId,
-    created_by: String(profile.id),
-    session_name: `${input.date} attendance`,
-    venue: input.venue,
-    mode: input.attendanceMode === "online" ? "online" : "f2f",
-    session_status: "ongoing",
-    scheduled_start: scheduledStart,
-    scheduled_end: scheduledEnd,
-    attendance_window_start_at: scheduledStart,
-    attendance_window_end_at: scheduledEnd,
-    late_cutoff_at: new Date(new Date(scheduledStart).getTime() + 15 * 60_000).toISOString(),
-    actual_start: new Date().toISOString()
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client.rpc("start_event_attendance_session", {
+    p_event_id: input.eventId,
+    p_venue: input.venue,
+    p_scheduled_start: scheduledStart,
+    p_scheduled_end: scheduledEnd,
+    p_mode: input.attendanceMode === "online" ? "online" : "f2f",
+    p_late_cutoff_minutes: 15
   });
-
-  await updateRow("events", input.eventId, { event_status: "ongoing" });
-
-  return mapAttendanceSession(inserted, "event");
+  if (error && (error.code === "23505" || /already has an active attendance session/i.test(error.message))) {
+    const { data: activeSession, error: activeSessionError } = await client
+      .from("event_sessions")
+      .select("*")
+      .eq("event_id", input.eventId)
+      .eq("session_status", "ongoing")
+      .order("actual_start", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    throwIfSupabaseError(activeSessionError);
+    if (activeSession) {
+      return mapAttendanceSession(activeSession as Row, "event");
+    }
+  }
+  throwIfSupabaseError(error);
+  return mapAttendanceSession(data as Row, "event");
 },
   async endAttendanceSession(input: EndAttendanceSessionInput) {
-  const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
-  const updatedSession = await updateRow("event_sessions", input.sessionId, {
-    session_status: "completed",
-    actual_end: new Date().toISOString(),
-    ended_reason: input.reason
+  const client = getSupabaseBrowserClient();
+  const { data, error } = await client.rpc("end_event_attendance_session", {
+    p_session_id: input.sessionId,
+    p_reason: input.reason
   });
-
-  if (session.eventId) {
-    await updateRow("events", session.eventId, { event_status: "completed" });
-  }
-
-  return mapAttendanceSession(updatedSession, "event");
+  throwIfSupabaseError(error);
+  return mapAttendanceSession(data as Row, "event");
 }
 };
 
@@ -994,7 +923,6 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       
       // If time_out is NULL, this is a CHECK-OUT attempt
       if (!existingTimeOut && existing.time_in) {
-        const record = mapAttendanceRecord(existing);
         const profile = await currentProfile();
         
         // Update the record with check-out time and verification method
@@ -1056,7 +984,34 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
   async recordManualAttendance(input) {
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId);
     if (session.status !== "active") throw new RepositoryError("This attendance session is not active.", "VALIDATION_ERROR");
+    if (input.reason.trim().length < 5) throw new RepositoryError("A manual attendance reason is required.", "VALIDATION_ERROR");
     const client = getSupabaseBrowserClient();
+    const recordedAt = input.occurredAt ?? getPhilippineNowIso();
+    const { data, error } = await client.rpc("record_manual_event_attendance", {
+      p_session_id: input.sessionId,
+      p_student_id: input.studentId,
+      p_status: input.statusOverride ?? "present",
+      p_reason: input.reason.trim(),
+      ...(input.remarks.trim() ? { p_remarks: input.remarks.trim() } : {}),
+      ...(input.lateReason ? { p_late_reason: input.lateReason } : {}),
+      p_occurred_at: recordedAt
+    });
+    throwIfSupabaseError(error);
+    const record = mapAttendanceRecord(data as Row);
+    const studentSummary = await studentScanSummary(input.studentId);
+    return {
+      resultStatus: record.status === "late" ? "Late" : "Present",
+      attendanceStatus: record.status,
+      verificationMethod: "manual",
+      recordedAt,
+      safeMessage: record.checkedOutAt ? "Student checked out successfully." : `Student checked in as ${record.status}.`,
+      attendanceRecord: record,
+      summary: { present: record.status === "present" ? 1 : 0, late: record.status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 },
+      ...studentSummary
+    };
+    /* Legacy client-side implementation retained below only for reference during
+       migration rollout; execution returns from the secured RPC above. */
+    /*
     const { data: existing, error: existingError } = await client.from("attendance_records").select("*").eq("event_session_id", input.sessionId).eq("student_id", input.studentId).maybeSingle();
     throwIfSupabaseError(existingError);
     
@@ -1138,6 +1093,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       attendanceRecord: record, 
       summary: { present: status === "present" ? 1 : 0, late: status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 } 
     };
+    */
   },
   async submitLateReason(input: SubmitLateReasonInput, context) {
     const client = getSupabaseBrowserClient();
@@ -1279,7 +1235,7 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
     const { data, error } = await client.rpc("review_attendance_request", {
       p_request_id: input.requestId,
       p_status: input.status,
-      p_reason: input.reason ?? null
+      ...(input.reason ? { p_reason: input.reason } : {})
     });
     throwIfSupabaseError(error);
     return mapCorrectionRequest(data as Row);
@@ -1369,7 +1325,7 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
     const { data, error } = await client.rpc("review_credential_request", {
       p_request_id: input.requestId,
       p_status: input.status,
-      p_remarks: input.remarks ?? null
+      ...(input.remarks ? { p_remarks: input.remarks } : {})
     });
     throwIfSupabaseError(error);
     return mapCredentialRequest(data as Row);
@@ -1377,6 +1333,38 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
 };
 
 export const supabaseStudentCredentialRepository: StudentCredentialRepository = {
+  async listStudentCredentialStatuses(context) {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const [{ data: qrRows, error: qrError }, { data: facialRows, error: facialError }] = await Promise.all([
+      client
+        .from("qr_credentials")
+        .select("id, student_id, credential_status, issued_at, expires_at, revoked_at, last_successful_check_in_at, created_at, updated_at")
+        .order("issued_at", { ascending: false }),
+      client
+        .from("facial_profiles")
+        .select("id, student_id, facial_status, enrolled_at, last_verified_at, consent_recorded_at, created_at, updated_at")
+    ]);
+    throwIfSupabaseError(qrError);
+    throwIfSupabaseError(facialError);
+
+    const statuses = new Map<string, StudentCredentialStatus>();
+    for (const row of qrRows ?? []) {
+      const studentId = String((row as Row).student_id ?? "");
+      if (!studentId) continue;
+      const current = statuses.get(studentId) ?? { studentId };
+      if (!current.qrCredential) current.qrCredential = mapQrCredential(row as Row);
+      statuses.set(studentId, current);
+    }
+    for (const row of facialRows ?? []) {
+      const studentId = String((row as Row).student_id ?? "");
+      if (!studentId) continue;
+      const current = statuses.get(studentId) ?? { studentId };
+      current.facialProfile = mapFacialProfile(row as Row);
+      statuses.set(studentId, current);
+    }
+    return [...statuses.values()];
+  },
   async getStudentCredentialStatus(studentId, context) {
     const scopedStudentId = context?.actorRole === "student"
       ? await currentStudentIdForProfile(context.actorUserId)
@@ -1408,7 +1396,7 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     const client = getSupabaseBrowserClient();
     const { error } = await client.rpc("issue_qr_credential", {
       p_student_id: input.studentId,
-      p_expires_at: input.expiresAt ?? null
+      ...(input.expiresAt ? { p_expires_at: input.expiresAt } : {})
     });
     throwIfSupabaseError(error);
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
@@ -1622,7 +1610,16 @@ export const supabaseReportRepository: ReportRepository = {
 export const supabaseNotificationRepository: NotificationRepository = {
   async listNotifications(query, context) {
     const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
-    const rows = await selectRowsFiltered("notifications", query, "*", { recipient_id: recipientId });
+    const rows = await selectRowsFiltered(
+      "notifications",
+      { ...queryOrDefault(query), sortBy: query?.sortBy ?? "created_at", sortDirection: query?.sortDirection ?? "desc" },
+      "*",
+      {
+        recipient_id: recipientId,
+        notification_status: query?.notificationStatus,
+        notification_type: query?.notificationType
+      }
+    );
     return pageResult(rows.items.map(mapNotification), rows.total, query);
   },
   async markNotificationRead(notificationId, context) {
@@ -1644,14 +1641,33 @@ export const supabaseNotificationRepository: NotificationRepository = {
 
 export const supabaseAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query) {
-    const rows = await selectRows("audit_logs", query);
-    return pageResult(rows.items.map(mapAuditLog), rows.total, query);
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    let builder = client.from("audit_logs").select("*", { count: "exact" });
+    const search = listQuery.search?.trim().replace(/[,%()]/g, " ").replace(/\s+/g, " ");
+    if (search) {
+      const filters = [`action.ilike.*${search}*`, `target_type.ilike.*${search}*`];
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(search)) {
+        filters.push(`target_id.eq.${search}`);
+      }
+      builder = builder.or(filters.join(","));
+    }
+    builder = builder.order(listQuery.sortBy ?? "created_at", { ascending: listQuery.sortDirection !== "desc" });
+    const { data, error, count } = await builder.range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapAuditLog), count ?? data?.length ?? 0, listQuery);
   },
   async logClientAction(input) {
-    console.log("[logClientAction] Called with input:", input);
-    // Note: log_client_action RPC is not currently defined in Supabase.
-    // Audit logging is available through the audit_logs table if needed.
-    // For now, we only log to console for debugging purposes.
+    const client = getSupabaseBrowserClient();
+    const { error } = await client.rpc("log_client_action", {
+      p_action: input.action,
+      p_target_type: input.targetType,
+      ...(input.targetId ? { p_target_id: input.targetId } : {}),
+      p_metadata: (input.metadata ?? {}) as Json
+    });
+    throwIfSupabaseError(error);
   }
 };
 

@@ -60,6 +60,7 @@ export function CorrectionRequestsPage() {
   const scope = useStudentScope();
   const [searchParams] = useSearchParams();
   const [selectedRequest, setSelectedRequest] = useState<CorrectionRequest | null>(null);
+  const [submissionStatus, setSubmissionStatus] = useState<{ kind: "status" | "error"; message: string } | null>(null);
 
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
@@ -160,6 +161,7 @@ export function CorrectionRequestsPage() {
   }
 
   async function onSubmit(values: CorrectionFormValues) {
+    setSubmissionStatus({ kind: "status", message: "Submitting correction request…" });
     try {
       let eventId: string | undefined;
       let attendanceRecordId = values.recordId || undefined;
@@ -169,10 +171,12 @@ export function CorrectionRequestsPage() {
         const allowedTypes = getCorrectionRequestTypes(selectedEventRecord.status);
         if (!allowedTypes.length) {
           toast.info("Present attendance records do not need a correction request.");
+          setSubmissionStatus({ kind: "status", message: "No request was submitted because present attendance does not need correction." });
           return;
         }
         if (!allowedTypes.includes(values.requestType)) {
           toast.error("Select a valid correction type for this attendance status.");
+          setSubmissionStatus({ kind: "error", message: "Select a valid correction type for this attendance status." });
           return;
         }
         eventId = selectedEventRecord.eventId;
@@ -199,6 +203,7 @@ export function CorrectionRequestsPage() {
       });
 
       toast.success("Correction request submitted successfully.");
+      setSubmissionStatus({ kind: "status", message: "Correction request submitted successfully." });
       reset({
         code: "",
         name: "",
@@ -208,6 +213,7 @@ export function CorrectionRequestsPage() {
       });
     } catch {
       toast.error("Failed to submit request. You may have a pending request already.");
+      setSubmissionStatus({ kind: "error", message: "Failed to submit request. You may already have a pending request." });
     }
   }
 
@@ -320,11 +326,21 @@ export function CorrectionRequestsPage() {
 
             <SubmitButton
               isSubmitting={correctionsQuery.createMutation.isPending}
+              submittingLabel="Submitting Request…"
               className="student-btn-primary w-full mt-2"
               aria-label="Submit correction request"
             >
               Submit Request
             </SubmitButton>
+            {submissionStatus ? (
+              <p
+                role={submissionStatus.kind === "error" ? "alert" : "status"}
+                aria-live={submissionStatus.kind === "error" ? "assertive" : "polite"}
+                className={submissionStatus.kind === "error" ? "text-sm font-medium text-danger" : "text-sm font-medium text-success"}
+              >
+                {submissionStatus.message}
+              </p>
+            ) : null}
           </form>
         </div>
 

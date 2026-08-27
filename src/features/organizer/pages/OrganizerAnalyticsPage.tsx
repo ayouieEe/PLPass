@@ -49,10 +49,9 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
 import {
-  createUiExport,
-  lateReasons,
-  loadOrganizerUiState
+  lateReasons
 } from "@/features/organizer/data/organizerUiStore";
+import { exportTabularReport, type ExportTableRow } from "@/features/organizer/utils/exportUtils";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -489,47 +488,44 @@ export function OrganizerAnalyticsPage() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const scope = useOrganizerScope();
   const auditLogMutations = useAuditLogMutations(scope.context);
-
-  const [uiState] = useState(() => loadOrganizerUiState());
+  const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 1000 }, scope.context);
+  const studentsQuery = useStudents({ pageSize: 1000 }, scope.context);
   const eventData = useMemo(
     () =>
-      uiState.events.map((event) => ({
+      (eventsQuery.data?.items ?? []).map((event) => ({
         code: event.code,
-        title: event.name,
+        title: event.title,
         category: event.category,
         venue: event.venue,
-        date: event.date,
-        time: `${event.startTime} - ${event.endTime}`,
-        predictedTurnout: event.predictedTurnout
+        date: event.startsAt.slice(0, 10),
+        startsAt: event.startsAt,
+        time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+        predictedTurnout: event.predictedTurnout ?? 0
       })),
-    [uiState.events]
+    [eventsQuery.data?.items]
   );
   const sessionSummaryData = useMemo(
-    () =>
-      uiState.completedEvents.map((event) => ({
-        eventCode: event.code,
-        date: event.date,
-        present: event.present,
-        late: event.late,
-        absent: event.absent,
-        totalRegistered: event.totalRegistered,
-        attendanceRate: event.attendanceRate
-      })),
-    [uiState.completedEvents]
+    () => {
+      const eventById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
+      return (sessionsQuery.data?.items ?? []).filter((session) => session.type === "event" && session.status === "completed" && session.eventId).map((session) => {
+        const event = eventById.get(session.eventId ?? "");
+        const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
+        const present = records.filter((record) => record.status === "present").length;
+        const late = records.filter((record) => record.status === "late").length;
+        const absent = records.filter((record) => record.status === "absent").length;
+        const totalRegistered = records.length;
+        return { eventCode: event?.code ?? session.title, date: session.startsAt.slice(0, 10), present, late, absent, totalRegistered, attendanceRate: totalRegistered ? Math.round(((present + late) / totalRegistered) * 100) : 0 };
+      });
+    },
+    [attendanceRecordsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items]
   );
-  const sentimentData = useMemo(
-    () =>
-      uiState.completedEvents.map((event) => ({
-        eventCode: event.code,
-        overall: event.sentiment.positive >= event.sentiment.negative ? "Positive" : "Negative",
-        ...event.sentiment
-      })),
-    [uiState.completedEvents]
-  );
+  const sentimentData = useMemo<Array<{ eventCode: string; overall: string; positive: number; neutral: number; negative: number }>>(() => [], []);
   const eventLookup = useMemo(() => new Map(eventData.map((event) => [event.code, event])), [eventData]);
 
   const trendData = useMemo(() => {
-    const sourceRows = sessionSummaryData.length ? sessionSummaryData : EMPTY_SESSION_SUMMARY;
+    const sourceRows = sessionSummaryData;
     const rows = eventFilter === "all" ? sourceRows : sourceRows.filter((row: { eventCode: string; date: string; present: number; late: number; absent: number; totalRegistered: number; attendanceRate: number }) => row.eventCode === eventFilter);
 
     return rows.map((row: { eventCode: string; date: string; present: number; late: number; absent: number; attendanceRate: number }) => ({
@@ -553,7 +549,7 @@ export function OrganizerAnalyticsPage() {
   }, [eventData, eventFilter]);
 
   const sentimentOverview = useMemo(() => {
-    const sourceSentiment = sentimentData.length ? sentimentData : EMPTY_SENTIMENT;
+    const sourceSentiment = sentimentData;
     const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row: { eventCode: string; positive: number; neutral: number; negative: number }) => row.eventCode === eventFilter);
     const totals = filteredSentiment.reduce(
       (acc: { positive: number; neutral: number; negative: number }, row: { positive: number; neutral: number; negative: number }) => ({
@@ -573,26 +569,25 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter, sentimentData]);
 
   const filteredLateReasons = useMemo(() => {
-    const rows = eventFilter === "all" ? uiState.attendanceRows : uiState.attendanceRows.filter((row: { eventCode: string; attendanceStatus: string; lateReason?: string }) => row.eventCode === eventFilter);
-    const lateRows = rows.filter((row: { attendanceStatus: string }) => row.attendanceStatus === "late");
-    if (!lateRows.length) return EMPTY_LATE_REASON_FREQUENCY;
+    const eventByCode = new Map(eventData.map((event) => [event.code, event]));
+    const sessionIds = new Set((sessionsQuery.data?.items ?? []).filter((session) => eventFilter === "all" || eventByCode.get(eventFilter)?.code === eventFilter && session.eventId === (eventsQuery.data?.items ?? []).find((event) => event.code === eventFilter)?.id).map((session) => session.id));
+    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
+    if (!lateRows.length) return [];
     return lateReasons.map((reason: string) => ({
       category: reason,
-      share: Math.round((lateRows.filter((row: { lateReason?: string }) => row.lateReason === reason).length / lateRows.length) * 100)
+      share: Math.round((lateRows.filter((row) => row.lateReason === reason || row.lateReasonCategory === reason).length / lateRows.length) * 100)
     }));
-  }, [eventFilter, uiState.attendanceRows]);
+  }, [attendanceRecordsQuery.data?.items, eventData, eventFilter, eventsQuery.data?.items, sessionsQuery.data?.items]);
 
-  const nextEvent = uiState.events
-    .filter((event) => event.status === "incoming" || event.status === "today")
-    .sort((first, second) => first.date.localeCompare(second.date))[0];
-  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value : eventLookup.get(eventFilter)?.predictedTurnout ?? EMPTY_SUMMARY.predictedTurnoutNextEvent.value;
-  const registeredStudents = uiState.students.length || EMPTY_SUMMARY.totalRegisteredStudents;
+  const nextEvent = eventData.filter((event) => new Date(event.startsAt) >= new Date()).sort((first, second) => first.startsAt.localeCompare(second.startsAt))[0];
+  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? 0 : eventLookup.get(eventFilter)?.predictedTurnout ?? 0;
+  const registeredStudents = studentsQuery.data?.total ?? studentsQuery.data?.items.length ?? 0;
   const topLateReason = useMemo(() => {
-    const reasons = eventFilter === "all" ? EMPTY_LATE_REASON_FREQUENCY : filteredLateReasons;
+    const reasons = filteredLateReasons;
     return reasons.length > 0
       ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
-      : EMPTY_SUMMARY.topLateArrivalReason;
-  }, [eventFilter, filteredLateReasons]);
+      : { category: "No late records", share: 0 };
+  }, [filteredLateReasons]);
 
   const predictionFactors = useMemo(() => {
     const baseFactors = [
@@ -608,7 +603,13 @@ export function OrganizerAnalyticsPage() {
   }, [eventFilter, eventLookup]);
 
   function handleExportReport(label: string) {
-    toast.success(createUiExport(`${label}`));
+    let rows: ExportTableRow[];
+    if (/prediction/i.test(label)) rows = predictionOverviewData.map((row) => ({ ...row }));
+    else if (/sentiment/i.test(label)) rows = sentimentData.map((row) => ({ ...row }));
+    else if (/late/i.test(label)) rows = filteredLateReasons.map((row) => ({ ...row }));
+    else rows = trendData.map((row) => ({ ...row }));
+    exportTabularReport(label, rows);
+    toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Analytics",

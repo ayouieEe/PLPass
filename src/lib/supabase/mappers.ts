@@ -287,7 +287,10 @@ export function mapEvent(row: Row): Event {
     status: mapEventStatus(row),
     priorityLevel: mapPriorityLevel(stringValue(row, ["priority_level"], "Flexible")),
     impactScore: nullableNumberValue(row, ["impact_score"]),
-    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"])
+    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]),
+    visibility: stringValue(row, ["visibility"], "assigned") === "public" ? "public" : "assigned",
+    approvalReason: optionalString(row, ["approval_reason"]),
+    cancellationReason: optionalString(row, ["cancellation_reason"])
   };
 }
 

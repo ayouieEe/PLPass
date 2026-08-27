@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
@@ -16,6 +17,7 @@ export function FileUploadField<TFieldValues extends FieldValues>({
   accept,
   multiple
 }: FileUploadFieldProps<TFieldValues>) {
+  const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
     <Controller
       control={control}
@@ -31,8 +33,10 @@ export function FileUploadField<TFieldValues extends FieldValues>({
             accept={accept}
             multiple={multiple}
             onChange={(event) => onChange(multiple ? Array.from(event.target.files ?? []) : event.target.files?.[0])}
+            aria-invalid={Boolean(fieldState.error)}
+            aria-describedby={fieldState.error ? errorId : undefined}
           />
-          {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+          {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}
     />

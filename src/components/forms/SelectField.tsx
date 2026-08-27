@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
@@ -23,6 +24,7 @@ export function SelectField<TFieldValues extends FieldValues>({
   placeholder = "Select an option",
   disabled
 }: SelectFieldProps<TFieldValues>) {
+  const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
     <Controller
       control={control}
@@ -30,7 +32,7 @@ export function SelectField<TFieldValues extends FieldValues>({
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
           <span className={labelClass}>{label}</span>
-          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled}>
+          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined}>
             <option value="">{placeholder}</option>
             {options.map((option) => (
               <option key={option.value} value={option.value}>
@@ -38,7 +40,7 @@ export function SelectField<TFieldValues extends FieldValues>({
               </option>
             ))}
           </select>
-          {fieldState.error ? <p className={fieldErrorClass}>{fieldState.error.message}</p> : null}
+          {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}
     />

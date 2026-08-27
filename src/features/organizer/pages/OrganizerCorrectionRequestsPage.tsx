@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useCorrectionRequests, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
   approveOrganizerCorrectionRequest,
@@ -19,11 +19,7 @@ import {
   type OrganizerCorrectionRequest,
   type OrganizerUiState
 } from "@/features/organizer/data/organizerUiStore";
-import {
-  exportCorrectionRequestsXlsx,
-  exportCorrectionRequestsPdf,
-  type ExportCorrectionRequestRow
-} from "@/features/organizer/utils/exportUtils";
+import type { ExportCorrectionRequestRow } from "@/features/organizer/utils/exportUtils";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -56,6 +52,8 @@ type CorrectionRequest = {
   status: RequestStatus;
   recordedAttendanceStatus: "present" | "late" | "absent";
   requestedStatus: "present" | "late" | "absent";
+  explanation?: string;
+  decisionRemarks?: string;
 };
 
 type RequestDetails = CorrectionRequest & {
@@ -114,6 +112,7 @@ function ReportExportModal({
   const [exportStatus, setExportStatus] = useState(activeStatusFilter);
   const [exportTypeFilter, setExportTypeFilter] = useState<"all" | RequestType>("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
@@ -128,7 +127,7 @@ function ReportExportModal({
     setExportTypeFilter("all");
   }
 
-  function handleExport() {
+  async function handleExport() {
     if (filtered.length === 0) {
       toast.warning("No correction request records match the selected export criteria.");
       return;
@@ -147,11 +146,19 @@ function ReportExportModal({
       requestedStatus: r.requestedStatus
     }));
 
+    setIsExportLoading(true);
+    const exportTools = await import("@/features/organizer/utils/exportUtils")
+      .catch(() => {
+        toast.error("Unable to prepare the export. Please try again.");
+        return null;
+      })
+      .finally(() => setIsExportLoading(false));
+    if (!exportTools) return;
     if (exportFormat === "xlsx") {
-      exportCorrectionRequestsXlsx(data);
+      exportTools.exportCorrectionRequestsXlsx(data);
       toast.success(`Exported ${data.length} correction request(s) as CSV.`);
     } else {
-      exportCorrectionRequestsPdf(data);
+      exportTools.exportCorrectionRequestsPdf(data);
       toast.success(`Exported ${data.length} correction request(s) as PDF.`);
     }
 
@@ -373,11 +380,11 @@ function ReportExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={filtered.length === 0}
+              disabled={filtered.length === 0 || isExportLoading}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
-              Export {exportFormat.toUpperCase()}
+              {isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}
             </button>
           </div>
         </div>
@@ -434,8 +441,10 @@ export function OrganizerCorrectionRequestsPage() {
   const scope = useOrganizerScope();
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
+  const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 200 }, scope.context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
-  const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
@@ -454,28 +463,36 @@ export function OrganizerCorrectionRequestsPage() {
   }, [studentsQuery.data?.items]);
 
   const repositoryRequests = useMemo<CorrectionRequest[]>(() => {
+    const recordById = new Map((attendanceRecordsQuery.data?.items ?? []).map((record) => [record.id, record]));
+    const sessionById = new Map((sessionsQuery.data?.items ?? []).map((session) => [session.id, session]));
+    const eventById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
     return (correctionRequestsQuery.data?.items ?? [])
       .map((req, index) => {
         const studentInfo = studentsMap.get(req.studentId);
+        const attendanceRecord = recordById.get(req.attendanceRecordId);
+        const attendanceSession = attendanceRecord ? sessionById.get(attendanceRecord.sessionId) : undefined;
+        const event = attendanceSession?.eventId ? eventById.get(attendanceSession.eventId) : undefined;
+        const recordedStatus = attendanceRecord?.status === "excused" ? "absent" : attendanceRecord?.status;
         return {
           id: req.id,
           requestId: formatRequestId(req.id, index),
           studentName: studentInfo?.name ?? (req.studentId === "student-1" ? "John Doe" : req.studentId),
           studentNumber: studentInfo?.studentNumber ?? (req.studentId === "student-1" ? "23-00001" : req.studentId),
-          eventCode: req.eventId ?? "EVT-2026-001",
-          eventName: "CCS Orientation",
+          eventCode: event?.code ?? "Unknown event",
+          eventName: event?.title ?? "Event details unavailable",
           requestType: (req.requestedStatus === "excused" ? "Excuse" : "Correction") as RequestType,
-          dateSubmitted: "2026-07-17",
+          dateSubmitted: req.requestedAt.slice(0, 10),
           status: req.status as RequestStatus,
-          recordedAttendanceStatus: "absent" as const,
-          requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent"
+          recordedAttendanceStatus: (recordedStatus === "present" || recordedStatus === "late" || recordedStatus === "absent" ? recordedStatus : "absent") as "present" | "late" | "absent",
+          requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent",
+          explanation: req.reason,
+          decisionRemarks: req.reviewRemarks
         };
       })
       .sort((a, b) => (a.status === "pending" ? -1 : b.status === "pending" ? 1 : 0));
-  }, [correctionRequestsQuery.data?.items, studentsMap]);
+  }, [attendanceRecordsQuery.data?.items, correctionRequestsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items, studentsMap]);
 
-  const storeRequests = useMemo(() => buildRequestsFromStore(uiState), [uiState]);
-  const requests = useMemo(() => [...repositoryRequests, ...storeRequests], [repositoryRequests, storeRequests]);
+  const requests = repositoryRequests;
 
   const filteredRequests = requests.filter(
     (request) =>
@@ -488,19 +505,18 @@ export function OrganizerCorrectionRequestsPage() {
 
   function buildRequestDetails(request: CorrectionRequest): RequestDetails {
     const baseDetails = requestDetails[request.id];
-    const storeRequest = uiState.correctionRequests.find((item) => item.id === request.id);
     return {
       ...baseDetails,
       ...request,
-      explanation: storeRequest?.explanation ?? baseDetails?.explanation ?? "",
-      supportingAttachment: storeRequest?.fileAttached ? `${request.id.toLowerCase()}-attachment.pdf` : baseDetails?.supportingAttachment,
-      attachmentFileName: storeRequest?.fileAttached ? "Supporting Attachment" : baseDetails?.attachmentFileName,
+      explanation: request.explanation ?? baseDetails?.explanation ?? "",
+      supportingAttachment: baseDetails?.supportingAttachment,
+      attachmentFileName: baseDetails?.attachmentFileName,
       decision: request.status === "approved" ? "approved" : request.status === "rejected" ? "rejected" : undefined,
       decisionRemarks:
         request.status === "approved"
-          ? storeRequest?.decisionRemarks ?? baseDetails?.decisionRemarks ?? `Approved. Attendance status updated to ${request.requestedStatus}.`
+          ? request.decisionRemarks ?? baseDetails?.decisionRemarks ?? `Approved. Attendance status updated to ${request.requestedStatus}.`
           : request.status === "rejected"
-            ? storeRequest?.decisionRemarks ?? baseDetails?.decisionRemarks ?? "Rejected. Original attendance status retained."
+            ? request.decisionRemarks ?? baseDetails?.decisionRemarks ?? "Rejected. Original attendance status retained."
             : undefined
     };
   }
@@ -517,23 +533,14 @@ export function OrganizerCorrectionRequestsPage() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || `Approved. Attendance status updated to ${selectedRequest.requestedStatus}.`;
 
-    requestDetails[selectedRequest.id] = {
-      ...selectedRequest,
-      status: "approved",
-      decision: "approved",
-      decisionRemarks: remark
-    };
-
-    setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
-    setUiState((current) => approveOrganizerCorrectionRequest(current, selectedRequest.id, remark));
-    toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
-
     try {
       await reviewMutation.mutateAsync({
         requestId: selectedRequest.id,
         status: "approved",
         reason: remark
       });
+      setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
+      toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
       
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Approved Correction Request",
@@ -541,25 +548,12 @@ export function OrganizerCorrectionRequestsPage() {
         targetId: selectedRequest.id,
         metadata: { requestId: selectedRequest.id, remark }
       });
-    } catch {
-      // ignore local ui sync
-    }
+    } catch { /* The mutation displays the database error. */ }
   }
 
   async function rejectRequest() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || "Rejected. Original attendance status retained.";
-
-    requestDetails[selectedRequest.id] = {
-      ...selectedRequest,
-      status: "rejected",
-      decision: "rejected",
-      decisionRemarks: remark
-    };
-
-    setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
-    setUiState((current) => rejectOrganizerCorrectionRequest(current, selectedRequest.id, remark));
-    toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
 
     try {
       await reviewMutation.mutateAsync({
@@ -567,6 +561,8 @@ export function OrganizerCorrectionRequestsPage() {
         status: "rejected",
         reason: remark
       });
+      setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
+      toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
       
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Rejected Correction Request",
@@ -574,9 +570,7 @@ export function OrganizerCorrectionRequestsPage() {
         targetId: selectedRequest.id,
         metadata: { requestId: selectedRequest.id, remark }
       });
-    } catch {
-      // ignore local ui sync
-    }
+    } catch { /* The mutation displays the database error. */ }
   }
 
   const columns: Array<ColumnDef<CorrectionRequest>> = [
@@ -755,11 +749,11 @@ export function OrganizerCorrectionRequestsPage() {
                   </label>
                 </div>
                 <div className="mt-5 flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => rejectRequest()} aria-label="Reject request">
+                  <Button type="button" variant="outline" disabled={reviewMutation.isPending} onClick={() => rejectRequest()} aria-label="Reject request">
                     <ThumbsDown className="mr-2 h-4 w-4" />
                     Reject Request
                   </Button>
-                  <Button type="button" onClick={() => approveRequest()} aria-label="Approve request">
+                  <Button type="button" disabled={reviewMutation.isPending} onClick={() => approveRequest()} aria-label="Approve request">
                     <ThumbsUp className="mr-2 h-4 w-4" />
                     Approve Request
                   </Button>

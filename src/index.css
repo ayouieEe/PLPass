@@ -7,7 +7,7 @@
     --plpass-green-light: 125 54% 91%;
     --plpass-green-bright: 135 40% 56%;
     --plpass-green-primary: 134 45% 45%;
-    --plpass-green-deep: 136 49% 36%;
+    --plpass-green-deep: 136 49% 30%;
     --plpass-green-dark: 137 55% 27%;
 
     --background: 112 41% 97%;
@@ -17,15 +17,15 @@
     --popover: 0 0% 100%;
     --popover-foreground: 128 24% 12%;
 
-    --primary: var(--plpass-green-primary);
-    --primary-hover: var(--plpass-green-deep);
-    --primary-active: 138 55% 30%;
+    --primary: var(--plpass-green-deep);
+    --primary-hover: var(--plpass-green-dark);
+    --primary-active: 138 55% 25%;
     --primary-foreground: 0 0% 100%;
     --secondary: 120 36% 94%;
     --secondary-hover: 121 39% 91%;
     --secondary-foreground: 137 55% 27%;
     --muted: 120 36% 94%;
-    --muted-foreground: 128 7% 44%;
+    --muted-foreground: 128 10% 32%;
     --accent: 235 74% 67%;
     --accent-foreground: 0 0% 100%;
     --highlight: 124 52% 91%;
@@ -57,7 +57,7 @@
     --danger: 0 72% 45%;
     --danger-foreground: 0 0% 100%;
     --danger-muted: 0 84% 94%;
-    --info: 208 76% 42%;
+    --info: 208 76% 34%;
     --info-foreground: 0 0% 100%;
     --info-muted: 210 78% 94%;
 
@@ -178,6 +178,17 @@
 
   *::-webkit-scrollbar-corner {
     background: transparent;
+  }
+
+  /* Live attendance uses auto-height rows, so the dashboard owns vertical
+     scrolling. Keep AG Grid's horizontal viewport but remove its empty
+     vertical scrollbar gutter. */
+  .live-attendance-grid .ag-body-vertical-scroll {
+    display: none !important;
+  }
+
+  .live-attendance-grid .ag-body-viewport {
+    overflow-y: hidden !important;
   }
 
   body::before {
@@ -835,9 +846,37 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
   .plpass-auth-grid,
   .plpass-auth-ribbons,
   .plpass-auth-ambient {
     animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px !important;
+  }
+
+  .plpass-modal-surface,
+  [role="dialog"],
+  [role="alert"] {
+    border: 1px solid CanvasText !important;
   }
 }

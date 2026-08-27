@@ -10,6 +10,13 @@ export function mapSupabaseError(error: AuthError | PostgrestError | Error | nul
   const status = "status" in error ? error.status : undefined;
   const code = "code" in error ? error.code : undefined;
 
+  if (code === "PGRST202" || /schema cache|could not find the function/i.test(message)) {
+    return new RepositoryError(
+      "Live attendance is not available on the connected database yet. Apply the latest Supabase migrations, then try again.",
+      "SERVER_ERROR"
+    );
+  }
+
   if (status === 401 || status === 403) {
     return new RepositoryError(message, "PERMISSION_DENIED");
   }

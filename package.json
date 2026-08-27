@@ -8,9 +8,16 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --project=chromium --project=firefox --project=webkit",
+    "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
+    "test:visual": "playwright test --project=visual-chromium",
+    "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check:release": "node scripts/release-preflight.mjs",
+    "check:supabase": "node scripts/check-supabase-readiness.mjs",
+    "check:supabase:linked": "node scripts/check-supabase-linked.mjs",
+    "test:supabase:local": "node scripts/test-local-supabase-integration.mjs",
     "preview": "vite preview",
-    "generate:db-types": "supabase gen types typescript --linked --schema public > src/lib/supabase/database.types.ts",
+    "generate:db-types": "supabase gen types --linked --lang typescript --schema public > src/lib/supabase/database.types.ts",
     "check:db-types": "tsc --noEmit --pretty false src/lib/supabase/database.types.ts"
   },
   "dependencies": {
@@ -41,6 +48,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",

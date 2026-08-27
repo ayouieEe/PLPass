@@ -10,7 +10,7 @@ export function ParticipationBarChart({ data }: ParticipationBarChartProps) {
   const hasData = data.some((point) => point.participation > 0);
 
   return (
-    <ChartFrame title="Participation" description="Participation rate by class or event." empty={!hasData}>
+    <ChartFrame title="Participation" description="Participation rate by class or event." summary={`Chart data: ${data.map((point) => `${point.label}, ${point.participation}% participation`).join("; ")}.`} empty={!hasData}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />

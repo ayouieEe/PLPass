@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
@@ -127,6 +127,10 @@ function timeToMinutes(value: string) {
 }
 
 const eventFormSchemaWithObjectives = eventBaseSchema.extend({
+  visibility: z.enum(["assigned", "public"]),
+  publishReason: z.string().trim().min(5, "Provide a brief publishing reason."),
+  resourceTitle: z.string().trim().optional(),
+  resourceUrl: z.string().trim().url("Enter a valid resource URL.").refine((value) => value.startsWith("https://"), "Resource URL must use HTTPS.").optional().or(z.literal("")),
   objectives: z
     .array(z.object({ value: z.string().min(3, "Objective is required.") }))
     .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
@@ -150,7 +154,10 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    [session]
+  );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
@@ -393,6 +400,10 @@ export function CreateEventPage() {
       remarks: "",
       priorityLevel: "Flexible",
       impactScore: null
+      ,visibility: "assigned",
+      publishReason: "Published by event organizer"
+      ,resourceTitle: "",
+      resourceUrl: ""
     }
   });
   const {
@@ -410,7 +421,7 @@ export function CreateEventPage() {
     
     async function loadEventCode() {
       try {
-        const nextCode = await repositories.eventManagement.generateNextEventCode();
+        const nextCode = await repositories.eventManagement.generateNextEventCode(scope.context);
         if (isMounted) {
           form.setValue("code", nextCode, { shouldValidate: true, shouldDirty: true });
         }
@@ -429,7 +440,7 @@ export function CreateEventPage() {
     return () => {
       isMounted = false;
     };
-  }, [form]);
+  }, [form, scope.context]);
   
   const watchedCategory = form.watch("category");
   const watchedAttendanceMode = form.watch("attendanceMode");
@@ -479,6 +490,10 @@ export function CreateEventPage() {
         remarks: values.remarks,
         priorityLevel: values.priorityLevel,
         impactScore: values.impactScore ?? null,
+        visibility: values.visibility,
+        publishReason: values.publishReason,
+        resourceTitle: values.resourceTitle,
+        resourceUrl: values.resourceUrl,
         participantStudentIds: selectedIds,
         objectives: values.objectives
           .map((objective) => objective.value.trim())
@@ -492,7 +507,7 @@ export function CreateEventPage() {
         metadata: { eventCode: event.code, participantCount: selectedIds.length }
       });
       
-      navigate(APP_ROUTES.organizerEvent(event.id));
+      navigate(APP_ROUTES.organizerEvent(event.id), { state: { announcement: `${event.title} was published successfully.` } });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to create event. Please try again.";
       toast.error(message);
@@ -557,12 +572,23 @@ export function CreateEventPage() {
                 label="Attendance Mode"
                 options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
               />
+              <SelectField
+                control={form.control}
+                name="visibility"
+                label="Student Visibility"
+                options={[{ label: "Assigned participants only", value: "assigned" }, { label: "All active students", value: "public" }]}
+              />
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="description" label="Description" rows={3} />
               </div>
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
               </div>
+              <div className="md:col-span-2">
+                <TextAreaField control={form.control} name="publishReason" label="Publishing Reason" placeholder="Explain why this event is ready to publish" rows={2} />
+              </div>
+              <TextField control={form.control} name="resourceTitle" label="Resource Title (optional)" placeholder="Event handbook" />
+              <TextField control={form.control} name="resourceUrl" label="HTTPS Resource Link (optional)" placeholder="https://example.edu/event-handbook" />
             </div>
 
             <section className="rounded-lg border bg-background p-4">
@@ -579,7 +605,7 @@ export function CreateEventPage() {
                 </Button>
               </div>
               {form.formState.errors.objectives?.root ? (
-                <p className="mt-2 text-sm text-danger">{form.formState.errors.objectives.root.message}</p>
+                <p role="alert" className="mt-2 text-sm text-danger">{form.formState.errors.objectives.root.message}</p>
               ) : null}
               <div className="mt-4 grid gap-3">
                 {objectiveFields.map((field, index) => (
@@ -676,7 +702,7 @@ export function CreateEventPage() {
               {["A", "B"].map((item) => <option key={item} value={item}>Section {item}</option>)}
             </select>
           </div>
-          {participantError ? <p className="text-sm text-danger">{participantError}</p> : null}
+          {participantError ? <p role="alert" aria-live="assertive" className="text-sm text-danger">{participantError}</p> : null}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="max-h-[360px] overflow-y-auto rounded-lg border bg-background p-3">
@@ -721,6 +747,7 @@ export function CreateEventPage() {
           </div>
           <SubmitButton
             isSubmitting={mutations.createEventMutation.isPending}
+            submittingLabel="Publishing Event…"
             onClick={() => {
               if (selectedIds.length === 0) {
                 setParticipantError("Select at least one participant.");
