@@ -560,43 +560,38 @@ export function CreateEventPage() {
               description="Enter the event information and at least three objectives for feedback generation."
             />
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
-              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
-              <SelectField
-                control={form.control}
-                name="venue"
-                label="Venue"
-                placeholder="Select a venue"
-                options={VENUE_OPTIONS}
-              />
-              <SelectField control={form.control} name="category" label="Event Category (Random Forest)" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
-              <div>
-                <SelectField control={form.control} name="institutionalCategory" label="Institutional Category (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
-                <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Event Identification</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
+                <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
               </div>
-              <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
-              <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} />
-              <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
-              <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
-              <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
-              <DatePickerField 
-                control={form.control} 
-                name="date" 
-                label="Date"
-                min={new Date().toISOString().split('T')[0]}
-              />
-              <TimePickerField control={form.control} name="startTime" label="Start Time" />
-              <TimePickerField control={form.control} name="endTime" label="End Time" />
-              <div className="md:col-span-2">
-                <TextAreaField control={form.control} name="description" label="Description" rows={3} />
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
+                <div className="grid gap-4 sm:grid-cols-3 sm:col-span-2">
+                  <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} />
+                  <TimePickerField control={form.control} name="startTime" label="Start Time" />
+                  <TimePickerField control={form.control} name="endTime" label="End Time" />
+                </div>
               </div>
-              <div className="md:col-span-2">
-                <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Classification</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <SelectField control={form.control} name="category" label="Event Category (Random Forest)" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
+                <div>
+                  <SelectField control={form.control} name="institutionalCategory" label="Institutional Category (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+                  <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
+                </div>
+                <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
+                <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} />
               </div>
-              <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" />
-              <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
-            </div>
+            </section>
 
             <section className="rounded-lg border bg-background p-4">
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
@@ -613,6 +608,25 @@ export function CreateEventPage() {
                 <input type="checkbox" {...form.register("fixedPriority")} />
                 <span><strong>Fixed Priority</strong><span className="block text-muted-foreground">Treat this event as a priority regardless of its calculated ranking score.</span></span>
               </label>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
+                <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
+                <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Content</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
+                <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
+                <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" />
+                <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
+              </div>
             </section>
 
             <section className="rounded-lg border bg-background p-4">
