@@ -594,8 +594,8 @@ export function CreateEventPage() {
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
               </div>
-              <TextField control={form.control} name="resourceTitle" label="Supporting Material Title" placeholder="e.g. Event handbook or pubmat" />
-              <TextField control={form.control} name="resourceUrl" label="Supporting Material Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
+              <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" />
+              <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
             </div>
 
             <section className="rounded-lg border bg-background p-4">
