@@ -61,6 +61,23 @@ export function exportTabularReportCsv(title: string, rows: ExportTableRow[]) {
   downloadFile(buildCsvString(headers, data), `${reportFileName(title)}.csv`, "text/csv;charset=utf-8;");
 }
 
+export async function exportTabularReportXlsx(title: string, rows: ExportTableRow[]) {
+  const { Workbook } = await import("exceljs");
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet("Report");
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
+
+  worksheet.columns = headers.map((header) => ({ header, key: header }));
+  rows.forEach((row) => worksheet.addRow(headers.map((header) => row[header] ?? "")));
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.columns.forEach((column) => {
+    column.width = Math.min(Math.max(column.header?.length ?? 10, 12), 32);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadFile(new Blob([buffer]), `${reportFileName(title)}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
 export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
   const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -79,8 +96,9 @@ export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
   doc.save(`${reportFileName(title)}.pdf`);
 }
 
-export function exportTabularReport(title: string, rows: ExportTableRow[]) {
+export async function exportTabularReport(title: string, rows: ExportTableRow[]) {
   if (/\bpdf\b/i.test(title)) exportTabularReportPdf(title, rows);
+  else if (/\bxlsx\b/i.test(title)) await exportTabularReportXlsx(title, rows);
   else exportTabularReportCsv(title, rows);
 }
 
@@ -90,8 +108,8 @@ function buildCsvString(headers: string[], rows: (string | number)[][]): string 
   return [headerLine, ...dataLines].join("\r\n");
 }
 
-function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+function downloadFile(content: Blob | string, filename: string, mimeType: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
