@@ -629,7 +629,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_reason: reason
     });
     throwIfSupabaseError(error);
-    return mapEvent(data as Row);
+    const updatedEvent = mapEvent(data as Row);
+    const { error: emailProcessingError } = await client.functions.invoke("send-event-emails", {
+      body: { eventId: updatedEvent.id }
+    });
+    if (emailProcessingError) {
+      console.warn("Event rescheduled, but participant email processing was not completed:", emailProcessingError);
+    }
+    return updatedEvent;
   }
 };
 
