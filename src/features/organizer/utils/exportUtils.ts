@@ -1,10 +1,9 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
 
 /**
  * Export utilities for organizer reports.
- * Uses jsPDF and jspdf-autotable for direct PDF downloads and Blob/CSV for XLSX downloads.
+ * Uses jsPDF and jspdf-autotable for direct PDF downloads and Blob/CSV for tabular downloads.
  */
 
 // ---------------------------------------------------------------------------
@@ -62,13 +61,6 @@ export function exportTabularReportCsv(title: string, rows: ExportTableRow[]) {
   downloadFile(buildCsvString(headers, data), `${reportFileName(title)}.csv`, "text/csv;charset=utf-8;");
 }
 
-export function exportTabularReportXlsx(title: string, rows: ExportTableRow[]) {
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Report");
-  XLSX.writeFile(workbook, `${reportFileName(title)}.xlsx`);
-}
-
 export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
   const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
@@ -89,7 +81,6 @@ export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
 
 export function exportTabularReport(title: string, rows: ExportTableRow[]) {
   if (/\bpdf\b/i.test(title)) exportTabularReportPdf(title, rows);
-  else if (/\bxlsx\b/i.test(title)) exportTabularReportXlsx(title, rows);
   else exportTabularReportCsv(title, rows);
 }
 
