@@ -304,8 +304,8 @@ export function EventRecordsPage() {
 
   const pastEventsStats = useMemo(() => completedStats(pastEvents), [pastEvents]);
 
-  function exportReport(label: string) {
-    const rows = pastEvents.map((event) => ({
+  function exportReport(label: string, events = pastEvents) {
+    const rows = events.map((event) => ({
       "Event Code": event.code,
       "Event Name": event.name,
       Category: event.category,
@@ -324,6 +324,47 @@ export function EventRecordsPage() {
       action: "Exported Event Record",
       targetType: "export_action",
       metadata: { label }
+    });
+  }
+
+  function exportAllAttendanceReport(label: string) {
+    const attendanceRows = pastEvents.flatMap((event) =>
+      event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
+        "Event Code": event.code,
+        "Event Name": event.name,
+        "Student Name": row.studentName,
+        "Attendance Status": row.attendanceStatus,
+        "Check-in Time": row.checkInTime,
+        "Check-out Time": row.checkOutTime ?? "Not checked out",
+        "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+        "Late Arrival Reason": row.lateReason ?? "-"
+      })) : []
+    );
+    exportTabularReport(label, attendanceRows);
+    toast.success(`${label} downloaded.`);
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Event Attendance Report",
+      targetType: "export_action",
+      metadata: { label, eventCount: pastEvents.length }
+    });
+  }
+
+  function exportAttendanceReport(label: string, record: CompletedRecord, rows: AttendanceRow[]) {
+    const attendanceRows = rows.map((row) => ({
+      "Event Code": record.code,
+      "Student Name": row.studentName,
+      "Attendance Status": row.attendanceStatus,
+      "Check-in Time": row.checkInTime,
+      "Check-out Time": row.checkOutTime ?? "Not checked out",
+      "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+      "Late Arrival Reason": row.lateReason ?? "-"
+    }));
+    exportTabularReport(label, attendanceRows);
+    toast.success(`${label} downloaded.`);
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Event Attendance Report",
+      targetType: "export_action",
+      metadata: { label, eventCode: record.code }
     });
   }
 
@@ -416,8 +457,8 @@ export function EventRecordsPage() {
               <ReportExportRow
                 icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />}
                 label="Attendance"
-                onExportXlsx={() => exportReport("Attendance Report XLSX")}
-                onExportPdf={() => exportReport("Attendance Report PDF")}
+                onExportXlsx={() => exportAllAttendanceReport("Attendance Report XLSX")}
+                onExportPdf={() => exportAllAttendanceReport("Attendance Report PDF")}
               />
               <ReportExportRow
                 icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -477,7 +518,8 @@ export function EventRecordsPage() {
             completedModal.id ? attendanceSummariesQuery.data?.[completedModal.id]?.rows ?? [] : []
           }
           onClose={() => setCompletedModal(null)}
-          onExportReport={exportReport}
+          onExportReport={(label) => exportReport(label, [completedModal])}
+          onExportAttendanceReport={(label, rows) => exportAttendanceReport(label, completedModal, rows)}
         />
       ) : null}
     </div>
@@ -559,12 +601,14 @@ export function CompletedEventModal({
   record,
   rows,
   onClose,
-  onExportReport
+  onExportReport,
+  onExportAttendanceReport
 }: {
   record: CompletedRecord;
   rows: AttendanceRow[];
   onClose: () => void;
   onExportReport?: (label: string) => void;
+  onExportAttendanceReport?: (label: string, rows: AttendanceRow[]) => void;
 }) {
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     // Who + at-a-glance outcome, grouped first so status doesn't require scrolling to see
@@ -581,7 +625,11 @@ export function CompletedEventModal({
       header: "Check-out Time",
       cell: ({ row }) => row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
     },
-    { accessorKey: "attendanceMethod", header: "Attendance Method" },
+    {
+      id: "attendanceMethod",
+      header: "Attendance Method",
+      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : row.original.attendanceMethod
+    },
     // Only relevant for late rows — placed last since it's blank most of the time
     {
       id: "lateReason",
@@ -636,8 +684,8 @@ export function CompletedEventModal({
                 <ReportExportRow
                   icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />}
                   label="Attendance"
-                  onExportXlsx={() => onExportReport?.(`Attendance Report XLSX: ${record.code}`)}
-                  onExportPdf={() => onExportReport?.(`Attendance Report PDF: ${record.code}`)}
+                  onExportXlsx={() => onExportAttendanceReport?.(`Attendance Report XLSX: ${record.code}`, rows)}
+                  onExportPdf={() => onExportAttendanceReport?.(`Attendance Report PDF: ${record.code}`, rows)}
                 />
                 <ReportExportRow
                   icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />}

@@ -73,6 +73,9 @@ export type CreateEventInput = {
   publishReason?: string;
   resourceTitle?: string;
   resourceUrl?: string;
+  requestedBy?: string;
+  collegeOffice?: string;
+  numberOfPax?: number | null;
 };
 
 export type RescheduleEventInput = {

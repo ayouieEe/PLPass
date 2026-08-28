@@ -127,10 +127,6 @@ function timeToMinutes(value: string) {
 }
 
 const eventFormSchemaWithObjectives = eventBaseSchema.extend({
-  visibility: z.enum(["assigned", "public"]),
-  publishReason: z.string().trim().min(5, "Provide a brief publishing reason."),
-  resourceTitle: z.string().trim().optional(),
-  resourceUrl: z.string().trim().url("Enter a valid resource URL.").refine((value) => value.startsWith("https://"), "Resource URL must use HTTPS.").optional().or(z.literal("")),
   objectives: z
     .array(z.object({ value: z.string().min(3, "Objective is required.") }))
     .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
@@ -400,10 +396,9 @@ export function CreateEventPage() {
       remarks: "",
       priorityLevel: "Flexible",
       impactScore: null
-      ,visibility: "assigned",
-      publishReason: "Published by event organizer"
-      ,resourceTitle: "",
-      resourceUrl: ""
+      ,requestedBy: ""
+      ,collegeOffice: ""
+      ,numberOfPax: null
     }
   });
   const {
@@ -490,10 +485,11 @@ export function CreateEventPage() {
         remarks: values.remarks,
         priorityLevel: values.priorityLevel,
         impactScore: values.impactScore ?? null,
-        visibility: values.visibility,
-        publishReason: values.publishReason,
-        resourceTitle: values.resourceTitle,
-        resourceUrl: values.resourceUrl,
+        requestedBy: values.requestedBy,
+        collegeOffice: values.collegeOffice,
+        numberOfPax: values.numberOfPax ?? selectedIds.length,
+        visibility: "assigned",
+        publishReason: "Published by event organizer",
         participantStudentIds: selectedIds,
         objectives: values.objectives
           .map((objective) => objective.value.trim())
@@ -556,8 +552,15 @@ export function CreateEventPage() {
                 name="impactScore" 
                 label="Impact Score (0-10)" 
                 placeholder="Optional: 0-10"
+                helperText="Enter a value from 0 to 10."
                 type="number"
+                min={0}
+                max={10}
+                onInvalidNumber={() => toast.warning("Impact score must be between 0 and 10.")}
               />
+              <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
+              <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
+              <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
               <DatePickerField 
                 control={form.control} 
                 name="date" 
@@ -572,23 +575,12 @@ export function CreateEventPage() {
                 label="Attendance Mode"
                 options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
               />
-              <SelectField
-                control={form.control}
-                name="visibility"
-                label="Student Visibility"
-                options={[{ label: "Assigned participants only", value: "assigned" }, { label: "All active students", value: "public" }]}
-              />
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="description" label="Description" rows={3} />
               </div>
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
               </div>
-              <div className="md:col-span-2">
-                <TextAreaField control={form.control} name="publishReason" label="Publishing Reason" placeholder="Explain why this event is ready to publish" rows={2} />
-              </div>
-              <TextField control={form.control} name="resourceTitle" label="Resource Title (optional)" placeholder="Event handbook" />
-              <TextField control={form.control} name="resourceUrl" label="HTTPS Resource Link (optional)" placeholder="https://example.edu/event-handbook" />
             </div>
 
             <section className="rounded-lg border bg-background p-4">

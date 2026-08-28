@@ -852,6 +852,9 @@ export type Database = {
           event_status: string
           id: string
           impact_score: number | null
+          requested_by: string | null
+          college_office: string | null
+          number_of_pax: number | null
           last_rescheduled_at: string | null
           organizer_id: string
           predicted_turnout_percent: number | null
@@ -880,6 +883,9 @@ export type Database = {
           event_status?: string
           id?: string
           impact_score?: number | null
+          requested_by?: string | null
+          college_office?: string | null
+          number_of_pax?: number | null
           last_rescheduled_at?: string | null
           organizer_id: string
           predicted_turnout_percent?: number | null
@@ -908,6 +914,9 @@ export type Database = {
           event_status?: string
           id?: string
           impact_score?: number | null
+          requested_by?: string | null
+          college_office?: string | null
+          number_of_pax?: number | null
           last_rescheduled_at?: string | null
           organizer_id?: string
           predicted_turnout_percent?: number | null
@@ -1780,6 +1789,51 @@ export type Database = {
           priority_level: string
           published_at: string | null
           published_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          title: string
+          updated_at: string
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      update_organizer_event_metadata: {
+        Args: {
+          p_college_office?: string | null
+          p_event_id: string
+          p_number_of_pax?: number | null
+          p_requested_by?: string | null
+        }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          college_office: string | null
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          id: string
+          impact_score: number | null
+          last_rescheduled_at: string | null
+          number_of_pax: number | null
+          organizer_id: string
+          predicted_turnout_percent: number | null
+          priority_level: string
+          published_at: string | null
+          published_by: string | null
+          requested_by: string | null
           reschedule_count: number | null
           starts_at: string
           title: string
