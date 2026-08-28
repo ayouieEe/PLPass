@@ -460,7 +460,7 @@ export function EventDetailsPage() {
 
       {(event.description || resources.length > 0) ? (
         <section className="rounded-lg border bg-surface p-5 shadow-sm">
-          <h3 className="font-semibold text-foreground">Event Content</h3>
+          <h3 className="font-semibold text-foreground">Event Description</h3>
           {event.description ? <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground">{event.description}</p> : null}
           {resources.length > 0 ? <div className="mt-4 space-y-2">{resources.map((resource) => <a key={resource.id} href={resource.externalUrl} target="_blank" rel="noreferrer" className="block rounded-md border bg-background p-3 text-sm font-medium text-primary hover:underline">{resource.title}</a>)}</div> : null}
         </section>

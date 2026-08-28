@@ -425,25 +425,39 @@ export function EventRecordsPage() {
         {/* Search card (left, flexible width) and Reports card (right, fixed 320px)
             are stretched to the same row height so Reports doesn't tower over
             Search — keeps the top strip compact and leaves room for the table. */}
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-stretch">
-          <section className="rounded-lg border bg-surface p-4 shadow-sm">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Search completed events</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Filter by code, name, venue, or category.</p>
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <section className="rounded-lg border bg-surface p-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">Search completed events</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Filter by code, name, venue, or category.</p>
+                </div>
+                <div className="flex w-full max-w-md items-center gap-2 rounded-lg border bg-background px-3 py-2">
+                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <input
+                    id="event-record-search"
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    placeholder="Search completed events..."
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </div>
               </div>
-              <div className="flex w-full max-w-md items-center gap-2 rounded-lg border bg-background px-3 py-2">
-                <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input
-                  id="event-record-search"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  placeholder="Search completed events..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+            </section>
+
+            {pastEvents.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
+                <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
+                <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
+                <SummaryTile
+                  label="Avg Attendance"
+                  value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
                 />
               </div>
-            </div>
-          </section>
+            ) : null}
+          </div>
 
           <section className="flex flex-col justify-center gap-3 rounded-lg border bg-surface p-4 shadow-sm">
             <div className="flex items-center gap-2">
@@ -471,26 +485,12 @@ export function EventRecordsPage() {
         </div>
 
         <section className="rounded-lg border bg-surface p-4 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            
-          </div>
-
           {eventsQuery.isPending ? (
             <LoadingState />
           ) : eventsQuery.isError ? (
             <ErrorState title="Failed to load events" message={eventsQuery.error?.message ?? "An error occurred while loading events. Please try again."} />
           ) : pastEvents.length > 0 ? (
             <>
-              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
-                <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
-                <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
-                <SummaryTile
-                  label="Avg Attendance"
-                  value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
-                />
-              </div>
-
               <PLPassDataGrid
                 label="Completed events"
                 data={pastEvents}
