@@ -37,7 +37,7 @@ export const eventBaseSchema = z.object({
     .min(1, "Event title is required")
     .min(3, "Event title must be at least 3 characters")
     .max(255, "Event title must not exceed 255 characters"),
-  category: z.string().trim().min(1, "Event category is required"),
+  category: z.string().trim().min(1, "Category is required"),
   institutionalCategory: z.enum(["Accreditation Linked", "Academic or Training", "Social or Recreational"]),
   participationStatus: z.enum(["Mandatory", "Voluntary"]),
   targetGroup: z.enum(["University-wide", "College or Department-wide", "Single Class or Organization"]),

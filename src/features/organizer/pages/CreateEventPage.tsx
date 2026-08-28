@@ -582,7 +582,7 @@ export function CreateEventPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <SelectField control={form.control} name="category" label="Event Category" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
                 <div>
-                  <SelectField control={form.control} name="institutionalCategory" label="Institutional Category (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+                  <SelectField control={form.control} name="institutionalCategory" label="Institutional classification (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
                   <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
                 </div>
                 <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
