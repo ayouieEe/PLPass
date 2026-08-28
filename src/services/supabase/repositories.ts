@@ -560,6 +560,13 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_requested_by: input.requestedBy?.trim() || null,
       p_college_office: input.collegeOffice?.trim() || null,
       p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length
+      ,p_institutional_category: input.institutionalCategory ?? null
+      ,p_participation_status: input.participationStatus ?? null
+      ,p_target_group: input.targetGroup ?? null
+      ,p_urgency_points: input.urgencyPoints ?? 0
+      ,p_priority_score: input.priorityScore ?? 0
+      ,p_priority_tier: input.priorityTier ?? "Low"
+      ,p_fixed_priority: input.fixedPriority ?? false
     });
     throwIfSupabaseError(metadataError);
     const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);

@@ -37,7 +37,10 @@ export const eventBaseSchema = z.object({
     .min(1, "Event title is required")
     .min(3, "Event title must be at least 3 characters")
     .max(255, "Event title must not exceed 255 characters"),
-  category: z.string().trim().min(1, "Category is required"),
+  category: z.string().trim().min(1, "Event category is required"),
+  institutionalCategory: z.enum(["Accreditation Linked", "Academic or Training", "Social or Recreational"]),
+  participationStatus: z.enum(["Mandatory", "Voluntary"]),
+  targetGroup: z.enum(["University-wide", "College or Department-wide", "Single Class or Organization"]),
   venue: z
     .string()
     .trim()
@@ -46,7 +49,6 @@ export const eventBaseSchema = z.object({
   date: z.string().min(1, "Event date is required"),
   startTime: z.string().min(1, "Start time is required"),
   endTime: z.string().min(1, "End time is required"),
-  attendanceMode: z.enum(["face-to-face", "online"]),
   description: z
     .string()
     .trim()
@@ -76,6 +78,7 @@ export const eventBaseSchema = z.object({
     .max(10, "Impact score must not exceed 10")
     .nullable()
     .optional(),
+  fixedPriority: z.boolean().default(false),
   requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
   collegeOffice: z.string().trim().min(2, "College/Office must be at least 2 characters").max(255).optional(),
   numberOfPax: z.number().int("No. of Pax must be a whole number").min(0, "No. of Pax cannot be negative").nullable().optional()

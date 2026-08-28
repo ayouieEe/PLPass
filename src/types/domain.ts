@@ -129,6 +129,9 @@ export type Event = {
   organizerId: ID;
   departmentId?: ID;
   category: string;
+  institutionalCategory?: "Accreditation Linked" | "Academic or Training" | "Social or Recreational";
+  participationStatus?: "Mandatory" | "Voluntary";
+  targetGroup?: "University-wide" | "College or Department-wide" | "Single Class or Organization";
   title: string;
   description?: string;
   venue: string;
@@ -137,6 +140,10 @@ export type Event = {
   status: EventStatus;
   priorityLevel: PriorityLevel;
   impactScore: number | null;
+  urgencyPoints?: number;
+  priorityScore?: number;
+  priorityTier?: "High" | "Medium" | "Low";
+  fixedPriority?: boolean;
   predictedTurnout: number | null;
   requestedBy?: string;
   collegeOffice?: string;
