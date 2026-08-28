@@ -82,6 +82,8 @@ export const eventBaseSchema = z.object({
   requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
   collegeOffice: z.string().trim().min(2, "College/Office must be at least 2 characters").max(255).optional(),
   numberOfPax: z.number().int("No. of Pax must be a whole number").min(0, "No. of Pax cannot be negative").nullable().optional()
+  ,resourceTitle: z.string().trim().max(255).optional()
+  ,resourceUrl: z.string().trim().refine((value) => !value || /^https:\/\//.test(value), "Link must use HTTPS.").optional()
 });
 
 export const eventFormSchema = eventBaseSchema

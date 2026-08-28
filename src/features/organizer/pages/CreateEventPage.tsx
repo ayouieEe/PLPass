@@ -348,11 +348,12 @@ function predictedAttendancePercentage(selectedCount: number, category: string, 
   return Math.max(45, Math.min(96, score));
 }
 
-function calculatePriority(values: Pick<EventFormValues, "category" | "institutionalCategory" | "participationStatus" | "targetGroup" | "fixedPriority">) {
-  const urgencyPoints = values.participationStatus === "Mandatory" ? 3 : 1;
-  const impactPoints = (values.institutionalCategory === "Accreditation Linked" ? 3 : values.institutionalCategory === "Academic or Training" ? 2 : 1)
+function calculatePriority(values: Pick<EventFormValues, "category" | "institutionalCategory" | "participationStatus" | "targetGroup" | "fixedPriority" | "date">) {
+  const leadTimeDays = Math.max(0, Math.ceil((new Date(`${values.date}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000));
+  const urgencyPoints = leadTimeDays <= 1 ? 3 : leadTimeDays <= 7 ? 2 : leadTimeDays <= 14 ? 1 : 0;
+  const impactPoints = (values.participationStatus === "Mandatory" ? 2 : 1)
     + (values.targetGroup === "University-wide" ? 2 : values.targetGroup === "College or Department-wide" ? 1 : 0)
-    + (values.category === "Assembly" || values.category === "Ceremony" ? 1 : 0);
+    + (values.institutionalCategory === "Accreditation Linked" ? 2 : values.institutionalCategory === "Academic or Training" ? 1 : 0);
   const priorityScore = values.fixedPriority ? 9 : Math.min(9, urgencyPoints + impactPoints);
   return { urgencyPoints, impactPoints, priorityScore, priorityTier: priorityScore >= 7 ? "High" : priorityScore >= 4 ? "Medium" : "Low" } as const;
 }
@@ -420,6 +421,8 @@ export function CreateEventPage() {
       ,requestedBy: ""
       ,collegeOffice: ""
       ,numberOfPax: null
+      ,resourceTitle: ""
+      ,resourceUrl: ""
     }
   });
   const {
@@ -463,6 +466,7 @@ export function CreateEventPage() {
   const watchedParticipationStatus = form.watch("participationStatus");
   const watchedTargetGroup = form.watch("targetGroup");
   const watchedFixedPriority = form.watch("fixedPriority");
+  const watchedDate = form.watch("date");
   const watchedStartTime = form.watch("startTime");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
@@ -516,6 +520,8 @@ export function CreateEventPage() {
         priorityScore: ranking.priorityScore,
         priorityTier: ranking.priorityTier,
         fixedPriority: values.fixedPriority,
+        resourceTitle: values.resourceTitle,
+        resourceUrl: values.resourceUrl,
         requestedBy: values.requestedBy,
         collegeOffice: values.collegeOffice,
         numberOfPax: values.numberOfPax ?? selectedIds.length,
@@ -559,19 +565,16 @@ export function CreateEventPage() {
               <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
               <SelectField
                 control={form.control}
-                name="category"
-                label="Category"
-                placeholder="Select a category"
-                options={CATEGORY_OPTIONS}
-              />
-              <SelectField
-                control={form.control}
                 name="venue"
                 label="Venue"
                 placeholder="Select a venue"
                 options={VENUE_OPTIONS}
               />
-              <SelectField control={form.control} name="institutionalCategory" label="Institutional Category" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+              <SelectField control={form.control} name="category" label="Event Category (Random Forest)" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
+              <div>
+                <SelectField control={form.control} name="institutionalCategory" label="Institutional Category (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+                <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
+              </div>
               <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
               <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} />
               <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
@@ -591,13 +594,15 @@ export function CreateEventPage() {
               <div className="md:col-span-2">
                 <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
               </div>
+              <TextField control={form.control} name="resourceTitle" label="Link Title" placeholder="e.g. Event handbook or pubmat" />
+              <TextField control={form.control} name="resourceUrl" label="Link" placeholder="https://..." />
             </div>
 
             <section className="rounded-lg border bg-background p-4">
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
               <p className="mt-1 text-sm text-muted-foreground">These values are generated automatically from the classification above.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority }); return <>
+                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }); return <>
                   <PredictionMetric label="Urgency Points" value={String(ranking.urgencyPoints)} />
                   <PredictionMetric label="Impact Points" value={String(ranking.impactPoints)} />
                   <PredictionMetric label="Priority Score" value={`${ranking.priorityScore}/9`} />
