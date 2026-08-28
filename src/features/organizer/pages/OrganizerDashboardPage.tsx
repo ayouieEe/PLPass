@@ -72,6 +72,7 @@ export function OrganizerDashboardPage() {
   const activeEvent: Event | undefined = todaysEvents[0];
   const nextEvent = useMemo(() => activeEvents.filter((event) => new Date(event.startsAt).getTime() > today.getTime()).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0], [activeEvents, today]);
   const predictionOverviewData = useMemo(() => activeEvents.map((event) => ({ label: shortCode(event.code), title: event.title, predictedAttend: event.predictedTurnout ?? 0, predictedMiss: 100 - (event.predictedTurnout ?? 0) })), [activeEvents]);
+  const predictionLabelInterval = Math.max(0, Math.ceil(predictionOverviewData.length / 8) - 1);
   const activeSemester = semestersQuery.data?.items.find((semester) => semester.isActive);
   const trend = analyticsQuery.data?.attendanceTrend ?? [];
   const totalPresent = trend.reduce((total, row) => total + row.present, 0);
@@ -113,7 +114,7 @@ export function OrganizerDashboardPage() {
             <p>{`Feedback sentiment chart data: ${(analyticsQuery.data?.sentiment ?? []).map((item) => `${item.name}, ${item.value}%`).join("; ")}.`}</p>
             <p>{`Late-arrival chart data: ${(analyticsQuery.data?.lateArrivals ?? []).map((item) => `${item.label}, ${item.count} late check-ins`).join("; ")}.`}</p>
           </div>
-          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></ChartPanel>
+          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }} barCategoryGap="18%"><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" interval={predictionLabelInterval} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip labelFormatter={(_, payload) => payload?.[0]?.payload?.title ?? "Event"} formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></ChartPanel>
         </div>
       </section>
 
