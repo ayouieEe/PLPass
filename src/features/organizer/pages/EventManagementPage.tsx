@@ -1676,9 +1676,6 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
       </div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <SummaryTile label="Category" value={event.category} />
-        <SummaryTile label="Institutional Category" value={event.institutionalCategory ?? "Not specified"} />
-        <SummaryTile label="Participation" value={event.participationStatus ?? "Not specified"} />
-        <SummaryTile label="Target Group" value={event.targetGroup ?? "Not specified"} />
         <SummaryTile label="Venue" value={event.venue} />
         <SummaryTile label="Date" value={event.date} />
         <SummaryTile label="Schedule" value={`${event.startTime} - ${event.endTime}`} />
