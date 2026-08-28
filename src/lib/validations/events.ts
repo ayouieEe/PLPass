@@ -75,7 +75,10 @@ export const eventBaseSchema = z.object({
     .min(0, "Impact score must be at least 0")
     .max(10, "Impact score must not exceed 10")
     .nullable()
-    .optional()
+    .optional(),
+  requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
+  collegeOffice: z.string().trim().min(2, "College/Office must be at least 2 characters").max(255).optional(),
+  numberOfPax: z.number().int("No. of Pax must be a whole number").min(0, "No. of Pax cannot be negative").nullable().optional()
 });
 
 export const eventFormSchema = eventBaseSchema

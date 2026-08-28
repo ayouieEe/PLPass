@@ -500,12 +500,14 @@ export function EventManagementPage() {
           studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
           eventCode: activeEvent?.code ?? "LIVE",
           attendanceMethod:
-            record.verificationMethod === "qr"
-              ? "QR Code"
-              : record.verificationMethod === "facial"
-                ? "Facial Recognition"
-                : "Manual",
-          checkInTime: formatDisplayTime(record.recordedAt),
+            status === "absent"
+              ? "Manual"
+              : record.verificationMethod === "qr"
+                ? "QR Code"
+                : record.verificationMethod === "facial"
+                  ? "Facial Recognition"
+                  : "Manual",
+          checkInTime: record.timeIn ? formatDisplayTime(record.timeIn) : "-",
           checkOutTime: attendanceRecord.checkedOutAt ? formatDisplayTime(attendanceRecord.checkedOutAt) : undefined,
           attendanceStatus: status === "present" || status === "late" || status === "absent" ? status : "present",
           lateReason: status === "late" ? record.lateReason : undefined
@@ -810,9 +812,13 @@ export function EventManagementPage() {
     }
 
     const resolvedStudentId = lookupResult.matchedStudentId;
-    const resolvedStatus = manualLateLock.isLateLocked ? manualLateLock.lockedStatus : manualStatus;
+    const existingAttendanceRow = activeRows.find((row) => row.studentId === resolvedStudentId);
+    const isCheckout = Boolean(existingAttendanceRow);
+    const resolvedStatus: ManualAttendanceStatus = isCheckout
+      ? existingAttendanceRow?.attendanceStatus === "late" ? "late" : "present"
+      : manualStatus;
 
-    if (resolvedStatus === "late" && !manualLateLock.isLateLocked && !manualLateReason) {
+    if (resolvedStatus === "late" && !isCheckout && !manualLateReason) {
       toast.warning("Please select a reason.");
       return;
     }
@@ -825,7 +831,7 @@ export function EventManagementPage() {
         remarks: "",
         statusOverride: resolvedStatus,
         lateReason:
-          resolvedStatus === "late" && !manualLateLock.isLateLocked && manualLateReason
+          resolvedStatus === "late" && !isCheckout && manualLateReason
             ? manualLateReason
             : undefined
       });
@@ -862,8 +868,8 @@ export function EventManagementPage() {
     toast.success(`${completed.code} moved to Event Records.`);
   }
 
-  function exportReport(label: string) {
-    const rows = completedEvents.map((event) => ({
+  function exportReport(label: string, events = completedEvents) {
+    const rows = events.map((event) => ({
       "Event Code": event.code,
       "Event Name": event.name,
       Category: event.category,
@@ -882,6 +888,25 @@ export function EventManagementPage() {
       action: "Exported Event Action",
       targetType: "export_action",
       metadata: { label }
+    });
+  }
+
+  function exportAttendanceReport(label: string, record: CompletedRecord, rows: AttendanceRow[]) {
+    const attendanceRows = rows.map((row) => ({
+      "Event Code": record.code,
+      "Student Name": row.studentName,
+      "Attendance Status": row.attendanceStatus,
+      "Check-in Time": row.checkInTime,
+      "Check-out Time": row.checkOutTime ?? "Not checked out",
+      "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+      "Late Arrival Reason": row.lateReason ?? "-"
+    }));
+    exportTabularReport(label, attendanceRows);
+    toast.success(`${label} downloaded.`);
+    void auditLogMutations.logActionMutation.mutateAsync({
+      action: "Exported Event Attendance Report",
+      targetType: "export_action",
+      metadata: { label, eventCode: record.code }
     });
   }
 
@@ -907,17 +932,6 @@ export function EventManagementPage() {
   );
 
   const incomingColumns: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
-    {
-      // compact checkbox column
-      checkboxSelection: true,
-      headerCheckboxSelection: true,
-      width: 40,
-      pinned: "left",
-      lockPosition: true,
-      cellClass: "ag-center-cell",
-      sortable: false,
-      filter: false
-    } as ColDef<EventRecord>,
     {
       id: "actions",
       headerName: "Actions",
@@ -1019,7 +1033,11 @@ export function EventManagementPage() {
       cell: ({ row }) =>
         row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
     },
-    { accessorKey: "attendanceMethod", header: "Attendance Method" },
+    {
+      id: "attendanceMethod",
+      header: "Attendance Method",
+      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : row.original.attendanceMethod
+    },
     { id: "status", header: "Attendance Status", cell: ({ row }) => <StatusBadge label={row.original.attendanceStatus} tone={statusTone(row.original.attendanceStatus)} /> },
     { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
   ];
@@ -1584,7 +1602,8 @@ export function EventManagementPage() {
           record={completedModal}
           rows={uiState.attendanceRows.filter((row) => row.eventCode === completedModal.code)}
           onClose={() => setCompletedModal(null)}
-          onExportReport={exportReport}
+          onExportReport={(label) => exportReport(label, [completedModal])}
+          onExportAttendanceReport={(label, rows) => exportAttendanceReport(label, completedModal, rows)}
         />
       ) : null}
 
@@ -1711,7 +1730,7 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
   );
 }
 
-function CompletedEventModal({ record, rows, onClose, onExportReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void }) {
+function CompletedEventModal({ record, rows, onClose, onExportReport, onExportAttendanceReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void; onExportAttendanceReport?: (label: string, rows: AttendanceRow[]) => void }) {
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
@@ -1737,11 +1756,17 @@ function CompletedEventModal({ record, rows, onClose, onExportReport }: { record
           <p className="mt-1 text-sm text-muted-foreground">Generate a single-event attendance or summary report from this view.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Attendance Report: ${record.code}`)}>
-            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance
+          <Button type="button" variant="outline" size="sm" onClick={() => onExportAttendanceReport?.(`Attendance Report XLSX: ${record.code}`, rows)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance XLSX
           </Button>
-          <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report: ${record.code}`)}>
-            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary
+          <Button type="button" variant="outline" size="sm" onClick={() => onExportAttendanceReport?.(`Attendance Report PDF: ${record.code}`, rows)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Attendance PDF
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => onExportReport?.(`Event Summary Report XLSX: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary XLSX
+          </Button>
+          <Button type="button" size="sm" onClick={() => onExportReport?.(`Event Summary Report PDF: ${record.code}`)}>
+            <FileDown className="mr-2 h-4 w-4" aria-hidden="true" />Summary PDF
           </Button>
         </div>
       </div>

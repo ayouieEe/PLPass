@@ -288,6 +288,9 @@ export function mapEvent(row: Row): Event {
     priorityLevel: mapPriorityLevel(stringValue(row, ["priority_level"], "Flexible")),
     impactScore: nullableNumberValue(row, ["impact_score"]),
     predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]),
+    requestedBy: optionalString(row, ["requested_by"]),
+    collegeOffice: optionalString(row, ["college_office"]),
+    numberOfPax: nullableNumberValue(row, ["number_of_pax"]),
     visibility: stringValue(row, ["visibility"], "assigned") === "public" ? "public" : "assigned",
     approvalReason: optionalString(row, ["approval_reason"]),
     cancellationReason: optionalString(row, ["cancellation_reason"])

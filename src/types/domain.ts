@@ -138,6 +138,9 @@ export type Event = {
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   predictedTurnout: number | null;
+  requestedBy?: string;
+  collegeOffice?: string;
+  numberOfPax?: number | null;
   visibility?: "assigned" | "public";
   approvalReason?: string;
   cancellationReason?: string;

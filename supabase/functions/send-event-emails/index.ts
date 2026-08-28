@@ -2,6 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const emailProvider = (Deno.env.get("EMAIL_PROVIDER") ?? "brevo").toLowerCase();
+const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
+const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
+const brevoFromName = "PLPass";
 const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY") ?? Deno.env.get("sendgrid_api_key");
 const sendGridFromEmail = Deno.env.get("SENDGRID_FROM_EMAIL") ?? Deno.env.get("sendgrid_from_email");
 
@@ -24,6 +28,7 @@ type EventEmailRow = {
   recipient_email: string;
   subject: string;
   body: string;
+  html_body?: string | null;
 };
 
 function json(body: unknown, status = 200) {
@@ -42,8 +47,14 @@ Deno.serve(async (request) => {
     return json({ error: "Only POST requests are supported." }, 405);
   }
 
-  if (!sendGridApiKey || !sendGridFromEmail) {
+  if (emailProvider === "brevo" && (!brevoApiKey || !brevoFromEmail)) {
+    return json({ error: "BREVO_API_KEY and BREVO_FROM_EMAIL are required." }, 500);
+  }
+  if (emailProvider === "sendgrid" && (!sendGridApiKey || !sendGridFromEmail)) {
     return json({ error: "SENDGRID_API_KEY and SENDGRID_FROM_EMAIL are required." }, 500);
+  }
+  if (emailProvider !== "brevo" && emailProvider !== "sendgrid") {
+    return json({ error: "EMAIL_PROVIDER must be brevo or sendgrid." }, 500);
   }
 
   const authorization = request.headers.get("Authorization");
@@ -68,7 +79,7 @@ Deno.serve(async (request) => {
 
   const { data: rows, error: fetchError } = await supabase
     .from("event_email_outbox")
-    .select("id, recipient_email, subject, body")
+    .select("id, recipient_email, subject, body, html_body")
     .eq("delivery_status", "pending")
     .eq("event_id", eventId)
     .order("created_at", { ascending: true })
@@ -79,24 +90,49 @@ Deno.serve(async (request) => {
   let sent = 0;
   let failed = 0;
   for (const row of (rows ?? []) as EventEmailRow[]) {
-    const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${sendGridApiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: row.recipient_email }] }],
-        from: { email: sendGridFromEmail, name: "PLPass" },
-        subject: row.subject,
-        content: [{ type: "text/plain", value: row.body }]
-      })
-    });
+    const response = emailProvider === "brevo"
+      ? await fetch("https://api.brevo.com/v3/smtp/email", {
+          method: "POST",
+          headers: {
+            "api-key": brevoApiKey ?? "",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            sender: { email: brevoFromEmail, name: brevoFromName },
+            replyTo: { email: brevoFromEmail, name: brevoFromName },
+            to: [{ email: row.recipient_email }],
+            subject: row.subject,
+            textContent: row.body,
+            htmlContent: row.html_body || undefined
+          })
+        })
+      : await fetch("https://api.sendgrid.com/v3/mail/send", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${sendGridApiKey ?? ""}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            personalizations: [{ to: [{ email: row.recipient_email }] }],
+            from: { email: sendGridFromEmail, name: "PLPass" },
+            subject: row.subject,
+            content: [
+              { type: "text/plain", value: row.body },
+              ...(row.html_body ? [{ type: "text/html", value: row.html_body }] : [])
+            ]
+          })
+        });
 
     if (response.ok) {
+      const responseBody = await response.json().catch(() => ({}));
       const { error } = await supabase
         .from("event_email_outbox")
-        .update({ delivery_status: "sent", sent_at: new Date().toISOString(), error_message: null })
+        .update({
+          delivery_status: "sent",
+          sent_at: new Date().toISOString(),
+          provider_message_id: typeof responseBody.messageId === "string" ? responseBody.messageId : null,
+          error_message: null
+        })
         .eq("id", row.id)
         .eq("delivery_status", "pending");
       if (error) failed += 1;

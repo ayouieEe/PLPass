@@ -141,7 +141,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       studentName: studentDisplayName(row),
       eventCode: eventId,
       attendanceMethod: mapVerificationMethod(row.verification_method),
-      checkInTime: row.time_in ?? row.recorded_at ?? "",
+      checkInTime: row.time_in ? formatDisplayTime(row.time_in) : "-",
       checkOutTime: row.time_out ? formatDisplayTime(row.time_out) : undefined,
       attendanceStatus: status,
       lateReason: status === "late" ? mapLateReason(row.late_reason_category ?? row.late_reason ?? null) : undefined

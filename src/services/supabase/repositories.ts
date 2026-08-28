@@ -507,19 +507,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     
     const { data: events, error } = await client
       .from("events")
-      .select("event_code")
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .select("event_code");
     
     throwIfSupabaseError(error);
     
     let nextNumber = 1;
-    if (events && events.length > 0) {
-      const lastCode = events[0].event_code;
-      const match = lastCode.match(/EVT-\d+-(\d+)/);
-      if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
-      }
+    for (const event of events ?? []) {
+      const match = String(event.event_code ?? "").match(new RegExp(`^EVT-${currentYear}-(\\d+)$`, "i"));
+      if (match) nextNumber = Math.max(nextNumber, Number.parseInt(match[1], 10) + 1);
     }
     
     return `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
@@ -559,7 +554,22 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_publish_reason: input.publishReason ?? "Published by event organizer"
     });
     throwIfSupabaseError(eventError);
-    return mapEvent(eventRow as Row);
+    const createdEvent = eventRow as Row;
+    const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
+      p_event_id: String(createdEvent.id ?? ""),
+      p_requested_by: input.requestedBy?.trim() || null,
+      p_college_office: input.collegeOffice?.trim() || null,
+      p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length
+    });
+    throwIfSupabaseError(metadataError);
+    const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);
+    const { error: emailProcessingError } = await client.functions.invoke("send-event-emails", {
+      body: { eventId: savedEvent.id }
+    });
+    if (emailProcessingError) {
+      console.warn("Event published, but participant email processing was not completed:", emailProcessingError);
+    }
+    return savedEvent;
   },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });

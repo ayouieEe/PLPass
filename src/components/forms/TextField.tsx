@@ -7,7 +7,11 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   name: FieldPath<TFieldValues>;
   label: string;
   placeholder?: string;
+  helperText?: string;
   type?: "text" | "email" | "password" | "number" | "tel";
+  min?: number;
+  max?: number;
+  onInvalidNumber?: (value: number) => void;
   disabled?: boolean;
   readOnly?: boolean;
   className?: string;
@@ -18,7 +22,11 @@ export function TextField<TFieldValues extends FieldValues>({
   name,
   label,
   placeholder,
+  helperText,
   type = "text",
+  min,
+  max,
+  onInvalidNumber,
   disabled,
   readOnly,
   className
@@ -33,7 +41,21 @@ export function TextField<TFieldValues extends FieldValues>({
           const rawValue = event.target.value;
 
           if (type === "number") {
-            field.onChange(rawValue === "" ? null : Number(rawValue));
+            if (rawValue === "") {
+              field.onChange(null);
+              return;
+            }
+
+            const numericValue = Number(rawValue);
+            if (!Number.isFinite(numericValue)) {
+              return;
+            }
+
+            const boundedValue = Math.max(min ?? numericValue, Math.min(max ?? numericValue, numericValue));
+            if (boundedValue !== numericValue) {
+              onInvalidNumber?.(numericValue);
+            }
+            field.onChange(boundedValue);
             return;
           }
 
@@ -49,12 +71,15 @@ export function TextField<TFieldValues extends FieldValues>({
               className={`${fieldBaseClass} ${className ?? ""}`}
               type={type}
               placeholder={placeholder}
+              min={min}
+              max={max}
               disabled={disabled}
               readOnly={readOnly}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
               aria-describedby={fieldState.error ? errorId : undefined}
             />
+            {helperText && !fieldState.error ? <p className="text-xs text-muted-foreground">{helperText}</p> : null}
             {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
           </label>
         );
