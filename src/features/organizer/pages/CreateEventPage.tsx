@@ -572,8 +572,8 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
-                <div className="grid gap-4 sm:grid-cols-3 sm:col-span-2">
-                  <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} />
+                <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} />
+                <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
                   <TimePickerField control={form.control} name="startTime" label="Start Time" />
                   <TimePickerField control={form.control} name="endTime" label="End Time" />
                 </div>
@@ -583,7 +583,7 @@ export function CreateEventPage() {
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Classification</h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <SelectField control={form.control} name="category" label="Event Category (Random Forest)" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
+                <SelectField control={form.control} name="category" label="Event Category" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
                 <div>
                   <SelectField control={form.control} name="institutionalCategory" label="Institutional Category (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
                   <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
@@ -612,7 +612,7 @@ export function CreateEventPage() {
 
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
                 <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
                 <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
