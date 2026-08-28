@@ -53,6 +53,7 @@ import {
   useEvent,
   useEventMutations,
   useEventObjectives,
+  useEventResources,
   useEventParticipants,
   useEvents,
   useMlPredictions,
@@ -300,6 +301,7 @@ export function EventDetailsPage() {
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
   const objectivesQuery = useEventObjectives(eventId, scope.context);
+  const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   
@@ -325,7 +327,7 @@ export function EventDetailsPage() {
   if (eventQuery.isError || !eventQuery.data) {
     return <ErrorState title="Event unavailable" message="This event was not found or is outside the signed-in organizer scope." />;
   }
-  if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || catalog.programs.isLoading || objectivesQuery.isLoading) {
+  if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || catalog.programs.isLoading || objectivesQuery.isLoading || resourcesQuery.isLoading) {
     return <LoadingState label="Loading event workspace" />;
   }
   const event = eventQuery.data;
@@ -335,6 +337,7 @@ export function EventDetailsPage() {
   const records = recordsQuery.data?.items ?? [];
   const students = studentsQuery.data?.items ?? [];
   const objectives = objectivesQuery.data ?? [];
+  const resources = resourcesQuery.data?.items ?? [];
   const participantList = participantStudents(participants, students);
   const counts = attendanceCounts(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
@@ -430,6 +433,38 @@ export function EventDetailsPage() {
           </div>
         </div>
       </section>
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <section className="rounded-lg border bg-surface p-5 shadow-sm">
+          <h3 className="font-semibold text-foreground">Classification &amp; Priority</h3>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Institutional category</dt><dd className="mt-1 text-sm font-semibold">{event.institutionalCategory ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Participation status</dt><dd className="mt-1 text-sm font-semibold">{event.participationStatus ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Target group</dt><dd className="mt-1 text-sm font-semibold">{event.targetGroup ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Priority tier</dt><dd className="mt-1 text-sm font-semibold">{event.priorityTier ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Urgency points</dt><dd className="mt-1 text-sm font-semibold">{event.urgencyPoints ?? 0}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Impact points</dt><dd className="mt-1 text-sm font-semibold">{event.impactScore ?? 0}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Priority score</dt><dd className="mt-1 text-sm font-semibold">{event.priorityScore ?? 0}/9</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Fixed priority</dt><dd className="mt-1 text-sm font-semibold">{event.fixedPriority ? "Yes" : "No"}</dd></div>
+          </dl>
+        </section>
+        <section className="rounded-lg border bg-surface p-5 shadow-sm">
+          <h3 className="font-semibold text-foreground">Organizational Information</h3>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">Requested by</dt><dd className="mt-1 text-sm font-semibold">{event.requestedBy ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">College/Office</dt><dd className="mt-1 text-sm font-semibold">{event.collegeOffice ?? "Not specified"}</dd></div>
+            <div><dt className="text-xs font-medium uppercase text-muted-foreground">No. of Pax</dt><dd className="mt-1 text-sm font-semibold">{event.numberOfPax ?? participants.length}</dd></div>
+          </dl>
+        </section>
+      </section>
+
+      {(event.description || resources.length > 0) ? (
+        <section className="rounded-lg border bg-surface p-5 shadow-sm">
+          <h3 className="font-semibold text-foreground">Event Content</h3>
+          {event.description ? <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground">{event.description}</p> : null}
+          {resources.length > 0 ? <div className="mt-4 space-y-2">{resources.map((resource) => <a key={resource.id} href={resource.externalUrl} target="_blank" rel="noreferrer" className="block rounded-md border bg-background p-3 text-sm font-medium text-primary hover:underline">{resource.title}</a>)}</div> : null}
+        </section>
+      ) : null}
 
       <section className="rounded-lg border bg-surface p-5 shadow-sm">
         <h3 className="font-semibold text-foreground">Event objectives</h3>
