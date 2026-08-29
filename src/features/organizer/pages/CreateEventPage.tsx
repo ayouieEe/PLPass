@@ -103,18 +103,28 @@ const VENUE_OPTIONS = [
   { label: "AVR 4", value: "AVR 4" }
 ];
 
-const PRIORITY_OPTIONS = [
-  { label: "Time-Sensitive", value: "Time-Sensitive" },
-  { label: "Business-Critical", value: "Business-Critical" },
-  { label: "Flexible", value: "Flexible" }
-];
-
 const CATEGORY_OPTIONS = [
-  { label: "Career Development", value: "Career Development" },
-  { label: "Skills Training", value: "Skills Training" },
-  { label: "General Assembly", value: "General Assembly" },
+  { label: "Assembly", value: "Assembly" },
   { label: "Seminar", value: "Seminar" },
-  { label: "Competition", value: "Competition" }
+  { label: "Workshop", value: "Workshop" },
+  { label: "Orientation", value: "Orientation" },
+  { label: "Training", value: "Training" },
+  { label: "Athletic Event", value: "Athletic Event" },
+  { label: "Ceremony", value: "Ceremony" },
+  { label: "Rehearsal/Practice", value: "Rehearsal/Practice" },
+  { label: "Cultural Program", value: "Cultural Program" },
+  { label: "Election Activity", value: "Election Activity" }
+];
+const INSTITUTIONAL_CATEGORY_OPTIONS = [
+  { label: "Accreditation Linked", value: "Accreditation Linked" },
+  { label: "Academic or Training", value: "Academic or Training" },
+  { label: "Social or Recreational", value: "Social or Recreational" }
+];
+const PARTICIPATION_STATUS_OPTIONS = [{ label: "Mandatory", value: "Mandatory" }, { label: "Voluntary", value: "Voluntary" }];
+const TARGET_GROUP_OPTIONS = [
+  { label: "University-wide", value: "University-wide" },
+  { label: "College or Department-wide", value: "College or Department-wide" },
+  { label: "Single Class or Organization", value: "Single Class or Organization" }
 ];
 
 const MIN_OBJECTIVES = 3;
@@ -314,7 +324,7 @@ function mostCommonValue<T extends string | number>(items: T[]) {
   ).value;
 }
 
-function buildAttendanceFactors(selectedStudents: Student[], category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+function buildAttendanceFactors(selectedStudents: Student[], category: string, startTime: string) {
   return [
     { label: "Attendance history", importance: 92 },
     { label: "Previous event participation", importance: 81 },
@@ -324,7 +334,7 @@ function buildAttendanceFactors(selectedStudents: Student[], category: string, a
   ];
 }
 
-function predictedAttendancePercentage(selectedCount: number, category: string, attendanceMode: EventFormValues["attendanceMode"], startTime: string) {
+function predictedAttendancePercentage(selectedCount: number, category: string, startTime: string) {
   let score = 68;
   const normalizedCategory = category.toLowerCase();
 
@@ -332,11 +342,20 @@ function predictedAttendancePercentage(selectedCount: number, category: string, 
   if (selectedCount >= 75 && selectedCount < 150) score += 5;
   if (normalizedCategory.includes("assembly") || normalizedCategory.includes("career")) score += 7;
   if (normalizedCategory.includes("competition") || normalizedCategory.includes("showcase")) score += 5;
-  if (attendanceMode === "face-to-face") score += 4;
   if (startTime && startTime < "10:00") score += 3;
   if (startTime && startTime >= "13:00") score -= 4;
 
   return Math.max(45, Math.min(96, score));
+}
+
+function calculatePriority(values: Pick<EventFormValues, "category" | "institutionalCategory" | "participationStatus" | "targetGroup" | "fixedPriority" | "date">) {
+  const leadTimeDays = Math.max(0, Math.ceil((new Date(`${values.date}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000));
+  const urgencyPoints = leadTimeDays <= 1 ? 3 : leadTimeDays <= 7 ? 2 : leadTimeDays <= 14 ? 1 : 0;
+  const impactPoints = (values.participationStatus === "Mandatory" ? 2 : 1)
+    + (values.targetGroup === "University-wide" ? 2 : values.targetGroup === "College or Department-wide" ? 1 : 0)
+    + (values.institutionalCategory === "Accreditation Linked" ? 2 : values.institutionalCategory === "Academic or Training" ? 1 : 0);
+  const priorityScore = values.fixedPriority ? 9 : Math.min(9, urgencyPoints + impactPoints);
+  return { urgencyPoints, impactPoints, priorityScore, priorityTier: priorityScore >= 7 ? "High" : priorityScore >= 4 ? "Medium" : "Low" } as const;
 }
 
 function CreateEventSectionHeader({
@@ -390,15 +409,17 @@ export function CreateEventPage() {
       date: "",
       startTime: "",
       endTime: "",
-      attendanceMode: "face-to-face",
       description: "",
       objectives: [{ value: "" }, { value: "" }, { value: "" }],
       remarks: "",
       priorityLevel: "Flexible",
-      impactScore: null
+      impactScore: null,
+      fixedPriority: false
       ,requestedBy: ""
       ,collegeOffice: ""
       ,numberOfPax: null
+      ,resourceTitle: ""
+      ,resourceUrl: ""
     }
   });
   const {
@@ -438,7 +459,11 @@ export function CreateEventPage() {
   }, [form, scope.context]);
   
   const watchedCategory = form.watch("category");
-  const watchedAttendanceMode = form.watch("attendanceMode");
+  const watchedInstitutionalCategory = form.watch("institutionalCategory");
+  const watchedParticipationStatus = form.watch("participationStatus");
+  const watchedTargetGroup = form.watch("targetGroup");
+  const watchedFixedPriority = form.watch("fixedPriority");
+  const watchedDate = form.watch("date");
   const watchedStartTime = form.watch("startTime");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
@@ -452,9 +477,9 @@ export function CreateEventPage() {
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
-  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedAttendanceMode, watchedStartTime);
+  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
   const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
-  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedAttendanceMode, watchedStartTime);
+  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedStartTime);
   function toggleStudent(studentId: string) {
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
@@ -472,6 +497,7 @@ export function CreateEventPage() {
       return;
     }
     try {
+      const ranking = calculatePriority(values);
       const event = await mutations.createEventMutation.mutateAsync({
         code: values.code,
         title: values.title,
@@ -480,11 +506,19 @@ export function CreateEventPage() {
         date: values.date,
         startTime: values.startTime,
         endTime: values.endTime,
-        attendanceMode: values.attendanceMode,
+        institutionalCategory: values.institutionalCategory,
+        participationStatus: values.participationStatus,
+        targetGroup: values.targetGroup,
         description: values.description,
         remarks: values.remarks,
-        priorityLevel: values.priorityLevel,
-        impactScore: values.impactScore ?? null,
+        priorityLevel: ranking.priorityTier === "High" ? "Time-Sensitive" : ranking.priorityTier === "Medium" ? "Business-Critical" : "Flexible",
+        impactScore: ranking.impactPoints,
+        urgencyPoints: ranking.urgencyPoints,
+        priorityScore: ranking.priorityScore,
+        priorityTier: ranking.priorityTier,
+        fixedPriority: values.fixedPriority,
+        resourceTitle: values.resourceTitle,
+        resourceUrl: values.resourceUrl,
         requestedBy: values.requestedBy,
         collegeOffice: values.collegeOffice,
         numberOfPax: values.numberOfPax ?? selectedIds.length,
@@ -523,65 +557,74 @@ export function CreateEventPage() {
               description="Enter the event information and at least three objectives for feedback generation."
             />
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
-              <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
-              <SelectField
-                control={form.control}
-                name="category"
-                label="Category"
-                placeholder="Select a category"
-                options={CATEGORY_OPTIONS}
-              />
-              <SelectField
-                control={form.control}
-                name="venue"
-                label="Venue"
-                placeholder="Select a venue"
-                options={VENUE_OPTIONS}
-              />
-              <SelectField
-                control={form.control}
-                name="priorityLevel"
-                label="Priority Level"
-                placeholder="Select priority"
-                options={PRIORITY_OPTIONS}
-              />
-              <TextField 
-                control={form.control} 
-                name="impactScore" 
-                label="Impact Score (0-10)" 
-                placeholder="Optional: 0-10"
-                helperText="Enter a value from 0 to 10."
-                type="number"
-                min={0}
-                max={10}
-                onInvalidNumber={() => toast.warning("Impact score must be between 0 and 10.")}
-              />
-              <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
-              <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
-              <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
-              <DatePickerField 
-                control={form.control} 
-                name="date" 
-                label="Date"
-                min={new Date().toISOString().split('T')[0]}
-              />
-              <TimePickerField control={form.control} name="startTime" label="Start Time" />
-              <TimePickerField control={form.control} name="endTime" label="End Time" />
-              <SelectField
-                control={form.control}
-                name="attendanceMode"
-                label="Attendance Mode"
-                options={[{ label: "Face-to-face", value: "face-to-face" }, { label: "Online", value: "online" }]}
-              />
-              <div className="md:col-span-2">
-                <TextAreaField control={form.control} name="description" label="Description" rows={3} />
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Event Identification</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
+                <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
               </div>
-              <div className="md:col-span-2">
-                <TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} />
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
+                <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} />
+                <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
+                  <TimePickerField control={form.control} name="startTime" label="Start Time" />
+                  <TimePickerField control={form.control} name="endTime" label="End Time" />
+                </div>
               </div>
-            </div>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Classification</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <SelectField control={form.control} name="category" label="Event Category" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
+                <div>
+                  <SelectField control={form.control} name="institutionalCategory" label="Institutional classification (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+                  <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
+                </div>
+                <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
+                <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} />
+              </div>
+            </section>
+
+            <section className="rounded-lg border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Priority Ranking</h3>
+              <p className="mt-1 text-sm text-muted-foreground">These values are generated automatically from the classification above.</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }); return <>
+                  <PredictionMetric label="Urgency Points" value={String(ranking.urgencyPoints)} />
+                  <PredictionMetric label="Impact Points" value={String(ranking.impactPoints)} />
+                  <PredictionMetric label="Priority Score" value={`${ranking.priorityScore}/9`} />
+                  <PredictionMetric label="Priority Tier" value={ranking.priorityTier} />
+                </>; })()}
+              </div>
+              <label className="mt-4 flex items-start gap-3 text-sm text-foreground">
+                <input type="checkbox" {...form.register("fixedPriority")} />
+                <span><strong>Fixed Priority</strong><span className="block text-muted-foreground">Treat this event as a priority regardless of its calculated ranking score.</span></span>
+              </label>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
+              <div className="grid gap-4 md:grid-cols-3">
+                <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
+                <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
+                <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Content</h3>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
+                <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
+                <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" />
+                <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
+              </div>
+            </section>
 
             <section className="rounded-lg border bg-background p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">

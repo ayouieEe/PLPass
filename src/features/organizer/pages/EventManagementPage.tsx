@@ -596,7 +596,14 @@ export function EventManagementPage() {
           predictedTurnout: "85%",
           objectives: objectivesByEventId.get(event.id) ?? [],
           priorityLevel: event.priorityLevel,
-          impactScore: event.impactScore
+          impactScore: event.impactScore,
+          institutionalCategory: event.institutionalCategory,
+          participationStatus: event.participationStatus,
+          targetGroup: event.targetGroup,
+          urgencyPoints: event.urgencyPoints,
+          priorityScore: event.priorityScore,
+          priorityTier: event.priorityTier,
+          fixedPriority: event.fixedPriority
         };
         return rec;
       });
@@ -1674,8 +1681,8 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
         <SummaryTile label="Schedule" value={`${event.startTime} - ${event.endTime}`} />
         <SummaryTile label="Status" value={status} />
         <SummaryTile label="Predicted Turnout" value={event.predictedTurnout} />
-        <SummaryTile label="Priority Level" value={event.priorityLevel} />
-        <SummaryTile label="Impact Score" value={event.impactScore === null ? "Not set" : `${event.impactScore}/10`} />
+        <SummaryTile label="Priority Tier" value={event.priorityTier ?? event.priorityLevel} />
+        <SummaryTile label="Priority Score" value={event.priorityScore == null ? "Not set" : `${event.priorityScore}/9`} />
       </div>
       {conflicts.length > 0 ? (
         <section className="mt-5 rounded-lg border border-danger/30 bg-danger/5 p-4">

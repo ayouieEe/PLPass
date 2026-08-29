@@ -20,6 +20,13 @@ export type EventRecord = {
   status?: OrganizerEvent["status"];
   priorityLevel: PriorityLevel;
   impactScore: number | null;
+  institutionalCategory?: string;
+  participationStatus?: string;
+  targetGroup?: string;
+  urgencyPoints?: number;
+  priorityScore?: number;
+  priorityTier?: string;
+  fixedPriority?: boolean;
 };
 
 const dashboardActiveSessionEventCode = "EVT-2026-004";

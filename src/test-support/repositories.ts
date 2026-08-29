@@ -842,7 +842,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
         targetType: "event",
         targetId: created.id,
         timestamp: new Date().toISOString(),
-        metadata: { participantCount: participants.length, attendanceMode: input.attendanceMode }
+        metadata: { participantCount: participants.length, attendanceMode: input.attendanceMode ?? "not specified" }
       },
       ...auditLogState
     ];
