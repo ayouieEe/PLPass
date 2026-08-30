@@ -9,7 +9,6 @@ type DatePickerFieldProps<TFieldValues extends FieldValues> = {
   disabled?: boolean;
   min?: string;
   required?: boolean;
-  optional?: boolean;
 };
 
 export function DatePickerField<TFieldValues extends FieldValues>({
@@ -18,8 +17,7 @@ export function DatePickerField<TFieldValues extends FieldValues>({
   label,
   disabled,
   min,
-  required = false,
-  optional = false
+  required = false
 }: DatePickerFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;

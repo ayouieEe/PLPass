@@ -117,7 +117,7 @@ export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRF
         className="w-full"
         variant={cameraOpen ? "destructive" : "default"}
         disabled={disabled}
-        onClick={() => setCameraOpen((open) => !open)}
+        onClick={onToggle}
       >
         <QrCode className="h-4 w-4 mr-2" aria-hidden="true" />
         {cameraOpen ? "Stop scanning" : "Start QR scanning"}

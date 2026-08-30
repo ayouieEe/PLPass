@@ -8,7 +8,6 @@ type TimePickerFieldProps<TFieldValues extends FieldValues> = {
   label: string;
   disabled?: boolean;
   required?: boolean;
-  optional?: boolean;
 };
 
 export function TimePickerField<TFieldValues extends FieldValues>({
@@ -16,8 +15,7 @@ export function TimePickerField<TFieldValues extends FieldValues>({
   name,
   label,
   disabled,
-  required = false,
-  optional = false
+  required = false
 }: TimePickerFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;

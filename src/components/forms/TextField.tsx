@@ -15,7 +15,6 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   disabled?: boolean;
   readOnly?: boolean;
   required?: boolean;
-  optional?: boolean;
   className?: string;
 };
 
@@ -32,7 +31,6 @@ export function TextField<TFieldValues extends FieldValues>({
   disabled,
   readOnly,
   required = false,
-  optional = false,
   className
 }: TextFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;

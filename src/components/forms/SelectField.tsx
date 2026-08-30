@@ -15,7 +15,6 @@ type SelectFieldProps<TFieldValues extends FieldValues> = {
   placeholder?: string;
   disabled?: boolean;
   required?: boolean;
-  optional?: boolean;
 };
 
 export function SelectField<TFieldValues extends FieldValues>({
@@ -25,8 +24,7 @@ export function SelectField<TFieldValues extends FieldValues>({
   options,
   placeholder = "Select an option",
   disabled,
-  required = false,
-  optional = false
+  required = false
 }: SelectFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
