@@ -14,6 +14,8 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   onInvalidNumber?: (value: number) => void;
   disabled?: boolean;
   readOnly?: boolean;
+  required?: boolean;
+  optional?: boolean;
   className?: string;
 };
 
@@ -29,9 +31,13 @@ export function TextField<TFieldValues extends FieldValues>({
   onInvalidNumber,
   disabled,
   readOnly,
+  required = false,
+  optional = false,
   className
 }: TextFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
+  const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
+
   return (
     <Controller
       control={control}
@@ -64,7 +70,7 @@ export function TextField<TFieldValues extends FieldValues>({
 
         return (
           <label className="space-y-1.5">
-            <span className={labelClass}>{label}</span>
+            <span className={labelClass}>{label}{requiredMarker}</span>
             <input
               {...field}
               value={field.value ?? ""}
@@ -75,8 +81,10 @@ export function TextField<TFieldValues extends FieldValues>({
               max={max}
               disabled={disabled}
               readOnly={readOnly}
+              required={required}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
+              aria-required={required}
               aria-describedby={fieldState.error ? errorId : undefined}
             />
             {helperText && !fieldState.error ? <p className="text-xs text-muted-foreground">{helperText}</p> : null}

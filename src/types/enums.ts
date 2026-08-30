@@ -33,7 +33,7 @@ export const NOTIFICATION_TYPES = ["attendance", "correction", "system", "report
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export const VERIFICATION_METHODS = ["qr", "facial", "manual", "online"] as const;
-export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
+export type VerificationMethod = (typeof VERIFICATION_METHODS)[number] | null;
 
 export const ATTENDANCE_SESSION_TYPES = ["class", "event"] as const;
 export type AttendanceSessionType = (typeof ATTENDANCE_SESSION_TYPES)[number];

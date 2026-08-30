@@ -8,6 +8,8 @@ type DatePickerFieldProps<TFieldValues extends FieldValues> = {
   label: string;
   disabled?: boolean;
   min?: string;
+  required?: boolean;
+  optional?: boolean;
 };
 
 export function DatePickerField<TFieldValues extends FieldValues>({
@@ -16,8 +18,12 @@ export function DatePickerField<TFieldValues extends FieldValues>({
   label,
   disabled,
   min,
+  required = false,
+  optional = false
 }: DatePickerFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
+  const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
+
   return (
     <Controller
       control={control}
@@ -41,15 +47,17 @@ export function DatePickerField<TFieldValues extends FieldValues>({
 
         return (
           <label className="space-y-1.5">
-            <span className={labelClass}>{label}</span>
+            <span className={labelClass}>{label}{requiredMarker}</span>
             <input
               {...field}
               className={fieldBaseClass}
               type="date"
               disabled={disabled}
               min={min}
+              required={required}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
+              aria-required={required}
               aria-describedby={fieldState.error ? errorId : undefined}
             />
             {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}

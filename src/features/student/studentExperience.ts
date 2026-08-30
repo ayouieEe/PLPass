@@ -24,7 +24,7 @@ export type StudentEventRecord = {
   startsAt: string;
   endsAt?: string;
   status: AttendanceStatus | "correction-pending";
-  method: "QR" | "Facial" | "Manual" | "Online";
+  method: "QR" | "Facial" | "Manual" | "Online" | "—";
   recordedAt: string;
   lateReason?: string;
   feedbackSubmitted?: boolean;
@@ -296,6 +296,7 @@ export function studentAttendanceMethodLabel(method: AttendanceRecord["verificat
   if (method === "qr") return "QR";
   if (method === "facial") return "Facial";
   if (method === "online") return "Online";
+  if (method === null || method === undefined) return "—";
   return "Manual";
 }
 

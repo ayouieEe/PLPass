@@ -397,19 +397,36 @@ export function AttendanceMethodsPage() {
     try {
       setFaceEnrollmentError("");
       setFaceEnrollmentProcessing(true);
+      console.log("Starting facial enrollment for student:", student.id, student.fullName || student.formattedName);
       const { descriptor } = await extractFaceDescriptorFromFile(faceEnrollmentFile);
+      console.log("Face descriptor extracted, dimensions:", descriptor.length);
+      
       await credentialMutations.enrollFacialProfileMutation.mutateAsync({
         studentId: student.id,
         faceImage: faceEnrollmentFile,
         faceDescriptor: descriptor
       });
-      toast.success("Facial backup enrolled.");
+      
+      console.log("Facial enrollment successful!");
+      toast.success("✓ Facial backup enrolled successfully!");
       resetFaceEnrollmentFile();
       setShowFaceEnrollment(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to enroll face.";
-      setFaceEnrollmentError(message);
-      toast.error(`${message} If it was already enrolled, submit a re-enrollment request.`);
+      console.error("Facial enrollment error:", message, error);
+      
+      // Provide more specific guidance based on the error
+      let detailedMessage = message;
+      if (message.includes("student account")) {
+        detailedMessage = "Your account is not properly set up. Contact your organizer to ensure your student record is activated.";
+      } else if (message.includes("active facial profile")) {
+        detailedMessage = "Facial enrollment requires initial enrollment. This might be a re-enrollment issue. Please try again.";
+      } else if (message.includes("approved")) {
+        detailedMessage = "You need organizer approval for re-enrollment. Submit a request first.";
+      }
+      
+      setFaceEnrollmentError(detailedMessage);
+      toast.error(`Enrollment failed: ${detailedMessage}`);
     } finally {
       setFaceEnrollmentProcessing(false);
     }

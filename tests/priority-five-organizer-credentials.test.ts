@@ -25,4 +25,31 @@ describe("priority five organizer credential workflows", () => {
     expect(source).toContain('from("qr_credentials")');
     expect(source).toContain('from("facial_profiles")');
   });
+
+  it("identifies a live facial match without selecting a student", () => {
+    const source = read("src/features/organizer/pages/EventManagementPage.tsx");
+
+    expect(source).toContain('rpc("identify_event_participant_by_face"');
+    expect(source).not.toContain('.from("facial_profiles")');
+    expect(source).not.toContain("Student to verify");
+    expect(source).not.toContain("facialStudentId");
+  });
+
+  it("limits facial identification to eligible participants in the active session", () => {
+    const migration = read("supabase/migrations/20260830080626_identify_event_participant_by_face.sql");
+
+    expect(migration).toContain("security definer");
+    expect(migration).toContain("set search_path = ''");
+    expect(migration).toContain("private.is_active_organizer()");
+    expect(migration).toContain("participant.participant_status <> 'removed'");
+    expect(migration).toContain("similarity >= 0.82");
+  });
+
+  it("keeps the session venue read-only in the start-session form", () => {
+    const source = read("src/features/organizer/pages/EventManagementPage.tsx");
+    const venueBlock = source.match(/<label className="block space-y-2 text-sm font-medium">[\s\S]*?<span>Venue[\s\S]*?<\/label>/)?.[0] ?? "";
+
+    expect(venueBlock).toContain("readOnly");
+    expect(venueBlock).not.toContain("setSessionForm((current) => ({ ...current, venue: event.target.value }))");
+  });
 });

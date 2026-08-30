@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
-import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
+import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { useHeader } from "@/app/providers/HeaderContext";
@@ -239,13 +239,20 @@ function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
+export function getRecordVerificationMethod(record: Pick<AttendanceRecord, "status" | "verificationMethod" | "checkoutVerificationMethod" | "checkedOutAt">): VerificationMethod | null {
+  if (record.status === "absent" || record.status === "excused") return null;
+  if (record.checkedOutAt && record.checkoutVerificationMethod) return record.checkoutVerificationMethod;
+  return record.verificationMethod ?? null;
+}
+
 function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
   return records.map((record) => ({
     id: record.id,
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
     status: record.status === "excused" ? "manual" : record.status,
-    timestamp: formatTime(record.recordedAt)
+    timestamp: formatTime(record.recordedAt),
+    verificationMethod: getRecordVerificationMethod(record)
   }));
 }
 
@@ -298,6 +305,7 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 export function EventAttendancePage() {
   const { sessionId } = useParams();
+  const location = useLocation();
   const scope = useOrganizerScope();
   const navigate = useNavigate();
   const { setHeaderOverride } = useHeader();
@@ -342,6 +350,16 @@ export function EventAttendancePage() {
       });
     }
   }, [selectedSession, selectedEvent, setHeaderOverride]);
+
+  useEffect(() => {
+    const state = (location.state ?? {}) as { captureMode?: "QR Code" | "Facial Recognition" | "Manual" };
+    if (state.captureMode === "QR Code") {
+      setQrEnabled(true);
+    }
+    if (state.captureMode === "Facial Recognition") {
+      setFacialCameraOpen(true);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     if (!facialCameraOpen) return;
@@ -389,13 +407,13 @@ export function EventAttendancePage() {
   const recordedStudentIds = new Set(records.map((record) => record.studentId));
   const missingParticipants = participantStudents.filter((student) => !recordedStudentIds.has(student.id));
   const incompleteCheckouts = records.filter((record) => record.timeIn && !record.checkedOutAt && record.status !== "absent");
-  const manualOverrides = records.filter((record) => record.verificationMethod === "manual");
+  const manualOverrides = records.filter((record) => record.status !== "absent" && getRecordVerificationMethod(record) === "manual");
   const liveRecords = buildLiveRecords(
-    records.filter(
-      (record) =>
-        (statusFilter === "all" || record.status === statusFilter) &&
-        (methodFilter === "all" || record.verificationMethod === (methodFilter as VerificationMethod))
-    ),
+    records.filter((record) => {
+      const effectiveMethod = getRecordVerificationMethod(record);
+      return (statusFilter === "all" || record.status === statusFilter) &&
+        (methodFilter === "all" || effectiveMethod === (methodFilter as VerificationMethod));
+    }),
     students
   ).filter(
     (record) =>
@@ -472,8 +490,21 @@ export function EventAttendancePage() {
         setFacialStatus("Face was not a close enough match. Ask the student to face the camera clearly, or use QR/manual attendance.");
         return;
       }
-      await submitCredentialScan(facialStudentId, "facial", undefined, similarity);
-      setFacialStatus(`Face verified (${Math.round(similarity * 100)}% match).`);
+      // Submit as manual attendance with a timestamp inside the attendance window
+      const windowStart = session.attendanceWindowStartAt || session.startsAt;
+      const recordTime = windowStart ? new Date(new Date(windowStart).getTime() + 120_000).toISOString() : new Date().toISOString();
+      
+      const result = await attendanceMutations.manualAttendanceMutation.mutateAsync({
+        sessionId: session.id,
+        studentId: facialStudentId,
+        reason: `Organizer facial verification (${Math.round(similarity * 100)}% match)`,
+        remarks: "Verified via organizer facial camera",
+        statusOverride: "present",
+        occurredAt: recordTime
+      });
+      setLatestResult(result);
+      toast(result.resultStatus, { description: result.safeMessage });
+      setFacialStatus(`Face verified (${Math.round(similarity * 100)}% match). Attendance recorded.`);
     } catch (error) {
       setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
     } finally {
@@ -538,6 +569,40 @@ export function EventAttendancePage() {
     
     navigate(APP_ROUTES.organizerRecords);
   }
+
+  function SummaryTile({ label, value }: { label: string; value: string }) {
+    return (
+      <div className="flex h-full flex-col justify-between rounded-xl border border-border bg-background p-3 shadow-sm">
+        <p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+        <p className="mt-4 text-lg font-semibold text-foreground">{value}</p>
+      </div>
+    );
+  }
+
+  function ReportExportRow({
+    label,
+    onExportXlsx,
+    onExportPdf
+  }: {
+    label: string;
+    onExportXlsx: () => void;
+    onExportPdf: () => void;
+  }) {
+    return (
+      <div className="flex flex-col gap-3 px-3 py-3 transition-colors hover:bg-surface sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+        <span className="min-w-0 text-xs font-medium text-foreground">{label}</span>
+        <div className="flex shrink-0 gap-1.5">
+          <Button type="button" variant="outline" size="sm" aria-label={`${label} XLSX`} onClick={onExportXlsx}>
+            XLSX
+          </Button>
+          <Button type="button" variant="default" size="sm" className="min-w-[5rem]" aria-label={`${label} PDF`} onClick={onExportPdf}>
+            PDF
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <OrganizerFrame>
       <PageHeader
@@ -546,142 +611,177 @@ export function EventAttendancePage() {
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
-      <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-        <div className="min-w-0 space-y-4">
-          <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
-            <p className="font-semibold">Active attendance window</p>
-            <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
-          </div>
-          <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
-          <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
-            <p className="font-semibold">Facial verification</p>
-            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer backup only. Select an enrolled student, start the camera, center one face clearly, and choose Verify face. Use QR or manual attendance if camera verification is unavailable.</p>
-            <label className="mt-3 block text-sm font-medium">
-              Enrolled student
-              <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialStudentId} onChange={(event) => setFacialStudentId(event.target.value)}>
-                <option value="">Choose a participant</option>
-                {participantStudents.map((student) => <option key={student.id} value={student.id}>{studentName(student)} ({student.studentNumber})</option>)}
-              </select>
-            </label>
-            {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover" /> : null}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
-              <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || attendanceMutations.credentialScanMutation.isPending} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Verifying…" : "Verify face"}</Button>
+
+      <div className="rounded-[28px] border border-border bg-surface/80 p-4 shadow-[0_18px_45px_-28px_rgba(15,23,42,0.4)] sm:p-5">
+        <div className="space-y-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-primary">View More</p>
+              <h2 className="mt-1 text-2xl font-semibold text-foreground">
+                {event?.title ?? session.title}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                Review attendee status, check-in/check-out times, and export live session reports from a clean record view.
+              </p>
             </div>
-            {facialStatus ? <p className="mt-3 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
-          </section>
-          <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
-            <h2 className="font-semibold">Manual entry</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name for quick manual attendance.</p>
-            <div className="mt-4 space-y-3">
-              <label className="block text-sm font-medium">
-                Student (ID or name)
-                <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualStudentId} onChange={(e) => setManualStudentId(e.target.value)} />
-              </label>
-              <label className="block text-sm font-medium">
-                Manual entry reason
-                <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualReason} onChange={(e) => setManualReason(e.target.value)} placeholder="Required reason" />
-              </label>
-              <label className="block text-sm font-medium">
-                Remarks
-                <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} />
-              </label>
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Attendance status</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant={manualStatus === "present" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setManualStatus("present")}
-                  >
-                    Present
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={manualStatus === "late" ? "default" : "outline"}
-                    size="sm"
-                    onClick={() => setManualStatus("late")}
-                  >
-                    Late
-                  </Button>
+            <div className="flex items-center gap-2">
+              <StatusBadge label={session.status} tone={statusTone(session.status)} />
+              <Button type="button" variant="outline" size="sm" onClick={() => setEndOpen(true)}>End session</Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_320px]">
+            <section className="h-full rounded-3xl border border-border bg-background p-4 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Event summary</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">At-a-glance attendance totals for this session.</p>
                 </div>
               </div>
-              {manualStatus === "late" ? (
-                <label className="block text-sm font-medium">
-                  Late reason
-                  <select
-                    className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm"
-                    value={manualLateReason}
-                    onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}
-                  >
-                    <option value="">No reason specified</option>
-                    {LATE_REASON_OPTIONS.map((reason) => (
-                      <option key={reason} value={reason}>
-                        {reason}
-                      </option>
-                    ))}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4 auto-rows-fr">
+                <SummaryTile label="Present" value={counts.present.toString()} />
+                <SummaryTile label="Late" value={counts.late.toString()} />
+                <SummaryTile label="Absent" value={counts.absent.toString()} />
+                <SummaryTile label="Attendance Rate" value={`${Math.round((counts.present + counts.late) / Math.max(1, participantStudents.length) * 100)}%`} />
+              </div>
+            </section>
+
+            <section className="h-full rounded-3xl border border-border bg-background p-4 shadow-sm">
+              <div className="flex h-full flex-col justify-between space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Export this event</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Download the session in XLSX or PDF format.</p>
+                </div>
+                <div className="divide-y divide-border rounded-2xl border border-border bg-surface">
+                  <ReportExportRow label="Attendance" onExportXlsx={() => toast.info("XLSX export coming soon")} onExportPdf={() => toast.info("PDF export coming soon")} />
+                  <ReportExportRow label="Event Summary" onExportXlsx={() => toast.info("Summary XLSX export coming soon")} onExportPdf={() => toast.info("Summary PDF export coming soon")} />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <section className="rounded-3xl border border-border bg-background p-4 shadow-sm">
+            <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-foreground">Attendee Information</h3>
+                <p className="mt-2 text-sm text-muted-foreground">Review live attendee status, check-ins, check-outs, and verification details.</p>
+              </div>
+              <span className="rounded-full border bg-surface-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                {liveRecords.length} records
+              </span>
+            </div>
+
+            <div className="mb-4 grid w-full gap-2 sm:grid-cols-3">
+              <SearchInput value={search} placeholder="Search student or ID" onChange={setSearch} />
+              <select aria-label="Filter by attendance status" className="plpass-field h-10 rounded-md border px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+                <option value="all">All statuses</option>
+                <option value="present">Present</option>
+                <option value="late">Late</option>
+                <option value="absent">Absent</option>
+              </select>
+              <select aria-label="Filter by verification method" className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
+                <option value="all">All methods</option>
+                <option value="qr">QR</option>
+                <option value="facial">Facial</option>
+                <option value="manual">Manual</option>
+                <option value="online">Online</option>
+              </select>
+            </div>
+
+            <LiveAttendanceList records={liveRecords} />
+          </section>
+
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+            <div className="min-w-0 space-y-4">
+              <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
+                <p className="font-semibold">Active attendance window</p>
+                <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
+              </div>
+              <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
+              <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
+                <p className="font-semibold">Facial verification</p>
+                <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer backup only. Select an enrolled student, start the camera, center one face clearly, and choose Verify face. Use QR or manual attendance if camera verification is unavailable.</p>
+                <label className="mt-3 block text-sm font-medium">
+                  Enrolled student
+                  <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialStudentId} onChange={(event) => setFacialStudentId(event.target.value)}>
+                    <option value="">Choose a participant</option>
+                    {participantStudents.map((student) => <option key={student.id} value={student.id}>{studentName(student)} ({student.studentNumber})</option>)}
                   </select>
                 </label>
-              ) : null}
-              <div>
-                <Button type="button" disabled={attendanceMutations.manualAttendanceMutation.isPending} onClick={submitManualAttendance}>
-                  Save manual attendance
-                </Button>
-              </div>
+                {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover" /> : null}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
+                  <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || attendanceMutations.manualAttendanceMutation.isPending} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Verifying…" : "Verify face"}</Button>
+                </div>
+                {facialStatus ? <p className="mt-3 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
+              </section>
+              <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
+                <h2 className="font-semibold">Manual entry</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name for quick manual attendance.</p>
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-medium">
+                    Student (ID or name)
+                    <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualStudentId} onChange={(e) => setManualStudentId(e.target.value)} />
+                  </label>
+                  <label className="block text-sm font-medium">
+                    Manual entry reason
+                    <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualReason} onChange={(e) => setManualReason(e.target.value)} placeholder="Required reason" />
+                  </label>
+                  <label className="block text-sm font-medium">
+                    Remarks
+                    <input className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualRemarks} onChange={(e) => setManualRemarks(e.target.value)} />
+                  </label>
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium">Attendance status</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" variant={manualStatus === "present" ? "default" : "outline"} size="sm" onClick={() => setManualStatus("present")}>Present</Button>
+                      <Button type="button" variant={manualStatus === "late" ? "default" : "outline"} size="sm" onClick={() => setManualStatus("late")}>Late</Button>
+                    </div>
+                  </div>
+                  {manualStatus === "late" ? (
+                    <label className="block text-sm font-medium">
+                      Late reason
+                      <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={manualLateReason} onChange={(e) => setManualLateReason(e.target.value as LateReason | "")}>
+                        <option value="">No reason specified</option>
+                        {LATE_REASON_OPTIONS.map((reason) => (
+                          <option key={reason} value={reason}>{reason}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <div>
+                    <Button type="button" disabled={attendanceMutations.manualAttendanceMutation.isPending} onClick={submitManualAttendance}>Save manual attendance</Button>
+                  </div>
+                </div>
+              </section>
             </div>
-          </section>
-        </div>
-        <div className="min-w-0 space-y-4">
-          <LatestTapResultCard result={latestTapResult} />
-          <div className="rounded-lg border bg-surface p-4">
-            <h2 className="font-semibold">Recent activity</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed attendance attempts refresh from PLPass data.</p>
-          </div>
-          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
-          <div className="grid gap-3 md:grid-cols-2">
-            <StatCard title="Failed taps" value={String(failedAttempts)} tone="warning" />
-            <StatCard title="Duplicate taps" value={String(duplicateAttempts)} />
-          </div>
-          <section className="rounded-lg border bg-surface p-4" aria-label="Attendance reconciliation">
-            <h2 className="font-semibold">Reconciliation</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Review exceptions before ending the session.</p>
-            <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">No attendance</dt><dd className="text-lg font-semibold">{missingParticipants.length}</dd></div>
-              <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">No checkout</dt><dd className="text-lg font-semibold">{incompleteCheckouts.length}</dd></div>
-              <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">Failed attempts</dt><dd className="text-lg font-semibold">{failedAttempts}</dd></div>
-              <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">Manual records</dt><dd className="text-lg font-semibold">{manualOverrides.length}</dd></div>
-            </dl>
-          </section>
-        </div>
-        <div className="min-w-0 space-y-4 xl:col-span-2">
-          <div className="rounded-lg border bg-surface p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="font-semibold">Live attendance records</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Search and filter students recorded during this session.</p>
+
+            <div className="min-w-0 space-y-4">
+              <LatestTapResultCard result={latestTapResult} />
+              <div className="rounded-lg border bg-surface p-4">
+                <h2 className="font-semibold">Recent activity</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed attendance attempts refresh from PLPass data.</p>
               </div>
-              <div className="grid w-full gap-2 sm:grid-cols-3 lg:max-w-3xl">
-                <SearchInput value={search} placeholder="Search student or ID" onChange={setSearch} />
-                <select aria-label="Filter by attendance status" className="plpass-field h-10 rounded-md border px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-                  <option value="all">All statuses</option>
-                  <option value="present">Present</option>
-                  <option value="late">Late</option>
-                  <option value="absent">Absent</option>
-                </select>
-                <select aria-label="Filter by verification method" className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
-                  <option value="all">All methods</option>
-                  <option value="qr">QR</option>
-                  <option value="facial">Facial</option>
-                  <option value="manual">Manual</option>
-                  <option value="online">Online</option>
-                </select>
+              <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
+              <div className="grid gap-3 md:grid-cols-2">
+                <StatCard title="Failed taps" value={String(failedAttempts)} tone="warning" />
+                <StatCard title="Duplicate taps" value={String(duplicateAttempts)} />
               </div>
+              <section className="rounded-lg border bg-surface p-4" aria-label="Attendance reconciliation">
+                <h2 className="font-semibold">Reconciliation</h2>
+                <p className="mt-1 text-sm text-muted-foreground">Review exceptions before ending the session.</p>
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">No attendance</dt><dd className="text-lg font-semibold">{missingParticipants.length}</dd></div>
+                  <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">No checkout</dt><dd className="text-lg font-semibold">{incompleteCheckouts.length}</dd></div>
+                  <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">Failed attempts</dt><dd className="text-lg font-semibold">{failedAttempts}</dd></div>
+                  <div className="rounded-md bg-background p-3"><dt className="text-muted-foreground">Manual records</dt><dd className="text-lg font-semibold">{manualOverrides.length}</dd></div>
+                </dl>
+              </section>
             </div>
           </div>
-          <LiveAttendanceList records={liveRecords} />
         </div>
-      </section>
+      </div>
+
       <ConfirmModal open={endOpen} title="End event session" description="A reason is required when ending early or overtime." confirmLabel="End session" tone="danger" onCancel={() => setEndOpen(false)} onConfirm={confirmEnd}>
         <select className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={endReason} onChange={(event) => setEndReason(event.target.value)}>
           <option value="">Select reason</option>

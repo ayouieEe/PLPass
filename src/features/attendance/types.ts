@@ -1,3 +1,5 @@
+import type { VerificationMethod } from "@/types/enums";
+
 export type AttendanceStatus = "present" | "late" | "absent" | "manual";
 export type ReaderState = "ready" | "processing" | "success" | "error" | "disconnected";
 
@@ -9,6 +11,7 @@ export type LiveAttendanceRecord = {
   timestamp: string;
   timeIn?: string;
   timeOut?: string;
+  verificationMethod?: VerificationMethod;
 };
 
 export type TapResult = {
@@ -18,5 +21,5 @@ export type TapResult = {
   message: string;
   timestamp: string;
   resultLabel?: string;
-  method?: string;
+  method?: VerificationMethod;
 };

@@ -40,7 +40,6 @@ begin
   select * into v_event from public.events where id = p_event_id for update;
   if not found or v_event.organizer_id <> private.current_organizer_id() then raise exception 'Event was not found or is not owned by this organizer.' using errcode = '42501'; end if;
   if v_event.approval_status <> 'approved' or v_event.event_status in ('completed', 'cancelled') then raise exception 'Only an approved active event can start attendance.' using errcode = '22023'; end if;
-  if v_now < p_scheduled_start - interval '30 minutes' then raise exception 'Attendance cannot start more than 30 minutes early.' using errcode = '22023'; end if;
   if exists (select 1 from public.event_sessions where event_id = p_event_id and session_status = 'ongoing' and coalesce(session_archive_status, 'active') = 'active') then
     raise exception 'This event already has an active attendance session.' using errcode = '23505';
   end if;

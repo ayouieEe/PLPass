@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { supabaseAttendanceSessionRepository } from "@/services/supabase/repositories";
+import { resolveAttendanceRecordAction, supabaseAttendanceSessionRepository } from "@/services/supabase/repositories";
 import { resolveLateStudentManualState, resolveManualAttendanceLookup } from "@/features/organizer/utils/eventManagement";
-import { getPhilippineNowIso } from "@/lib/utils/date";
+import { getRecordVerificationMethod } from "@/features/organizer/pages/EventAttendancePage";
+import { getPhilippineNowIso, to24HourTime } from "@/lib/utils/date";
+import { sessionStartAvailability } from "@/features/organizer/pages/EventManagementPage";
 import type { AttendanceScanInput, ManualAttendanceInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 
@@ -132,6 +134,14 @@ describe("Attendance Check-In/Check-Out Logic", () => {
     });
   });
 
+  describe("Face check-in and checkout state resolution", () => {
+    it("should detect a fresh face check-in before any attendance row exists", () => {
+      expect(resolveAttendanceRecordAction(undefined)).toBe("check-in");
+      expect(resolveAttendanceRecordAction({ time_in: "2026-08-30T08:00:00.000Z", time_out: null })).toBe("check-out");
+      expect(resolveAttendanceRecordAction({ time_in: "2026-08-30T08:00:00.000Z", time_out: "2026-08-30T09:00:00.000Z" })).toBe("already-recorded");
+    });
+  });
+
   describe("Philippine local timing", () => {
     it("should generate a timestamp in the Philippines timezone for attendance events", () => {
       const iso = getPhilippineNowIso();
@@ -154,6 +164,50 @@ describe("Attendance Check-In/Check-Out Logic", () => {
       expect(values.day).toBeTruthy();
       expect(parsed.getTime()).toBeGreaterThan(0);
     });
+  });
+
+  it("should not display a method on absent records and should prefer the checkout method after checkout", () => {
+    const absentRecord = {
+      status: "absent" as const,
+      verificationMethod: "manual" as const,
+      checkoutVerificationMethod: null as const,
+      checkedOutAt: null as const
+    };
+
+    const checkedOutRecord = {
+      status: "present" as const,
+      verificationMethod: "manual" as const,
+      checkoutVerificationMethod: "facial" as const,
+      checkedOutAt: "2026-08-30T13:00:00.000Z"
+    };
+
+    expect(getRecordVerificationMethod(absentRecord)).toBeNull();
+    expect(getRecordVerificationMethod(checkedOutRecord)).toBe("facial");
+  });
+
+  it("should normalize 12-hour event session times before starting a live session", () => {
+    expect(to24HourTime("8:00 AM")).toBe("08:00");
+    expect(to24HourTime("5:30 PM")).toBe("17:30");
+    expect(to24HourTime("09:45")).toBe("09:45");
+  });
+
+  it("should allow a demo live session even when the event date is outside the original schedule", () => {
+    const result = sessionStartAvailability({
+      code: "EVT-2026-999",
+      name: "Demo Session",
+      category: "Demo",
+      venue: "Banquet Hall",
+      date: "2026-08-29",
+      startTime: "09:00 AM",
+      endTime: "10:00 AM",
+      predictedTurnout: "85%",
+      objectives: [],
+      priorityLevel: "Flexible",
+      impactScore: 0
+    }, new Date("2026-08-30T18:00:00Z"));
+
+    expect(result.allowed).toBe(true);
+    expect(result.message).toContain("Starting now opens");
   });
 
   describe("Manual Attendance Check-In/Check-Out", () => {

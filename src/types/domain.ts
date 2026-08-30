@@ -214,8 +214,8 @@ export type AttendanceRecord = {
   sessionId: string;
   studentId: string;
   status: AttendanceStatus;
-  verificationMethod: VerificationMethod;
-  checkoutVerificationMethod?: VerificationMethod;
+  verificationMethod: VerificationMethod | null;
+  checkoutVerificationMethod?: VerificationMethod | null;
   recordedAt: string;
   recordedByUserId?: string;
   note?: string;

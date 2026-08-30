@@ -1,5 +1,5 @@
 export type OrganizerEventStatus = "incoming" | "today" | "active" | "completed" | "cancelled";
-export type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
+export type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual" | "—";
 export type AttendanceStatus = "present" | "late" | "absent";
 export type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 export type CorrectionStatus = "Pending" | "Approved" | "Rejected";

@@ -70,6 +70,17 @@ export function LiveAttendanceList({ records }: LiveAttendanceListProps) {
       filter: false,
       cellRenderer: (params: ICellRendererParams<LiveAttendanceRecord>) =>
         params.data ? <StatusBadge label={params.data.status} tone={statusTone[params.data.status]} /> : null
+    },
+    {
+      field: "verificationMethod",
+      headerName: "Method",
+      minWidth: 110,
+      sortable: true,
+      filter: true,
+      valueFormatter: (params) => {
+        if (!params.value) return "—";
+        return params.value.charAt(0).toUpperCase() + params.value.slice(1);
+      }
     }
   ];
 

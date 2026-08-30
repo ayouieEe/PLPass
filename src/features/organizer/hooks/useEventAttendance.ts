@@ -47,7 +47,8 @@ export type EventAttendanceSummary = {
   attendanceRate: number; // 0-100
 };
 
-function mapVerificationMethod(value: string | null): AttendanceMethod {
+function mapVerificationMethod(value: string | null, status?: OrgAttendanceStatus): AttendanceMethod | "—" {
+  if (status === "absent" || value == null) return "—";
   if (value === "qr") return "QR Code";
   if (value === "facial") return "Facial Recognition";
   return "Manual";
@@ -140,7 +141,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       studentId: String(row.student_id ?? ""),
       studentName: studentDisplayName(row),
       eventCode: eventId,
-      attendanceMethod: mapVerificationMethod(row.verification_method),
+      attendanceMethod: mapVerificationMethod(row.verification_method, status),
       checkInTime: row.time_in ? formatDisplayTime(row.time_in) : "-",
       checkOutTime: row.time_out ? formatDisplayTime(row.time_out) : undefined,
       attendanceStatus: status,

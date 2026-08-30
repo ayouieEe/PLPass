@@ -44,6 +44,26 @@ export function formatDisplayTime(value: DateInput, fallback = "Not set") {
   return date ? new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" }).format(date) : fallback;
 }
 
+export function to24HourTime(value: string | null | undefined) {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    const hours = Number(ampmMatch[1]);
+    const minutes = Number(ampmMatch[2]);
+    const meridiem = ampmMatch[3].toUpperCase();
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+      return trimmed;
+    }
+    const normalizedHours = meridiem === "PM" ? (hours % 12) + 12 : hours % 12;
+    return `${String(normalizedHours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  return trimmed;
+}
+
 export function getPhilippineNowIso() {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat("sv-SE", {

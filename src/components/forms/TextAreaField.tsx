@@ -9,6 +9,8 @@ type TextAreaFieldProps<TFieldValues extends FieldValues> = {
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
+  required?: boolean;
+  optional?: boolean;
 };
 
 export function TextAreaField<TFieldValues extends FieldValues>({
@@ -17,23 +19,29 @@ export function TextAreaField<TFieldValues extends FieldValues>({
   label,
   placeholder,
   rows = 4,
-  disabled
+  disabled,
+  required = false,
+  optional = false
 }: TextAreaFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
+  const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
+
   return (
     <Controller
       control={control}
       name={name}
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
-          <span className={labelClass}>{label}</span>
+          <span className={labelClass}>{label}{requiredMarker}</span>
           <textarea
             {...field}
             className="plpass-field w-full rounded-md border px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
             placeholder={placeholder}
             rows={rows}
             disabled={disabled}
+            required={required}
             aria-invalid={Boolean(fieldState.error)}
+            aria-required={required}
             aria-describedby={fieldState.error ? errorId : undefined}
           />
           {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import jsQR from "jsqr";
 import { QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -10,7 +11,6 @@ type QRFallbackPanelProps = {
 };
 
 export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRFallbackPanelProps) {
-  const [qrCode, setQrCode] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraMessage, setCameraMessage] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -25,84 +25,105 @@ export function QRFallbackPanel({ enabled, disabled, onToggle, onSimulate }: QRF
     let cancelled = false;
     let stream: MediaStream | undefined;
     let timer: number | undefined;
-    const detectorApi = window as typeof window & { BarcodeDetector?: new (options: { formats: string[] }) => { detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue: string }>> } };
-    const BarcodeDetector = detectorApi.BarcodeDetector;
-    if (!BarcodeDetector) {
-      setCameraMessage("Camera QR detection is not supported by this browser. Paste or scan the code into the field below.");
-      setCameraOpen(false);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraMessage("This browser cannot access the camera. Please use a modern browser or switch to manual attendance.");
       return;
     }
+
     navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
       .then((mediaStream) => {
         if (cancelled) return mediaStream.getTracks().forEach((track) => track.stop());
+
         stream = mediaStream;
-        if (videoRef.current) videoRef.current.srcObject = mediaStream;
-        const detector = new BarcodeDetector({ formats: ["qr_code"] });
-        timer = window.setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2) return;
-          const codes = await detector.detect(videoRef.current).catch(() => []);
-          const value = codes[0]?.rawValue?.trim();
-          if (value) {
-            setQrCode(value);
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          void videoRef.current.play().catch(() => {
+            setCameraMessage("Camera preview started. Point it at a QR code to continue.");
+          });
+        }
+
+        setCameraMessage("Camera active. Point it at a QR code to continue.");
+
+        const scanFrame = () => {
+          if (!videoRef.current) return;
+
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
+          const video = videoRef.current;
+
+          if (!context || video.readyState < 2) {
+            timer = window.setTimeout(scanFrame, 250);
+            return;
+          }
+
+          const width = video.videoWidth || 640;
+          const height = video.videoHeight || 480;
+          canvas.width = width;
+          canvas.height = height;
+          context.drawImage(video, 0, 0, width, height);
+
+          const imageData = context.getImageData(0, 0, width, height);
+          const code = jsQR(imageData.data, width, height, { inversionAttempts: "attemptBoth" });
+
+          if (code?.data) {
+            const value = code.data.trim();
             setCameraMessage("QR code detected.");
             onScanRef.current?.(value);
             setCameraOpen(false);
+            return;
           }
-        }, 500);
+
+          timer = window.setTimeout(scanFrame, 250);
+        };
+
+        scanFrame();
       })
       .catch(() => setCameraMessage("Camera access was unavailable. Paste or use a hardware scanner instead."));
+
     return () => {
       cancelled = true;
-      if (timer) window.clearInterval(timer);
+      if (timer) window.clearTimeout(timer);
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [cameraOpen, enabled]);
 
   return (
-    <section className="rounded-lg border bg-surface p-4" aria-label="QR check-in">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 font-semibold">
-            <QrCode className="h-4 w-4 text-brand-green-primary" aria-hidden="true" />
-            QR check-in
+    <section className="space-y-4" aria-label="QR check-in">
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface/80 p-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-green-light text-brand-green-primary">
+            <QrCode className="h-5 w-5" aria-hidden="true" />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">Enter or paste the student QR code shown in their Attendance Methods page.</p>
+          <div>
+            <p className="text-sm font-semibold text-foreground">QR check-in</p>
+            <p className="text-xs text-muted-foreground">Use the camera to read student QR codes</p>
+          </div>
         </div>
-        <Button type="button" variant={enabled ? "secondary" : "outline"} disabled={disabled} onClick={onToggle}>
-          {enabled ? "Disable" : "Enable"}
-        </Button>
       </div>
-      {enabled ? (
-        <div className="mt-4 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => setCameraOpen((open) => !open)}>
-              {cameraOpen ? "Stop camera" : "Scan with camera"}
-            </Button>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-black/95">
+        {cameraOpen ? (
+          <video ref={videoRef} autoPlay muted playsInline aria-label="QR scanner camera preview" className="aspect-video w-full bg-black object-cover" />
+        ) : (
+          <div className="flex aspect-video items-center justify-center text-sm text-slate-300">
+            Camera ready for QR scanning
           </div>
-          {cameraOpen ? <video ref={videoRef} autoPlay muted playsInline aria-label="QR scanner camera preview" className="aspect-video max-h-80 w-full rounded-lg bg-black object-cover" /> : null}
-          {cameraMessage ? <p className="text-sm text-muted-foreground" role="status">{cameraMessage}</p> : null}
-        <form
-          className="mt-4 flex flex-col gap-2 sm:flex-row"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (qrCode.trim()) {
-              onSimulate?.(qrCode.trim());
-            }
-          }}
-        >
-          <input
-            value={qrCode}
-            onChange={(event) => setQrCode(event.target.value)}
-            className="plpass-field min-h-11 flex-1 rounded-xl border px-3 text-sm"
-            placeholder="PLPASS-QR:..."
-            disabled={disabled}
-          />
-          <Button type="submit" size="sm" disabled={disabled || !qrCode.trim()}>
-            Record scan
-          </Button>
-        </form>
-        </div>
-      ) : null}
+        )}
+      </div>
+
+      <Button 
+        type="button" 
+        className="w-full"
+        variant={cameraOpen ? "destructive" : "default"}
+        disabled={disabled}
+        onClick={() => setCameraOpen((open) => !open)}
+      >
+        <QrCode className="h-4 w-4 mr-2" aria-hidden="true" />
+        {cameraOpen ? "Stop scanning" : "Start QR scanning"}
+      </Button>
+
+      {cameraMessage ? <p className="rounded-lg border border-border/50 bg-background/50 p-2.5 text-xs text-muted-foreground" role="status">{cameraMessage}</p> : null}
     </section>
   );
 }

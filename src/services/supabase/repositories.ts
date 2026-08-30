@@ -50,7 +50,7 @@ import {
 } from "@/lib/supabase/mappers";
 import { RepositoryError } from "@/services/repositoryUtils";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
-import { getPhilippineNowIso } from "@/lib/utils/date";
+import { getPhilippineNowIso, to24HourTime } from "@/lib/utils/date";
 import type {
   AdminProfile,
   Department,
@@ -265,6 +265,23 @@ async function currentStudentIdForProfile(profileId: string): Promise<string> {
 
 function normalizeQrCredentialCode(rawCode: string) {
   return extractQrCredentialId(rawCode);
+}
+
+export function resolveAttendanceRecordAction(
+  existing?: Partial<{ time_in?: string | null; time_out?: string | null }> | null
+): "check-in" | "check-out" | "already-recorded" {
+  const hasCheckIn = Boolean(existing?.time_in);
+  const hasCheckOut = Boolean(existing?.time_out);
+
+  if (hasCheckIn && hasCheckOut) {
+    return "already-recorded";
+  }
+
+  if (hasCheckIn && !hasCheckOut) {
+    return "check-out";
+  }
+
+  return "check-in";
 }
 
 function credentialScanResult(
@@ -658,8 +675,10 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
     throw new RepositoryError("Class sessions are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
 },
  async createEventSession(input) {
-  const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-  const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
+  const normalizedStart = to24HourTime(input.startTime);
+  const normalizedEnd = to24HourTime(input.expectedEndTime);
+  const scheduledStart = new Date(`${input.date}T${normalizedStart}:00`).toISOString();
+  const scheduledEnd = new Date(`${input.date}T${normalizedEnd}:00`).toISOString();
   const client = getSupabaseBrowserClient();
   const { data, error } = await client.rpc("start_event_attendance_session", {
     p_event_id: input.eventId,
@@ -793,15 +812,8 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
         return credentialScanResult(input, "Student Not Enrolled", occurredAt, "Student is not enrolled in this event.", { failedAttempts: 1 });
       }
 
-      const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
-      const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
-      const scannedAt = new Date(occurredAt).getTime();
-      const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
-      if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime()) || scannedAt > lateCutoff) {
-        await insertVerificationAttempt(input.sessionId, "facial", false, "outside_window", "Facial verification is outside the attendance window.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
-        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is outside the attendance window or needs late review.", { failedAttempts: 1 });
-      }
-
+      // Check for existing attendance record to determine if this is a checkout.
+      // Checkouts can happen outside the normal attendance window (e.g., extended sessions).
       const { data: existingRows, error: existingError } = await client
         .from("attendance_records")
         .select("*")
@@ -811,8 +823,30 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       throwIfSupabaseError(existingError);
       const existing = existingRows?.[0] as Row | undefined;
       const studentSummary = await studentScanSummary(studentId);
+      const isCheckout = Boolean(existing?.time_in);
 
-      if (existing?.time_in && existing.time_out) {
+      // Only validate the attendance window for new check-ins.
+      // Checkouts (existing time_in) are allowed outside the window.
+      if (!isCheckout) {
+        const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
+        const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
+        const scannedAt = new Date(occurredAt).getTime();
+        const rangeEnd = windowEnd ? new Date(windowEnd).getTime() : windowStart;
+        const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
+        if (scannedAt < windowStart) {
+          await insertVerificationAttempt(input.sessionId, "facial", false, "outside_window", "Facial verification is before the attendance window.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+          return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is before the attendance window.", { failedAttempts: 1 });
+        }
+
+        if (scannedAt > rangeEnd && scannedAt > lateCutoff) {
+          await insertVerificationAttempt(input.sessionId, "facial", false, "outside_window", "Facial verification is outside the attendance window.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
+          return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is outside the attendance window or needs late review.", { failedAttempts: 1 });
+        }
+      }
+
+      const action = resolveAttendanceRecordAction(existing);
+
+      if (existing && action === "already-recorded") {
         const record = mapAttendanceRecord(existing);
         return credentialScanResult(input, "Already Recorded", record.recordedAt, "Student has already checked in and out.", {
           duplicateAttempts: 1, attendanceRecord: record, attendanceStatus: record.status, ...studentSummary
@@ -820,7 +854,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       }
 
       const profile = await currentProfile();
-      if (existing?.time_in) {
+      if (existing && action === "check-out") {
         const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
           time_out: occurredAt,
           checkout_verification_method: "facial",
@@ -901,26 +935,8 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       return credentialScanResult(input, "Student Not Enrolled", occurredAt, "Student is not enrolled in this event.", { failedAttempts: 1 });
     }
 
-    const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
-    const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
-    const scannedAt = new Date(occurredAt).getTime();
-    if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime())) {
-      await insertVerificationAttempt(input.sessionId, input.method, false, "outside_window", "QR scan is outside the attendance window.", occurredAt, {
-        studentId,
-        qrCredentialId: String(credentialRow.id ?? "")
-      });
-      return credentialScanResult(input, "Outside Attendance Window", occurredAt, "QR scan is outside the attendance window.", { failedAttempts: 1 });
-    }
-
-    const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
-    if (scannedAt > lateCutoff) {
-      await insertVerificationAttempt(input.sessionId, input.method, false, "late_reason_required", "Late QR scans need organizer review before they are recorded.", occurredAt, {
-        studentId,
-        qrCredentialId: String(credentialRow.id ?? "")
-      });
-      return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Late QR scans need organizer review before they are recorded.", { failedAttempts: 1 });
-    }
-
+    // Check for existing attendance record to determine if this is a checkout.
+    // Checkouts can happen outside the normal attendance window (e.g., extended sessions).
     const { data: existingRows, error: existingError } = await client
       .from("attendance_records")
       .select("*")
@@ -930,48 +946,68 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     throwIfSupabaseError(existingError);
 
     const existing = existingRows?.[0] as Row | undefined;
-    
-    // Handle check-in/check-out logic
-    if (existing) {
-      const existingTimeOut = existing.time_out;
-      
-      // If both time_in and time_out are already set, this is a duplicate attempt after check-out
-      if (existing.time_in && existingTimeOut) {
-        const record = mapAttendanceRecord(existing);
-        return credentialScanResult(input, "Already Recorded", record.recordedAt, "Student has already checked in and out.", {
-          duplicateAttempts: 1,
-          attendanceRecord: record,
-          attendanceStatus: record.status
-        });
-      }
-      
-      // If time_out is NULL, this is a CHECK-OUT attempt
-      if (!existingTimeOut && existing.time_in) {
-        const profile = await currentProfile();
-        
-        // Update the record with check-out time and verification method
-        const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
-          time_out: occurredAt,
-          updated_at: new Date().toISOString(),
-          recorded_by: String(profile.id ?? "")
-        });
-        
-        const updatedRecord = mapAttendanceRecord(updatedRow as Row);
-        const studentSummary = await studentScanSummary(studentId);
-        
-        await insertVerificationAttempt(input.sessionId, input.method, true, undefined, "QR credential accepted for check-out.", occurredAt, {
+    const isCheckout = Boolean(existing?.time_in);
+
+    // Only validate the attendance window for new check-ins.
+    // Checkouts (existing time_in) are allowed outside the window.
+    if (!isCheckout) {
+      const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
+      const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
+      const scannedAt = new Date(occurredAt).getTime();
+      const rangeEnd = windowEnd ? new Date(windowEnd).getTime() : windowStart;
+      if (scannedAt < windowStart) {
+        await insertVerificationAttempt(input.sessionId, input.method, false, "outside_window", "QR scan is before the attendance window.", occurredAt, {
           studentId,
           qrCredentialId: String(credentialRow.id ?? "")
         });
-        
-        return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
-          attendanceRecord: updatedRecord,
-          attendanceStatus: updatedRecord.status,
-          present: 1,
-          studentDisplayName: studentSummary.displayName,
-          studentNumber: studentSummary.studentNumber
-        });
+        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "QR scan is before the attendance window.", { failedAttempts: 1 });
       }
+
+      const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
+      if (scannedAt > rangeEnd && scannedAt > lateCutoff) {
+        await insertVerificationAttempt(input.sessionId, input.method, false, "late_reason_required", "Late QR scans need organizer review before they are recorded.", occurredAt, {
+          studentId,
+          qrCredentialId: String(credentialRow.id ?? "")
+        });
+        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Late QR scans need organizer review before they are recorded.", { failedAttempts: 1 });
+      }
+    }
+    
+    // Handle check-in/check-out logic
+    const action = resolveAttendanceRecordAction(existing);
+
+    if (existing && action === "already-recorded") {
+      const record = mapAttendanceRecord(existing);
+      return credentialScanResult(input, "Already Recorded", record.recordedAt, "Student has already checked in and out.", {
+        duplicateAttempts: 1,
+        attendanceRecord: record,
+        attendanceStatus: record.status
+      });
+    }
+
+    if (existing && action === "check-out") {
+      const profile = await currentProfile();
+      const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
+        time_out: occurredAt,
+        updated_at: new Date().toISOString(),
+        recorded_by: String(profile.id ?? "")
+      });
+
+      const updatedRecord = mapAttendanceRecord(updatedRow as Row);
+      const studentSummary = await studentScanSummary(studentId);
+
+      await insertVerificationAttempt(input.sessionId, input.method, true, undefined, "QR credential accepted for check-out.", occurredAt, {
+        studentId,
+        qrCredentialId: String(credentialRow.id ?? "")
+      });
+
+      return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
+        attendanceRecord: updatedRecord,
+        attendanceStatus: updatedRecord.status,
+        present: 1,
+        studentDisplayName: studentSummary.displayName,
+        studentNumber: studentSummary.studentNumber
+      });
     }
 
     // No existing record: CREATE CHECK-IN
@@ -1467,13 +1503,27 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     const { data, error } = await client.rpc("complete_facial_enrollment", {
       p_enrollment_reference: enrollmentReference
     });
-    throwIfSupabaseError(error);
+    
+    if (error) {
+      console.error("complete_facial_enrollment RPC error:", error);
+      if (error.message.includes("student account")) {
+        throw new RepositoryError("Your student account is not active. Contact your organizer.", "PERMISSION_DENIED");
+      }
+      throwIfSupabaseError(error);
+    }
     void data;
 
     const { error: descriptorError } = await client.rpc("store_facial_descriptor", {
       p_face_descriptor: input.faceDescriptor ?? []
     });
-    throwIfSupabaseError(descriptorError);
+    
+    if (descriptorError) {
+      console.error("store_facial_descriptor RPC error:", descriptorError);
+      if (descriptorError.message.includes("active facial profile")) {
+        throw new RepositoryError("The facial profile could not be activated. Try enrolling again.", "VALIDATION_ERROR");
+      }
+      throwIfSupabaseError(descriptorError);
+    }
 
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(scopedStudentId, context);
   },

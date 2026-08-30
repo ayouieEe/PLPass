@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
+import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
+import { extractFaceDescriptor } from "@/lib/biometrics/humanFace";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -17,7 +19,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
-import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { formatDisplayDate, formatDisplayTime, to24HourTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -54,6 +56,8 @@ type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
   checkOutTime?: string;
 };
+
+const liveAttendanceToastId = "live-attendance-result";
 
 type CompletedRecord = EventRecord & {
   present: number;
@@ -148,25 +152,18 @@ function timeRangesOverlap(startA: string, endA: string, startB: string, endB: s
   return startAMin < endBMin && startBMin < endAMin;
 }
 
-function sessionStartAvailability(event: EventRecord, now = new Date()) {
-  const eventDate = new Date(`${event.date}T00:00:00`);
+export function sessionStartAvailability(event: EventRecord, _now = new Date()) {
   const startMinutes = toMinutes(event.startTime);
   const endMinutes = toMinutes(event.endTime);
-  const scheduledStart = new Date(eventDate);
-  const scheduledEnd = new Date(eventDate);
-  scheduledStart.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  scheduledEnd.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
-  if (Number.isNaN(scheduledStart.getTime()) || Number.isNaN(scheduledEnd.getTime())) {
-    return { allowed: false, message: "This event has an invalid schedule. Edit the event before starting attendance." };
+
+  if (Number.isNaN(startMinutes) || Number.isNaN(endMinutes) || endMinutes <= startMinutes) {
+    return { allowed: false, message: "This event has an invalid session schedule. Adjust the start and end times before starting attendance." };
   }
-  if (scheduledEnd <= now) {
-    return { allowed: false, message: "This event's scheduled end time has passed. Reschedule it before starting attendance." };
-  }
-  const earliestStart = new Date(scheduledStart.getTime() - 30 * 60 * 1000);
-  if (now < earliestStart) {
-    return { allowed: false, message: `Attendance can be started at ${formatDisplayTime(earliestStart.toISOString())}, 30 minutes before the event.` };
-  }
-  return { allowed: true, message: "Starting now opens QR and facial-recognition attendance for assigned participants." };
+
+  return {
+    allowed: true,
+    message: "Starting now opens QR and facial-recognition attendance for assigned participants."
+  };
 }
 
 // Client-side conflict detection: same venue, same date, overlapping time
@@ -400,7 +397,6 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 
 export function EventManagementPage() {
   const location = useLocation();
-  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -424,6 +420,11 @@ export function EventManagementPage() {
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
+  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
+  const [facialStatus, setFacialStatus] = useState("");
+  const [facialVerifying, setFacialVerifying] = useState(false);
+  const facialVideoRef = useRef<HTMLVideoElement | null>(null);
+  const facialStreamRef = useRef<MediaStream | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
   const [manualLateReason, setManualLateReason] = useState<LateReason | "">("");
@@ -444,7 +445,7 @@ export function EventManagementPage() {
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
-  const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
+  const { credentialScanMutation, manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
@@ -494,19 +495,29 @@ export function EventManagementPage() {
         // It remains optional while older attendance records are migrated.
         const attendanceRecord = record as typeof record & { checkedOutAt?: string | null };
 
+        const verificationMethod =
+          status === "absent"
+            ? "—"
+            : record.checkedOutAt && record.checkoutVerificationMethod
+              ? record.checkoutVerificationMethod === "qr"
+                ? "QR Code"
+                : record.checkoutVerificationMethod === "facial"
+                  ? "Facial Recognition"
+                  : "Manual"
+              : record.verificationMethod === "qr"
+                ? "QR Code"
+                : record.verificationMethod === "facial"
+                  ? "Facial Recognition"
+                  : record.verificationMethod === "manual"
+                    ? "Manual"
+                    : "—";
+
         return {
           id: record.id,
           studentId: record.studentId,
           studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
           eventCode: activeEvent?.code ?? "LIVE",
-          attendanceMethod:
-            status === "absent"
-              ? "Manual"
-              : record.verificationMethod === "qr"
-                ? "QR Code"
-                : record.verificationMethod === "facial"
-                  ? "Facial Recognition"
-                  : "Manual",
+          attendanceMethod: verificationMethod,
           checkInTime: record.timeIn ? formatDisplayTime(record.timeIn) : "-",
           checkOutTime: attendanceRecord.checkedOutAt ? formatDisplayTime(attendanceRecord.checkedOutAt) : undefined,
           attendanceStatus: status === "present" || status === "late" || status === "absent" ? status : "present",
@@ -688,13 +699,95 @@ export function EventManagementPage() {
       ? "Events scheduled to run today, ranked by priority and impact."
       : "Published future events, ranked by priority and impact.";
 
+  function openCaptureMode(mode: AttendanceMethod) {
+    if (!resolvedLiveSessionId) {
+      toast.error("The active session is still loading. Please wait a moment and try again.");
+      return;
+    }
+
+    setCaptureMode(mode);
+  }
+
+  async function submitCredentialScan(code: string, method: "qr" | "facial", similarity?: number) {
+    if (!liveSessionId) {
+      toast.dismiss(liveAttendanceToastId);
+      toast.error("There is no active live session for this event yet.", { id: liveAttendanceToastId });
+      return;
+    }
+
+    try {
+      const result = await credentialScanMutation.mutateAsync({
+        sessionId: liveSessionId,
+        credentialCode: code,
+        method,
+        faceSimilarity: similarity,
+        occurredAt: new Date().toISOString()
+      });
+
+      toast.dismiss(liveAttendanceToastId);
+      toast.success(result?.resultStatus ?? "Attendance recorded", {
+        id: liveAttendanceToastId,
+        description: result?.safeMessage ?? "The attendance record was saved."
+      });
+    } catch {
+      toast.dismiss(liveAttendanceToastId);
+      toast.error("Attendance could not be recorded for this scan.", { id: liveAttendanceToastId });
+    }
+  }
+
+  async function verifyFacialAttendance() {
+    if (!liveSessionId || !facialVideoRef.current) {
+      setFacialStatus("Start the camera before verifying.");
+      return;
+    }
+
+    setFacialVerifying(true);
+    setFacialStatus("Scanning face…");
+    console.log("Facial identification started in session:", liveSessionId);
+
+    try {
+      const client = getSupabaseBrowserClient();
+      const capture = await extractFaceDescriptor(facialVideoRef.current);
+
+      // The RPC checks the organizer's active session and compares the live
+      // descriptor only against enrolled participants for that event.
+      const { data, error } = await client
+        .rpc("identify_event_participant_by_face", {
+          p_event_session_id: liveSessionId,
+          p_live_descriptor: capture.descriptor
+        });
+
+      if (error) {
+        console.error("Face identification RPC error:", error);
+        throw new Error(`Could not identify the face: ${error.message}`);
+      }
+
+      const match = Array.isArray(data) ? data[0] : null;
+      if (!match?.student_id || typeof match.similarity !== "number") {
+        setFacialStatus("No enrolled event participant matched this face. Center one face in the camera and try again.");
+        return;
+      }
+
+      const similarity = match.similarity;
+
+      await submitCredentialScan(match.student_id, "facial", similarity);
+      setFacialStatus(`✓ Face verified (${Math.round(similarity * 100)}% match). Attendance recorded.`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Face verification failed. Try again or use QR/manual.";
+      console.error("Facial verification error:", errorMsg);
+      setFacialStatus(errorMsg);
+    } finally {
+      setFacialVerifying(false);
+    }
+  }
+
   function openStartSession(event: EventRecord) {
     setStartEvent(event);
     setSessionForm({
       venue: event.venue,
       date: event.date,
-      startTime: event.startTime,
-      endTime: event.endTime,
+      startTime: to24HourTime(event.startTime) || "",
+      endTime: to24HourTime(event.endTime) || "",
       method: defaultAttendanceMethod
     });
   }
@@ -805,6 +898,60 @@ export function EventManagementPage() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [activeEvent]);
+
+  useEffect(() => {
+    if (!facialCameraOpen || captureMode !== "Facial Recognition") {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setFacialStatus("❌ Camera not available. This browser cannot access the camera. Use QR or manual attendance instead.");
+      return;
+    }
+
+    let cancelled = false;
+    
+    navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, 
+      audio: false 
+    })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+          return;
+        }
+
+        facialStreamRef.current = stream;
+        if (facialVideoRef.current) {
+          facialVideoRef.current.srcObject = stream;
+          facialVideoRef.current.onloadedmetadata = () => {
+            void facialVideoRef.current?.play().catch((error) => {
+              console.error("Video play error:", error);
+              setFacialStatus("⚠️ Camera stream started but video playback failed. Please refresh and try again.");
+            });
+          };
+          setFacialStatus("✓ Camera active. Center your face clearly in the frame and click 'Verify & Record'.");
+        }
+      })
+      .catch((error) => {
+        const errorMsg = error.name === "NotAllowedError" 
+          ? "❌ Camera access denied. Please grant camera permission in your browser settings and try again."
+          : error.name === "NotFoundError"
+          ? "❌ No camera found. Please check that a camera is connected and working."
+          : error.name === "NotReadableError"
+          ? "❌ Camera is in use by another application. Please close other apps and try again."
+          : `❌ Camera error: ${error.message || "Unable to access camera"}`;
+        
+        setFacialStatus(errorMsg);
+        console.error("Camera access error:", error);
+      });
+
+    return () => {
+      cancelled = true;
+      facialStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+      facialStreamRef.current = null;
+    };
+  }, [captureMode, facialCameraOpen]);
 
   async function submitManualAttendance() {
     if (!manualInput || !liveSessionId) {
@@ -1198,61 +1345,77 @@ export function EventManagementPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.6fr)]">
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.6fr)]">
               <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Current mode</p>
-                    <p className="text-lg font-semibold text-foreground">{captureMode ?? "No mode selected"}</p>
-                  </div>
-                  <StatusBadge label="Live" tone="success" />
-                </div>
-
-                <div className="mt-4 rounded-xl border border-border bg-background/40 p-5">
+                <div className="rounded-xl border border-border bg-background/40 p-5">
                   {captureMode === "QR Code" ? (
-                    <div className="text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                        <ScanLine className="h-6 w-6" aria-hidden="true" />
-                      </div>
-                      <p className="mt-4 text-sm font-semibold text-foreground">QR scanner ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Point the camera at a student QR code to log attendance instantly.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("The active session is still loading. Please wait a moment and try again.");
-                            return;
-                          }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
-                        }}
-                      >
-                        Open QR scanner
-                      </Button>
-                    </div>
+                    <QRFallbackPanel
+                      enabled={true}
+                      disabled={credentialScanMutation.isPending}
+                      onToggle={() => setCaptureMode((current) => (current === "QR Code" ? null : "QR Code"))}
+                      onSimulate={(code) => void submitCredentialScan(code, "qr")}
+                    />
                   ) : captureMode === "Facial Recognition" ? (
-                    <div className="text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                        <Camera className="h-6 w-6" aria-hidden="true" />
+                    <section className="space-y-4" aria-label="Facial verification">
+                      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface/80 p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+                            <Camera className="h-5 w-5" aria-hidden="true" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">Face scan ready</p>
+                            <p className="text-xs text-muted-foreground">Camera-based recognition for live session attendance</p>
+                          </div>
+                        </div>
+                        <StatusBadge label="Live" tone="success" />
                       </div>
-                      <p className="mt-4 text-sm font-semibold text-foreground">Face scan ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Open live verification to select an enrolled participant, use the camera, and record attendance.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("The active session is still loading. Please wait a moment and try again.");
-                            return;
-                          }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
-                        }}
-                      >
-                        Open live verification
-                      </Button>
-                    </div>
+
+                      <div className="overflow-hidden rounded-xl border border-border bg-black/95">
+                        {facialCameraOpen ? (
+                          <video
+                            ref={facialVideoRef}
+                            aria-label="Live facial verification camera preview"
+                            autoPlay
+                            muted
+                            playsInline
+                            className="aspect-video w-full bg-black object-cover"
+                          />
+                        ) : (
+                          <div className="flex aspect-video items-center justify-center text-sm text-slate-300">
+                            Camera idle — start verification to begin
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Button 
+                          type="button" 
+                          variant={facialCameraOpen ? "destructive" : "default"}
+                          className="w-full"
+                          onClick={() => {
+                            if (facialCameraOpen) {
+                              setFacialCameraOpen(false);
+                            } else {
+                              setFacialCameraOpen(true);
+                              setFacialStatus("Requesting camera access...");
+                            }
+                          }}
+                        >
+                          <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
+                          {facialCameraOpen ? "Stop camera" : "Start camera"}
+                        </Button>
+                        <Button
+                          type="button"
+                          className="w-full"
+                          disabled={!facialCameraOpen || facialVerifying || credentialScanMutation.isPending}
+                          onClick={() => void verifyFacialAttendance()}
+                        >
+                          {facialVerifying ? "Verifying face…" : "Verify & Record"}
+                        </Button>
+                      </div>
+
+                      {facialStatus ? <p className="rounded-lg border border-border/50 bg-background/50 p-2.5 text-xs text-muted-foreground" role="status">{facialStatus}</p> : null}
+                    </section>
                   ) : captureMode === "Manual" ? (
                     <div className="space-y-4">
                       <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm">
@@ -1526,7 +1689,17 @@ export function EventManagementPage() {
       ) : null}
 
       {startEvent ? (
-        <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
+        <ModalFrame onClose={() => {
+          setStartEvent(null);
+          // Reset form when modal closes
+          setSessionForm({
+            venue: "",
+            date: "",
+            startTime: "",
+            endTime: "",
+            method: defaultAttendanceMethod
+          });
+        }} width="max-w-2xl">
           <h2 className="text-xl font-semibold">Start Session</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -1535,8 +1708,9 @@ export function EventManagementPage() {
               <input
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.venue}
-                onChange={(event) => setSessionForm((current) => ({ ...current, venue: event.target.value }))}
-                placeholder="Enter session venue"
+                readOnly
+                disabled
+                aria-readonly="true"
                 autoComplete="off"
                 required
               />
@@ -1547,7 +1721,8 @@ export function EventManagementPage() {
                 type="date"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.date}
-                onChange={(event) => setSessionForm((current) => ({ ...current, date: event.target.value }))}
+                readOnly
+                disabled
                 required
               />
             </label>
@@ -1557,7 +1732,8 @@ export function EventManagementPage() {
                 type="time"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.startTime}
-                onChange={(event) => setSessionForm((current) => ({ ...current, startTime: event.target.value }))}
+                readOnly
+                disabled
                 required
               />
             </label>
@@ -1567,7 +1743,8 @@ export function EventManagementPage() {
                 type="time"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.endTime}
-                onChange={(event) => setSessionForm((current) => ({ ...current, endTime: event.target.value }))}
+                readOnly
+                disabled
                 required
               />
             </label>

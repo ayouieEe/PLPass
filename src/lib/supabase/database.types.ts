@@ -1897,6 +1897,13 @@ export type Database = {
         Args: { p_event_session_id: string; p_student_id: string }
         Returns: Json
       }
+      identify_event_participant_by_face: {
+        Args: { p_event_session_id: string; p_live_descriptor: Json }
+        Returns: {
+          similarity: number
+          student_id: string
+        }[]
+      }
       issue_qr_credential: {
         Args: { p_expires_at?: string; p_student_id: string }
         Returns: {
