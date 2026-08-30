@@ -7,22 +7,24 @@ type SelectOption = {
   value: string;
 };
 
-type SelectFieldProps<TFieldValues extends FieldValues> = {
+type SelectFieldProps<TFieldValues extends FieldValues = any> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
   options: SelectOption[];
   placeholder?: string;
   disabled?: boolean;
+  required?: boolean;
 };
 
-export function SelectField<TFieldValues extends FieldValues>({
+export function SelectField<TFieldValues extends FieldValues = any>({
   control,
   name,
   label,
   options,
   placeholder = "Select an option",
-  disabled
+  disabled,
+  required = false
 }: SelectFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
@@ -31,8 +33,11 @@ export function SelectField<TFieldValues extends FieldValues>({
       name={name}
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
-          <span className={labelClass}>{label}</span>
-          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined}>
+          <span className={labelClass}>
+            {label}
+            {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
+          </span>
+          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled} required={required} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined}>
             <option value="">{placeholder}</option>
             {options.map((option) => (
               <option key={option.value} value={option.value}>

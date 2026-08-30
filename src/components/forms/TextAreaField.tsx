@@ -2,22 +2,24 @@ import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
-type TextAreaFieldProps<TFieldValues extends FieldValues> = {
+type TextAreaFieldProps<TFieldValues extends FieldValues = any> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
+  required?: boolean;
 };
 
-export function TextAreaField<TFieldValues extends FieldValues>({
+export function TextAreaField<TFieldValues extends FieldValues = any>({
   control,
   name,
   label,
   placeholder,
   rows = 4,
-  disabled
+  disabled,
+  required = false
 }: TextAreaFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
@@ -26,13 +28,17 @@ export function TextAreaField<TFieldValues extends FieldValues>({
       name={name}
       render={({ field, fieldState }) => (
         <label className="space-y-1.5">
-          <span className={labelClass}>{label}</span>
+          <span className={labelClass}>
+            {label}
+            {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
+          </span>
           <textarea
             {...field}
             className="plpass-field w-full rounded-md border px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
             placeholder={placeholder}
             rows={rows}
             disabled={disabled}
+            required={required}
             aria-invalid={Boolean(fieldState.error)}
             aria-describedby={fieldState.error ? errorId : undefined}
           />

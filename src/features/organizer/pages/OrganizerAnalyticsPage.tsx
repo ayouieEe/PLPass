@@ -502,7 +502,7 @@ export function OrganizerAnalyticsPage() {
         title: event.title,
         category: event.category,
         venue: event.venue,
-        date: event.startsAt.slice(0, 10),
+        date: dateKey(event.startsAt),
         startsAt: event.startsAt,
         time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
         predictedTurnout: event.predictedTurnout ?? 0
@@ -519,7 +519,7 @@ export function OrganizerAnalyticsPage() {
         const late = records.filter((record) => record.status === "late").length;
         const absent = records.filter((record) => record.status === "absent").length;
         const totalRegistered = records.length;
-        return { eventCode: event?.code ?? session.title, date: session.startsAt.slice(0, 10), present, late, absent, totalRegistered, attendanceRate: totalRegistered ? Math.round(((present + late) / totalRegistered) * 100) : 0 };
+        return { eventCode: event?.code ?? session.title, date: dateKey(session.startsAt), present, late, absent, totalRegistered, attendanceRate: totalRegistered ? Math.round(((present + late) / totalRegistered) * 100) : 0 };
       });
     },
     [attendanceRecordsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items]

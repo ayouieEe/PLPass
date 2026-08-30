@@ -5,6 +5,7 @@ import {
   shouldDisplayInEventTab,
   type EventRecord
 } from "@/features/organizer/utils/eventManagement";
+import { dateKey } from "@/lib/utils/date";
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -35,5 +36,10 @@ describe("event page validation helpers", () => {
       completedCodes: new Set(),
       sessionsList: []
     })).toBe(false);
+  });
+
+  it("keeps the Philippine calendar date when ISO timestamps are stored in UTC", () => {
+    expect(dateKey("2026-08-30T16:00:00.000Z")).toBe("2026-08-31");
+    expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
   });
 });

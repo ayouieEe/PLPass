@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { dateKey } from "@/lib/utils/date";
 
 export type DashboardAnalytics = {
   attendanceTrend: Array<{ label: string; date: string; present: number; late: number; absent: number; attendanceRate: number }>;
@@ -59,7 +60,7 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
     const eventId = eventIdBySessionId.get(record.event_session_id);
     const event = eventId ? eventById.get(eventId) : undefined;
     if (!event) return;
-    const row = trendByEvent.get(event.id) ?? { label: event.code, date: event.startsAt.slice(0, 10), present: 0, late: 0, absent: 0, attendanceRate: 0 };
+    const row = trendByEvent.get(event.id) ?? { label: event.code, date: dateKey(event.startsAt), present: 0, late: 0, absent: 0, attendanceRate: 0 };
     if (record.attendance_status === "late") {
       row.late += 1;
       const lateReason = record.late_reason_category ? lateByReason.get(record.late_reason_category) : undefined;
