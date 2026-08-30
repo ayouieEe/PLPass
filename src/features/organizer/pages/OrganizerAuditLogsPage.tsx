@@ -25,31 +25,56 @@ export function OrganizerAuditLogsPage() {
   const columns: ColumnDef<AuditLog>[] = [
     {
       id: "timestamp",
-      header: "Timestamp",
+      header: "Date & Time",
       accessorFn: (row) => row.timestamp,
       cell: ({ row }) => {
         const date = formatDisplayDate(row.original.timestamp);
         const time = formatDisplayTime(row.original.timestamp);
         return (
-          <div className="flex flex-col">
-            <span className="font-medium text-foreground">{date}</span>
-            <span className="text-xs text-muted-foreground">{time}</span>
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-foreground whitespace-nowrap">{date}</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">{time}</span>
           </div>
         );
       }
     },
     {
-      accessorKey: "actorUserId",
-      header: "Actor ID",
+      id: "user",
+      header: "User",
+      cell: () => {
+        return (
+          <div className="flex items-center gap-2">
+            <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
+              O
+            </div>
+            <span className="font-medium">Organizer 1</span>
+          </div>
+        );
+      }
     },
     {
-      accessorKey: "action",
-      header: "Action",
-      cell: ({ row }) => <span className="font-medium">{row.original.action}</span>
+      id: "eventType",
+      header: "Event Type",
+      cell: ({ row }) => {
+        const raw = row.original.action || "";
+        const formatted = raw
+          .split(/[_-\s]+/)
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(" ");
+        return <span className="font-medium">{formatted}</span>;
+      }
     },
     {
-      accessorKey: "targetType",
-      header: "Target Type",
+      id: "change",
+      header: "Change",
+      cell: ({ row }) => {
+        const raw = row.original.targetType || "";
+        const formatted = raw
+          .split(/[_-\s]+/)
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(" ");
+        return <span>{formatted}</span>;
+      }
     }
   ];
 

@@ -89,7 +89,7 @@ export function OrganizerDashboardPage() {
         <DashboardMetricCard title="Next Event Turnout" value={nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A"} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
         <section className="rounded-lg border bg-surface p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -113,7 +113,7 @@ export function OrganizerDashboardPage() {
             <p>{`Feedback sentiment chart data: ${(analyticsQuery.data?.sentiment ?? []).map((item) => `${item.name}, ${item.value}%`).join("; ")}.`}</p>
             <p>{`Late-arrival chart data: ${(analyticsQuery.data?.lateArrivals ?? []).map((item) => `${item.label}, ${item.count} late check-ins`).join("; ")}.`}</p>
           </div>
-          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></ChartPanel>
+          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><div className="flex h-full min-h-0 flex-col"><div className="flex shrink-0 items-center gap-5 pb-2 text-xs"><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-green-600" />Predicted Attendance</span><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-red-600" />Predicted Non-attendance</span></div><div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden" tabIndex={0} role="region" aria-label="Prediction overview chart"><div className="h-full" style={{ minWidth: `${Math.max(640, predictionOverviewData.length * 64)}px` }}><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 12, left: -16, bottom: 16 }} barCategoryGap="22%"><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" interval={0} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip labelFormatter={(_, payload) => payload?.[0]?.payload?.title ?? "Event"} formatter={(value: number) => `${value}%`} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></div></div></ChartPanel>
         </div>
       </section>
 
