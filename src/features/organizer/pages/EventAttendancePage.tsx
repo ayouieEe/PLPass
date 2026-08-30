@@ -106,6 +106,8 @@ const LATE_REASON_OPTIONS = [
 ] as const;
 
 type LateReason = (typeof LATE_REASON_OPTIONS)[number];
+type AttendanceStatusFilter = "all" | AttendanceStatus;
+type VerificationMethodFilter = "all" | NonNullable<VerificationMethod>;
 
 const eventFormSchema = z
   .object({
@@ -327,8 +329,8 @@ export function EventAttendancePage() {
   const [manualLateReason, setManualLateReason] = useState<LateReason | "">("");
   // remove allowManualJoin checkbox — manual tab provides manual input
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [methodFilter, setMethodFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<AttendanceStatusFilter>("all");
+  const [methodFilter, setMethodFilter] = useState<VerificationMethodFilter>("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
   const [facialStudentId, setFacialStudentId] = useState("");
@@ -412,7 +414,7 @@ export function EventAttendancePage() {
     records.filter((record) => {
       const effectiveMethod = getRecordVerificationMethod(record);
       return (statusFilter === "all" || record.status === statusFilter) &&
-        (methodFilter === "all" || effectiveMethod === (methodFilter as VerificationMethod));
+        (methodFilter === "all" || effectiveMethod === methodFilter);
     }),
     students
   ).filter(
@@ -673,13 +675,19 @@ export function EventAttendancePage() {
 
             <div className="mb-4 grid w-full gap-2 sm:grid-cols-3">
               <SearchInput value={search} placeholder="Search student or ID" onChange={setSearch} />
-              <select aria-label="Filter by attendance status" className="plpass-field h-10 rounded-md border px-3 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <select aria-label="Filter by attendance status" className="plpass-field h-10 rounded-md border px-3 text-sm" value={statusFilter} onChange={(event) => {
+                const nextValue = event.target.value;
+                setStatusFilter(nextValue === "all" ? "all" : (nextValue as AttendanceStatus));
+              }}>
                 <option value="all">All statuses</option>
                 <option value="present">Present</option>
                 <option value="late">Late</option>
                 <option value="absent">Absent</option>
               </select>
-              <select aria-label="Filter by verification method" className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
+              <select aria-label="Filter by verification method" className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => {
+                const nextValue = event.target.value;
+                setMethodFilter(nextValue === "all" ? "all" : (nextValue as NonNullable<VerificationMethod>));
+              }}>
                 <option value="all">All methods</option>
                 <option value="qr">QR</option>
                 <option value="facial">Facial</option>
