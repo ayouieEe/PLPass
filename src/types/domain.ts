@@ -138,6 +138,13 @@ export type Event = {
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   predictedTurnout: number | null;
+  institutionalCategory?: string;
+  participationStatus?: string;
+  targetGroup?: string;
+  urgencyPoints?: number;
+  priorityScore?: number;
+  priorityTier?: string;
+  fixedPriority?: boolean;
   requestedBy?: string;
   collegeOffice?: string;
   numberOfPax?: number | null;
