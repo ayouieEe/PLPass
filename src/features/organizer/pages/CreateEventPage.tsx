@@ -7,7 +7,6 @@ import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
-import { eventBaseSchema } from "@/lib/validations/events";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -136,45 +135,109 @@ function timeToMinutes(value: string) {
   return (Number.isNaN(hours) ? 0 : hours) * 60 + (Number.isNaN(minutes) ? 0 : minutes);
 }
 
-export const eventFormSchemaWithObjectives = eventBaseSchema.and(
-  z.object({
-    objectives: z.array(
-      z.object({
-        value: z.string().trim()
-      })
-    ).superRefine((entries, ctx) => {
-      const filledCount = entries.filter((entry) => entry.value.trim().length > 0).length;
+type EventFormValues = {
+  code: string;
+  title: string;
+  category: string;
+  institutionalCategory: "Accreditation Linked" | "Academic or Training" | "Social or Recreational";
+  participationStatus: "Mandatory" | "Voluntary";
+  targetGroup: "University-wide" | "College or Department-wide" | "Single Class or Organization";
+  venue: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  description?: string;
+  objectives: { value: string }[];
+  remarks?: string;
+  priorityLevel: "Time-Sensitive" | "Business-Critical" | "Flexible";
+  impactScore?: number | null;
+  fixedPriority: boolean;
+  requestedBy?: string;
+  collegeOffice: string;
+  numberOfPax?: number | null;
+  resourceTitle?: string;
+  resourceUrl?: string;
+};
 
-      if (filledCount < MIN_OBJECTIVES) {
+export const eventFormSchemaWithObjectives = z.object({
+  code: z.string().trim().min(1, "Event code is required").min(2, "Event code must be at least 2 characters"),
+  title: z.string().trim().min(1, "Event title is required").min(3, "Event title must be at least 3 characters").max(255, "Event title must not exceed 255 characters"),
+  category: z.string().trim().min(1, "Category is required"),
+  institutionalCategory: z.enum(["Accreditation Linked", "Academic or Training", "Social or Recreational"]),
+  participationStatus: z.enum(["Mandatory", "Voluntary"]),
+  targetGroup: z.enum(["University-wide", "College or Department-wide", "Single Class or Organization"]),
+  venue: z.string().trim().min(1, "Venue is required").min(2, "Venue must be at least 2 characters"),
+  date: z.string().min(1, "Event date is required"),
+  startTime: z.string().min(1, "Start time is required"),
+  endTime: z.string().min(1, "End time is required"),
+  description: z.string().trim().optional().refine((val) => !val || val.length >= 3, { message: "Description must be at least 3 characters if provided" }).refine((val) => !val || val.length <= 1000, { message: "Description must not exceed 1000 characters" }),
+  objectives: z.array(z.object({ value: z.string().trim() })).superRefine((entries, ctx) => {
+    const filledCount = entries.filter((entry) => entry.value.trim().length > 0).length;
+    if (filledCount < MIN_OBJECTIVES) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.too_small,
+        type: "array",
+        minimum: MIN_OBJECTIVES,
+        inclusive: true,
+        exact: false,
+        message: `At least ${MIN_OBJECTIVES} objectives are required.`,
+        path: []
+      });
+    }
+
+    entries.forEach((entry, index) => {
+      const trimmed = entry.value.trim();
+      if (trimmed && trimmed.length < 3) {
         ctx.addIssue({
           code: z.ZodIssueCode.too_small,
-          type: "array",
-          minimum: MIN_OBJECTIVES,
+          type: "string",
+          minimum: 3,
           inclusive: true,
           exact: false,
-          message: `At least ${MIN_OBJECTIVES} objectives are required.`,
-          path: []
+          message: "Objective must be at least 3 characters.",
+          path: [index, "value"]
         });
       }
+    });
+  }),
+  remarks: z.string().trim().optional().refine((val) => !val || val.length >= 3, { message: "Remarks must be at least 3 characters if provided" }).refine((val) => !val || val.length <= 1000, { message: "Remarks must not exceed 1000 characters" }),
+  priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"], {
+    errorMap: () => ({ message: "Priority level must be Time-Sensitive, Business-Critical, or Flexible" })
+  }),
+  impactScore: z.number().min(0, "Impact score must be at least 0").max(10, "Impact score must not exceed 10").nullable().optional(),
+  fixedPriority: z.boolean().default(false),
+  requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
+  collegeOffice: z.string().trim().min(2, "College/Office is required").max(255),
+  numberOfPax: z.number({ invalid_type_error: "No. of Pax is required" }).int("No. of Pax must be a whole number").min(1, "No. of Pax must be at least 1").nullable().optional().refine((value) => value !== null && value !== undefined, { message: "No. of Pax is required" }),
+  resourceTitle: z.string().trim().max(255).optional(),
+  resourceUrl: z.string().trim().optional().refine((value) => !value || /^https:\/\//.test(value), "Resource Link must use HTTPS.")
+}).superRefine((value, ctx) => {
+  const trimmedUrl = value.resourceUrl?.trim() ?? "";
+  const trimmedTitle = value.resourceTitle?.trim() ?? "";
 
-      entries.forEach((entry, index) => {
-        const trimmed = entry.value.trim();
-
-        if (trimmed && trimmed.length < 3) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.too_small,
-            type: "string",
-            minimum: 3,
-            inclusive: true,
-            exact: false,
-            message: "Objective must be at least 3 characters.",
-            path: [index, "value"]
-          });
-        }
-      });
-    })
-  })
-);
+  if (trimmedUrl && !trimmedTitle) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["resourceTitle"],
+      message: "Resource Title is required when a Resource Link is provided."
+    });
+  }
+}).refine((value) => {
+  const [startMinutes, endMinutes] = [timeToMinutes(value.startTime), timeToMinutes(value.endTime)];
+  return endMinutes > startMinutes;
+}, {
+  path: ["endTime"],
+  message: "End time must be after start time"
+}).refine((value) => {
+  if (!value.date) return false;
+  const eventDate = new Date(`${value.date}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return eventDate >= today;
+}, {
+  path: ["date"],
+  message: "Event date must be today or in the future"
+});
 
 const sessionFormSchema = z
   .object({
@@ -189,7 +252,6 @@ const sessionFormSchema = z
     message: "Expected end time must be after start time."
   });
 
-type EventFormValues = z.infer<typeof eventFormSchemaWithObjectives>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
@@ -434,7 +496,7 @@ export function CreateEventPage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
   const form = useForm<EventFormValues>({
-    resolver: zodResolver(eventFormSchemaWithObjectives),
+    resolver: zodResolver(eventFormSchemaWithObjectives) as any,
     defaultValues: {
       code: "",
       title: "",

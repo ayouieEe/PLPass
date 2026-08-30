@@ -15,6 +15,7 @@ type TextFieldProps<TFieldValues extends FieldValues> = {
   disabled?: boolean;
   readOnly?: boolean;
   required?: boolean;
+  optional?: boolean;
   className?: string;
 };
 
@@ -31,10 +32,11 @@ export function TextField<TFieldValues extends FieldValues>({
   disabled,
   readOnly,
   required = false,
+  optional = false,
   className
 }: TextFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
-  const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
+  const requiredMarker = required || optional === false ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
 
   return (
     <Controller

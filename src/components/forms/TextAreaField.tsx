@@ -10,6 +10,7 @@ type TextAreaFieldProps<TFieldValues extends FieldValues> = {
   rows?: number;
   disabled?: boolean;
   required?: boolean;
+  optional?: boolean;
 };
 
 export function TextAreaField<TFieldValues extends FieldValues>({
@@ -19,10 +20,11 @@ export function TextAreaField<TFieldValues extends FieldValues>({
   placeholder,
   rows = 4,
   disabled,
-  required = false
+  required = false,
+  optional = false
 }: TextAreaFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
-  const requiredMarker = required ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
+  const requiredMarker = required || optional === false ? <span aria-hidden="true" className="ml-1 text-danger">*</span> : null;
 
   return (
     <Controller
