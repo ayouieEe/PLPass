@@ -79,6 +79,7 @@ import {
   useStudents,
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
+import { useModelInsights, useBatchPrediction } from "@/hooks/useMlApi";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
@@ -486,6 +487,7 @@ export function OrganizerAnalyticsPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("prediction");
   const [eventFilter, setEventFilter] = useState("all");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [selectedPdpFeature, setSelectedPdpFeature] = useState<string>("");
   const scope = useOrganizerScope();
   const auditLogMutations = useAuditLogMutations(scope.context);
   const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
@@ -495,6 +497,7 @@ export function OrganizerAnalyticsPage() {
   const eventData = useMemo(
     () =>
       (eventsQuery.data?.items ?? []).map((event) => ({
+        id: event.id,
         code: event.code,
         title: event.title,
         category: event.category,
@@ -580,14 +583,45 @@ export function OrganizerAnalyticsPage() {
   }, [attendanceRecordsQuery.data?.items, eventData, eventFilter, eventsQuery.data?.items, sessionsQuery.data?.items]);
 
   const nextEvent = eventData.filter((event) => new Date(event.startsAt) >= new Date()).sort((first, second) => first.startsAt.localeCompare(second.startsAt))[0];
-  const selectedPrediction = eventFilter === "all" ? nextEvent?.predictedTurnout ?? 0 : eventLookup.get(eventFilter)?.predictedTurnout ?? 0;
-  const registeredStudents = studentsQuery.data?.total ?? studentsQuery.data?.items.length ?? 0;
+  const targetEventId = eventFilter === "all" ? nextEvent?.id : eventLookup.get(eventFilter)?.id;
+  
+  const studentIds = useMemo(() => studentsQuery.data?.items.map(s => s.id) ?? [], [studentsQuery.data]);
+  const registeredStudents = studentIds.length || 1;
+
+  const { data: insightsData } = useModelInsights();
+  const { data: batchData, isFetching: isPredicting } = useBatchPrediction(targetEventId ?? "", studentIds);
+
+  const selectedPrediction = useMemo(() => {
+    if (batchData && studentIds.length > 0) {
+      return Math.round((batchData.aggregate_expected_turnout / studentIds.length) * 100);
+    }
+    // Fallback if not loaded
+    return eventFilter === "all" ? nextEvent?.predictedTurnout ?? 0 : eventLookup.get(eventFilter)?.predictedTurnout ?? 0;
+  }, [batchData, studentIds, eventFilter, nextEvent, eventLookup]);
+
   const topLateReason = useMemo(() => {
     const reasons = filteredLateReasons;
     return reasons.length > 0
       ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
       : { category: "No late records", share: 0 };
   }, [filteredLateReasons]);
+
+  const activePdpFeature = useMemo(() => {
+    const features = insightsData?.partial_dependence ? Object.keys(insightsData.partial_dependence) : [];
+    if (features.length === 0) return "";
+    return selectedPdpFeature && features.includes(selectedPdpFeature) ? selectedPdpFeature : features[0];
+  }, [insightsData, selectedPdpFeature]);
+
+  const pdpData = useMemo(() => {
+    if (!insightsData?.partial_dependence || !activePdpFeature) return null;
+    const data = insightsData.partial_dependence[activePdpFeature] as { grid_values?: number[]; average?: number[] };
+    const { grid_values, average } = data;
+    if (!grid_values || !average) return null;
+    return grid_values.map((val: number, i: number) => ({
+      value: typeof val === "number" ? (val % 1 === 0 ? val : Number(val.toFixed(2))) : val,
+      probability: Math.round(average[i] * 100)
+    }));
+  }, [insightsData, activePdpFeature]);
 
   const predictionFactors = useMemo(() => {
     const baseFactors = [
@@ -597,10 +631,24 @@ export function OrganizerAnalyticsPage() {
       { name: "Event category", strength: 69, detail: "Skills training shows stronger attendance than general seminars" },
       { name: "Venue accessibility", strength: 64, detail: "Convenient locations improve attendance confidence" }
     ];
+    
+    if (insightsData?.feature_importance && insightsData.feature_importance.length > 0) {
+      const maxImp = Math.max(0.0001, ...insightsData.feature_importance.map(f => f.importance_mean));
+      return insightsData.feature_importance.slice(0, 5).map(f => {
+        // Format feature name: "rolling_participation_rate" -> "Rolling Participation Rate"
+        const formattedName = f.feature.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        return {
+          name: formattedName,
+          strength: Math.min(100, Math.max(1, Math.round((f.importance_mean / maxImp) * 100))),
+          detail: `Relative importance derived from Random Forest permutation.`
+        };
+      });
+    }
+
     if (eventFilter === "all") return baseFactors;
     const event = eventLookup.get(eventFilter);
     return event ? baseFactors.map(f => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
-  }, [eventFilter, eventLookup]);
+  }, [eventFilter, eventLookup, insightsData]);
 
   function handleExportReport(label: string) {
     let rows: ExportTableRow[];
@@ -674,14 +722,27 @@ export function OrganizerAnalyticsPage() {
         title="Analytics Insights"
         description="Event turnout predictions, attendance trends, sentiment scores, and late arrival patterns."
         actions={
-          <Button
-            type="button"
-            onClick={() => setIsExportModalOpen(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-md shadow-primary/20 transition hover:bg-primary/90 active:scale-95"
-          >
-            <Download className="h-4 w-4" />
-            Export Report
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => {
+                void eventsQuery.refetch();
+                toast.success("Analytics refreshed");
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-white border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Refresh
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-md shadow-primary/20 transition hover:bg-primary/90 active:scale-95"
+            >
+              <Download className="h-4 w-4" />
+              Export Report
+            </Button>
+          </div>
         }
       />
 
@@ -702,11 +763,11 @@ export function OrganizerAnalyticsPage() {
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Turnout Forecast</p>
             <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              <Sparkles className="h-4 w-4" />
+              {isPredicting ? <span className="animate-spin h-4 w-4 block rounded-full border-2 border-emerald-600 border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
             </div>
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">{selectedPrediction}%</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">Predicted turnout for next event</p>
+          <p className="mt-1 text-[11px] text-slate-500 font-medium">{isPredicting ? "Calculating via Random Forest..." : "Predicted turnout for selected event"}</p>
         </article>
 
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
@@ -809,7 +870,9 @@ export function OrganizerAnalyticsPage() {
               <div className="grid gap-3 md:grid-cols-3">
                 <article className="rounded-xl border bg-surface p-4 shadow-xs">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Predicted Turnout</p>
-                  <p className="mt-1.5 text-2xl font-bold text-foreground">{selectedPrediction}%</p>
+                  <p className="mt-1.5 text-2xl font-bold text-foreground">
+                    {isPredicting ? "..." : `${selectedPrediction}%`}
+                  </p>
                 </article>
                 <article className="rounded-xl border bg-surface p-4 shadow-xs">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Expected Attendees</p>
@@ -834,12 +897,42 @@ export function OrganizerAnalyticsPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </ChartPanel>
+
+              {pdpData && activePdpFeature && (
+                <ChartPanel
+                  title="Partial Dependence"
+                  description="How this specific factor shapes expected attendance probability."
+                  action={
+                    <select
+                      value={activePdpFeature}
+                      onChange={(e) => setSelectedPdpFeature(e.target.value)}
+                      className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
+                    >
+                      {Object.keys(insightsData?.partial_dependence || {}).map(f => (
+                        <option key={f} value={f}>
+                          {f.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                        </option>
+                      ))}
+                    </select>
+                  }
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={pdpData} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="value" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis unit="%" domain={[0, 100]} fontSize={12} tickLine={false} axisLine={false} />
+                      <Tooltip formatter={(value: number) => [`${value}%`, "Probability"]} labelFormatter={(label) => `Factor Value: ${label}`} />
+                      <Line type="monotone" dataKey="probability" name="Probability" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartPanel>
+              )}
             </div>
 
             <aside className="rounded-xl border bg-surface p-4 shadow-xs">
               <div className="flex items-center gap-2 mb-3">
                 <Target className="h-4 w-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground">Ranked attendance factors</h3>
+                <h3 className="text-sm font-bold text-foreground">Ranked Attendance Factors</h3>
               </div>
               <div className="space-y-3">
                 {predictionFactors.map((factor) => (

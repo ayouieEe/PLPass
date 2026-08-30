@@ -1,0 +1,229 @@
+{
+  "feature_importance": [
+    {
+      "feature": "was_ever_late",
+      "importance_mean": 0.0010802469135802813,
+      "importance_std": 0.0023434443546578084
+    },
+    {
+      "feature": "predominant_late_reason",
+      "importance_mean": 0.00030864197530868404,
+      "importance_std": 0.003400668770577601
+    },
+    {
+      "feature": "has_rolling_rate",
+      "importance_mean": -0.0014814814814814391,
+      "importance_std": 0.0049552178371332
+    },
+    {
+      "feature": "participation_trend_slope",
+      "importance_mean": -0.0015740740740740314,
+      "importance_std": 0.002716926065022434
+    },
+    {
+      "feature": "target_group_size_tier",
+      "importance_mean": -0.003333333333333288,
+      "importance_std": 0.0040189878544834665
+    },
+    {
+      "feature": "mandatory_voluntary",
+      "importance_mean": -0.004567901234567858,
+      "importance_std": 0.009078272313437243
+    },
+    {
+      "feature": "consecutive_missed_events",
+      "importance_mean": -0.005709876543209843,
+      "importance_std": 0.004243686866367922
+    },
+    {
+      "feature": "lead_time_days",
+      "importance_mean": -0.008117283950617246,
+      "importance_std": 0.005007329637548375
+    },
+    {
+      "feature": "tardiness_frequency",
+      "importance_mean": -0.00882716049382712,
+      "importance_std": 0.0023755409141844237
+    },
+    {
+      "feature": "duration_hours",
+      "importance_mean": -0.010462962962962926,
+      "importance_std": 0.002653064589239695
+    },
+    {
+      "feature": "venue",
+      "importance_mean": -0.0111728395061728,
+      "importance_std": 0.004335952920700234
+    },
+    {
+      "feature": "has_tardiness_history",
+      "importance_mean": -0.011450617283950571,
+      "importance_std": 0.004313154275221268
+    },
+    {
+      "feature": "day_of_week",
+      "importance_mean": -0.015617283950617252,
+      "importance_std": 0.006964921797841901
+    },
+    {
+      "feature": "event_category",
+      "importance_mean": -0.019382716049382676,
+      "importance_std": 0.006494402171415846
+    },
+    {
+      "feature": "has_trend",
+      "importance_mean": -0.019506172839506137,
+      "importance_std": 0.004510398830155936
+    },
+    {
+      "feature": "time_of_day_bucket",
+      "importance_mean": -0.02077160493827157,
+      "importance_std": 0.0045717576314004485
+    },
+    {
+      "feature": "rolling_participation_rate",
+      "importance_mean": -0.03077160493827157,
+      "importance_std": 0.005392055692758731
+    }
+  ],
+  "partial_dependence": {
+    "was_ever_late": {
+      "grid_values": [
+        0.0,
+        1.0
+      ],
+      "average": [
+        0.5630882455921512,
+        0.6012517139217982
+      ]
+    },
+    "predominant_late_reason": {
+      "grid_values": [
+        "Class or Academic Conflict",
+        "No prior lates",
+        "Other",
+        "Personal / Health",
+        "Traffic / Commute",
+        "Weather / Force Majeure"
+      ],
+      "average": [
+        0.5888872372892854,
+        0.5616020495966912,
+        0.6347404380021299,
+        0.6312557678372633,
+        0.574264317000161,
+        0.6179057694094606
+      ]
+    },
+    "has_rolling_rate": {
+      "grid_values": [
+        0.0,
+        1.0
+      ],
+      "average": [
+        0.5578068791392065,
+        0.5831816548433054
+      ]
+    },
+    "participation_trend_slope": {
+      "grid_values": [
+        -1.0,
+        -0.5000000000000002,
+        -0.5,
+        -0.4000000000000002,
+        -0.3000000000000002,
+        -0.3000000000000001,
+        -0.2000000000000001,
+        -0.1000000000000002,
+        -0.1000000000000001,
+        -0.1,
+        -2.008367332624214e-16,
+        -1.050792073945576e-16,
+        -9.093342553376475e-17,
+        -7.850462293418875e-17,
+        -5.048738044836297e-17,
+        -3.012400608888356e-17,
+        0.0,
+        1.224804924166844e-17,
+        2.11334018546116e-17,
+        1.027678954754859e-16,
+        1.561105182182926e-16,
+        0.0999999999999998,
+        0.0999999999999999,
+        0.1999999999999999,
+        0.2,
+        0.3,
+        0.4000000000000001,
+        0.5000000000000001,
+        0.9999999999999998
+      ],
+      "average": [
+        0.5758825005514537,
+        0.5783710449664085,
+        0.5783710449664085,
+        0.5796227069335997,
+        0.5720446135128849,
+        0.5720446135128849,
+        0.5743281883218995,
+        0.5767268451569407,
+        0.5767268451569407,
+        0.5767268451569407,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5709921266334413,
+        0.5706960630912756,
+        0.5706960630912756,
+        0.5706960630912756,
+        0.5706960630912756,
+        0.5739611096799337,
+        0.5739611096799337,
+        0.6027466021877107,
+        0.6027466021877107,
+        0.6093613852321063,
+        0.6024194268555181,
+        0.5951686765389148,
+        0.582088962914491
+      ]
+    },
+    "target_group_size_tier": {
+      "grid_values": [
+        "College or Department-wide",
+        "Single Class or Organization",
+        "University-wide"
+      ],
+      "average": [
+        0.5685342083184025,
+        0.5700886746299265,
+        0.5523938741109025
+      ]
+    }
+  },
+  "trained_on_rows": 5397,
+  "test_rows": 1080,
+  "test_accuracy": 0.6240740740740741,
+  "test_auc": 0.545975740656283,
+  "model_features": [
+    "rolling_participation_rate",
+    "tardiness_frequency",
+    "participation_trend_slope",
+    "consecutive_missed_events",
+    "has_rolling_rate",
+    "has_tardiness_history",
+    "has_trend",
+    "was_ever_late",
+    "duration_hours",
+    "lead_time_days",
+    "predominant_late_reason",
+    "event_category",
+    "mandatory_voluntary",
+    "day_of_week",
+    "time_of_day_bucket",
+    "venue",
+    "target_group_size_tier"
+  ],
+  "generated_at": "2026-08-29T11:14:53.041819+00:00"
+}
