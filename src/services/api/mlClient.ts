@@ -12,7 +12,7 @@ export interface MlPredictionInsights {
     importance_mean: number;
     importance_std: number;
   }>;
-  partial_dependence: Record<string, any>;
+  partial_dependence: Record<string, unknown>;
   trained_on_rows: number;
   test_rows: number;
   test_accuracy: number;

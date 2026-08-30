@@ -145,6 +145,13 @@ export type Event = {
   priorityTier?: "High" | "Medium" | "Low";
   fixedPriority?: boolean;
   predictedTurnout: number | null;
+  institutionalCategory?: string;
+  participationStatus?: string;
+  targetGroup?: string;
+  urgencyPoints?: number;
+  priorityScore?: number;
+  priorityTier?: string;
+  fixedPriority?: boolean;
   requestedBy?: string;
   collegeOffice?: string;
   numberOfPax?: number | null;

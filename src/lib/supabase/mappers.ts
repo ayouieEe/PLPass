@@ -304,7 +304,11 @@ export function mapEvent(row: Row): Event {
     priorityScore: nullableNumberValue(row, ["priority_score"]) ?? 0,
     priorityTier: optionalString(row, ["priority_tier"]) as Event["priorityTier"],
     fixedPriority: Boolean(row.fixed_priority),
+<<<<<<< HEAD
     predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]) ?? generateMockTurnout(stringValue(row, ["id", "event_id"])),
+=======
+    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]),
+>>>>>>> origin/main
     requestedBy: optionalString(row, ["requested_by"]),
     collegeOffice: optionalString(row, ["college_office"]),
     numberOfPax: nullableNumberValue(row, ["number_of_pax"]),
