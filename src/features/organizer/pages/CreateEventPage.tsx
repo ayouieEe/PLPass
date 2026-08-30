@@ -495,12 +495,15 @@ export function CreateEventPage() {
   const mutations = useEventMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
-  const form = useForm<EventFormValues>({
-    resolver: zodResolver(eventFormSchemaWithObjectives) as any,
+  const form = useForm({
+    resolver: zodResolver(eventFormSchemaWithObjectives),
     defaultValues: {
       code: "",
       title: "",
       category: "",
+      institutionalCategory: "Academic or Training",
+      participationStatus: "Mandatory",
+      targetGroup: "University-wide",
       venue: "",
       date: "",
       startTime: "",
@@ -510,12 +513,12 @@ export function CreateEventPage() {
       remarks: "",
       priorityLevel: "Flexible",
       impactScore: null,
-      fixedPriority: false
-      ,requestedBy: ""
-      ,collegeOffice: ""
-      ,numberOfPax: undefined
-      ,resourceTitle: ""
-      ,resourceUrl: ""
+      fixedPriority: false,
+      requestedBy: "",
+      collegeOffice: "",
+      numberOfPax: undefined,
+      resourceTitle: "",
+      resourceUrl: ""
     }
   });
   const {
@@ -693,7 +696,7 @@ export function CreateEventPage() {
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
               <p className="mt-1 text-sm text-muted-foreground">These values are generated automatically from the classification above.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }); return <>
+                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority ?? false, date: watchedDate }); return <>
                   <PredictionMetric label="Urgency Points" value={String(ranking.urgencyPoints)} />
                   <PredictionMetric label="Impact Points" value={String(ranking.impactPoints)} />
                   <PredictionMetric label="Priority Score" value={`${ranking.priorityScore}/9`} />
