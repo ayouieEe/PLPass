@@ -614,7 +614,7 @@ export function OrganizerAnalyticsPage() {
 
   const pdpData = useMemo(() => {
     if (!insightsData?.partial_dependence || !activePdpFeature) return null;
-    const data = insightsData.partial_dependence[activePdpFeature] as any;
+    const data = insightsData.partial_dependence[activePdpFeature] as { grid_values?: number[]; average?: number[] };
     if (!data?.grid_values || !data?.average) return null;
     return data.grid_values.map((val: number, i: number) => ({
       value: typeof val === "number" ? (val % 1 === 0 ? val : Number(val.toFixed(2))) : val,
