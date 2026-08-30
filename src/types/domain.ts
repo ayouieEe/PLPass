@@ -220,8 +220,8 @@ export type AttendanceRecord = {
   recordedByUserId?: string;
   note?: string;
   lateReasonCategory?: string;
-  timeIn?: string;
-  checkedOutAt?: string;
+  timeIn?: string | null;
+  checkedOutAt?: string | null;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 };
 
@@ -315,7 +315,7 @@ export type AuditLog = {
   targetType: string;
   targetId: ID;
   timestamp: ISODateString;
-  metadata: Record<string, string | number | boolean>;
+  metadata: Record<string, string | number | boolean | null>;
 };
 
 export type MlPrediction = {

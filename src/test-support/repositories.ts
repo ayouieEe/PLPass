@@ -334,7 +334,7 @@ function sessionSummary(sessionId: string) {
   };
 }
 
-function addSafeAudit(context: RepositoryContext, action: string, targetType: string, targetId: string, metadata: Record<string, string | number | boolean>) {
+function addSafeAudit(context: RepositoryContext, action: string, targetType: string, targetId: string, metadata: Record<string, string | number | boolean | null>) {
   auditLogState = [
     {
       id: `audit-${action}-${Date.now()}`,

@@ -170,8 +170,8 @@ describe("Attendance Check-In/Check-Out Logic", () => {
     const absentRecord = {
       status: "absent" as const,
       verificationMethod: "manual" as const,
-      checkoutVerificationMethod: null as const,
-      checkedOutAt: null as const
+      checkoutVerificationMethod: null,
+      checkedOutAt: null
     };
 
     const checkedOutRecord = {

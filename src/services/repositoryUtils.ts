@@ -47,11 +47,11 @@ export function paginate<T>(items: T[], query: Partial<ListQuery> = {}): Paginat
   };
 }
 
-export function matchesSearch(values: string[], search?: string) {
+export function matchesSearch(values: Array<string | null | undefined>, search?: string) {
   if (!search) {
     return true;
   }
 
   const normalizedSearch = search.trim().toLowerCase();
-  return values.some((value) => value.toLowerCase().includes(normalizedSearch));
+  return values.some((value) => (value ?? "").toLowerCase().includes(normalizedSearch));
 }
