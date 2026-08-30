@@ -11,4 +11,5 @@ coverage
 playwright-report
 test-results
 *.tsbuildinfo
-.gitconfig 
+.gitconfig
+*.pkl
