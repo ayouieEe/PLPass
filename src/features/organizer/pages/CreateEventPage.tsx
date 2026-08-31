@@ -136,11 +136,24 @@ function timeToMinutes(value: string) {
   return (Number.isNaN(hours) ? 0 : hours) * 60 + (Number.isNaN(minutes) ? 0 : minutes);
 }
 
-const eventFormSchemaWithObjectives = eventBaseSchema.extend({
-  objectives: z
-    .array(z.object({ value: z.string().min(3, "Objective is required.") }))
-    .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
-});
+const eventFormSchemaWithObjectives = eventBaseSchema
+  .extend({
+    objectives: z
+      .array(z.object({ value: z.string().min(3, "Objective is required.") }))
+      .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
+  })
+  .superRefine((value, ctx) => {
+    const resourceUrl = value.resourceUrl?.trim();
+    const resourceTitle = value.resourceTitle?.trim();
+
+    if (resourceUrl && !resourceTitle) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["resourceTitle"],
+        message: "Resource title is required when a resource link is provided."
+      });
+    }
+  });
 
 const sessionFormSchema = z
   .object({
@@ -417,7 +430,7 @@ export function CreateEventPage() {
       fixedPriority: false
       ,requestedBy: ""
       ,collegeOffice: ""
-      ,numberOfPax: null
+      ,numberOfPax: undefined
       ,resourceTitle: ""
       ,resourceUrl: ""
     }
@@ -465,6 +478,7 @@ export function CreateEventPage() {
   const watchedFixedPriority = form.watch("fixedPriority");
   const watchedDate = form.watch("date");
   const watchedStartTime = form.watch("startTime");
+  const watchedResourceUrl = form.watch("resourceUrl");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -526,8 +540,8 @@ export function CreateEventPage() {
         publishReason: "Published by event organizer",
         participantStudentIds: selectedIds,
         objectives: values.objectives
-          .map((objective) => objective.value.trim())
-          .filter((objective) => objective.length > 0)
+          .map((objective: { value: string }) => objective.value.trim())
+          .filter((objective: string) => objective.length > 0)
       });
       
       void auditLogMutations.logActionMutation.mutateAsync({
@@ -560,19 +574,19 @@ export function CreateEventPage() {
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Event Identification</h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} />
-                <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" />
+                <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} required />
+                <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" required />
               </div>
             </section>
 
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} />
-                <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} />
+                <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} required />
+                <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} required />
                 <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
-                  <TimePickerField control={form.control} name="startTime" label="Start Time" />
-                  <TimePickerField control={form.control} name="endTime" label="End Time" />
+                  <TimePickerField control={form.control} name="startTime" label="Start Time" required />
+                  <TimePickerField control={form.control} name="endTime" label="End Time" required />
                 </div>
               </div>
             </section>
@@ -580,13 +594,13 @@ export function CreateEventPage() {
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Classification</h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <SelectField control={form.control} name="category" label="Event Category" placeholder="Select an event category" options={CATEGORY_OPTIONS} />
+                <SelectField control={form.control} name="category" label="Event Category" placeholder="Select an event category" options={CATEGORY_OPTIONS} required />
                 <div>
-                  <SelectField control={form.control} name="institutionalCategory" label="Institutional classification (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} />
+                  <SelectField control={form.control} name="institutionalCategory" label="Institutional classification (Priority Ranking)" options={INSTITUTIONAL_CATEGORY_OPTIONS} required />
                   <p className="mt-1 text-xs text-muted-foreground">Accreditation: compliance or evaluation. Academic: learning or training. Social: interaction, recreation, or community.</p>
                 </div>
-                <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} />
-                <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} />
+                <SelectField control={form.control} name="participationStatus" label="Mandatory or Voluntary Status" options={PARTICIPATION_STATUS_OPTIONS} required />
+                <SelectField control={form.control} name="targetGroup" label="Target Group Size" options={TARGET_GROUP_OPTIONS} required />
               </div>
             </section>
 
@@ -611,8 +625,8 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
               <div className="grid gap-4 md:grid-cols-3">
                 <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
-                <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" />
-                <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={0} />
+                <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" required />
+                <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={1} required />
               </div>
             </section>
 
@@ -621,7 +635,7 @@ export function CreateEventPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
-                <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" />
+                <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" required={Boolean(watchedResourceUrl?.trim())} />
                 <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
               </div>
             </section>

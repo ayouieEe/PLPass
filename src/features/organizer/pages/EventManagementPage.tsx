@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -17,7 +17,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
-import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -119,6 +119,34 @@ function sortByPriority(events: EventRecord[]) {
   return [...events].sort((a, b) => priorityScore(b) - priorityScore(a));
 }
 
+export function toTimeInputValue(value: string) {
+  if (!value) return "";
+
+  const trimmed = value.trim();
+  const ampmMatch = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    let hours = Number(ampmMatch[1]);
+    const minutes = ampmMatch[2];
+    const meridiem = ampmMatch[3].toUpperCase();
+
+    if (meridiem === "AM" && hours === 12) hours = 0;
+    if (meridiem === "PM" && hours < 12) hours += 12;
+
+    return `${String(hours).padStart(2, "0")}:${minutes}`;
+  }
+
+  if (/^\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const timeDate = new Date(`1970-01-01T${trimmed}`);
+  if (!Number.isNaN(timeDate.getTime())) {
+    return timeDate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
+  return "";
+}
+
 function toMinutes(time: string) {
   // Accepts "HH:MM" (24h) or "hh:MM AM/PM" — falls back to 0 if unparsable
   // so a bad value never throws during conflict detection.
@@ -138,7 +166,6 @@ function toMinutes(time: string) {
   }
   return hours * 60 + minutes;
 }
-
 
 function timeRangesOverlap(startA: string, endA: string, startB: string, endB: string) {
   const startAMin = toMinutes(startA);
@@ -306,8 +333,8 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
     defaultValues: {
       venue: event.venue || "",
       date: event.date || "",
-      startTime: event.startTime || "",
-      endTime: event.endTime || "",
+      startTime: toTimeInputValue(event.startTime || ""),
+      endTime: toTimeInputValue(event.endTime || ""),
       reason: ""
     }
   });
@@ -318,8 +345,8 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
         eventId: event.id || "",
         venue: values.venue,
         date: values.date,
-        startTime: values.startTime,
-        endTime: values.endTime,
+        startTime: toTimeInputValue(values.startTime || ""),
+        endTime: toTimeInputValue(values.endTime || ""),
         reason: values.reason
       });
       onClose();
@@ -400,7 +427,6 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 
 export function EventManagementPage() {
   const location = useLocation();
-  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -590,7 +616,7 @@ export function EventManagementPage() {
           name: event.title,
           category: event.category,
           venue: event.venue,
-          date: event.startsAt.slice(0, 10),
+          date: dateKey(event.startsAt),
           startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
           endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
           predictedTurnout: "85%",
@@ -693,8 +719,8 @@ export function EventManagementPage() {
     setSessionForm({
       venue: event.venue,
       date: event.date,
-      startTime: event.startTime,
-      endTime: event.endTime,
+      startTime: toTimeInputValue(event.startTime),
+      endTime: toTimeInputValue(event.endTime),
       method: defaultAttendanceMethod
     });
   }
@@ -1221,11 +1247,10 @@ export function EventManagementPage() {
                         size="sm"
                         className="mt-4"
                         onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("The active session is still loading. Please wait a moment and try again.");
-                            return;
+                          setCaptureMode("QR Code");
+                          if (typeof window !== "undefined") {
+                            window.scrollTo({ top: 0, behavior: "smooth" });
                           }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
                         }}
                       >
                         Open QR scanner
@@ -1243,11 +1268,10 @@ export function EventManagementPage() {
                         size="sm"
                         className="mt-4"
                         onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("The active session is still loading. Please wait a moment and try again.");
-                            return;
+                          setCaptureMode("Facial Recognition");
+                          if (typeof window !== "undefined") {
+                            window.scrollTo({ top: 0, behavior: "smooth" });
                           }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
                         }}
                       >
                         Open live verification
@@ -1535,9 +1559,8 @@ export function EventManagementPage() {
               <input
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.venue}
-                onChange={(event) => setSessionForm((current) => ({ ...current, venue: event.target.value }))}
-                placeholder="Enter session venue"
-                autoComplete="off"
+                readOnly
+                aria-readonly="true"
                 required
               />
             </label>
@@ -1547,7 +1570,8 @@ export function EventManagementPage() {
                 type="date"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.date}
-                onChange={(event) => setSessionForm((current) => ({ ...current, date: event.target.value }))}
+                readOnly
+                aria-readonly="true"
                 required
               />
             </label>
@@ -1557,7 +1581,8 @@ export function EventManagementPage() {
                 type="time"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.startTime}
-                onChange={(event) => setSessionForm((current) => ({ ...current, startTime: event.target.value }))}
+                readOnly
+                aria-readonly="true"
                 required
               />
             </label>
@@ -1567,7 +1592,8 @@ export function EventManagementPage() {
                 type="time"
                 className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 value={sessionForm.endTime}
-                onChange={(event) => setSessionForm((current) => ({ ...current, endTime: event.target.value }))}
+                readOnly
+                aria-readonly="true"
                 required
               />
             </label>

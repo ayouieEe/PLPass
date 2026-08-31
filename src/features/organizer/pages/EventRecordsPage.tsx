@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
@@ -184,7 +184,8 @@ function completedFromRepositoryEvent(event: {
     name: event.title,
     category: event.category,
     venue: event.venue,
-    date: event.startsAt.slice(0, 10),
+    date: 
+    (event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",

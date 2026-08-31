@@ -8,6 +8,7 @@ type DatePickerFieldProps<TFieldValues extends FieldValues> = {
   label: string;
   disabled?: boolean;
   min?: string;
+  required?: boolean;
 };
 
 export function DatePickerField<TFieldValues extends FieldValues>({
@@ -16,6 +17,7 @@ export function DatePickerField<TFieldValues extends FieldValues>({
   label,
   disabled,
   min,
+  required = false,
 }: DatePickerFieldProps<TFieldValues>) {
   const errorId = `field-error-${useId().replace(/:/g, "")}`;
   return (
@@ -41,13 +43,17 @@ export function DatePickerField<TFieldValues extends FieldValues>({
 
         return (
           <label className="space-y-1.5">
-            <span className={labelClass}>{label}</span>
+            <span className={labelClass}>
+              {label}
+              {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
+            </span>
             <input
               {...field}
               className={fieldBaseClass}
               type="date"
               disabled={disabled}
               min={min}
+              aria-required={required || undefined}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
               aria-describedby={fieldState.error ? errorId : undefined}
