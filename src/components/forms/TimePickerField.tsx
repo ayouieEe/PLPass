@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldBaseClass, fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
-type TimePickerFieldProps<TFieldValues extends FieldValues = any> = {
+type TimePickerFieldProps<TFieldValues extends FieldValues> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
@@ -10,7 +10,7 @@ type TimePickerFieldProps<TFieldValues extends FieldValues = any> = {
   required?: boolean;
 };
 
-export function TimePickerField<TFieldValues extends FieldValues = any>({
+export function TimePickerField<TFieldValues extends FieldValues>({
   control,
   name,
   label,
@@ -28,7 +28,7 @@ export function TimePickerField<TFieldValues extends FieldValues = any>({
             {label}
             {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
           </span>
-          <input {...field} className={fieldBaseClass} type="time" disabled={disabled} required={required} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined} />
+          <input {...field} className={fieldBaseClass} type="time" disabled={disabled} aria-required={required || undefined} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined} />
           {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}

@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldBaseClass, fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
-type TextFieldProps<TFieldValues extends FieldValues = any> = {
+type TextFieldProps<TFieldValues extends FieldValues> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
@@ -18,7 +18,7 @@ type TextFieldProps<TFieldValues extends FieldValues = any> = {
   className?: string;
 };
 
-export function TextField<TFieldValues extends FieldValues = any>({
+export function TextField<TFieldValues extends FieldValues>({
   control,
   name,
   label,
@@ -80,7 +80,7 @@ export function TextField<TFieldValues extends FieldValues = any>({
               max={max}
               disabled={disabled}
               readOnly={readOnly}
-              required={required}
+              aria-required={required || undefined}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
               aria-describedby={fieldState.error ? errorId : undefined}

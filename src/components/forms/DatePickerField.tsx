@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Controller, type Control, type FieldPath, type FieldValues } from "react-hook-form";
 import { fieldBaseClass, fieldErrorClass, labelClass } from "@/components/forms/fieldStyles";
 
-type DatePickerFieldProps<TFieldValues extends FieldValues = any> = {
+type DatePickerFieldProps<TFieldValues extends FieldValues> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
@@ -11,7 +11,7 @@ type DatePickerFieldProps<TFieldValues extends FieldValues = any> = {
   required?: boolean;
 };
 
-export function DatePickerField<TFieldValues extends FieldValues = any>({
+export function DatePickerField<TFieldValues extends FieldValues>({
   control,
   name,
   label,
@@ -53,7 +53,7 @@ export function DatePickerField<TFieldValues extends FieldValues = any>({
               type="date"
               disabled={disabled}
               min={min}
-              required={required}
+              aria-required={required || undefined}
               onChange={handleChange}
               aria-invalid={Boolean(fieldState.error)}
               aria-describedby={fieldState.error ? errorId : undefined}

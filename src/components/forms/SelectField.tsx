@@ -7,7 +7,7 @@ type SelectOption = {
   value: string;
 };
 
-type SelectFieldProps<TFieldValues extends FieldValues = any> = {
+type SelectFieldProps<TFieldValues extends FieldValues> = {
   control: Control<TFieldValues>;
   name: FieldPath<TFieldValues>;
   label: string;
@@ -17,7 +17,7 @@ type SelectFieldProps<TFieldValues extends FieldValues = any> = {
   required?: boolean;
 };
 
-export function SelectField<TFieldValues extends FieldValues = any>({
+export function SelectField<TFieldValues extends FieldValues>({
   control,
   name,
   label,
@@ -37,7 +37,7 @@ export function SelectField<TFieldValues extends FieldValues = any>({
             {label}
             {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
           </span>
-          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled} required={required} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined}>
+          <select {...field} className="plpass-select h-10 rounded-md" disabled={disabled} aria-required={required || undefined} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined}>
             <option value="">{placeholder}</option>
             {options.map((option) => (
               <option key={option.value} value={option.value}>
