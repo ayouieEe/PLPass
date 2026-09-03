@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
 import { Eye, FileDown, FileSpreadsheet, Search, X } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -15,6 +16,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { dateKey, formatDisplayTime } from "@/lib/utils/date";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
@@ -203,6 +205,8 @@ function completedFromRepositoryEvent(event: {
 }
 
 export function EventRecordsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
 
@@ -297,6 +301,17 @@ export function EventRecordsPage() {
   }, [repositoryCompletedEvents, attendanceSummariesQuery.data]);
 
   const completedRows = repositoryCompletedEventsWithAttendance;
+
+  useEffect(() => {
+    const eventId = new URLSearchParams(location.search).get("event");
+    if (!eventId) return;
+
+    const event = completedRows.find((row) => row.id === eventId);
+    if (!event) return;
+
+    setCompletedModal(event);
+    navigate(APP_ROUTES.organizerRecords, { replace: true });
+  }, [completedRows, location.search, navigate]);
 
   const pastEvents = useMemo(
     () => completedRows.filter((event) => matchesSearch(event, search)),
