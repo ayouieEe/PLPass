@@ -21,11 +21,16 @@ export async function identifyLiveFace(eventSessionId: string, intendedAction: "
   body.append("event_session_id", eventSessionId);
   body.append("intended_action", intendedAction);
   body.append("capture", capture, "live-face.jpg");
-  const response = await fetch(`${API_BASE}/facial/identify`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}/facial/identify`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body
+    });
+  } catch {
+    throw new Error("The facial recognition service is offline. Start the PLPass API and try again.");
+  }
   const payload = await response.json().catch(() => null) as FacialIdentificationResult | { detail?: string } | null;
   if (!response.ok) {
     throw new Error(payload && "detail" in payload && payload.detail ? payload.detail : "Facial identification failed.");

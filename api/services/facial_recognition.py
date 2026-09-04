@@ -24,6 +24,18 @@ class FacialRecognitionError(RuntimeError):
         self.status_code = status_code
 
 
+def _supabase_rpc_error(response: httpx.Response, fallback: str) -> FacialRecognitionError:
+    """Preserve safe PostgREST validation messages instead of hiding the cause."""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    message = payload.get("message") if isinstance(payload, dict) else None
+    detail = message.strip() if isinstance(message, str) and message.strip() else fallback
+    status_code = 403 if response.status_code in {400, 401, 403} else response.status_code
+    return FacialRecognitionError(detail, status_code)
+
+
 def _supabase_settings() -> tuple[str, str]:
     url = (os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL") or "").rstrip("/")
     key = (
@@ -122,7 +134,7 @@ async def identify_and_record(
             json={"p_event_session_id": event_session_id},
         )
         if candidate_response.status_code >= 400:
-            raise FacialRecognitionError("The active facial session could not be authorized.", candidate_response.status_code)
+            raise _supabase_rpc_error(candidate_response, "The active facial session could not be authorized.")
         candidates = candidate_response.json()
         if not candidates:
             raise FacialRecognitionError("No enrolled facial profiles are available for this event.")
@@ -170,7 +182,7 @@ async def identify_and_record(
             },
         )
         if record_response.status_code >= 400:
-            raise FacialRecognitionError("The verified attendance result could not be recorded.", record_response.status_code)
+            raise _supabase_rpc_error(record_response, "The verified attendance result could not be recorded.")
 
     record = record_response.json()
     return {

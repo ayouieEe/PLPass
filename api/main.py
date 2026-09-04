@@ -3,16 +3,31 @@ import sys
 import json
 import joblib
 import pandas as pd
+from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+if sys.platform == "win32":
+    # DeepFace logs Unicode status symbols while downloading model weights.
+    # Windows terminals otherwise default to cp1252 and abort the download.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
+
 # Add the parent directory to sys.path so we can import from ml and api modules
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
+
+# The frontend and local API share the same Supabase configuration. Load the
+# developer-specific file first, while still allowing real environment
+# variables to take precedence in hosted environments.
+load_dotenv(os.path.join(parent_dir, ".env.local"))
+load_dotenv(os.path.join(parent_dir, ".env"))
 
 from ml.feature_assembly import assemble_student_features
 from api.services.supabase_client import get_event_features, get_batch_student_history
