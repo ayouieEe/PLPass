@@ -32,7 +32,7 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 from ml.feature_assembly import assemble_student_features
 from api.services.supabase_client import get_event_features, get_batch_student_history
 from api.services.prediction_insights import get_risk_level, get_pattern_insights
-from api.services.facial_recognition import FacialRecognitionError, identify_and_record
+from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, identify_and_record
 
 # Global dictionary to store ML artifacts
 ml_artifacts = {}
@@ -175,19 +175,21 @@ async def model_insights():
 async def identify_live_face(
     event_session_id: str = Form(...),
     intended_action: str = Form("check_in"),
-    capture: UploadFile = File(...),
+    captures: list[UploadFile] = File(...),
     authorization: str | None = Header(default=None),
 ):
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="An authenticated organizer session is required.")
-    if capture.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+    if len(captures) != MIN_CAPTURE_FRAMES:
+        raise HTTPException(status_code=422, detail=f"Exactly {MIN_CAPTURE_FRAMES} camera frames are required.")
+    if any(capture.content_type not in {"image/jpeg", "image/png", "image/webp"} for capture in captures):
         raise HTTPException(status_code=415, detail="Capture must be a JPEG, PNG, or WebP image.")
     try:
         return await identify_and_record(
             access_token=authorization.split(" ", 1)[1].strip(),
             event_session_id=event_session_id,
             intended_action=intended_action,
-            capture_bytes=await capture.read(),
+            capture_bytes_list=[await capture.read() for capture in captures],
         )
     except FacialRecognitionError as error:
         raise HTTPException(status_code=error.status_code, detail=str(error)) from error

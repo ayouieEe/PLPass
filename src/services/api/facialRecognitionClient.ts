@@ -12,7 +12,7 @@ export type FacialIdentificationResult = {
   recorded_at?: string;
 };
 
-export async function identifyLiveFace(eventSessionId: string, intendedAction: "check_in" | "check_out", capture: Blob): Promise<FacialIdentificationResult> {
+export async function identifyLiveFace(eventSessionId: string, intendedAction: "check_in" | "check_out", captures: Blob[]): Promise<FacialIdentificationResult> {
   const { data } = await getSupabaseBrowserClient().auth.getSession();
   const accessToken = data.session?.access_token;
   if (!accessToken) throw new Error("Your organizer session expired. Sign in again.");
@@ -20,7 +20,7 @@ export async function identifyLiveFace(eventSessionId: string, intendedAction: "
   const body = new FormData();
   body.append("event_session_id", eventSessionId);
   body.append("intended_action", intendedAction);
-  body.append("capture", capture, "live-face.jpg");
+  captures.forEach((capture, index) => body.append("captures", capture, `live-face-${index + 1}.jpg`));
   let response: Response;
   try {
     response = await fetch(`${API_BASE}/facial/identify`, {

@@ -29,8 +29,10 @@ describe("live facial identification", () => {
   it("performs anti-spoofing and rejects ambiguous one-to-many matches", () => {
     expect(facialService).toContain("anti_spoofing=True");
     expect(facialService).toContain("best_score - matches[1][0] < AMBIGUITY_MARGIN");
-    expect(facialService).toContain('DEEPFACE_MIN_SIMILARITY", "0.80"');
+    expect(facialService).toContain('DEEPFACE_MIN_SIMILARITY", "0.85"');
     expect(facialService).toContain("return max(MIN_SIMILARITY, model_threshold)");
+    expect(facialService).toContain("MIN_CAPTURE_FRAMES");
+    expect(facialService).toContain("Face identity was not stable across the verification frames");
     expect(facialService).toContain("get_live_facial_candidates");
   });
 

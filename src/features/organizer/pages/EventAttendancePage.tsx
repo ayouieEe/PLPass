@@ -179,6 +179,15 @@ async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
   return blob;
 }
 
+async function captureFaceBurst(video: HTMLVideoElement): Promise<Blob[]> {
+  const frames: Blob[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    frames.push(await captureVideoFrame(video));
+    if (index < 2) await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
+  }
+  return frames;
+}
+
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
@@ -479,10 +488,10 @@ export function EventAttendancePage() {
     }
     if (facialVerifying || attendanceMutations.credentialScanMutation.isPending) return;
     setFacialVerifying(true);
-    setFacialStatus("Checking liveness and searching enrolled event participants…");
+    setFacialStatus("Checking three live frames and searching enrolled event participants…");
     try {
-      const capture = await captureVideoFrame(video);
-      const result = await identifyLiveFace(session.id, facialActionMode, capture);
+      const captures = await captureFaceBurst(video);
+      const result = await identifyLiveFace(session.id, facialActionMode, captures);
       const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
       setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}, ${Math.round(result.similarity * 100)}% similarity. Ready for the next student.`);
       toast.success(`${result.display_name}: ${actionLabel}`);

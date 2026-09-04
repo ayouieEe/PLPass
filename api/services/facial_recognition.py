@@ -16,8 +16,9 @@ DETECTOR_BACKEND = os.environ.get("DEEPFACE_DETECTOR", "opencv")
 # DeepFace's generic benchmark threshold is only a starting point.  Live
 # attendance is a one-to-many decision, so it needs a stricter floor to avoid
 # assigning an unknown visitor to the nearest enrolled student.
-MIN_SIMILARITY = float(os.environ.get("DEEPFACE_MIN_SIMILARITY", "0.80"))
-AMBIGUITY_MARGIN = float(os.environ.get("DEEPFACE_AMBIGUITY_MARGIN", "0.10"))
+MIN_SIMILARITY = float(os.environ.get("DEEPFACE_MIN_SIMILARITY", "0.85"))
+AMBIGUITY_MARGIN = float(os.environ.get("DEEPFACE_AMBIGUITY_MARGIN", "0.12"))
+MIN_CAPTURE_FRAMES = int(os.environ.get("DEEPFACE_MIN_CAPTURE_FRAMES", "3"))
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _REFERENCE_CACHE: dict[str, tuple[float, ...]] = {}
 
@@ -122,15 +123,18 @@ def _model_similarity_threshold() -> float:
 
 
 async def identify_and_record(
-    *, access_token: str, event_session_id: str, intended_action: str, capture_bytes: bytes
+    *, access_token: str, event_session_id: str, intended_action: str, capture_bytes_list: list[bytes]
 ) -> dict[str, Any]:
     if intended_action not in {"check_in", "check_out"}:
         raise FacialRecognitionError("Facial attendance action must be check_in or check_out.")
+    if len(capture_bytes_list) != MIN_CAPTURE_FRAMES:
+        raise FacialRecognitionError(f"Exactly {MIN_CAPTURE_FRAMES} face captures are required for verification.")
     url, _ = _supabase_settings()
     headers = _authorized_headers(access_token)
-    capture = _decode_image(capture_bytes)
-    await asyncio.to_thread(_assert_live_face, capture)
-    capture_embedding = await asyncio.to_thread(_embedding, capture)
+    captures = [_decode_image(capture_bytes) for capture_bytes in capture_bytes_list]
+    for capture in captures:
+        await asyncio.to_thread(_assert_live_face, capture)
+    capture_embeddings = [await asyncio.to_thread(_embedding, capture) for capture in captures]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         candidate_response = await client.post(
@@ -144,7 +148,7 @@ async def identify_and_record(
         if not candidates:
             raise FacialRecognitionError("No enrolled facial profiles are available for this event.")
 
-        matches: list[tuple[float, dict[str, Any]]] = []
+        reference_candidates: list[tuple[np.ndarray[Any, Any], dict[str, Any]]] = []
         for candidate in candidates:
             reference = str(candidate.get("enrollment_reference") or "")
             if not reference:
@@ -164,17 +168,29 @@ async def identify_and_record(
                 reference_embedding = np.asarray(cached_embedding, dtype=np.float32)
             except (FacialRecognitionError, ValueError):
                 continue
-            matches.append((_cosine_similarity(capture_embedding, reference_embedding), candidate))
+            reference_candidates.append((reference_embedding, candidate))
 
-        if not matches:
+        if not reference_candidates:
             raise FacialRecognitionError("No usable enrolled facial profiles were found for this event.")
-        matches.sort(key=lambda item: item[0], reverse=True)
-        best_score, best_candidate = matches[0]
         threshold = _model_similarity_threshold()
-        if best_score < threshold:
-            raise FacialRecognitionError("Face was not recognized with sufficient confidence. Use QR or manual attendance.")
-        if len(matches) > 1 and best_score - matches[1][0] < AMBIGUITY_MARGIN:
-            raise FacialRecognitionError("The facial match is ambiguous. Use QR or manual attendance.")
+        frame_winners: list[tuple[float, dict[str, Any]]] = []
+        for capture_embedding in capture_embeddings:
+            matches = [
+                (_cosine_similarity(capture_embedding, reference_embedding), candidate)
+                for reference_embedding, candidate in reference_candidates
+            ]
+            matches.sort(key=lambda item: item[0], reverse=True)
+            best_score, best_candidate = matches[0]
+            if best_score < threshold:
+                raise FacialRecognitionError("Face was not recognized with sufficient confidence. Use QR or manual attendance.")
+            if len(matches) > 1 and best_score - matches[1][0] < AMBIGUITY_MARGIN:
+                raise FacialRecognitionError("The facial match is ambiguous. Use QR or manual attendance.")
+            frame_winners.append((best_score, best_candidate))
+
+        best_candidate = frame_winners[0][1]
+        if any(candidate["student_id"] != best_candidate["student_id"] for _, candidate in frame_winners[1:]):
+            raise FacialRecognitionError("Face identity was not stable across the verification frames. Use QR or manual attendance.")
+        best_score = float(np.median([score for score, _ in frame_winners]))
 
         record_response = await client.post(
             f"{url}/rest/v1/rpc/record_live_facial_attendance",
