@@ -13,7 +13,11 @@ import numpy as np
 
 MODEL_NAME = os.environ.get("DEEPFACE_MODEL", "SFace")
 DETECTOR_BACKEND = os.environ.get("DEEPFACE_DETECTOR", "opencv")
-AMBIGUITY_MARGIN = float(os.environ.get("DEEPFACE_AMBIGUITY_MARGIN", "0.05"))
+# DeepFace's generic benchmark threshold is only a starting point.  Live
+# attendance is a one-to-many decision, so it needs a stricter floor to avoid
+# assigning an unknown visitor to the nearest enrolled student.
+MIN_SIMILARITY = float(os.environ.get("DEEPFACE_MIN_SIMILARITY", "0.80"))
+AMBIGUITY_MARGIN = float(os.environ.get("DEEPFACE_AMBIGUITY_MARGIN", "0.10"))
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _REFERENCE_CACHE: dict[str, tuple[float, ...]] = {}
 
@@ -113,7 +117,8 @@ def _cosine_similarity(first: np.ndarray[Any, Any], second: np.ndarray[Any, Any]
 def _model_similarity_threshold() -> float:
     from deepface.modules.verification import find_threshold
 
-    return 1.0 - float(find_threshold(MODEL_NAME, "cosine"))
+    model_threshold = 1.0 - float(find_threshold(MODEL_NAME, "cosine"))
+    return max(MIN_SIMILARITY, model_threshold)
 
 
 async def identify_and_record(
@@ -167,7 +172,7 @@ async def identify_and_record(
         best_score, best_candidate = matches[0]
         threshold = _model_similarity_threshold()
         if best_score < threshold:
-            raise FacialRecognitionError("Face was not recognized. Use QR or manual attendance.")
+            raise FacialRecognitionError("Face was not recognized with sufficient confidence. Use QR or manual attendance.")
         if len(matches) > 1 and best_score - matches[1][0] < AMBIGUITY_MARGIN:
             raise FacialRecognitionError("The facial match is ambiguous. Use QR or manual attendance.")
 
