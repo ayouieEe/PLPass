@@ -31,4 +31,10 @@ describe("live facial identification", () => {
     expect(facialService).toContain("best_score - matches[1][0] < AMBIGUITY_MARGIN");
     expect(facialService).toContain("get_live_facial_candidates");
   });
+
+  it("shows the recognized student's name and recorded check-in/out times", () => {
+    expect(attendancePage).toContain("student.formattedName");
+    expect(attendancePage).toContain("timeIn: record.timeIn ?? record.recordedAt");
+    expect(attendancePage).toContain("timeOut: record.checkedOutAt");
+  });
 });

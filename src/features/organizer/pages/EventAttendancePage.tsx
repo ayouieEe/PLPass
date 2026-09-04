@@ -214,7 +214,9 @@ function eventLabel(event: Event | undefined) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+  if (!student) return "Unknown student";
+  const profileName = [student.firstName, student.middleName, student.lastName].filter(Boolean).join(" ");
+  return student.formattedName || student.fullName || profileName || student.studentNumber;
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {
@@ -259,7 +261,9 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
     status: record.status === "excused" ? "manual" : record.status,
-    timestamp: formatTime(record.recordedAt)
+    timestamp: record.recordedAt,
+    timeIn: record.timeIn ?? record.recordedAt,
+    timeOut: record.checkedOutAt
   }));
 }
 
