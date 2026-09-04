@@ -25,9 +25,9 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
 import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
-import { extractFaceDescriptorFromFile, prepareFaceRecognition } from "@/lib/biometrics/humanFace";
+import { enrollFacePose } from "@/services/api/facialRecognitionClient";
 import { cn } from "@/lib/utils/cn";
 import {
   ensureStudentIdentityReadiness,
@@ -124,7 +124,6 @@ export function AttendanceMethodsPage() {
   const scope = useStudentScope();
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
-  const credentialMutations = useStudentCredentialMutations(scope.context);
   const [showChangeRequest, setShowChangeRequest] = useState(false);
   const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
   const [showIssueReport, setShowIssueReport] = useState(false);
@@ -134,7 +133,8 @@ export function AttendanceMethodsPage() {
   const [faceEnrollmentFile, setFaceEnrollmentFile] = useState<File | null>(null);
   const [faceEnrollmentError, setFaceEnrollmentError] = useState("");
   const [faceEnrollmentProcessing, setFaceEnrollmentProcessing] = useState(false);
-  const [faceRecognitionPreparing, setFaceRecognitionPreparing] = useState(false);
+  const [faceEnrollmentPose, setFaceEnrollmentPose] = useState<"front" | "left" | "right">("front");
+  const [completedFacePoses, setCompletedFacePoses] = useState<string[]>([]);
   const [faceEnrollmentInputKey, setFaceEnrollmentInputKey] = useState(0);
   const [facePreviewUrl, setFacePreviewUrl] = useState("");
   const [faceCameraError, setFaceCameraError] = useState("");
@@ -206,22 +206,6 @@ export function AttendanceMethodsPage() {
       stopFaceCamera();
     };
   }, [showFaceEnrollment, faceEnrollmentFile, faceCameraRestartKey]);
-
-  useEffect(() => {
-    if (!showFaceEnrollment) return;
-    let cancelled = false;
-    setFaceRecognitionPreparing(true);
-    void prepareFaceRecognition()
-      .catch(() => {
-        if (!cancelled) setFaceEnrollmentError("Face recognition could not start. Please check your connection and try again.");
-      })
-      .finally(() => {
-        if (!cancelled) setFaceRecognitionPreparing(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [showFaceEnrollment]);
 
   if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
@@ -351,7 +335,7 @@ export function AttendanceMethodsPage() {
       return;
     }
 
-    setFaceEnrollmentCapture(file);
+    void saveFaceCapture(file);
   }
 
   function captureLiveFacePhoto() {
@@ -384,32 +368,31 @@ export function AttendanceMethodsPage() {
       }
 
       const file = new File([blob], `face-enrollment-${student.studentNumber}.jpg`, { type: "image/jpeg" });
-      setFaceEnrollmentCapture(file);
+      void saveFaceCapture(file);
     }, "image/jpeg", 0.9);
   }
 
-  async function handleFaceEnrollmentSubmit() {
-    if (!faceEnrollmentFile) {
-      setFaceEnrollmentError("Attach a clear face photo before enrolling.");
-      return;
-    }
-
+  async function saveFaceCapture(file: File) {
     try {
       setFaceEnrollmentError("");
       setFaceEnrollmentProcessing(true);
-      const { descriptor } = await extractFaceDescriptorFromFile(faceEnrollmentFile);
-      await credentialMutations.enrollFacialProfileMutation.mutateAsync({
-        studentId: student.id,
-        faceImage: faceEnrollmentFile,
-        faceDescriptor: descriptor
-      });
-      toast.success("Facial backup enrolled.");
+      setFaceEnrollmentCapture(file);
+      const result = await enrollFacePose(faceEnrollmentPose, file);
+      setCompletedFacePoses(result.completed_poses);
       resetFaceEnrollmentFile();
-      setShowFaceEnrollment(false);
+      if (result.complete) {
+        toast.success("Three-angle facial backup enrolled.");
+        setShowFaceEnrollment(false);
+        await credentialStatusQuery.refetch();
+      } else {
+        const nextPose = (["front", "left", "right"] as const).find((pose) => !result.completed_poses.includes(pose)) ?? "front";
+        setFaceEnrollmentPose(nextPose);
+        toast.success(`${faceEnrollmentPose === "front" ? "Front" : faceEnrollmentPose === "left" ? "Slight left" : "Slight right"} capture saved. Capture ${nextPose === "left" ? "a slight left turn" : nextPose === "right" ? "a slight right turn" : "the front"} next.`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to enroll face.";
       setFaceEnrollmentError(message);
-      toast.error(`${message} If it was already enrolled, submit a re-enrollment request.`);
+      toast.error(message);
     } finally {
       setFaceEnrollmentProcessing(false);
     }
@@ -537,7 +520,7 @@ export function AttendanceMethodsPage() {
                         <p className="mt-0.5 text-sm text-muted-foreground">
                           {identityReadiness.faceEnrolled
                             ? "Your face is already enrolled. Submit a re-enrollment request only if it needs to be changed."
-                            : "Attach one clear face photo. After enrollment, changes must go through a re-enrollment request."}
+                            : "Follow the three quick camera prompts. Each capture is saved automatically."}
                         </p>
                         {pendingFacialRequest ? (
                           <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-success">
@@ -617,7 +600,7 @@ export function AttendanceMethodsPage() {
       <ModalShell
         open={showFaceEnrollment}
         title="Enroll facial backup"
-        description="Capture a live face photo. You can enroll only once; future changes require a re-enrollment request."
+        description="Capture front, slight left, and slight right. All three are required; future changes require a re-enrollment request."
         size="md"
         onClose={() => {
           setShowFaceEnrollment(false);
@@ -631,16 +614,16 @@ export function AttendanceMethodsPage() {
                 <Camera className="h-5 w-5 text-primary" />
               </span>
               <div>
-                <p className="font-semibold">Use a clear live front-facing photo.</p>
+                <p className="font-semibold">Capture: {faceEnrollmentPose === "front" ? "Front" : faceEnrollmentPose === "left" ? "Slight Left" : "Slight Right"}</p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  This becomes your backup identity record for organizer-assisted verification. Make sure your face is centered and well-lit.
+                  Make a natural slight head turn for side captures. Keep one face centered and well-lit; no photo is stored after the embedding is created.
                 </p>
               </div>
             </div>
           </div>
 
           <div className="rounded-2xl border bg-surface-muted/40 p-4">
-            <p id="face-camera-instructions" className="sr-only">Live camera preview for facial enrollment. Center your face in the frame with even lighting, then choose Capture face. If the camera is unavailable, use the file fallback.</p>
+            <p id="face-camera-instructions" className="sr-only">Live camera preview for facial enrollment. Center your face in the frame with even lighting, then capture the requested pose. Each capture saves automatically. If the camera is unavailable, use the file fallback.</p>
             <div className="overflow-hidden rounded-2xl border bg-black">
               {facePreviewUrl ? (
                 <img src={facePreviewUrl} alt="Captured face preview" className="aspect-video w-full object-cover" />
@@ -650,7 +633,7 @@ export function AttendanceMethodsPage() {
                     ref={faceVideoRef}
                     aria-label="Live facial enrollment camera preview"
                     aria-describedby="face-camera-instructions"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full scale-x-[-1] object-cover"
                     muted
                     playsInline
                     autoPlay
@@ -673,25 +656,27 @@ export function AttendanceMethodsPage() {
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"}</p>
+                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"} · {completedFacePoses.length}/3 poses saved</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {faceEnrollmentFile
-                    ? `Ready to enroll. File size: ${formatFileSize(faceEnrollmentFile.size)}.`
-                    : `Capture must be clear and front-facing. Maximum file size is ${formatFileSize(faceEnrollmentMaxBytes)}.`}
+                  {faceEnrollmentProcessing
+                    ? "Checking and saving this pose automatically…"
+                    : faceEnrollmentFile
+                      ? `Capture could not be saved. File size: ${formatFileSize(faceEnrollmentFile.size)}.`
+                      : `Capture is saved automatically. Maximum file size is ${formatFileSize(faceEnrollmentMaxBytes)}.`}
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {faceEnrollmentFile ? (
+                {faceEnrollmentFile && !faceEnrollmentProcessing ? (
                   <Button type="button" variant="outline" onClick={resetFaceEnrollmentFile}>
                     Retake photo
                   </Button>
-                ) : (
-                  <Button type="button" onClick={captureLiveFacePhoto} disabled={faceCameraStarting || Boolean(faceCameraError)}>
+                ) : !faceEnrollmentFile ? (
+                  <Button type="button" onClick={captureLiveFacePhoto} disabled={faceCameraStarting || faceEnrollmentProcessing || Boolean(faceCameraError)}>
                     <Camera className="mr-2 h-4 w-4" />
-                    Capture face
+                    {faceEnrollmentProcessing ? "Saving…" : `Capture ${faceEnrollmentPose === "front" ? "front" : faceEnrollmentPose === "left" ? "slight left" : "slight right"}`}
                   </Button>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -718,7 +703,6 @@ export function AttendanceMethodsPage() {
             ) : null}
 
             {faceEnrollmentError ? <p className="mt-2 text-sm text-danger">{faceEnrollmentError}</p> : null}
-            {faceRecognitionPreparing ? <p className="mt-2 text-xs text-muted-foreground">Preparing face recognition in the background…</p> : null}
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
@@ -731,13 +715,6 @@ export function AttendanceMethodsPage() {
               }}
             >
               Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={credentialMutations.enrollFacialProfileMutation.isPending || faceEnrollmentProcessing || !faceEnrollmentFile || Boolean(faceEnrollmentError)}
-              onClick={handleFaceEnrollmentSubmit}
-            >
-              {faceEnrollmentProcessing ? "Checking face..." : credentialMutations.enrollFacialProfileMutation.isPending ? "Enrolling..." : "Enroll face"}
             </Button>
           </div>
         </div>

@@ -179,15 +179,6 @@ async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
   return blob;
 }
 
-async function captureFaceBurst(video: HTMLVideoElement): Promise<Blob[]> {
-  const frames: Blob[] = [];
-  for (let index = 0; index < 3; index += 1) {
-    frames.push(await captureVideoFrame(video));
-    if (index < 2) await new Promise<void>((resolve) => window.setTimeout(resolve, 300));
-  }
-  return frames;
-}
-
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
@@ -356,7 +347,6 @@ export function EventAttendancePage() {
   const [facialVerifying, setFacialVerifying] = useState(false);
   const facialVideoRef = useRef<HTMLVideoElement | null>(null);
   const facialStreamRef = useRef<MediaStream | null>(null);
-  const facialScanRunnerRef = useRef<() => Promise<void>>(async () => undefined);
 
   const selectedSession = sessionQuery.data;
   const selectedEvent = eventsQuery.data?.items.find((item) => item.id === selectedSession?.eventId);
@@ -389,12 +379,6 @@ export function EventAttendancePage() {
       facialStreamRef.current?.getTracks().forEach((track) => track.stop());
       facialStreamRef.current = null;
     };
-  }, [facialCameraOpen]);
-
-  useEffect(() => {
-    if (!facialCameraOpen) return;
-    const timer = window.setInterval(() => void facialScanRunnerRef.current(), 2500);
-    return () => window.clearInterval(timer);
   }, [facialCameraOpen]);
 
   const shellState = <ShellState scope={scope} />;
@@ -488,21 +472,20 @@ export function EventAttendancePage() {
     }
     if (facialVerifying || attendanceMutations.credentialScanMutation.isPending) return;
     setFacialVerifying(true);
-    setFacialStatus("Checking three live frames and searching enrolled event participants…");
+    setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
-      const captures = await captureFaceBurst(video);
-      const result = await identifyLiveFace(session.id, facialActionMode, captures);
+      const result = await identifyLiveFace(session.id, facialActionMode, [await captureVideoFrame(video)]);
       const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
-      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}, ${Math.round(result.similarity * 100)}% similarity. Ready for the next student.`);
+      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. Face distance: ${result.distance.toFixed(3)}. Returning to QR for the next student.`);
       toast.success(`${result.display_name}: ${actionLabel}`);
       await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
+      setFacialCameraOpen(false);
     } catch (error) {
       setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
     } finally {
       setFacialVerifying(false);
     }
   }
-  facialScanRunnerRef.current = verifyFacialAttendance;
   async function submitManualAttendance() {
     try {
       const lookup = manualStudentId.trim().toLowerCase();
@@ -578,7 +561,7 @@ export function EventAttendancePage() {
           <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
           <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
             <p className="font-semibold">Live facial recognition</p>
-            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Start the camera, then let enrolled event participants face it one at a time. Identification runs automatically every few seconds. Use QR or manual attendance if camera verification is unavailable.</p>
+            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Open this only after QR cannot be read, then scan one enrolled participant at a time. Use manual ID if face verification is unavailable.</p>
             <label className="mt-3 block text-sm font-medium">
               Attendance action
               <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialActionMode} onChange={(event) => setFacialActionMode(event.target.value as "check_in" | "check_out")}>

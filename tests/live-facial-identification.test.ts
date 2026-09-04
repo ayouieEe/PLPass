@@ -5,6 +5,10 @@ const migration = readFileSync(
   "supabase/migrations/20260903034154_add_live_facial_candidate_lookup.sql",
   "utf8"
 );
+const embeddingMigration = readFileSync(
+  "supabase/migrations/20260904121537_multi_pose_facial_embeddings.sql",
+  "utf8"
+);
 const attendancePage = readFileSync(
   "src/features/organizer/pages/EventAttendancePage.tsx",
   "utf8"
@@ -28,12 +32,16 @@ describe("live facial identification", () => {
 
   it("performs anti-spoofing and rejects ambiguous one-to-many matches", () => {
     expect(facialService).toContain("anti_spoofing=True");
-    expect(facialService).toContain("best_score - matches[1][0] < AMBIGUITY_MARGIN");
-    expect(facialService).toContain('DEEPFACE_MIN_SIMILARITY", "0.85"');
-    expect(facialService).toContain("return max(MIN_SIMILARITY, model_threshold)");
+    expect(facialService).toContain('DEEPFACE_MODEL", "ArcFace"');
+    expect(facialService).toContain('DEEPFACE_DETECTOR", "retinaface"');
+    expect(facialService).toContain("FACE_COSINE_DISTANCE_THRESHOLD");
+    expect(facialService).toContain("FACE_MINIMUM_MATCH_MARGIN");
+    expect(facialService).toContain("distances[1][0] - distances[0][0] < MINIMUM_MATCH_MARGIN");
     expect(facialService).toContain("MIN_CAPTURE_FRAMES");
     expect(facialService).toContain("Face identity was not stable across the verification frames");
-    expect(facialService).toContain("get_live_facial_candidates");
+    expect(facialService).toContain("get_live_facial_candidate_ids");
+    expect(embeddingMigration).toContain("student_face_embeddings");
+    expect(embeddingMigration).toContain("having count(embedding.id) = 3");
   });
 
   it("shows the recognized student's name and recorded check-in/out times", () => {
