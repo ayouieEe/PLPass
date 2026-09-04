@@ -21,13 +21,18 @@ function emptyAnalytics(): DashboardAnalytics {
 }
 
 type DashboardEvent = { id: string; code: string; startsAt: string };
+export type LiveEventSession = { eventId: string; actualStart: string };
 
 async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<DashboardAnalytics> {
   if (!events.length) return emptyAnalytics();
   const client = getSupabaseBrowserClient();
   const eventIds = events.map((event) => event.id);
   const eventById = new Map(events.map((event) => [event.id, event]));
-  const { data: sessions, error: sessionsError } = await client.from("event_sessions").select("id, event_id").in("event_id", eventIds);
+  const { data: sessions, error: sessionsError } = await client
+    .from("event_sessions")
+    .select("id, event_id")
+    .in("event_id", eventIds)
+    .eq("session_status", "completed");
   if (sessionsError) throw sessionsError;
   const sessionIds = (sessions ?? []).map((session) => session.id);
   const eventIdBySessionId = new Map((sessions ?? []).map((session) => [session.id, session.event_id]));
@@ -86,4 +91,21 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
 export function useOrganizerDashboardAnalytics(events: DashboardEvent[]) {
   const idsKey = events.map((event) => event.id).sort().join(",");
   return useQuery({ queryKey: ["organizer-dashboard-analytics", idsKey], queryFn: () => fetchDashboardAnalytics(events), enabled: events.length > 0 });
+}
+
+export function useOrganizerLiveEventSessions() {
+  return useQuery({
+    queryKey: ["organizer-dashboard-live-sessions"],
+    queryFn: async (): Promise<LiveEventSession[]> => {
+      const client = getSupabaseBrowserClient();
+      const { data, error } = await client
+        .from("event_sessions")
+        .select("event_id, actual_start")
+        .eq("session_status", "ongoing");
+      if (error) throw error;
+      return (data ?? [])
+        .filter((session) => typeof session.event_id === "string" && typeof session.actual_start === "string")
+        .map((session) => ({ eventId: session.event_id!, actualStart: session.actual_start! }));
+    }
+  });
 }

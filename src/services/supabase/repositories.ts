@@ -688,10 +688,24 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
 },
   async endAttendanceSession(input: EndAttendanceSessionInput) {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.rpc("end_event_attendance_session", {
-    p_session_id: input.sessionId,
-    p_reason: input.reason
-  });
+  const { data, error } = input.attendanceRecords
+    ? await client.rpc("finalize_event_attendance_session" as never, {
+        p_session_id: input.sessionId,
+        p_reason: input.reason,
+        p_attendance_records: input.attendanceRecords.map((record) => ({
+          student_id: record.studentId,
+          attendance_status: record.status,
+          verification_method: record.verificationMethod,
+          time_in: record.timeIn,
+          ...(record.timeOut ? { time_out: record.timeOut } : {}),
+          ...(record.lateReason ? { late_reason: record.lateReason } : {}),
+          ...(record.remarks ? { remarks: record.remarks } : {})
+        }))
+      } as never)
+    : await client.rpc("end_event_attendance_session", {
+        p_session_id: input.sessionId,
+        p_reason: input.reason
+      });
   throwIfSupabaseError(error);
   return mapAttendanceSession(data as Row, "event");
 }

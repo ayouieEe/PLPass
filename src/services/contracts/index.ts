@@ -106,6 +106,17 @@ export type CreateEventSessionInput = {
 export type EndAttendanceSessionInput = {
   sessionId: string;
   reason: string;
+  attendanceRecords?: FinalizeAttendanceRecordInput[];
+};
+
+export type FinalizeAttendanceRecordInput = {
+  studentId: string;
+  status: "present" | "late";
+  verificationMethod: Extract<VerificationMethod, "qr" | "facial" | "manual">;
+  timeIn: string;
+  timeOut?: string;
+  lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
+  remarks?: string;
 };
 
 export type AttendanceScanInput = {

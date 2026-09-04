@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -16,10 +17,11 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useAttendanceRecords, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import {
@@ -49,10 +51,26 @@ import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 type EventTab = "today" | "incoming";
 type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
+const minimumTimeOutIntervalMs = 60_000;
 
 type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
   checkOutTime?: string;
+};
+
+type DraftAttendanceRow = AttendanceRow & {
+  checkInAt: string;
+  checkOutAt?: string;
+};
+
+type FinalizedSessionSummary = {
+  totalParticipants: number;
+  present: number;
+  late: number;
+  absent: number;
+  attendanceRate: number;
+  pendingStudentTasks: number;
+  mostCommonLateReason: string;
 };
 
 type CompletedRecord = EventRecord & {
@@ -175,27 +193,6 @@ function timeRangesOverlap(startA: string, endA: string, startB: string, endB: s
   return startAMin < endBMin && startBMin < endAMin;
 }
 
-function sessionStartAvailability(event: EventRecord, now = new Date()) {
-  const eventDate = new Date(`${event.date}T00:00:00`);
-  const startMinutes = toMinutes(event.startTime);
-  const endMinutes = toMinutes(event.endTime);
-  const scheduledStart = new Date(eventDate);
-  const scheduledEnd = new Date(eventDate);
-  scheduledStart.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-  scheduledEnd.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
-  if (Number.isNaN(scheduledStart.getTime()) || Number.isNaN(scheduledEnd.getTime())) {
-    return { allowed: false, message: "This event has an invalid schedule. Edit the event before starting attendance." };
-  }
-  if (scheduledEnd <= now) {
-    return { allowed: false, message: "This event's scheduled end time has passed. Reschedule it before starting attendance." };
-  }
-  const earliestStart = new Date(scheduledStart.getTime() - 30 * 60 * 1000);
-  if (now < earliestStart) {
-    return { allowed: false, message: `Attendance can be started at ${formatDisplayTime(earliestStart.toISOString())}, 30 minutes before the event.` };
-  }
-  return { allowed: true, message: "Starting now opens QR and facial-recognition attendance for assigned participants." };
-}
-
 // Client-side conflict detection: same venue, same date, overlapping time
 // window. This mirrors what get_conflicting_events() will do server-side,
 // but runs against already-typed Event data so it works before the
@@ -256,6 +253,30 @@ function lateBreakdown(rows: AttendanceRow[]) {
 function commonLateReason(rows: AttendanceRow[]) {
   const [top] = lateBreakdown(rows).sort((a, b) => b.count - a.count);
   return top?.count ? top.reason : "None";
+}
+
+function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
+  return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
+}
+
+function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>): FinalizedSessionSummary {
+  const present = rows.filter((row) => row.attendanceStatus === "present").length;
+  const late = rows.filter((row) => row.attendanceStatus === "late").length;
+  const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
+  const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
+  const reasonCounts = new Map<string, number>();
+  submittedReasons.forEach((row) => reasonCounts.set(row.lateReason!, (reasonCounts.get(row.lateReason!) ?? 0) + 1));
+  const [topReason, topCount = 0] = [...reasonCounts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
+
+  return {
+    totalParticipants: rows.length,
+    present,
+    late,
+    absent,
+    attendanceRate: rows.length ? Math.round(((present + late) / rows.length) * 100) : 0,
+    pendingStudentTasks: present + late,
+    mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
+  };
 }
 
 function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | undefined, completedCodes: Set<string>, cancelledCodes: string[]) {
@@ -427,6 +448,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 
 export function EventManagementPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -442,17 +464,19 @@ export function EventManagementPage() {
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
-  const [activeRows, setActiveRows] = useState<AttendanceRow[]>([]);
+  const [activeRows, setActiveRows] = useState<DraftAttendanceRow[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [finalizedSummary, setFinalizedSummary] = useState<FinalizedSessionSummary | null>(null);
   const [completedExtras, setCompletedExtras] = useState<CompletedRecord[]>([]);
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
+  const [qrInput, setQrInput] = useState("");
+  const [isQrProcessing, setIsQrProcessing] = useState(false);
   const [manualInput, setManualInput] = useState("");
   const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
-  const [manualLateReason, setManualLateReason] = useState<LateReason | "">("");
   const [sessionForm, setSessionForm] = useState({
     venue: "",
     date: "",
@@ -460,6 +484,8 @@ export function EventManagementPage() {
     endTime: "",
     method: defaultAttendanceMethod
   });
+  const qrInputRef = useRef<HTMLInputElement>(null);
+  const previousManualStudentIdRef = useRef<string | null>(null);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -470,16 +496,11 @@ export function EventManagementPage() {
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
-  const { manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
   const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
 
-  const attendanceRecordsQuery = useAttendanceRecords(
-    { sessionId: liveSessionId ?? undefined, pageSize: 100 } as never,
-    context
-  );
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
   const resolvedLiveSessionId = useMemo(() => {
@@ -506,57 +527,20 @@ export function EventManagementPage() {
 }, [studentsQuery.data?.items]);
 
   useEffect(() => {
-    if (!liveSessionId) {
-      setActiveRows([]);
-      return;
-    }
-
-    const mappedRows: AttendanceRow[] = (attendanceRecordsQuery.data?.items ?? [])
-      .filter((record) => record.sessionId === liveSessionId)
-      .map((record) => {
-        const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
-        const status = record.status === "excused" ? "present" : record.status;
-        // checkedOutAt is supplied by the check-in/check-out attendance API.
-        // It remains optional while older attendance records are migrated.
-        const attendanceRecord = record as typeof record & { checkedOutAt?: string | null };
-
-        return {
-          id: record.id,
-          studentId: record.studentId,
-          studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
-          eventCode: activeEvent?.code ?? "LIVE",
-          attendanceMethod:
-            status === "absent"
-              ? "Manual"
-              : record.verificationMethod === "qr"
-                ? "QR Code"
-                : record.verificationMethod === "facial"
-                  ? "Facial Recognition"
-                  : "Manual",
-          checkInTime: record.timeIn ? formatDisplayTime(record.timeIn) : "-",
-          checkOutTime: attendanceRecord.checkedOutAt ? formatDisplayTime(attendanceRecord.checkedOutAt) : undefined,
-          attendanceStatus: status === "present" || status === "late" || status === "absent" ? status : "present",
-          lateReason: status === "late" ? record.lateReason : undefined
-        };
-      });
-
-    setActiveRows(mappedRows);
-  }, [activeEvent?.code, attendanceRecordsQuery.data?.items, liveSessionId, studentsQuery.data?.items]);
-
-  useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
   useEffect(() => {
     if (manualLateLock.isLateLocked) {
       setManualStatus("late");
-      setManualLateReason(manualLateLock.lockedLateReason as LateReason | "");
-      return;
+    } else if (
+      previousManualStudentIdRef.current !== null
+      && previousManualStudentIdRef.current !== manualLateLock.matchedStudentId
+    ) {
+      setManualStatus("present");
     }
-
-    setManualStatus("present");
-    setManualLateReason("");
-  }, [manualInput, manualLateLock.isLateLocked, manualLateLock.lockedLateReason]);
+    previousManualStudentIdRef.current = manualLateLock.matchedStudentId;
+  }, [manualLateLock.isLateLocked, manualLateLock.matchedStudentId]);
 
   // Fetch objectives for all events from Supabase
   useEffect(() => {
@@ -707,6 +691,7 @@ export function EventManagementPage() {
   }, [todayEvents, incomingEvents]);
 
   const activeCounts = countRows(activeRows);
+  const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
   const selectedEvents = activeTab === "today" ? todayEvents : incomingEvents;
   const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
   const selectedListDescription =
@@ -759,18 +744,6 @@ export function EventManagementPage() {
     return;
   }
 
-  const availability = sessionStartAvailability({
-    ...startEvent,
-    venue: sessionForm.venue,
-    date: sessionForm.date,
-    startTime: sessionForm.startTime,
-    endTime: sessionForm.endTime
-  });
-  if (!availability.allowed) {
-    toast.error(availability.message);
-    return;
-  }
-
   try {
     const session = await createEventSessionMutation.mutateAsync({
       eventId: startEvent.id,
@@ -781,6 +754,8 @@ export function EventManagementPage() {
       attendanceMode: "face-to-face"
     });
     setLiveSessionId(session.id);
+    setActiveRows([]);
+    setFinalizedSummary(null);
     setCaptureMode(defaultAttendanceMethod);
     setActiveEvent({ ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
     setStartEvent(null);
@@ -800,9 +775,37 @@ export function EventManagementPage() {
 }
  const endSession = useCallback(async () => {
   if (!liveSessionId || !activeEvent?.id) return;
+  let attendanceFinalized = false;
   try {
-    await endSessionMutation.mutateAsync({ sessionId: liveSessionId, reason: "Organizer ended session" });
+    const attendanceRecords: FinalizeAttendanceRecordInput[] = activeRows.map((row) => ({
+      studentId: row.studentId,
+      status: row.attendanceStatus === "late" ? "late" : "present",
+      verificationMethod:
+        row.attendanceMethod === "QR Code"
+          ? "qr"
+          : row.attendanceMethod === "Facial Recognition"
+            ? "facial"
+            : "manual",
+      timeIn: row.checkInAt,
+      ...(row.checkOutAt ? { timeOut: row.checkOutAt } : {}),
+      ...(row.lateReason ? { lateReason: row.lateReason } : {})
+    }));
+    await endSessionMutation.mutateAsync({ sessionId: liveSessionId, reason: "Organizer ended session", attendanceRecords });
+    attendanceFinalized = true;
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
+    const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
+      .from("attendance_records")
+      .select("attendance_status, late_reason_category")
+      .eq("event_session_id", liveSessionId);
+    if (finalizedRecordsError) throw finalizedRecordsError;
+    setFinalizedSummary(
+      summarizeFinalizedSession(
+        (finalizedRecords ?? []).map((record) => ({
+          attendanceStatus: record.attendance_status as AttendanceStatus,
+          lateReason: record.late_reason_category ?? undefined
+        }))
+      )
+    );
     setSummaryOpen(true);
     
     void auditLogMutations.logActionMutation.mutateAsync({
@@ -812,9 +815,102 @@ export function EventManagementPage() {
       metadata: { eventCode: activeEvent.code, sessionId: liveSessionId }
     });
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : "Failed to end session.");
+    // The session mutation already displays its own database error. Only surface
+    // errors from later work, such as completing the event, here.
+    if (attendanceFinalized) {
+      toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
+    }
   }
-}, [activeEvent?.code, activeEvent?.id, auditLogMutations.logActionMutation, liveSessionId, endSessionMutation, completeEventMutation]);
+}, [activeEvent?.code, activeEvent?.id, activeRows, auditLogMutations.logActionMutation, liveSessionId, endSessionMutation, completeEventMutation]);
+
+  function focusQrInput() {
+    window.requestAnimationFrame(() => qrInputRef.current?.focus());
+  }
+
+  async function submitQrAttendance() {
+    if (!qrInput.trim() || !liveSessionId || !activeEvent?.id || isQrProcessing) {
+      return;
+    }
+
+    setIsQrProcessing(true);
+    try {
+      const credentialId = extractQrCredentialId(qrInput);
+      const client = getSupabaseBrowserClient();
+      const { data: credential, error: credentialError } = await client
+        .from("qr_credentials")
+        .select("id, student_id, credential_status, revoked_at, expires_at")
+        .eq("id", credentialId)
+        .maybeSingle();
+
+      if (credentialError) throw credentialError;
+      if (!credential || credential.credential_status !== "activated" || credential.revoked_at || (credential.expires_at && new Date(credential.expires_at).getTime() <= Date.now())) {
+        toast.error("Invalid or inactive student QR code.");
+        return;
+      }
+
+      const { data: participant, error: participantError } = await client
+        .from("event_participants")
+        .select("id")
+        .eq("event_id", activeEvent.id)
+        .eq("student_id", credential.student_id)
+        .neq("participant_status", "removed")
+        .maybeSingle();
+      if (participantError) throw participantError;
+      if (!participant) {
+        toast.error("This student is not assigned to the active event.");
+        return;
+      }
+
+      const studentId = String(credential.student_id);
+      const existing = activeRows.find((row) => row.studentId === studentId);
+      if (existing?.checkOutAt) {
+        toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
+        return;
+      }
+
+      const occurredAt = new Date().toISOString();
+      if (existing && !canRecordTimeOut(existing.checkInAt, occurredAt)) {
+        toast.warning("Time Out can be recorded at least one minute after Time In.");
+        return;
+      }
+      const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === studentId);
+      setActiveRows((current) => {
+        const currentRow = current.find((row) => row.studentId === studentId);
+        if (currentRow) {
+          return current.map((row) =>
+            row.studentId === studentId
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+              : row
+          );
+        }
+
+        return [
+          ...current,
+          {
+            id: `draft-${studentId}`,
+            studentId,
+            studentName: student?.fullName ?? student?.studentNumber ?? studentId,
+            eventCode: activeEvent.code,
+            attendanceMethod: "QR Code",
+            checkInAt: occurredAt,
+            checkInTime: formatDisplayTime(occurredAt),
+            attendanceStatus: "present"
+          }
+        ];
+      });
+      toast.success(
+        existing
+          ? `${existing.studentName} Time Out recorded. This will be saved when you end the session.`
+          : `${student?.fullName ?? student?.studentNumber ?? "Student"} Time In recorded. This will be saved when you end the session.`
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The QR code could not be validated.");
+    } finally {
+      setQrInput("");
+      setIsQrProcessing(false);
+      focusQrInput();
+    }
+  }
 
   useEffect(() => {
     if (!activeEvent) {
@@ -851,54 +947,50 @@ export function EventManagementPage() {
       ? existingAttendanceRow?.attendanceStatus === "late" ? "late" : "present"
       : manualStatus;
 
-    if (resolvedStatus === "late" && !isCheckout && !manualLateReason) {
-      toast.warning("Please select a reason.");
+    const occurredAt = new Date().toISOString();
+    if (existingAttendanceRow && !canRecordTimeOut(existingAttendanceRow.checkInAt, occurredAt)) {
+      toast.warning("Time Out can be recorded at least one minute after Time In.");
       return;
     }
+    const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === resolvedStudentId);
+    setActiveRows((current) => {
+      const existing = current.find((row) => row.studentId === resolvedStudentId);
+      if (existing) {
+        return current.map((row) =>
+          row.studentId === resolvedStudentId
+            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+            : row
+        );
+      }
 
-    try {
-      const result = await manualAttendanceMutation.mutateAsync({
-        sessionId: liveSessionId,
-        studentId: resolvedStudentId,
-        reason: "Manual entry",
-        remarks: "",
-        statusOverride: resolvedStatus,
-        lateReason:
-          resolvedStatus === "late" && !isCheckout && manualLateReason
-            ? manualLateReason
-            : undefined
-      });
-      toast.success(result.safeMessage);
-      setManualInput("");
-      setManualStatus("present");
-      setManualLateReason("");
-    } catch {
-      // The mutation hook already surfaces the validation error once.
-    }
+      return [
+        ...current,
+        {
+          id: `draft-${resolvedStudentId}`,
+          studentId: resolvedStudentId,
+          studentName: student?.fullName ?? student?.studentNumber ?? resolvedStudentId,
+          eventCode: activeEvent?.code ?? "LIVE",
+          attendanceMethod: "Manual",
+          checkInAt: occurredAt,
+          checkInTime: formatDisplayTime(occurredAt),
+          attendanceStatus: resolvedStatus
+        }
+      ];
+    });
+    toast.success(
+      isCheckout
+        ? "Student Time Out recorded. This will be saved when you end the session."
+        : "Student Time In recorded. This will be saved when you end the session."
+    );
+    setManualInput("");
+    setManualStatus("present");
   }
 
   function viewEventRecordFromSummary() {
-    if (!activeEvent) {
+    if (!activeEvent?.id) {
       return;
     }
-    const completed: CompletedRecord = {
-      ...activeEvent,
-      present: activeCounts.present,
-      late: activeCounts.late,
-      absent: activeCounts.absent,
-      totalRegistered: activeRows.length,
-      attendanceRate: `${activeCounts.rate}%`,
-      sentiment: { positive: 48, neutral: 35, negative: 17 },
-      feedbackComments: ["Session ran a bit long but content was useful.", "Would appreciate printed handouts next time."]
-    };
-    setUiState((current) => endOrganizerSession(current, activeEvent.code, activeRows));
-    setCompletedExtras((current) => [completed, ...current.filter((event) => event.code !== completed.code)]);
-    setCompletedModal(completed);
-    setActiveEvent(null);
-    setActiveRows([]);
-    setSummaryOpen(false);
-    setActiveTab("today");
-    toast.success(`${completed.code} moved to Event Records.`);
+    navigate(`${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(activeEvent.id)}`);
   }
 
   function exportReport(label: string, events = completedEvents) {
@@ -929,8 +1021,8 @@ export function EventManagementPage() {
       "Event Code": record.code,
       "Student Name": row.studentName,
       "Attendance Status": row.attendanceStatus,
-      "Check-in Time": row.checkInTime,
-      "Check-out Time": row.checkOutTime ?? "Not checked out",
+      "Time In": row.checkInTime,
+      "Time Out": row.checkOutTime ?? "No Time Out",
       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
@@ -1059,12 +1151,12 @@ export function EventManagementPage() {
 
   const liveColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
-    { accessorKey: "checkInTime", header: "Check-in Time" },
+    { accessorKey: "checkInTime", header: "Time In" },
     {
       id: "checkOutTime",
-      header: "Check-out Time",
+      header: "Time Out",
       cell: ({ row }) =>
-        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
+        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">No Time Out</span>
     },
     {
       id: "attendanceMethod",
@@ -1188,7 +1280,7 @@ export function EventManagementPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Choose a verification method. Records update automatically below.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Choose a verification method. Entries stay in the session draft until you end the session.</p>
               </div>
               <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-sm">
                 <Button
@@ -1236,25 +1328,44 @@ export function EventManagementPage() {
 
                 <div className="mt-4 rounded-xl border border-border bg-background/40 p-5">
                   {captureMode === "QR Code" ? (
-                    <div className="text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                        <ScanLine className="h-6 w-6" aria-hidden="true" />
+                    <div className="space-y-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+                      <div className="flex items-center gap-3">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                            <ScanLine className="h-5 w-5" aria-hidden="true" />
+                          </span>
+                          <div>
+                            <p className="font-semibold text-foreground">Student QR scanner</p>
+                            <p className="mt-0.5 text-sm text-muted-foreground">Scan the student&apos;s PLPass QR code: first scan records Time In; second scan records Time Out.</p>
+                          </div>
                       </div>
-                      <p className="mt-4 text-sm font-semibold text-foreground">QR scanner ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Point the camera at a student QR code to log attendance instantly.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          setCaptureMode("QR Code");
-                          if (typeof window !== "undefined") {
-                            window.scrollTo({ top: 0, behavior: "smooth" });
-                          }
-                        }}
-                      >
-                        Open QR scanner
-                      </Button>
+
+                      <div className="border-t border-border pt-4">
+                        <label className="block text-sm font-semibold text-foreground" htmlFor="student-qr-scan">Scanner input</label>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <input
+                          id="student-qr-scan"
+                          ref={qrInputRef}
+                          value={qrInput}
+                          onChange={(event) => setQrInput(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void submitQrAttendance();
+                            }
+                          }}
+                          placeholder="Waiting for a student QR scan…"
+                          aria-label="Student QR scan input"
+                          className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          disabled={isQrProcessing}
+                        />
+                        <Button type="button" className="h-11 shrink-0 rounded-lg px-6" onClick={focusQrInput} disabled={isQrProcessing}>
+                          <ScanLine className="h-4 w-4" aria-hidden="true" />
+                          Focus scanner input
+                        </Button>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">Draft only — attendance is saved when you select End Session.</p>
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
                     <div className="text-center">
@@ -1313,35 +1424,6 @@ export function EventManagementPage() {
                           </div>
                         </div>
 
-                        {(manualStatus === "late" || manualLateLock.isLateLocked) && (
-                          <div className="mt-4 rounded-2xl border border-border bg-white p-4">
-                            {manualLateLock.isLateLocked ? (
-                              <p className="mb-2 text-xs text-muted-foreground">
-                                This student is already marked late. The late status and reason stay locked for checkout.
-                              </p>
-                            ) : null}
-                            <label className="space-y-2 text-sm font-medium">
-                              Reason for late arrival
-                              <select
-                                className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-muted/50 disabled:text-muted-foreground"
-                                value={manualLateReason}
-                                onChange={(e) => {
-                                  if (!manualLateLock.isLateLocked) {
-                                    setManualLateReason(e.target.value as LateReason | "");
-                                  }
-                                }}
-                                disabled={manualLateLock.isLateLocked}
-                              >
-                                <option value="">Select a reason</option>
-                                {lateReasons.map((reason) => (
-                                  <option key={reason} value={reason}>
-                                    {reason}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        )}
                       </div>
 
                       <div className="grid gap-3">
@@ -1363,14 +1445,13 @@ export function EventManagementPage() {
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm text-muted-foreground">Manual attendance is recorded instantly when submitted.</p>
+                        <p className="text-sm text-muted-foreground">Attendance stays in this session draft and is saved only when you end the session.</p>
                         <Button
                           type="button"
                           className="h-11 rounded-lg px-6"
-                          disabled={manualAttendanceMutation.isPending}
                           onClick={() => void submitManualAttendance()}
                         >
-                          {manualAttendanceMutation.isPending ? "Recording..." : "Record attendance"}
+                          Record Attendance
                         </Button>
                       </div>
                     </div>
@@ -1386,10 +1467,10 @@ export function EventManagementPage() {
               <aside className="rounded-xl border border-border bg-surface p-4 shadow-sm">
                 <p className="text-sm font-semibold">Session guide</p>
                 <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                  <li>• QR Code for fast contactless check-in and checkout</li>
+                  <li>• QR Code for fast contactless Time In and Time Out</li>
                   <li>• Facial Recognition for enrolled participants</li>
                   <li>• Manual entry for verified exceptions</li>
-                  <li>• Late arrivals require a recorded category</li>
+                  <li>• Late-arrival reasons are submitted by students</li>
                 </ul>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {captureMode ? (
@@ -1405,7 +1486,7 @@ export function EventManagementPage() {
             </div>
           </section>
 
-          <PLPassDataGrid label="Live attendance list" data={activeRows} columns={liveColumns} emptyTitle="No check-ins yet" emptyDescription="Live QR or facial recognition attendance logs will appear here." />
+          <PLPassDataGrid label="Live attendance list" data={activeRows} columns={liveColumns} emptyTitle="No Time In records yet" emptyDescription="Live QR or facial recognition attendance records will appear here." />
           </div>
         </section>
       ) : (
@@ -1613,15 +1694,15 @@ export function EventManagementPage() {
           <h2 className="text-xl font-semibold">Session Summary</h2>
           <p className="mt-1 text-sm text-muted-foreground">{activeEvent?.code} - {activeEvent?.name}</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <SummaryTile label="Total Participants" value={activeRows.length.toString()} />
-            <SummaryTile label="Present" value={activeCounts.present.toString()} />
-            <SummaryTile label="Late" value={activeCounts.late.toString()} />
-            <SummaryTile label="Absent" value={activeCounts.absent.toString()} />
-            <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
-            <SummaryTile label="Feedback Pending" value={activeRows.length.toString()} />
+            <SummaryTile label="Total Participants" value={sessionSummary.totalParticipants.toString()} />
+            <SummaryTile label="Present" value={sessionSummary.present.toString()} />
+            <SummaryTile label="Late" value={sessionSummary.late.toString()} />
+            <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
+            <SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} />
+            <SummaryTile label="Student Tasks Pending" value={sessionSummary.pendingStudentTasks.toString()} />
             <div className="rounded-lg border bg-background p-3 sm:col-span-2">
               <p className="text-xs text-muted-foreground">Most Common Late Arrival Reason</p>
-              <p className="mt-1 text-lg font-semibold">{commonLateReason(activeRows)}</p>
+              <p className="mt-1 text-lg font-semibold">{sessionSummary.mostCommonLateReason}</p>
             </div>
           </div>
           <div className="mt-5 flex justify-end">
@@ -1719,6 +1800,7 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
           <p className="mt-2 text-sm text-muted-foreground">
             This event overlaps at the same venue and time with:
           </p>
+
           <ul className="mt-2 space-y-1">
             {conflicts.map((conflict) => (
               <li key={conflict.code} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
@@ -1767,12 +1849,12 @@ function CompletedEventModal({ record, rows, onClose, onExportReport, onExportAt
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "attendanceMethod", header: "Attendance Method" },
-    { accessorKey: "checkInTime", header: "Check-in Time" },
+    { accessorKey: "checkInTime", header: "Time In" },
     {
       id: "checkOutTime",
-      header: "Check-out Time",
+      header: "Time Out",
       cell: ({ row }) =>
-        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">Not checked out</span>
+        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">No Time Out</span>
     },
     { id: "status", header: "Attendance Status", cell: ({ row }) => <StatusBadge label={row.original.attendanceStatus} tone={statusTone(row.original.attendanceStatus)} /> },
     { id: "lateReason", header: "Late Arrival Reason", cell: ({ row }) => row.original.lateReason ?? "-" }
@@ -1814,7 +1896,7 @@ function CompletedEventModal({ record, rows, onClose, onExportReport, onExportAt
       <section className="mt-5 rounded-lg border bg-background p-4">
         <h3 className="font-semibold">Attendee Information</h3>
         <div className="mt-3">
-          <PLPassDataGrid label="Attendee information" data={rows} columns={attendanceColumns} emptyTitle="No attendance rows" emptyDescription="Attendance records will appear after check-in." />
+          <PLPassDataGrid label="Attendee information" data={rows} columns={attendanceColumns} emptyTitle="No attendance rows" emptyDescription="Attendance records will appear after Time In." />
         </div>
       </section>
 

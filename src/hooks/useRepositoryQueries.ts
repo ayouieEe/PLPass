@@ -323,6 +323,8 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
     await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
     await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+    await queryClient.invalidateQueries({ queryKey: ["organizer-dashboard-live-sessions"] });
+    await queryClient.invalidateQueries({ queryKey: ["organizer-dashboard-analytics"] });
   };
   return {
     createClassSessionMutation: useMutation({
