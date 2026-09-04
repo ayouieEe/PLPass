@@ -103,9 +103,11 @@ export function useOrganizerLiveEventSessions() {
         .select("event_id, actual_start")
         .eq("session_status", "ongoing");
       if (error) throw error;
-      return (data ?? [])
-        .filter((session) => typeof session.event_id === "string" && typeof session.actual_start === "string")
-        .map((session) => ({ eventId: session.event_id!, actualStart: session.actual_start! }));
+      return (data ?? []).flatMap((session) =>
+        typeof session.event_id === "string" && typeof session.actual_start === "string"
+          ? [{ eventId: session.event_id, actualStart: session.actual_start }]
+          : []
+      );
     }
   });
 }

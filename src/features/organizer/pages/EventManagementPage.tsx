@@ -265,7 +265,10 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
   const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
   const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
-  submittedReasons.forEach((row) => reasonCounts.set(row.lateReason!, (reasonCounts.get(row.lateReason!) ?? 0) + 1));
+  submittedReasons.forEach((row) => {
+    const reason = row.lateReason;
+    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+  });
   const [topReason, topCount = 0] = [...reasonCounts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
 
   return {
