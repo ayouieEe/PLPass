@@ -36,7 +36,7 @@ export function formatDateTime(value: DateInput, fallback = "N/A") {
 
 export function formatDisplayDate(value: DateInput, fallback = "Not scheduled") {
   const date = toValidDate(value);
-  return date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(date) : fallback;
+  return date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" }).format(date) : fallback;
 }
 
 export function formatDisplayTime(value: DateInput, fallback = "Not set") {
@@ -70,7 +70,23 @@ export function getPhilippineNowIso() {
 
 export function dateKey(value: DateInput) {
   const date = toValidDate(value);
-  return date ? date.toISOString().slice(0, 10) : "";
+  if (!date) return "";
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+
+  const parts = formatter.formatToParts(date).reduce<Record<string, string>>((accumulator, part) => {
+    if (part.type !== "literal") {
+      accumulator[part.type] = part.value;
+    }
+    return accumulator;
+  }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 export function compareDateValues(first: DateInput, second: DateInput) {

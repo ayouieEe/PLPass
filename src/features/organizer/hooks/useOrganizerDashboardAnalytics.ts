@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { dateKey } from "@/lib/utils/date";
 
 export type DashboardAnalytics = {
   attendanceTrend: Array<{ label: string; date: string; present: number; late: number; absent: number; attendanceRate: number }>;
@@ -20,13 +21,18 @@ function emptyAnalytics(): DashboardAnalytics {
 }
 
 type DashboardEvent = { id: string; code: string; startsAt: string };
+export type LiveEventSession = { eventId: string; actualStart: string };
 
 async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<DashboardAnalytics> {
   if (!events.length) return emptyAnalytics();
   const client = getSupabaseBrowserClient();
   const eventIds = events.map((event) => event.id);
   const eventById = new Map(events.map((event) => [event.id, event]));
-  const { data: sessions, error: sessionsError } = await client.from("event_sessions").select("id, event_id").in("event_id", eventIds);
+  const { data: sessions, error: sessionsError } = await client
+    .from("event_sessions")
+    .select("id, event_id")
+    .in("event_id", eventIds)
+    .eq("session_status", "completed");
   if (sessionsError) throw sessionsError;
   const sessionIds = (sessions ?? []).map((session) => session.id);
   const eventIdBySessionId = new Map((sessions ?? []).map((session) => [session.id, session.event_id]));
@@ -59,7 +65,7 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
     const eventId = eventIdBySessionId.get(record.event_session_id);
     const event = eventId ? eventById.get(eventId) : undefined;
     if (!event) return;
-    const row = trendByEvent.get(event.id) ?? { label: event.code, date: event.startsAt.slice(0, 10), present: 0, late: 0, absent: 0, attendanceRate: 0 };
+    const row = trendByEvent.get(event.id) ?? { label: event.code, date: dateKey(event.startsAt), present: 0, late: 0, absent: 0, attendanceRate: 0 };
     if (record.attendance_status === "late") {
       row.late += 1;
       const lateReason = record.late_reason_category ? lateByReason.get(record.late_reason_category) : undefined;
@@ -85,4 +91,21 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
 export function useOrganizerDashboardAnalytics(events: DashboardEvent[]) {
   const idsKey = events.map((event) => event.id).sort().join(",");
   return useQuery({ queryKey: ["organizer-dashboard-analytics", idsKey], queryFn: () => fetchDashboardAnalytics(events), enabled: events.length > 0 });
+}
+
+export function useOrganizerLiveEventSessions() {
+  return useQuery({
+    queryKey: ["organizer-dashboard-live-sessions"],
+    queryFn: async (): Promise<LiveEventSession[]> => {
+      const client = getSupabaseBrowserClient();
+      const { data, error } = await client
+        .from("event_sessions")
+        .select("event_id, actual_start")
+        .eq("session_status", "ongoing");
+      if (error) throw error;
+      return (data ?? [])
+        .filter((session) => typeof session.event_id === "string" && typeof session.actual_start === "string")
+        .map((session) => ({ eventId: session.event_id!, actualStart: session.actual_start! }));
+    }
+  });
 }
