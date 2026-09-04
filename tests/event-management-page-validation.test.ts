@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +7,8 @@ import {
   type EventRecord
 } from "@/features/organizer/utils/eventManagement";
 import { dateKey } from "@/lib/utils/date";
+
+const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -41,5 +44,10 @@ describe("event page validation helpers", () => {
   it("keeps the Philippine calendar date when ISO timestamps are stored in UTC", () => {
     expect(dateKey("2026-08-30T16:00:00.000Z")).toBe("2026-08-31");
     expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
+  });
+
+  it("opens facial verification on the active session camera route", () => {
+    expect(eventManagementPage).toContain("navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId))");
+    expect(eventManagementPage).toContain("No active attendance session is available for facial verification.");
   });
 });

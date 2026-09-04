@@ -60,8 +60,7 @@ import {
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { extractFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -165,6 +164,21 @@ function formatTime(value: string | undefined) {
   return formatDisplayTime(value, "Not set");
 }
 
+async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    throw new Error("Camera is still preparing. Keep one face centered and try again.");
+  }
+  const maximumWidth = 720;
+  const scale = Math.min(1, maximumWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("The camera frame could not be captured.");
+  return blob;
+}
+
 function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
@@ -200,7 +214,9 @@ function eventLabel(event: Event | undefined) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.studentNumber : "Unknown student";
+  if (!student) return "Unknown student";
+  const profileName = [student.firstName, student.middleName, student.lastName].filter(Boolean).join(" ");
+  return student.formattedName || student.fullName || profileName || student.studentNumber;
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {
@@ -245,7 +261,9 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
     status: record.status === "excused" ? "manual" : record.status,
-    timestamp: formatTime(record.recordedAt)
+    timestamp: record.recordedAt,
+    timeIn: record.timeIn ?? record.recordedAt,
+    timeOut: record.checkedOutAt
   }));
 }
 
@@ -323,8 +341,8 @@ export function EventAttendancePage() {
   const [methodFilter, setMethodFilter] = useState("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
-  const [facialStudentId, setFacialStudentId] = useState("");
   const [facialCameraOpen, setFacialCameraOpen] = useState(false);
+  const [facialActionMode, setFacialActionMode] = useState<"check_in" | "check_out">("check_in");
   const [facialStatus, setFacialStatus] = useState("");
   const [facialVerifying, setFacialVerifying] = useState(false);
   const facialVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -448,32 +466,20 @@ export function EventAttendancePage() {
   }
   async function verifyFacialAttendance() {
     const video = facialVideoRef.current;
-    if (!facialStudentId || !video) {
-      setFacialStatus("Choose an enrolled student and start the camera first.");
+    if (!video) {
+      setFacialStatus("Start the camera and keep one student centered.");
       return;
     }
+    if (facialVerifying || attendanceMutations.credentialScanMutation.isPending) return;
     setFacialVerifying(true);
-    setFacialStatus("Checking the live face…");
+    setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
-      const client = getSupabaseBrowserClient();
-      const { data, error } = await client
-        .rpc("get_facial_descriptor_for_organizer", {
-          p_student_id: facialStudentId,
-          p_event_session_id: session.id
-        });
-      if (error) throw error;
-      const reference = Array.isArray(data) ? data.filter((value): value is number => typeof value === "number") : [];
-      if (reference.length < 32) {
-        throw new Error("This student does not have an active live facial enrollment.");
-      }
-      const capture = await extractFaceDescriptor(video);
-      const similarity = faceSimilarity(reference, capture.descriptor);
-      if (similarity < 0.82) {
-        setFacialStatus("Face was not a close enough match. Ask the student to face the camera clearly, or use QR/manual attendance.");
-        return;
-      }
-      await submitCredentialScan(facialStudentId, "facial", undefined, similarity);
-      setFacialStatus(`Face verified (${Math.round(similarity * 100)}% match).`);
+      const result = await identifyLiveFace(session.id, facialActionMode, [await captureVideoFrame(video)]);
+      const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
+      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. Face distance: ${result.distance.toFixed(3)}. Returning to QR for the next student.`);
+      toast.success(`${result.display_name}: ${actionLabel}`);
+      await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
+      setFacialCameraOpen(false);
     } catch (error) {
       setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
     } finally {
@@ -554,19 +560,19 @@ export function EventAttendancePage() {
           </div>
           <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
           <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
-            <p className="font-semibold">Facial verification</p>
-            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer backup only. Select an enrolled student, start the camera, center one face clearly, and choose Verify face. Use QR or manual attendance if camera verification is unavailable.</p>
+            <p className="font-semibold">Live facial recognition</p>
+            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Open this only after QR cannot be read, then scan one enrolled participant at a time. Use manual ID if face verification is unavailable.</p>
             <label className="mt-3 block text-sm font-medium">
-              Enrolled student
-              <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialStudentId} onChange={(event) => setFacialStudentId(event.target.value)}>
-                <option value="">Choose a participant</option>
-                {participantStudents.map((student) => <option key={student.id} value={student.id}>{studentName(student)} ({student.studentNumber})</option>)}
+              Attendance action
+              <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialActionMode} onChange={(event) => setFacialActionMode(event.target.value as "check_in" | "check_out")}>
+                <option value="check_in">Check in students</option>
+                <option value="check_out">Check out students</option>
               </select>
             </label>
             {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover" /> : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
-              <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || attendanceMutations.credentialScanMutation.isPending} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Verifying…" : "Verify face"}</Button>
+              <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Identifying…" : "Scan now"}</Button>
             </div>
             {facialStatus ? <p className="mt-3 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
           </section>

@@ -265,7 +265,10 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
   const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
   const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
-  submittedReasons.forEach((row) => reasonCounts.set(row.lateReason!, (reasonCounts.get(row.lateReason!) ?? 0) + 1));
+  submittedReasons.forEach((row) => {
+    const reason = row.lateReason;
+    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+  });
   const [topReason, topCount = 0] = [...reasonCounts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
 
   return {
@@ -1373,16 +1376,17 @@ export function EventManagementPage() {
                         <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">Face scan ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Open live verification to select an enrolled participant, use the camera, and record attendance.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Open the live camera and let enrolled participants face it one at a time.</p>
                       <Button
                         type="button"
                         size="sm"
                         className="mt-4"
                         onClick={() => {
-                          setCaptureMode("Facial Recognition");
-                          if (typeof window !== "undefined") {
-                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          if (!resolvedLiveSessionId) {
+                            toast.error("No active attendance session is available for facial verification.");
+                            return;
                           }
+                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
                         }}
                       >
                         Open live verification

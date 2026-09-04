@@ -1,22 +1,39 @@
 import os
 import sys
 import json
+import asyncio
 import joblib
 import pandas as pd
+from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from typing import List
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+if sys.platform == "win32":
+    # DeepFace logs Unicode status symbols while downloading model weights.
+    # Windows terminals otherwise default to cp1252 and abort the download.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8")
 
 # Add the parent directory to sys.path so we can import from ml and api modules
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
+# The frontend and local API share the same Supabase configuration. Load the
+# developer-specific file first, while still allowing real environment
+# variables to take precedence in hosted environments.
+load_dotenv(os.path.join(parent_dir, ".env.local"))
+load_dotenv(os.path.join(parent_dir, ".env"))
+
 from ml.feature_assembly import assemble_student_features
 from api.services.supabase_client import get_event_features, get_batch_student_history
 from api.services.prediction_insights import get_risk_level, get_pattern_insights
+from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, enroll_pose, identify_and_record, warm_model
 
 # Global dictionary to store ML artifacts
 ml_artifacts = {}
@@ -44,6 +61,14 @@ async def lifespan(app: FastAPI):
     else:
         print(f"WARNING: Insights not found at {INSIGHTS_PATH}.")
         ml_artifacts["insights"] = None
+
+    # Model initialization is deliberately best-effort. A facial outage must
+    # never prevent QR/manual attendance or the rest of the ML API from starting.
+    try:
+        await asyncio.to_thread(warm_model)
+        print("DeepFace ArcFace model warmed successfully.")
+    except Exception as error:
+        print(f"WARNING: DeepFace model warm-up failed: {error}")
         
     yield # App is now running and accepting requests!
     
@@ -154,3 +179,45 @@ async def model_insights():
     if not insights:
         raise HTTPException(status_code=503, detail="Model insights not loaded.")
     return insights
+
+@app.post("/facial/identify")
+async def identify_live_face(
+    event_session_id: str = Form(...),
+    intended_action: str = Form("check_in"),
+    captures: list[UploadFile] = File(...),
+    authorization: str | None = Header(default=None),
+):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="An authenticated organizer session is required.")
+    if len(captures) != MIN_CAPTURE_FRAMES:
+        raise HTTPException(status_code=422, detail=f"Exactly {MIN_CAPTURE_FRAMES} camera frames are required.")
+    if any(capture.content_type not in {"image/jpeg", "image/png", "image/webp"} for capture in captures):
+        raise HTTPException(status_code=415, detail="Capture must be a JPEG, PNG, or WebP image.")
+    try:
+        return await identify_and_record(
+            access_token=authorization.split(" ", 1)[1].strip(),
+            event_session_id=event_session_id,
+            intended_action=intended_action,
+            capture_bytes_list=[await capture.read() for capture in captures],
+        )
+    except FacialRecognitionError as error:
+        raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error
+
+
+@app.post("/facial/enroll")
+async def enroll_facial_pose(
+    pose: str = Form(...),
+    capture: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "Sign in to enroll your face."})
+    if capture.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=415, detail={"code": "LOW_QUALITY_IMAGE", "message": "Capture must be a JPEG, PNG, or WebP image."})
+    try:
+        return await enroll_pose(
+            access_token=authorization.split(" ", 1)[1].strip(), pose=pose,
+            capture_bytes=await capture.read(),
+        )
+    except FacialRecognitionError as error:
+        raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error

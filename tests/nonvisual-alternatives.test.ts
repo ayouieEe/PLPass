@@ -12,6 +12,6 @@ describe("non-visual camera alternatives", () => {
     expect(studentMethods).toContain("If the camera is unavailable, use the file fallback.");
     expect(organizerAttendance).toContain('aria-label="Live facial verification camera preview"');
     expect(organizerAttendance).toContain('aria-describedby="organizer-face-camera-instructions"');
-    expect(organizerAttendance).toContain("Use QR or manual attendance if camera verification is unavailable.");
+    expect(organizerAttendance).toContain("Use manual ID if face verification is unavailable.");
   });
 });
