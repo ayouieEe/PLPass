@@ -1376,16 +1376,17 @@ export function EventManagementPage() {
                         <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">Face scan ready</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Open live verification to select an enrolled participant, use the camera, and record attendance.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Open the live camera and let enrolled participants face it one at a time.</p>
                       <Button
                         type="button"
                         size="sm"
                         className="mt-4"
                         onClick={() => {
-                          setCaptureMode("Facial Recognition");
-                          if (typeof window !== "undefined") {
-                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          if (!resolvedLiveSessionId) {
+                            toast.error("No active attendance session is available for facial verification.");
+                            return;
                           }
+                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
                         }}
                       >
                         Open live verification
