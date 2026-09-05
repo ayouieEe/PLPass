@@ -137,7 +137,7 @@ function sortByPriority(events: EventRecord[]) {
   return [...events].sort((a, b) => priorityScore(b) - priorityScore(a));
 }
 
-export function toTimeInputValue(value: string) {
+function toTimeInputValue(value: string) {
   if (!value) return "";
 
   const trimmed = value.trim();

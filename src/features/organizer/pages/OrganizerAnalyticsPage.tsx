@@ -69,7 +69,6 @@ import {
   useAttendanceSessions,
   useCorrectionRequests,
   useEvent,
-  useEventMutations,
   useEventParticipants,
   useEvents,
   useMlPredictions,
@@ -77,7 +76,10 @@ import {
   useOrganizerProfiles,
   useReports,
   useStudents,
-  useAuditLogMutations
+  useAuditLogMutations,
+  useAllEventObjectives,
+  useAllEventSummarySnapshots,
+  useAllEventFeedback
 } from "@/hooks/useRepositoryQueries";
 import { useModelInsights, useBatchPrediction } from "@/hooks/useMlApi";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -494,6 +496,9 @@ export function OrganizerAnalyticsPage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 1000 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 1000 }, scope.context);
+  const objectivesQuery = useAllEventObjectives({ pageIndex: 0, pageSize: 1000 }, scope.context);
+  const summariesQuery = useAllEventSummarySnapshots({ pageIndex: 0, pageSize: 200 }, scope.context);
+  const feedbackQuery = useAllEventFeedback({ pageIndex: 0, pageSize: 1000 }, scope.context);
   const eventData = useMemo(
     () =>
       (eventsQuery.data?.items ?? []).map((event) => ({
@@ -552,24 +557,33 @@ export function OrganizerAnalyticsPage() {
   }, [eventData, eventFilter]);
 
   const sentimentOverview = useMemo(() => {
-    const sourceSentiment = sentimentData;
-    const filteredSentiment = eventFilter === "all" ? sourceSentiment : sourceSentiment.filter((row: { eventCode: string; positive: number; neutral: number; negative: number }) => row.eventCode === eventFilter);
-    const totals = filteredSentiment.reduce(
-      (acc: { positive: number; neutral: number; negative: number }, row: { positive: number; neutral: number; negative: number }) => ({
-        positive: acc.positive + row.positive,
-        neutral: acc.neutral + row.neutral,
-        negative: acc.negative + row.negative
+    const sourceSummaries = summariesQuery.data?.items ?? [];
+    const filteredSummaries = eventFilter === "all" ? sourceSummaries : sourceSummaries.filter((row) => row.eventId === eventLookup.get(eventFilter)?.id);
+    
+    if (filteredSummaries.length === 0) {
+      return [
+        { name: "Positive", value: 0 },
+        { name: "Neutral", value: 0 },
+        { name: "Negative", value: 0 }
+      ];
+    }
+    
+    const totals = filteredSummaries.reduce(
+      (acc, row) => ({
+        positive: acc.positive + (row.positivePercentage || 0),
+        neutral: acc.neutral + (row.neutralPercentage || 0),
+        negative: acc.negative + (row.negativePercentage || 0)
       }),
       { positive: 0, neutral: 0, negative: 0 }
     );
-    const count = filteredSentiment.length || 1;
+    const count = filteredSummaries.length || 1;
 
     return [
       { name: "Positive", value: Math.round(totals.positive / count) },
       { name: "Neutral", value: Math.round(totals.neutral / count) },
       { name: "Negative", value: Math.round(totals.negative / count) }
     ];
-  }, [eventFilter, sentimentData]);
+  }, [eventFilter, eventLookup, summariesQuery.data?.items]);
 
   const filteredLateReasons = useMemo(() => {
     const eventByCode = new Map(eventData.map((event) => [event.code, event]));
@@ -667,26 +681,38 @@ export function OrganizerAnalyticsPage() {
   }
 
   const objectivePerformance = useMemo(() => {
-    const baseObjectives = [
-      { label: "Professional readiness", score: 4.6, responses: 84 },
-      { label: "Workshop relevance", score: 4.3, responses: 71 },
-      { label: "Speaker quality", score: 4.1, responses: 64 }
-    ];
-    if (eventFilter === "all") return baseObjectives;
-    const event = eventLookup.get(eventFilter);
-    return event ? baseObjectives.map(o => ({ ...o, responses: Math.round(o.responses * 0.6) })) : baseObjectives;
-  }, [eventFilter, eventLookup]);
+    const sourceObjectives = objectivesQuery.data?.items ?? [];
+    const filteredObjectives = eventFilter === "all" ? sourceObjectives : sourceObjectives.filter(obj => obj.eventId === eventLookup.get(eventFilter)?.id);
+    
+    const grouped = new Map<string, { totalScore: number, count: number }>();
+    filteredObjectives.forEach(obj => {
+      if (obj.averageRating != null && obj.averageRating > 0) {
+        const existing = grouped.get(obj.text) || { totalScore: 0, count: 0 };
+        grouped.set(obj.text, { totalScore: existing.totalScore + obj.averageRating, count: existing.count + 1 });
+      }
+    });
+    
+    if (grouped.size === 0) return [];
+    
+    return Array.from(grouped.entries()).map(([label, data]) => ({
+      label,
+      score: Number((data.totalScore / data.count).toFixed(1)),
+      responses: data.count
+    })).sort((a, b) => b.score - a.score);
+  }, [eventFilter, eventLookup, objectivesQuery.data?.items]);
 
   const studentComments = useMemo(() => {
-    const baseComments = [
-      { sentiment: "Positive", comment: "The event was well-paced and the venue was easy to reach." },
-      { sentiment: "Neutral", comment: "The sessions were useful, but the schedule felt slightly rushed." },
-      { sentiment: "Negative", comment: "The late start made it difficult for many students to participate early." }
-    ];
-    if (eventFilter === "all") return baseComments;
-    const event = eventLookup.get(eventFilter);
-    return event ? baseComments.map(c => ({ ...c, comment: `Re: ${event.code} - ${c.comment}` })) : baseComments;
-  }, [eventFilter, eventLookup]);
+    const sourceFeedback = feedbackQuery.data?.items ?? [];
+    const filteredFeedback = eventFilter === "all" ? sourceFeedback : sourceFeedback.filter(fb => fb.eventId === eventLookup.get(eventFilter)?.id);
+    
+    return filteredFeedback
+      .filter(fb => fb.comment && fb.comment.trim().length > 0)
+      .map(fb => ({
+        sentiment: fb.sentimentLabel || "Neutral",
+        comment: fb.comment || ""
+      }))
+      .slice(0, 10);
+  }, [eventFilter, eventLookup, feedbackQuery.data?.items]);
 
   const lateArrivalTrend = useMemo(() => {
     const baseTrend = [

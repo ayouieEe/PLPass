@@ -40,6 +40,7 @@ import {
   mapEventFeedback,
   mapEventObjective,
   mapEventParticipant,
+  mapEventSummarySnapshot,
   mapFacialProfile,
   mapNotification,
   mapOrganizer,
@@ -1577,56 +1578,19 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
       }
     }
     const comment = input.comment?.trim() || null;
-    const { data: existing, error: existingError } = await client
-      .from("event_feedback")
-      .select("*")
-      .eq("event_id", input.eventId)
-      .eq("student_id", studentId)
-      .maybeSingle();
-    throwIfSupabaseError(existingError);
+    const { data: edgeResult, error: edgeError } = await client.functions.invoke("analyze-feedback", {
+      body: {
+        eventId: input.eventId,
+        attendanceRecordId: input.attendanceRecordId,
+        comment,
+        ratings: input.ratings
+      }
+    });
 
-    const feedbackValues = {
-      event_id: input.eventId,
-      student_id: studentId,
-      attendance_record_id: input.attendanceRecordId,
-      comment,
-      updated_at: new Date().toISOString()
-    };
-
-    const feedbackResult = existing
-      ? await client
-          .from("event_feedback")
-          .update(feedbackValues)
-          .eq("id", existing.id)
-          .select("*")
-          .single()
-      : await client
-          .from("event_feedback")
-          .insert(feedbackValues)
-          .select("*")
-          .single();
-    throwIfSupabaseError(feedbackResult.error);
-
-    const feedback = feedbackResult.data as Row;
-    const feedbackId = String(feedback.id ?? "");
-    const { error: clearRatingsError } = await client
-      .from("event_feedback_ratings")
-      .delete()
-      .eq("feedback_id", feedbackId);
-    throwIfSupabaseError(clearRatingsError);
-
-    if (input.ratings.length > 0) {
-      const { error: ratingsError } = await client
-        .from("event_feedback_ratings")
-        .insert(
-          input.ratings.map((rating) => ({
-            feedback_id: feedbackId,
-            objective_id: rating.objectiveId,
-            rating: rating.rating
-          }))
-        );
-      throwIfSupabaseError(ratingsError);
-    }
+    throwIfSupabaseError(edgeError);
+    if (edgeResult?.error) throw new RepositoryError(edgeResult.error, "SERVER_ERROR");
+    
+    const feedbackId = edgeResult?.feedbackId;
 
     const { data: saved, error: savedError } = await client
       .from("event_feedback")
@@ -1635,6 +1599,40 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
       .single();
     throwIfSupabaseError(savedError);
     return mapEventFeedback(saved as Row);
+  },
+
+  async listAllEventObjectives(query, context) {
+    void context;
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    const { data, error, count } = await client.from("event_objectives").select("*", { count: "exact" }).range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapEventObjective), count ?? 0, listQuery);
+  },
+
+  async listAllEventSummarySnapshots(query, context) {
+    void context;
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    const { data, error, count } = await client.from("event_summary_snapshots").select("*", { count: "exact" }).range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapEventSummarySnapshot), count ?? 0, listQuery);
+  },
+
+  async listAllEventFeedback(query, context) {
+    void context;
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    // We fetch without ratings to keep payload light for comments view
+    const { data, error, count } = await client.from("event_feedback").select("*", { count: "exact" }).range(from, to).order("submitted_at", { ascending: false });
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as Row[]).map(mapEventFeedback), count ?? 0, listQuery);
   }
 };
 

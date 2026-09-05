@@ -1370,6 +1370,15 @@ export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
         rating: rating.rating
       }))
     };
+  },
+  async listAllEventObjectives(query) {
+    return paginateList([], query);
+  },
+  async listAllEventSummarySnapshots(query) {
+    return paginateList([], query);
+  },
+  async listAllEventFeedback(query) {
+    return paginateList([], query);
   }
 };
 

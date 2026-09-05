@@ -11,6 +11,7 @@ import type {
   EventFeedbackRating,
   EventObjective,
   EventParticipant,
+  EventSummarySnapshot,
   FacialProfile,
   FacultyProfile,
   Notification,
@@ -328,7 +329,8 @@ export function mapEventObjective(row: Row): EventObjective {
     id: stringValue(row, ["id"]),
     eventId: stringValue(row, ["event_id"]),
     order: numberValue(row, ["objective_order"]),
-    text: stringValue(row, ["objective_text"])
+    text: stringValue(row, ["objective_text"]),
+    averageRating: nullableNumberValue(row, ["average_rating"])
   };
 }
 
@@ -349,8 +351,21 @@ export function mapEventFeedback(row: Row): EventFeedback {
     studentId: stringValue(row, ["student_id"]),
     attendanceRecordId: stringValue(row, ["attendance_record_id"]),
     comment: optionalString(row, ["comment"]),
+    sentimentLabel: optionalString(row, ["sentiment_label"]),
+    sentimentScore: nullableNumberValue(row, ["sentiment_score"]),
     submittedAt: stringValue(row, ["submitted_at"], new Date().toISOString()),
     ratings: Array.isArray(ratings) ? ratings.map((rating) => mapEventFeedbackRating(rating as Row)) : undefined
+  };
+}
+
+export function mapEventSummarySnapshot(row: Row): EventSummarySnapshot {
+  return {
+    eventId: stringValue(row, ["event_id"]),
+    positivePercentage: numberValue(row, ["positive_percentage"]),
+    neutralPercentage: numberValue(row, ["neutral_percentage"]),
+    negativePercentage: numberValue(row, ["negative_percentage"]),
+    totalFeedbackCount: numberValue(row, ["total_feedback_count"]),
+    updatedAt: stringValue(row, ["updated_at"], new Date().toISOString())
   };
 }
 

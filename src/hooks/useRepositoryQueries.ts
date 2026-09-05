@@ -642,6 +642,27 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
   return { ...listQueryResult, submitMutation };
 }
 
+export function useAllEventObjectives(query?: ListQuery, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["allEventObjectives", query, context],
+    queryFn: () => repositories.eventFeedback.listAllEventObjectives(query, context)
+  });
+}
+
+export function useAllEventSummarySnapshots(query?: ListQuery, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["allEventSummarySnapshots", query, context],
+    queryFn: () => repositories.eventFeedback.listAllEventSummarySnapshots(query, context)
+  });
+}
+
+export function useAllEventFeedback(query?: ListQuery, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["allEventFeedback", query, context],
+    queryFn: () => repositories.eventFeedback.listAllEventFeedback(query, context)
+  });
+}
+
 export function useReports(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
