@@ -606,7 +606,7 @@ export function OrganizerAnalyticsPage() {
     const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
     
     return lateRows
-      .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !lateReasons.includes(row.lateReason))
+      .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !lateReasons.includes(row.lateReason as any))
       .map((row) => ({
         text: row.lateReason as string,
         category: row.lateReasonCategory || "Other",
@@ -636,8 +636,8 @@ export function OrganizerAnalyticsPage() {
   const topLateReason = useMemo(() => {
     const reasons = filteredLateReasons;
     return reasons.length > 0
-      ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
-      : { category: "No late records", share: 0 };
+      ? reasons.reduce((max: { category: string; count: number; share: number }, r: { category: string; count: number; share: number }) => (r.share > max.share ? r : max))
+      : { category: "No late records", count: 0, share: 0 };
   }, [filteredLateReasons]);
 
   const activePdpFeature = useMemo(() => {
