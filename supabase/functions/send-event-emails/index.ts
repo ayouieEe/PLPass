@@ -2,12 +2,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const emailProvider = (Deno.env.get("EMAIL_PROVIDER") ?? "brevo").toLowerCase();
 const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
 const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
 const brevoFromName = "PLPass";
-const sendGridApiKey = Deno.env.get("SENDGRID_API_KEY") ?? Deno.env.get("sendgrid_api_key");
-const sendGridFromEmail = Deno.env.get("SENDGRID_FROM_EMAIL") ?? Deno.env.get("sendgrid_from_email");
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
@@ -25,10 +22,15 @@ const corsHeaders = {
 
 type EventEmailRow = {
   id: string;
+  recipient_profile_id: string;
   recipient_email: string;
   subject: string;
   body: string;
   html_body?: string | null;
+  delivery_status: "pending" | "sent" | "failed" | "skipped";
+  error_message?: string | null;
+  sent_at?: string | null;
+  created_at: string;
 };
 
 function json(body: unknown, status = 200) {
@@ -47,14 +49,8 @@ Deno.serve(async (request) => {
     return json({ error: "Only POST requests are supported." }, 405);
   }
 
-  if (emailProvider === "brevo" && (!brevoApiKey || !brevoFromEmail)) {
+  if (!brevoApiKey || !brevoFromEmail) {
     return json({ error: "BREVO_API_KEY and BREVO_FROM_EMAIL are required." }, 500);
-  }
-  if (emailProvider === "sendgrid" && (!sendGridApiKey || !sendGridFromEmail)) {
-    return json({ error: "SENDGRID_API_KEY and SENDGRID_FROM_EMAIL are required." }, 500);
-  }
-  if (emailProvider !== "brevo" && emailProvider !== "sendgrid") {
-    return json({ error: "EMAIL_PROVIDER must be brevo or sendgrid." }, 500);
   }
 
   const authorization = request.headers.get("Authorization");
@@ -66,6 +62,8 @@ Deno.serve(async (request) => {
 
   const requestBody = await request.json().catch(() => ({}));
   const eventId = typeof requestBody.eventId === "string" ? requestBody.eventId.trim() : "";
+  const action = typeof requestBody.action === "string" ? requestBody.action : "send";
+  const retryOutboxId = typeof requestBody.outboxId === "string" ? requestBody.outboxId.trim() : "";
   if (!eventId) return json({ error: "eventId is required." }, 400);
 
   const { data: event, error: eventError } = await supabase
@@ -77,11 +75,56 @@ Deno.serve(async (request) => {
   if (eventError || !event) return json({ error: "Event not found." }, 404);
   if (!organizer || organizer.profile_id !== authData.user.id) return json({ error: "Event access denied." }, 403);
 
-  const { data: rows, error: fetchError } = await supabase
+  if (action === "status") {
+    const { data: statusRows, error: statusError } = await supabase
+      .from("event_email_outbox")
+      .select("id, recipient_profile_id, delivery_status, error_message, sent_at, created_at")
+      .eq("event_id", eventId)
+      .in("notification_type", ["published", "rescheduled", "participant_added"])
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (statusError) return json({ error: statusError.message }, 500);
+
+    const latestStatuses = new Map<string, Record<string, unknown>>();
+    for (const row of statusRows ?? []) {
+      if (!latestStatuses.has(row.recipient_profile_id)) {
+        latestStatuses.set(row.recipient_profile_id, {
+          id: row.id,
+          recipientProfileId: row.recipient_profile_id,
+          deliveryStatus: row.delivery_status,
+          errorMessage: row.error_message,
+          sentAt: row.sent_at,
+          createdAt: row.created_at
+        });
+      }
+    }
+    return json({ statuses: [...latestStatuses.values()] });
+  }
+
+  if (action === "retry") {
+    if (!retryOutboxId) return json({ error: "outboxId is required to retry an email." }, 400);
+    const { data: retryRow, error: retryError } = await supabase
+      .from("event_email_outbox")
+      .update({ delivery_status: "pending", error_message: null })
+      .eq("id", retryOutboxId)
+      .eq("event_id", eventId)
+      .in("notification_type", ["published", "rescheduled", "participant_added"])
+      .eq("delivery_status", "failed")
+      .select("id")
+      .maybeSingle();
+    if (retryError) return json({ error: retryError.message }, 500);
+    if (!retryRow) return json({ error: "That invitation is no longer available to retry." }, 404);
+  } else if (action !== "send") {
+    return json({ error: "Unsupported email action." }, 400);
+  }
+
+  let pendingEmailsQuery = supabase
     .from("event_email_outbox")
-    .select("id, recipient_email, subject, body, html_body")
+    .select("id, recipient_profile_id, recipient_email, subject, body, html_body, delivery_status, error_message, sent_at, created_at")
     .eq("delivery_status", "pending")
-    .eq("event_id", eventId)
+    .eq("event_id", eventId);
+  if (action === "retry") pendingEmailsQuery = pendingEmailsQuery.eq("id", retryOutboxId);
+  const { data: rows, error: fetchError } = await pendingEmailsQuery
     .order("created_at", { ascending: true })
     .limit(100);
 
@@ -90,38 +133,21 @@ Deno.serve(async (request) => {
   let sent = 0;
   let failed = 0;
   for (const row of (rows ?? []) as EventEmailRow[]) {
-    const response = emailProvider === "brevo"
-      ? await fetch("https://api.brevo.com/v3/smtp/email", {
-          method: "POST",
-          headers: {
-            "api-key": brevoApiKey ?? "",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            sender: { email: brevoFromEmail, name: brevoFromName },
-            replyTo: { email: brevoFromEmail, name: brevoFromName },
-            to: [{ email: row.recipient_email }],
-            subject: row.subject,
-            textContent: row.body,
-            htmlContent: row.html_body || undefined
-          })
-        })
-      : await fetch("https://api.sendgrid.com/v3/mail/send", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${sendGridApiKey ?? ""}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            personalizations: [{ to: [{ email: row.recipient_email }] }],
-            from: { email: sendGridFromEmail, name: "PLPass" },
-            subject: row.subject,
-            content: [
-              { type: "text/plain", value: row.body },
-              ...(row.html_body ? [{ type: "text/html", value: row.html_body }] : [])
-            ]
-          })
-        });
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": brevoApiKey ?? "",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        sender: { email: brevoFromEmail, name: brevoFromName },
+        replyTo: { email: brevoFromEmail, name: brevoFromName },
+        to: [{ email: row.recipient_email }],
+        subject: row.subject,
+        textContent: row.body,
+        htmlContent: row.html_body || undefined
+      })
+    });
 
     if (response.ok) {
       const responseBody = await response.json().catch(() => ({}));

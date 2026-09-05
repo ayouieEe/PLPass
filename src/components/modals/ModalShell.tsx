@@ -10,7 +10,7 @@ type ModalShellProps = {
   open: boolean;
   title: string;
   description?: string;
-  children: ReactNode;
+  children?: ReactNode;
   footer?: ReactNode;
   size?: ModalShellSize;
   onClose?: () => void;
@@ -109,7 +109,9 @@ export function ModalShell({ open, title, description, children, footer, size = 
             </Button>
           ) : null}
         </div>
-        <div className="plpass-modern-scrollbar max-h-[calc(90vh-9rem)] overflow-y-auto p-5">{children}</div>
+        {children != null ? (
+          <div className="plpass-modern-scrollbar max-h-[calc(90vh-9rem)] overflow-y-auto p-5">{children}</div>
+        ) : null}
         {footer ? <div className="flex flex-wrap justify-end gap-2 border-t bg-surface-muted/40 p-5">{footer}</div> : null}
       </section>
     </div>

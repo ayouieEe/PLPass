@@ -60,8 +60,10 @@ import {
   useNfcTapAttempts,
   useOrganizerProfiles,
   useReports,
-  useStudents
+  useStudents,
+  useStudentCredentialStatuses
 } from "@/hooks/useRepositoryQueries";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
@@ -287,6 +289,15 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 }
 
+type ParticipantInvitationStatus = {
+  id: string;
+  recipientProfileId: string;
+  deliveryStatus: "pending" | "sent" | "failed" | "skipped";
+  errorMessage?: string | null;
+  sentAt?: string | null;
+  createdAt: string;
+};
+
 export function EventDetailsPage() {
   const { eventId } = useParams();
   const scope = useOrganizerScope();
@@ -294,11 +305,19 @@ export function EventDetailsPage() {
   const { setHeaderOverride } = useHeader();
   const [tab, setTab] = useState("participants");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [participantStudentNumber, setParticipantStudentNumber] = useState("");
+  const [participantPendingAddition, setParticipantPendingAddition] = useState<Student | null>(null);
+  const [participantPendingRemoval, setParticipantPendingRemoval] = useState<string | null>(null);
+  const [isUpdatingParticipants, setIsUpdatingParticipants] = useState(false);
+  const [invitationStatuses, setInvitationStatuses] = useState<ParticipantInvitationStatus[]>([]);
+  const [isRetryingInvitationId, setIsRetryingInvitationId] = useState<string | null>(null);
+  const [invitationStatusRefreshKey, setInvitationStatusRefreshKey] = useState(0);
   const eventQuery = useEvent(eventId, scope.context);
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
   const objectivesQuery = useEventObjectives(eventId, scope.context);
   const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
@@ -316,6 +335,29 @@ export function EventDetailsPage() {
       });
     }
   }, [selectedEvent, setHeaderOverride]);
+
+  useEffect(() => {
+    if (!selectedEvent || !eventId || !scope.organizerId) {
+      setInvitationStatuses([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
+        body: { eventId, action: "status" }
+      });
+      if (cancelled || error) return;
+      const statuses = data && typeof data === "object" && "statuses" in data && Array.isArray(data.statuses)
+        ? data.statuses as ParticipantInvitationStatus[]
+        : [];
+      setInvitationStatuses(statuses);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eventId, invitationStatusRefreshKey, scope.organizerId, selectedEvent]);
 
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
@@ -339,28 +381,176 @@ export function EventDetailsPage() {
   const objectives = objectivesQuery.data ?? [];
   const resources = resourcesQuery.data?.items ?? [];
   const participantList = participantStudents(participants, students);
+  const participantPendingRemovalStudent = participantPendingRemoval
+    ? participantList.find((student) => student.id === participantPendingRemoval)
+    : undefined;
+  const invitationStatusByProfileId = new Map(invitationStatuses.map((status) => [status.recipientProfileId, status]));
+  const participantStudentIds = new Set(participantList.map((student) => student.id));
+  const studentNumberForAddition = participantStudentNumber.trim().toLowerCase();
+  const matchedStudentForAddition = studentNumberForAddition
+    ? students.find((student) => student.studentNumber.trim().toLowerCase() === studentNumberForAddition)
+    : undefined;
+  const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
+  const now = Date.now();
+  // A legacy in-progress session must not lock participant management. Under
+  // the current lifecycle, an event is finalized only after End Session.
+  const hasCompletedSession = sessions.some((session) => session.status === "completed");
+  const canManageParticipants = !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
   const counts = attendanceCounts(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
+
+  async function addParticipant(student: Student) {
+    if (participantStudentIds.has(student.id)) {
+      toast.warning("This student is already a participant in the event.");
+      return;
+    }
+
+    setIsUpdatingParticipants(true);
+    try {
+      const client = getSupabaseBrowserClient();
+      const { error } = await client
+        .from("event_participants")
+        .upsert(
+          { event_id: event.id, student_id: student.id, participant_status: "confirmed" },
+          { onConflict: "event_id,student_id" }
+        );
+      if (error) throw error;
+
+      const { data: emailResult, error: emailError } = await client.functions.invoke("send-event-emails", {
+        body: { eventId: event.id }
+      });
+      await participantsQuery.refetch();
+      setParticipantStudentNumber("");
+      setParticipantPendingAddition(null);
+      setInvitationStatusRefreshKey((current) => current + 1);
+
+      const failedEmails = typeof emailResult === "object" && emailResult && "failed" in emailResult
+        ? Number(emailResult.failed)
+        : 0;
+      const processedEmails = typeof emailResult === "object" && emailResult && "processed" in emailResult
+        ? Number(emailResult.processed)
+        : 0;
+      if (emailError || failedEmails > 0 || processedEmails < 1) {
+        toast.warning(`${studentName(student)} was added. The invitation email is queued for retry.`);
+      } else {
+        toast.success(`${studentName(student)} was added and the event invitation email was sent.`);
+      }
+    } catch (error) {
+      console.error("Failed to add event participant:", error);
+      toast.error("Could not add this participant. Please try again.");
+    } finally {
+      setIsUpdatingParticipants(false);
+    }
+  }
+
+  async function removeParticipant(studentId: string) {
+    setIsUpdatingParticipants(true);
+    try {
+      const { error } = await getSupabaseBrowserClient()
+        .from("event_participants")
+        .update({ participant_status: "removed" })
+        .eq("event_id", event.id)
+        .eq("student_id", studentId);
+      if (error) throw error;
+
+      const student = students.find((item) => item.id === studentId);
+      setParticipantPendingRemoval(null);
+      await participantsQuery.refetch();
+      toast.success(`${student ? studentName(student) : "Student"} removed from this event.`);
+    } catch (error) {
+      console.error("Failed to remove event participant:", error);
+      toast.error("Could not remove this participant. Please try again.");
+    } finally {
+      setIsUpdatingParticipants(false);
+    }
+  }
+
+  async function retryParticipantInvitation(outboxId: string) {
+    setIsRetryingInvitationId(outboxId);
+    try {
+      const { data, error } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
+        body: { eventId: event.id, action: "retry", outboxId }
+      });
+      const failed = data && typeof data === "object" && "failed" in data ? Number(data.failed) : 0;
+      if (error || failed > 0) {
+        toast.error("The invitation could not be resent. Please try again.");
+      } else {
+        toast.success("Invitation email sent.");
+      }
+    } catch (error) {
+      console.error("Failed to retry participant invitation:", error);
+      toast.error("The invitation could not be resent. Please try again.");
+    } finally {
+      setIsRetryingInvitationId(null);
+      setInvitationStatusRefreshKey((current) => current + 1);
+    }
+  }
+
   const participantColumns: ColumnDef<Student>[] = [
     { id: "name", header: "Student name", cell: ({ row }) => studentName(row.original) },
     { accessorKey: "studentNumber", header: "Student number" },
     {
-      accessorKey: "programId",
-      header: "Program",
-      cell: ({ row }) => programById.get(row.original.programId) ?? row.original.programId ?? "Unknown program"
+      id: "qrCredential",
+      header: "QR credential",
+      cell: ({ row }) => {
+        if (credentialStatusesQuery.isLoading) return <span className="text-sm text-muted-foreground">Checking...</span>;
+        const credential = credentialStatusByStudentId.get(row.original.id)?.qrCredential;
+        const ready = credential?.status === "activated" && !credential.revokedAt && (!credential.expiresAt || new Date(credential.expiresAt).getTime() > now);
+        return <StatusBadge label={ready ? "Ready" : "Needs QR"} tone={ready ? "success" : "warning"} />;
+      }
     },
-    { accessorKey: "yearLevel", header: "Year level" },
-    { accessorKey: "section", header: "Section" },
-    { accessorKey: "status", header: "Student status", cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} /> },
-    { id: "rate", header: "Participation rate", cell: () => `${attendanceRate(records)}%` },
-    { id: "risk", header: "Risk status", cell: ({ row }) => <StatusBadge label={flagged.some((prediction) => prediction.studentId === row.original.id) ? "flagged" : "normal"} tone={flagged.some((prediction) => prediction.studentId === row.original.id) ? "warning" : "success"} /> },
+    {
+      id: "facialBackup",
+      header: "Facial backup",
+      cell: ({ row }) => {
+        if (credentialStatusesQuery.isLoading) return <span className="text-sm text-muted-foreground">Checking...</span>;
+        const ready = credentialStatusByStudentId.get(row.original.id)?.facialProfile?.status === "activated";
+        return <StatusBadge label={ready ? "Ready" : "Not enrolled"} tone={ready ? "success" : "muted"} />;
+      }
+    },
+    {
+      id: "invitation",
+      header: "Invitation",
+      cell: ({ row }) => {
+        const invitation = invitationStatusByProfileId.get(row.original.userId);
+        if (!invitation) return <StatusBadge label="Not sent" tone="muted" />;
+
+        const statusPresentation = {
+          pending: { label: "Email queued", tone: "warning" as const },
+          sent: { label: "Email sent", tone: "success" as const },
+          failed: { label: "Email failed", tone: "danger" as const },
+          skipped: { label: "Email skipped", tone: "muted" as const }
+        }[invitation.deliveryStatus];
+
+        return (
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <StatusBadge label={statusPresentation.label} tone={statusPresentation.tone} />
+            {invitation.deliveryStatus === "failed" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-primary hover:text-primary"
+                onClick={() => void retryParticipantInvitation(invitation.id)}
+                disabled={isRetryingInvitationId === invitation.id}
+              >
+                {isRetryingInvitationId === invitation.id ? "Retrying..." : "Retry"}
+              </Button>
+            ) : null}
+          </div>
+        );
+      }
+    },
     {
       id: "action",
-      header: "View",
+      header: "Actions",
       cell: ({ row }) => (
-        <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>
-          View details
-        </Button>
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>View</Button>
+          {canManageParticipants ? (
+            <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setParticipantPendingRemoval(row.original.id)} disabled={isUpdatingParticipants}>Remove</Button>
+          ) : null}
+        </div>
       )
     }
   ];
@@ -483,44 +673,115 @@ export function EventDetailsPage() {
 
       {/* Tabs Navigation */}
       <section className="space-y-4">
-        {/* Only show tabs that have data */}
-        {(participantList.length > 0 || (records.length > 0 && sessions.length > 0)) && (
-          <div className="flex flex-wrap gap-2 border-b">
-            {participantList.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setTab("participants")}
-                className={`px-4 py-2 font-medium text-sm capitalize border-b-2 transition-colors ${
-                  tab === "participants"
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Participants ({participantList.length})
-              </button>
-            )}
-
-            {records.length > 0 && sessions.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setTab("summary")}
-                className={`px-4 py-2 font-medium text-sm capitalize border-b-2 transition-colors ${
-                  tab === "summary"
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Summary
-              </button>
-            )}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2 border-b">
+          <button
+            type="button"
+            onClick={() => setTab("participants")}
+            className={`px-4 py-2 text-sm font-medium transition-colors ${
+              tab === "participants"
+                ? "border-b-2 border-primary text-primary"
+                : "border-b-2 border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Participants ({participantList.length})
+          </button>
+          {records.length > 0 && hasCompletedSession && (
+            <button
+              type="button"
+              onClick={() => setTab("summary")}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                tab === "summary"
+                  ? "border-b-2 border-primary text-primary"
+                  : "border-b-2 border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Summary
+            </button>
+          )}
+        </div>
 
         <div className="rounded-lg border bg-surface p-5">
-          {tab === "participants" ? <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" /> : null}
+          {tab === "participants" ? (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h3 className="font-semibold text-foreground">Participant management</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">QR is the primary attendance method. Facial recognition is an optional backup.</p>
+                </div>
+                {!canManageParticipants ? <span className="w-fit rounded-full border bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground">Changes locked</span> : null}
+              </div>
+              {canManageParticipants ? (
+                <form
+                  className="rounded-lg border bg-muted/20 p-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (matchedStudentForAddition && !participantStudentIds.has(matchedStudentForAddition.id) && !isUpdatingParticipants) {
+                      setParticipantPendingAddition(matchedStudentForAddition);
+                    }
+                  }}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <label className="min-w-0 flex-1 space-y-1 text-xs font-medium text-muted-foreground">
+                      <span>Student ID</span>
+                      <input
+                        className="plpass-field h-10 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+                        value={participantStudentNumber}
+                        onChange={(event) => setParticipantStudentNumber(event.target.value)}
+                        placeholder="Enter student ID, e.g. 23-00265"
+                        disabled={isUpdatingParticipants}
+                      />
+                    </label>
+                    <Button
+                      type="submit"
+                      disabled={!matchedStudentForAddition || participantStudentIds.has(matchedStudentForAddition.id) || isUpdatingParticipants}
+                    >
+                      Add participant
+                    </Button>
+                  </div>
+                  {participantStudentNumber.trim() ? (
+                    matchedStudentForAddition ? (
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        <span className="font-medium text-foreground">{studentName(matchedStudentForAddition)}</span>
+                        <span className="mx-1">·</span>{matchedStudentForAddition.studentNumber}
+                        {participantStudentIds.has(matchedStudentForAddition.id) ? <span className="ml-2 text-amber-700">Already added</span> : <span className="ml-2 text-emerald-700">Ready to add</span>}
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-destructive">No student matches that Student ID.</p>
+                    )
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">Enter a Student ID to verify the student before adding them.</p>
+                  )}
+                </form>
+              ) : (
+                <p className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">Participant changes are locked after a session is completed or when the event is completed.</p>
+              )}
+              <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" emptyDescription="Add students here before the event session is completed." />
+            </div>
+          ) : null}
           {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
         </div>
       </section>
+
+      <ConfirmModal
+        open={Boolean(participantPendingAddition)}
+        title="Add event participant?"
+        description={participantPendingAddition ? `${studentName(participantPendingAddition)} (${participantPendingAddition.studentNumber}) will be added to this event and sent an invitation email.` : undefined}
+        confirmLabel={isUpdatingParticipants ? "Adding..." : "Add participant"}
+        cancelLabel="Cancel"
+        onCancel={() => !isUpdatingParticipants && setParticipantPendingAddition(null)}
+        onConfirm={() => participantPendingAddition && void addParticipant(participantPendingAddition)}
+      />
+
+      <ConfirmModal
+        open={Boolean(participantPendingRemoval)}
+        title="Remove event participant?"
+        description={participantPendingRemovalStudent ? `${studentName(participantPendingRemovalStudent)} (${participantPendingRemovalStudent.studentNumber}) will no longer be able to check in for this event.` : undefined}
+        confirmLabel={isUpdatingParticipants ? "Removing..." : "Remove participant"}
+        cancelLabel="Cancel"
+        tone="danger"
+        onCancel={() => !isUpdatingParticipants && setParticipantPendingRemoval(null)}
+        onConfirm={() => participantPendingRemoval && void removeParticipant(participantPendingRemoval)}
+      />
 
       <ModalShell
         open={Boolean(selectedStudent)}

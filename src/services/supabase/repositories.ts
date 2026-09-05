@@ -499,7 +499,10 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
   },
   async listEventParticipants(eventId, query) {
     const rows = await selectRows("event_participants", query);
-    return pageResult(rows.items.filter((row) => String(row.event_id ?? "") === eventId).map(mapEventParticipant), rows.total, query);
+    const eventParticipants = rows.items.filter(
+      (row) => String(row.event_id ?? "") === eventId && String(row.participant_status ?? "confirmed") !== "removed"
+    );
+    return pageResult(eventParticipants.map(mapEventParticipant), eventParticipants.length, query);
   },
   async generateNextEventCode() {
     const client = getSupabaseBrowserClient();

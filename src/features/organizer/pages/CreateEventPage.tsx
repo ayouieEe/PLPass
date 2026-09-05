@@ -11,7 +11,6 @@ import { eventBaseSchema } from "@/lib/validations/events";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
-import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
@@ -136,6 +135,37 @@ function timeToMinutes(value: string) {
   return (Number.isNaN(hours) ? 0 : hours) * 60 + (Number.isNaN(minutes) ? 0 : minutes);
 }
 
+function formatTimeOfDay(value: string | undefined) {
+  if (!value) return "Not set";
+  const [hoursPart, minutesPart] = value.split(":");
+  const hours = Number(hoursPart);
+  const minutes = Number(minutesPart);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    return value;
+  }
+  const period = hours >= 12 ? "PM" : "AM";
+  const displayHours = hours % 12 || 12;
+  return `${displayHours}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+function findScheduleConflicts(events: Event[], values: Pick<EventFormValues, "venue" | "date" | "startTime" | "endTime">) {
+  const candidateStart = new Date(`${values.date}T${values.startTime}:00+08:00`);
+  const candidateEnd = new Date(`${values.date}T${values.endTime}:00+08:00`);
+  const normalizedVenue = values.venue.trim().toLowerCase();
+  if (!normalizedVenue || Number.isNaN(candidateStart.getTime()) || Number.isNaN(candidateEnd.getTime()) || candidateEnd <= candidateStart) {
+    return [];
+  }
+
+  return events.filter((event) => {
+    if (event.status === "cancelled" || event.status === "completed" || event.venue.trim().toLowerCase() !== normalizedVenue) {
+      return false;
+    }
+    const existingStart = new Date(event.startsAt).getTime();
+    const existingEnd = new Date(event.endsAt).getTime();
+    return Number.isFinite(existingStart) && Number.isFinite(existingEnd) && candidateStart.getTime() < existingEnd && existingStart < candidateEnd.getTime();
+  });
+}
+
 const eventFormSchemaWithObjectives = eventBaseSchema
   .extend({
     objectives: z
@@ -151,6 +181,25 @@ const eventFormSchemaWithObjectives = eventBaseSchema
         code: z.ZodIssueCode.custom,
         path: ["resourceTitle"],
         message: "Resource title is required when a resource link is provided."
+      });
+    }
+
+    if (timeToMinutes(value.endTime) <= timeToMinutes(value.startTime)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endTime"],
+        message: "End time must be after start time."
+      });
+    }
+
+    const eventDate = new Date(`${value.date}T00:00:00`);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (Number.isNaN(eventDate.getTime()) || eventDate < today) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["date"],
+        message: "Event date must be today or in the future."
       });
     }
   });
@@ -408,10 +457,12 @@ export function CreateEventPage() {
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [participantError, setParticipantError] = useState("");
+  const [pendingPublish, setPendingPublish] = useState<EventFormValues | null>(null);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
+  const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchemaWithObjectives),
     defaultValues: {
@@ -470,6 +521,10 @@ export function CreateEventPage() {
       isMounted = false;
     };
   }, [form, scope.context]);
+
+  useEffect(() => {
+    form.setValue("numberOfPax", selectedIds.length, { shouldValidate: selectedIds.length > 0 });
+  }, [form, selectedIds.length]);
   
   const watchedCategory = form.watch("category");
   const watchedInstitutionalCategory = form.watch("institutionalCategory");
@@ -477,16 +532,32 @@ export function CreateEventPage() {
   const watchedTargetGroup = form.watch("targetGroup");
   const watchedFixedPriority = form.watch("fixedPriority");
   const watchedDate = form.watch("date");
+  const watchedVenue = form.watch("venue");
   const watchedStartTime = form.watch("startTime");
+  const watchedEndTime = form.watch("endTime");
   const watchedResourceUrl = form.watch("resourceUrl");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
   }
-  if (studentsQuery.isLoading || catalog.programs.isLoading) {
+  if (studentsQuery.isLoading || catalog.programs.isLoading || eventsQuery.isLoading) {
     return <LoadingState label="Loading participant selector" />;
   }
   const students = studentsQuery.data?.items ?? [];
+  const normalizedStudentSearch = search.trim().toLowerCase();
+  const availableSections = [...new Set(students.map((student) => student.section).filter(Boolean))].sort();
+  const filteredStudents = students.filter((student) => {
+    const searchableStudentDetails = [student.fullName, student.formattedName, student.studentNumber, student.email]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return (
+      (!normalizedStudentSearch || searchableStudentDetails.includes(normalizedStudentSearch))
+      && (!programId || student.programId === programId)
+      && (!yearLevel || student.yearLevel === Number(yearLevel))
+      && (!section || student.section === section)
+    );
+  });
   const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
@@ -494,22 +565,33 @@ export function CreateEventPage() {
   const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
   const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
   const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedStartTime);
+  const scheduleConflicts = findScheduleConflicts(eventsQuery.data?.items ?? [], {
+    venue: watchedVenue,
+    date: watchedDate,
+    startTime: watchedStartTime,
+    endTime: watchedEndTime
+  });
+  const pendingScheduleConflicts = pendingPublish
+    ? findScheduleConflicts(eventsQuery.data?.items ?? [], pendingPublish)
+    : [];
   function toggleStudent(studentId: string) {
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
   }
   function selectAllFiltered() {
-    setSelectedIds((current) => [...new Set([...current, ...students.map((student) => student.id)])]);
+    setSelectedIds((current) => [...new Set([...current, ...filteredStudents.map((student) => student.id)])]);
     setParticipantError("");
+  }
+  function clearParticipantFilters() {
+    setSearch("");
+    setProgramId("");
+    setYearLevel("");
+    setSection("");
   }
   function addObjective() {
     appendObjective({ value: "" });
   }
-  async function onSubmit(values: EventFormValues) {
-    if (selectedIds.length === 0) {
-      setParticipantError("Select at least one participant.");
-      return;
-    }
+  async function publishEvent(values: EventFormValues) {
     try {
       const ranking = calculatePriority(values);
       const event = await mutations.createEventMutation.mutateAsync({
@@ -535,7 +617,7 @@ export function CreateEventPage() {
         resourceUrl: values.resourceUrl,
         requestedBy: values.requestedBy,
         collegeOffice: values.collegeOffice,
-        numberOfPax: values.numberOfPax ?? selectedIds.length,
+        numberOfPax: selectedIds.length,
         visibility: "assigned",
         publishReason: "Published by event organizer",
         participantStudentIds: selectedIds,
@@ -556,6 +638,14 @@ export function CreateEventPage() {
       const message = error instanceof Error ? error.message : "Failed to create event. Please try again.";
       toast.error(message);
     }
+  }
+  async function onSubmit(values: EventFormValues) {
+    if (selectedIds.length === 0) {
+      setParticipantError("Select at least one participant.");
+      return;
+    }
+
+    setPendingPublish(values);
   }
   return (
     <OrganizerFrame>
@@ -626,7 +716,17 @@ export function CreateEventPage() {
               <div className="grid gap-4 md:grid-cols-3">
                 <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
                 <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" required />
-                <TextField control={form.control} name="numberOfPax" label="No. of Pax" placeholder="Enter expected participants" type="number" min={1} required />
+                <TextField
+                  control={form.control}
+                  name="numberOfPax"
+                  label="No. of Pax"
+                  type="number"
+                  min={1}
+                  readOnly
+                  required
+                  className="bg-muted/50"
+                  helperText={`${selectedIds.length} selected participant${selectedIds.length === 1 ? "" : "s"}. This count updates automatically.`}
+                />
               </div>
             </section>
 
@@ -729,10 +829,10 @@ export function CreateEventPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold text-foreground">Participants</h2>
-              <p className="text-sm text-muted-foreground">{selectedIds.length} selected participants</p>
+              <p className="text-sm text-muted-foreground">{selectedIds.length} selected participants · {filteredStudents.length} matching students</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="default" onClick={selectAllFiltered}>All Students</Button>
+              <Button type="button" variant="default" onClick={selectAllFiltered} disabled={filteredStudents.length === 0}>Select matching students</Button>
               <Button type="button" variant="outline" onClick={() => setSelectedIds([])}>Clear selected students</Button>
             </div>
           </div>
@@ -748,15 +848,16 @@ export function CreateEventPage() {
             </select>
             <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
               <option value="">All sections</option>
-              {["A", "B"].map((item) => <option key={item} value={item}>Section {item}</option>)}
+              {availableSections.map((item) => <option key={item} value={item}>Section {item}</option>)}
             </select>
           </div>
           {participantError ? <p role="alert" aria-live="assertive" className="text-sm text-danger">{participantError}</p> : null}
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
             <div className="max-h-[360px] overflow-y-auto rounded-lg border bg-background p-3">
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {students.length ? students.map((student) => (
+              {filteredStudents.length ? (
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredStudents.map((student) => (
                   <label key={student.id} className="flex items-start gap-3 rounded-lg border bg-surface p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5">
                     <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
                       <span className="min-w-0">
@@ -765,8 +866,22 @@ export function CreateEventPage() {
                       <span className="mt-1 block text-xs text-muted-foreground">{programById.get(student.programId) ?? student.programId} - Year {student.yearLevel} - {student.section}</span>
                     </span>
                   </label>
-                )) : <EmptyState title="No students found" />}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-[230px] items-center justify-center rounded-lg border border-dashed bg-muted/20 p-6 text-center">
+                  <div className="max-w-sm">
+                    <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <Search className="h-5 w-5" aria-hidden="true" />
+                    </span>
+                    <h3 className="mt-4 text-base font-semibold text-foreground">No students match these filters</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">Try another search term, or clear the filters to view all available students.</p>
+                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={clearParticipantFilters}>
+                      Clear filters
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <aside className="rounded-lg border bg-background p-4">
@@ -789,6 +904,26 @@ export function CreateEventPage() {
           </div>
         </section>
         {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
+        {scheduleConflicts.length > 0 ? (
+          <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" aria-hidden="true" />
+              <div className="min-w-0">
+                <h2 className="font-semibold">Schedule conflict detected</h2>
+                <p className="mt-1 text-sm leading-6 text-amber-900">
+                  This event overlaps with another active event at {watchedVenue}. Review the schedule before publishing.
+                </p>
+                <ul className="mt-3 space-y-1 text-sm text-amber-950">
+                  {scheduleConflicts.map((event) => (
+                    <li key={event.id}>
+                      <span className="font-medium">{event.code}</span> - {event.title} ({formatDate(event.startsAt)}, {formatTime(event.startsAt)} to {formatTime(event.endsAt)})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </section>
+        ) : null}
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-4 shadow-sm">
           <div>
             <h2 className="font-semibold text-foreground">Publish Event</h2>
@@ -807,6 +942,61 @@ export function CreateEventPage() {
           </SubmitButton>
         </section>
       </form>
+      <ConfirmModal
+        open={Boolean(pendingPublish)}
+        title={pendingScheduleConflicts.length > 0 ? "Review conflict and publish?" : "Review and publish event"}
+        description={pendingScheduleConflicts.length > 0
+          ? "The selected venue has an overlapping active event. Students will be notified immediately if you continue."
+          : "Confirm the details below. Selected participants will receive an event invitation by email."}
+        confirmLabel="Publish event"
+        cancelLabel={pendingScheduleConflicts.length > 0 ? "Review schedule" : "Edit event"}
+        onCancel={() => setPendingPublish(null)}
+        onConfirm={() => {
+          if (!pendingPublish || mutations.createEventMutation.isPending) return;
+          const values = pendingPublish;
+          setPendingPublish(null);
+          void publishEvent(values);
+        }}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 rounded-lg border bg-surface-muted/40 p-3 sm:grid-cols-2">
+            <div>
+              <p className="text-xs font-medium uppercase text-muted-foreground">Event</p>
+              <p className="mt-1 font-semibold text-foreground">{pendingPublish?.title}</p>
+              <p className="text-sm text-muted-foreground">{pendingPublish?.code}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-muted-foreground">Venue</p>
+              <p className="mt-1 font-semibold text-foreground">{pendingPublish?.venue}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-muted-foreground">Schedule</p>
+              <p className="mt-1 font-semibold text-foreground">{pendingPublish ? formatDate(`${pendingPublish.date}T00:00:00+08:00`) : ""}</p>
+              <p className="text-sm text-muted-foreground">{formatTimeOfDay(pendingPublish?.startTime)} - {formatTimeOfDay(pendingPublish?.endTime)}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase text-muted-foreground">Notifications</p>
+              <p className="mt-1 font-semibold text-foreground">{selectedIds.length} participant{selectedIds.length === 1 ? "" : "s"}</p>
+              <p className="text-sm text-muted-foreground">{selectedIds.length} invitation email{selectedIds.length === 1 ? "" : "s"}</p>
+            </div>
+          </div>
+          {pendingScheduleConflicts.length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p className="font-medium">Conflicting event{pendingScheduleConflicts.length === 1 ? "" : "s"}</p>
+              <ul className="mt-2 space-y-1 text-amber-900">
+                {pendingScheduleConflicts.map((event) => (
+                  <li key={event.id} className="rounded-md border border-amber-200/80 bg-background/60 px-3 py-2">
+                    <p className="font-medium text-amber-950">{event.code} - {event.title}</p>
+                    <p className="mt-0.5 text-xs text-amber-900">
+                      {event.venue} · {formatDate(event.startsAt)} · {formatTime(event.startsAt)} - {formatTime(event.endsAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </ConfirmModal>
     </OrganizerFrame>
   );
 }

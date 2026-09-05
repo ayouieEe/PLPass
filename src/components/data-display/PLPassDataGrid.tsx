@@ -111,6 +111,7 @@ export function PLPassDataGrid<TData extends object>({
   enableQuickFilter = false,
   enableColumnVisibility = false,
   rowSelection,
+  checkboxSelection = false,
   suppressRowClickSelection = false,
   onSelectionChange,
   height,
@@ -226,7 +227,9 @@ export function PLPassDataGrid<TData extends object>({
   const resolvedRowSelection = rowSelection
     ? {
         mode: rowSelection === "single" ? ("singleRow" as const) : ("multiRow" as const),
-        enableClickSelection: !suppressRowClickSelection
+        enableClickSelection: !suppressRowClickSelection,
+        checkboxes: checkboxSelection,
+        headerCheckbox: checkboxSelection && rowSelection === "multiple"
       }
     : undefined;
 
