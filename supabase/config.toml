@@ -2,14 +2,33 @@ project_id = "ouwyhaozkqvhjalqdsvc"
 
 [api]
 enabled = true
+port = 65431
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
 major_version = 17
+port = 65432
+
+[studio]
+enabled = true
+port = 65433
+
+[inbucket]
+enabled = true
+port = 65434
+
+[analytics]
+enabled = false
 
 [auth]
 enabled = true
 site_url = "http://localhost:5173"
 additional_redirect_urls = ["http://localhost:5173/reset-password"]
+
+[functions.analyze-feedback]
+enabled = true
+verify_jwt = false
+import_map = "./functions/analyze-feedback/deno.json"
+entrypoint = "./functions/analyze-feedback/index.ts"

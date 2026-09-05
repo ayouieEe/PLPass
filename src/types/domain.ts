@@ -165,6 +165,7 @@ export type EventObjective = {
   eventId: ID;
   order: number;
   text: string;
+  averageRating?: number | null;
 };
 
 export type EventResource = {
@@ -189,8 +190,19 @@ export type EventFeedback = {
   studentId: ID;
   attendanceRecordId: ID;
   comment?: string;
+  sentimentLabel?: string | null;
+  sentimentScore?: number | null;
   submittedAt: ISODateString;
   ratings?: EventFeedbackRating[];
+};
+
+export type EventSummarySnapshot = {
+  eventId: ID;
+  positivePercentage: number;
+  neutralPercentage: number;
+  negativePercentage: number;
+  totalFeedbackCount: number;
+  updatedAt: ISODateString;
 };
 
 export type AttendanceSession = {

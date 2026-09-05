@@ -25,8 +25,9 @@ import type {
   User,
   DevelopmentAccount,
   EventFeedback,
-  EventObjective
-  ,EventResource
+  EventObjective,
+  EventSummarySnapshot,
+  EventResource
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -319,6 +320,9 @@ export interface EventFeedbackRepository {
   listEventObjectives(eventId: string, context?: RepositoryContext): Promise<EventObjective[]>;
   listStudentFeedback(studentId: string, context?: RepositoryContext): Promise<EventFeedback[]>;
   submitEventFeedback(input: SubmitEventFeedbackInput, context?: RepositoryContext): Promise<EventFeedback>;
+  listAllEventObjectives(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventObjective>>;
+  listAllEventSummarySnapshots(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventSummarySnapshot>>;
+  listAllEventFeedback(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventFeedback>>;
 }
 
 export interface ReportRepository {
