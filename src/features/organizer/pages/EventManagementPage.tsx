@@ -17,8 +17,8 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation } from "@/hooks/useRepositoryQueries";
-import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
+import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
@@ -50,6 +50,25 @@ import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 // and Completed. A live session is a full-page state entered after Start Session.
 type EventTab = "today" | "incoming";
 type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
+type EventFilters = {
+  dateFrom: string;
+  dateTo: string;
+  venue: string;
+  category: string;
+  priority: "all" | PriorityLevel;
+};
+type EventReadiness = {
+  participants: number;
+  qrReady: number;
+  facialReady: number;
+};
+type EventParticipantReadiness = {
+  studentId: string;
+  studentName: string;
+  studentNumber: string;
+  qrReady: boolean;
+  facialReady: boolean;
+};
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
 
@@ -253,6 +272,16 @@ function lateBreakdown(rows: AttendanceRow[]) {
 function commonLateReason(rows: AttendanceRow[]) {
   const [top] = lateBreakdown(rows).sort((a, b) => b.count - a.count);
   return top?.count ? top.reason : "None";
+}
+
+function matchesEventFilters(event: EventRecord, filters: EventFilters) {
+  return (
+    (!filters.dateFrom || event.date >= filters.dateFrom) &&
+    (!filters.dateTo || event.date <= filters.dateTo) &&
+    (!filters.venue || event.venue === filters.venue) &&
+    (!filters.category || event.category === filters.category) &&
+    (filters.priority === "all" || event.priorityLevel === filters.priority)
+  );
 }
 
 function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
@@ -462,6 +491,7 @@ export function EventManagementPage() {
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
+  const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
   const [eventModal, setEventModal] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
@@ -473,6 +503,7 @@ export function EventManagementPage() {
   const [completedExtras, setCompletedExtras] = useState<CompletedRecord[]>([]);
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
+  const [readinessEvent, setReadinessEvent] = useState<EventRecord | null>(null);
   const [confirmCancelEvent, setConfirmCancelEvent] = useState<EventRecord | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
@@ -500,20 +531,13 @@ export function EventManagementPage() {
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
-  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
+  const [participantStudentIdsByEventId, setParticipantStudentIdsByEventId] = useState<Map<string, string[]>>(new Map());
   const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
 
   const studentsQuery = useStudents({ pageSize: 200 }, context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(context);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
-  const resolvedLiveSessionId = useMemo(() => {
-    if (liveSessionId) return liveSessionId;
-
-    const activeForEvent = sessionsList.find((candidate) =>
-      candidate.status === "active" && (!activeEvent?.id || candidate.eventId === activeEvent.id)
-    );
-    return activeForEvent?.id ?? null;
-  }, [activeEvent?.id, liveSessionId, sessionsList]);
   const manualLateLock = useMemo(
     () =>
       resolveLateStudentManualState({
@@ -593,6 +617,46 @@ export function EventManagementPage() {
     void fetchAllObjectives();
   }, [eventsQuery.data?.items]);
 
+  useEffect(() => {
+    const eventIds = (eventsQuery.data?.items ?? [])
+      .filter((event) => event.status !== "completed" && event.status !== "cancelled")
+      .map((event) => event.id)
+      .filter((eventId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(eventId));
+
+    if (eventIds.length === 0) {
+      setParticipantStudentIdsByEventId(new Map());
+      return;
+    }
+
+    let isCurrent = true;
+    const fetchParticipants = async () => {
+      const { data, error } = await getSupabaseBrowserClient()
+        .from("event_participants")
+        .select("event_id, student_id")
+        .in("event_id", eventIds)
+        .neq("participant_status", "removed");
+
+      if (error) {
+        console.error("Failed to load event readiness:", error);
+        return;
+      }
+
+      const next = new Map<string, string[]>();
+      (data ?? []).forEach((participant) => {
+        if (!participant.event_id || !participant.student_id) return;
+        const studentIds = next.get(participant.event_id) ?? [];
+        studentIds.push(participant.student_id);
+        next.set(participant.event_id, studentIds);
+      });
+      if (isCurrent) setParticipantStudentIdsByEventId(next);
+    };
+
+    void fetchParticipants();
+    return () => {
+      isCurrent = false;
+    };
+  }, [eventsQuery.data?.items]);
+
   const repositoryEvents = useMemo<EventRecord[]>(() => {
     return (eventsQuery.data?.items ?? [])
       .filter((event) => event.status !== "completed" && event.status !== "cancelled")
@@ -627,6 +691,59 @@ export function EventManagementPage() {
     () => repositoryEvents,
     [repositoryEvents]
   );
+  const readinessByEventId = useMemo(() => {
+    const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
+    const now = Date.now();
+    const readiness = new Map<string, EventReadiness>();
+
+    repositoryEvents.forEach((event) => {
+      if (!event.id) return;
+      const participantIds = participantStudentIdsByEventId.get(event.id) ?? [];
+      const qrReady = participantIds.filter((studentId) => {
+        const credential = credentialStatusByStudentId.get(studentId)?.qrCredential;
+        return credential?.status === "activated" && !credential.revokedAt && (!credential.expiresAt || new Date(credential.expiresAt).getTime() > now);
+      }).length;
+      const facialReady = participantIds.filter((studentId) => credentialStatusByStudentId.get(studentId)?.facialProfile?.status === "activated").length;
+
+      readiness.set(event.id, { participants: participantIds.length, qrReady, facialReady });
+    });
+    return readiness;
+  }, [credentialStatusesQuery.data, participantStudentIdsByEventId, repositoryEvents]);
+  const participantReadinessByEventId = useMemo(() => {
+    const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
+    const studentById = new Map((studentsQuery.data?.items ?? []).map((student) => [student.id, student]));
+    const now = Date.now();
+    const participantReadiness = new Map<string, EventParticipantReadiness[]>();
+
+    repositoryEvents.forEach((event) => {
+      if (!event.id) return;
+      const participants = (participantStudentIdsByEventId.get(event.id) ?? []).map((studentId) => {
+        const credentialStatus = credentialStatusByStudentId.get(studentId);
+        const qrCredential = credentialStatus?.qrCredential;
+        const student = studentById.get(studentId);
+        const qrReady = qrCredential?.status === "activated" && !qrCredential.revokedAt && (!qrCredential.expiresAt || new Date(qrCredential.expiresAt).getTime() > now);
+        const facialReady = credentialStatus?.facialProfile?.status === "activated";
+        return {
+          studentId,
+          studentName: student?.fullName ?? student?.formattedName ?? ([student?.firstName, student?.lastName].filter(Boolean).join(" ") || "Student details unavailable"),
+          studentNumber: student?.studentNumber ?? "â€”",
+          qrReady,
+          facialReady
+        };
+      });
+
+      participantReadiness.set(event.id, participants);
+    });
+    return participantReadiness;
+  }, [credentialStatusesQuery.data, participantStudentIdsByEventId, repositoryEvents, studentsQuery.data?.items]);
+  const readinessIssuesByEventId = useMemo(
+    () => new Map([...participantReadinessByEventId.entries()].map(([eventId, participants]) => [eventId, participants.filter((student) => !student.qrReady || !student.facialReady)])),
+    [participantReadinessByEventId]
+  );
+  const readinessModalSummary = readinessEvent?.id ? readinessByEventId.get(readinessEvent.id) : undefined;
+  const readinessModalIssues = readinessEvent?.id ? readinessIssuesByEventId.get(readinessEvent.id) ?? [] : [];
+  const startEventReadiness = startEvent?.id ? readinessByEventId.get(startEvent.id) : undefined;
+  const startEventMissingQrCount = startEventReadiness ? startEventReadiness.participants - startEventReadiness.qrReady : 0;
   const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
 
   // Completed events = the repository summaries plus any sessions the
@@ -639,6 +756,7 @@ export function EventManagementPage() {
     [completedExtras, search, storeCompletedEvents]
   );
   const completedCodes = useMemo(() => new Set(completedEvents.map((event) => event.code)), [completedEvents]);
+  const eventModalStatus = eventModal ? getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes) : "";
 
   // Today and incoming events are published events that haven't been cancelled,
   // haven't been completed, and aren't currently live. New events appear here automatically.
@@ -695,12 +813,30 @@ export function EventManagementPage() {
 
   const activeCounts = countRows(activeRows);
   const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
-  const selectedEvents = activeTab === "today" ? todayEvents : incomingEvents;
+  const filterableEvents = useMemo(() => [...todayEvents, ...incomingEvents], [incomingEvents, todayEvents]);
+  const filterOptions = useMemo(
+    () => ({
+      venues: [...new Set(filterableEvents.map((event) => event.venue).filter(Boolean))].sort(),
+      categories: [...new Set(filterableEvents.map((event) => event.category).filter(Boolean))].sort()
+    }),
+    [filterableEvents]
+  );
+  const selectedEvents = useMemo(
+    () => (activeTab === "today" ? todayEvents : incomingEvents).filter((event) => matchesEventFilters(event, eventFilters)),
+    [activeTab, eventFilters, incomingEvents, todayEvents]
+  );
+  const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
   const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
   const selectedListDescription =
     activeTab === "today"
       ? "Events scheduled to run today, ranked by priority and impact."
       : "Published future events, ranked by priority and impact.";
+
+  useEffect(() => {
+    if (selectedEventForSession && !selectedEvents.some((event) => event.code === selectedEventForSession.code)) {
+      setSelectedEventForSession(null);
+    }
+  }, [selectedEventForSession, selectedEvents]);
 
   function openStartSession(event: EventRecord) {
     setStartEvent(event);
@@ -726,7 +862,7 @@ export function EventManagementPage() {
     toast.warning(`${event.code} has been cancelled.`);
   }
 
- async function startSession() {
+ function startSession() {
   if (!startEvent?.id) {
     toast.error("Only events synced from Supabase can start a live session.");
     return;
@@ -747,39 +883,28 @@ export function EventManagementPage() {
     return;
   }
 
-  try {
-    const session = await createEventSessionMutation.mutateAsync({
-      eventId: startEvent.id,
-      venue: sessionForm.venue,
-      date: sessionForm.date,
-      startTime: sessionForm.startTime,
-      expectedEndTime: sessionForm.endTime,
-      attendanceMode: "face-to-face"
-    });
-    setLiveSessionId(session.id);
-    setActiveRows([]);
-    setFinalizedSummary(null);
-    setCaptureMode(defaultAttendanceMethod);
-    setActiveEvent({ ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
-    setStartEvent(null);
-    setSelectedEventForSession(null);
-    toast.success(`${startEvent.code} live session started.`);
-    
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Started Live Session",
-      targetType: "attendance_session",
-      targetId: session.id,
-      metadata: { eventCode: startEvent.code, sessionId: session.id }
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start session.";
-    toast.error(message);
-  }
+  // Starting is deliberately local-only. The event session and attendance
+  // records are created together only when the organizer ends the session.
+  setActiveRows([]);
+  setFinalizedSummary(null);
+  setCaptureMode(defaultAttendanceMethod);
+  setActiveEvent({ ...startEvent, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
+  setStartEvent(null);
+  setSelectedEventForSession(null);
+  toast.success(`${startEvent.code} live attendance started. Attendance will be finalized when you end the session.`);
 }
  const endSession = useCallback(async () => {
-  if (!liveSessionId || !activeEvent?.id) return;
+  if (!activeEvent?.id) return;
   let attendanceFinalized = false;
   try {
+    const session = await createEventSessionMutation.mutateAsync({
+      eventId: activeEvent.id,
+      venue: activeEvent.venue,
+      date: activeEvent.date,
+      startTime: toTimeInputValue(activeEvent.startTime),
+      expectedEndTime: toTimeInputValue(activeEvent.endTime),
+      attendanceMode: "face-to-face"
+    });
     const attendanceRecords: FinalizeAttendanceRecordInput[] = activeRows.map((row) => ({
       studentId: row.studentId,
       status: row.attendanceStatus === "late" ? "late" : "present",
@@ -793,13 +918,13 @@ export function EventManagementPage() {
       ...(row.checkOutAt ? { timeOut: row.checkOutAt } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    await endSessionMutation.mutateAsync({ sessionId: liveSessionId, reason: "Organizer ended session", attendanceRecords });
+    await endSessionMutation.mutateAsync({ sessionId: session.id, reason: "Organizer ended session", attendanceRecords });
     attendanceFinalized = true;
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
       .from("attendance_records")
       .select("attendance_status, late_reason_category")
-      .eq("event_session_id", liveSessionId);
+      .eq("event_session_id", session.id);
     if (finalizedRecordsError) throw finalizedRecordsError;
     setFinalizedSummary(
       summarizeFinalizedSession(
@@ -814,8 +939,8 @@ export function EventManagementPage() {
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Ended Live Session",
       targetType: "attendance_session",
-      targetId: liveSessionId,
-      metadata: { eventCode: activeEvent.code, sessionId: liveSessionId }
+      targetId: session.id,
+      metadata: { eventCode: activeEvent.code, sessionId: session.id }
     });
   } catch (error) {
     // The session mutation already displays its own database error. Only surface
@@ -824,14 +949,14 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent?.code, activeEvent?.id, activeRows, auditLogMutations.logActionMutation, liveSessionId, endSessionMutation, completeEventMutation]);
+}, [activeEvent, activeRows, auditLogMutations.logActionMutation, createEventSessionMutation, endSessionMutation, completeEventMutation]);
 
   function focusQrInput() {
     window.requestAnimationFrame(() => qrInputRef.current?.focus());
   }
 
   async function submitQrAttendance() {
-    if (!qrInput.trim() || !liveSessionId || !activeEvent?.id || isQrProcessing) {
+    if (!qrInput.trim() || !activeEvent?.id || isQrProcessing) {
       return;
     }
 
@@ -932,7 +1057,7 @@ export function EventManagementPage() {
   }, [activeEvent]);
 
   async function submitManualAttendance() {
-    if (!manualInput || !liveSessionId) {
+    if (!manualInput || !activeEvent?.id) {
       toast.warning("Please select a student.");
       return;
     }
@@ -1130,6 +1255,34 @@ export function EventManagementPage() {
       cell: ({ row }) => <StatusBadge label={row.original.priorityLevel} tone={priorityTone(row.original.priorityLevel)} />
     },
     {
+      id: "readiness",
+      header: "Readiness",
+      cell: ({ row }) => {
+        if (credentialStatusesQuery.isLoading) {
+          return <span className="text-xs text-muted-foreground">Checking...</span>;
+        }
+        const readiness = row.original.id ? readinessByEventId.get(row.original.id) : undefined;
+        if (!readiness || readiness.participants === 0) {
+          return <span className="text-xs text-muted-foreground">No participants</span>;
+        }
+        const qrReady = readiness.qrReady === readiness.participants;
+        return (
+          <button
+            type="button"
+            className="min-w-36 space-y-1 rounded-md p-1 text-left text-xs transition hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            onClick={() => setReadinessEvent(row.original)}
+            aria-label={`View attendance readiness for ${row.original.code}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-muted-foreground">{readiness.participants} registered</span>
+              <span className={qrReady ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>{qrReady ? "QR ready" : "QR setup incomplete"}</span>
+            </div>
+            <p className="text-muted-foreground">QR {readiness.qrReady}/{readiness.participants} · Face {readiness.facialReady}/{readiness.participants}</p>
+          </button>
+        );
+      }
+    },
+    {
       id: "conflict",
       header: "Conflict",
       cell: ({ row }) => {
@@ -1139,13 +1292,16 @@ export function EventManagementPage() {
         }
         const conflictCodes = conflicts.map((item) => item.code).join(", ");
         return (
-          <div
-            className="flex items-center gap-1.5 text-sm font-medium text-danger"
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-left text-sm font-medium text-danger underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
             title={`Overlaps with ${conflictCodes} at the same venue and time`}
+            aria-label={`View schedule conflict for ${row.original.code}`}
+            onClick={() => setEventModal(row.original)}
           >
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
             {conflicts.length === 1 ? `Conflicts with ${conflictCodes}` : `${conflicts.length} conflicts`}
-          </div>
+          </button>
         );
       }
     },
@@ -1258,17 +1414,18 @@ export function EventManagementPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary"><Play className="h-4 w-4" aria-hidden="true" /></span>
-                <h2 className="text-xl font-semibold">Live Session</h2>
-                <StatusBadge label="Active" tone="success" />
+                <h2 className="text-xl font-semibold">Live Attendance</h2>
+                <StatusBadge label="Live" tone="success" />
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
                 <span className="font-medium text-foreground">{activeEvent.code} · {activeEvent.name}</span>
                 <span className="mx-2" aria-hidden="true">•</span>{activeEvent.venue}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">Attendance is being recorded for this live session and is finalized when you end it.</p>
             </div>
-            <Button type="button" variant="destructive" disabled={endSessionMutation.isPending} onClick={endSession}>
+            <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={endSession}>
               <Square className="h-4 w-4" aria-hidden="true" />
-              {endSessionMutation.isPending ? "Ending…" : "End Session"}
+              {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
             </Button>
           </div>
           <div className="space-y-5 p-5 lg:p-6">
@@ -1283,7 +1440,7 @@ export function EventManagementPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Choose a verification method. Entries stay in the session draft until you end the session.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Choose a verification method. Attendance is finalized when you end the session.</p>
               </div>
               <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-sm">
                 <Button
@@ -1368,7 +1525,7 @@ export function EventManagementPage() {
                         </div>
                       </div>
 
-                      <p className="text-xs text-muted-foreground">Draft only — attendance is saved when you select End Session.</p>
+                      <p className="text-xs text-muted-foreground">Live attendance is finalized when you select End Session.</p>
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
                     <div className="text-center">
@@ -1449,7 +1606,7 @@ export function EventManagementPage() {
                       </div>
 
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm text-muted-foreground">Attendance stays in this session draft and is saved only when you end the session.</p>
+                        <p className="text-sm text-muted-foreground">Attendance is finalized when you end the session.</p>
                         <Button
                           type="button"
                           className="h-11 rounded-lg px-6"
@@ -1556,6 +1713,83 @@ export function EventManagementPage() {
             </div>
           </section>
 
+          <section className="rounded-lg border bg-surface p-4 shadow-sm" aria-label="Refine event list">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">Filter events</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Use Today or Incoming above to filter by status.</p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setEventFilters({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" })}
+                disabled={!hasEventFilters}
+              >
+                Clear filters
+              </Button>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="space-y-1 xl:col-span-2">
+                <p className="text-xs font-medium text-muted-foreground">Schedule date</p>
+                <div className="flex items-center gap-2">
+                  <label className="sr-only" htmlFor="event-date-from">From date</label>
+                  <input
+                    id="event-date-from"
+                    type="date"
+                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    value={eventFilters.dateFrom}
+                    max={eventFilters.dateTo || undefined}
+                    onChange={(event) => setEventFilters((current) => ({ ...current, dateFrom: event.target.value }))}
+                  />
+                  <span className="shrink-0 text-xs text-muted-foreground">to</span>
+                  <label className="sr-only" htmlFor="event-date-to">To date</label>
+                  <input
+                    id="event-date-to"
+                    type="date"
+                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    value={eventFilters.dateTo}
+                    min={eventFilters.dateFrom || undefined}
+                    onChange={(event) => setEventFilters((current) => ({ ...current, dateTo: event.target.value }))}
+                  />
+                </div>
+              </div>
+              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                <span>Venue</span>
+                <select
+                  className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
+                  value={eventFilters.venue}
+                  onChange={(event) => setEventFilters((current) => ({ ...current, venue: event.target.value }))}
+                >
+                  <option value="">All venues</option>
+                  {filterOptions.venues.map((venue) => <option key={venue} value={venue}>{venue}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                <span>Category</span>
+                <select
+                  className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
+                  value={eventFilters.category}
+                  onChange={(event) => setEventFilters((current) => ({ ...current, category: event.target.value }))}
+                >
+                  <option value="">All categories</option>
+                  {filterOptions.categories.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                <span>Priority</span>
+                <select
+                  className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
+                  value={eventFilters.priority}
+                  onChange={(event) => setEventFilters((current) => ({ ...current, priority: event.target.value as EventFilters["priority"] }))}
+                >
+                  <option value="all">All priorities</option>
+                  {Object.keys(PRIORITY_RANK).map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                </select>
+              </label>
+            </div>
+          </section>
+
           <section className="animate-fade-in-up rounded-lg border bg-surface p-4 shadow-sm">
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1567,7 +1801,7 @@ export function EventManagementPage() {
                   {selectedEventForSession.code} selected
                 </span>
               ) : (
-                <span className="text-xs text-muted-foreground">Select one event to start a session.</span>
+                <span className="text-xs text-muted-foreground">Click an event to start a session.</span>
               )}
             </div>
             <PLPassDataGrid
@@ -1577,8 +1811,6 @@ export function EventManagementPage() {
               emptyTitle={activeTab === "today" ? "No events today" : "No incoming events"}
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : "Future published events will appear here."}
               rowSelection="single"
-              checkboxSelection
-              suppressRowClickSelection
               onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)}
               toolbarActions={startSessionToolbar}
               rowHeight={44}
@@ -1589,13 +1821,84 @@ export function EventManagementPage() {
         </>
       )}
 
+      {readinessEvent && readinessModalSummary ? (
+        <ModalFrame onClose={() => setReadinessEvent(null)} width="max-w-3xl">
+          <div className="border-b pb-4">
+            <h2 className="text-xl font-semibold">Attendance readiness</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{readinessEvent.code} · {readinessEvent.name}</p>
+          </div>
+          <p className="mt-4 text-sm text-muted-foreground">
+            QR is the primary check-in method. Facial recognition is an optional backup for students who cannot scan their QR code.
+          </p>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <SummaryTile label="Registered" value={readinessModalSummary.participants.toString()} />
+            <SummaryTile label="QR credentials ready" value={`${readinessModalSummary.qrReady}/${readinessModalSummary.participants}`} />
+            <SummaryTile label="Facial backups ready" value={`${readinessModalSummary.facialReady}/${readinessModalSummary.participants}`} />
+          </div>
+
+          {readinessModalIssues.length === 0 ? (
+            <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              Every registered student has both a usable QR credential and facial backup.
+            </div>
+          ) : (
+            <div className="mt-5">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="font-semibold">Students needing setup</h3>
+                  <p className="text-sm text-muted-foreground">Students missing QR need setup before they can use the primary attendance method.</p>
+                </div>
+                <span className="text-sm text-muted-foreground">{readinessModalIssues.length} to review</span>
+              </div>
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead className="border-b bg-muted/30 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Student</th>
+                      <th className="px-4 py-3 font-medium">Student No.</th>
+                      <th className="px-4 py-3 font-medium">QR credential</th>
+                      <th className="px-4 py-3 font-medium">Facial backup</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {readinessModalIssues.map((student) => (
+                      <tr key={student.studentId} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-medium text-foreground">{student.studentName}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{student.studentNumber}</td>
+                        <td className={`px-4 py-3 font-medium ${student.qrReady ? "text-emerald-700" : "text-amber-700"}`}>{student.qrReady ? "Ready" : "Needs QR"}</td>
+                        <td className={`px-4 py-3 font-medium ${student.facialReady ? "text-emerald-700" : "text-muted-foreground"}`}>{student.facialReady ? "Ready" : "Not enrolled"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setReadinessEvent(null)}>Close</Button>
+            <Button
+              type="button"
+              onClick={() => {
+                const eventId = readinessEvent.id;
+                setReadinessEvent(null);
+                navigate(`${APP_ROUTES.organizerEvents}/${eventId}`);
+              }}
+            >
+              Manage participants
+            </Button>
+          </div>
+        </ModalFrame>
+      ) : null}
+
       {eventModal ? (
         <ModalFrame onClose={() => setEventModal(null)}>
           <EventDetails
             event={eventModal}
-            status={getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes)}
+            status={eventModalStatus}
             conflicts={conflictsByCode.get(eventModal.code) ?? []}
             onCancel={() => setConfirmCancelEvent(eventModal)}
+            onViewConflict={(event) => setEventModal(event)}
             onEdit={(event) => {
               setEditEvent(event);
               setEventModal(null);
@@ -1636,7 +1939,7 @@ export function EventManagementPage() {
 
       {startEvent ? (
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Session</h2>
+          <h2 className="text-xl font-semibold">Start Live Attendance</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className="block space-y-2 text-sm font-medium">
@@ -1684,11 +1987,45 @@ export function EventManagementPage() {
             </label>
           </div>
           <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            Attendance will use <span className="font-medium text-foreground">QR Code</span> and <span className="font-medium text-foreground">Facial Recognition</span> automatically during the live session.
+            Attendance will use <span className="font-medium text-foreground">QR Code</span> and <span className="font-medium text-foreground">Facial Recognition</span>. Nothing is saved until you end the session.
           </div>
+          {credentialStatusesQuery.isLoading ? (
+            <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              Checking registered students&apos; QR credentials...
+            </div>
+          ) : startEventReadiness && startEventReadiness.participants > 0 && startEventMissingQrCount > 0 ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="flex gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">{startEventMissingQrCount} {startEventMissingQrCount === 1 ? "student needs" : "students need"} a QR credential</p>
+                  <p className="mt-1 text-amber-900">
+                    You can still start the session. Those students can use facial recognition when enrolled, or be recorded manually.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3 border-amber-300 bg-white hover:bg-amber-100"
+                    onClick={() => {
+                      const eventId = startEvent.id;
+                      setStartEvent(null);
+                      navigate(`${APP_ROUTES.organizerEvents}/${eventId}`);
+                    }}
+                  >
+                    Manage participants
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : credentialStatusesQuery.isError ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              Student credential readiness could not be checked. You can still start the session.
+            </div>
+          ) : null}
           <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setStartEvent(null)} disabled={createEventSessionMutation.isPending}>Cancel</Button>
-            <Button type="button" onClick={startSession} disabled={createEventSessionMutation.isPending}><Play className="h-4 w-4" aria-hidden="true" />{createEventSessionMutation.isPending ? "Starting..." : "Start Session"}</Button>
+            <Button type="button" variant="outline" onClick={() => setStartEvent(null)}>Cancel</Button>
+            <Button type="button" onClick={startSession}><Play className="h-4 w-4" aria-hidden="true" />Start Session</Button>
           </div>
         </ModalFrame>
       ) : null}
@@ -1770,17 +2107,17 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void; onEdit?: (event: EventRecord) => void }) {
+function EventDetails({ event, status, conflicts = [], onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-primary">Event Details</p>
-        {event.id ? (
-          <a href={`/organizer/events/${event.id}`} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
+          {event.id ? (
+            <a href={`/organizer/events/${event.id}`} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
             View Full Details →
-          </a>
-        ) : null}
-      </div>
+            </a>
+          ) : null}
+        </div>
       <div className="mt-1 flex flex-wrap items-center gap-2">
         <h2 className="text-2xl font-semibold">{event.code} - {event.name}</h2>
         <StatusBadge label={event.priorityLevel} tone={priorityTone(event.priorityLevel)} />
@@ -1808,8 +2145,14 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
           <ul className="mt-2 space-y-1">
             {conflicts.map((conflict) => (
               <li key={conflict.code} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
-                <span>{conflict.code} - {conflict.name}</span>
-                <StatusBadge label={conflict.priorityLevel} tone={priorityTone(conflict.priorityLevel)} />
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{conflict.code} - {conflict.name}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{conflict.venue} · {conflict.date} · {conflict.startTime} - {conflict.endTime}</p>
+                </div>
+                <div className="ml-3 flex shrink-0 items-center gap-2">
+                  <StatusBadge label={conflict.priorityLevel} tone={priorityTone(conflict.priorityLevel)} />
+                  {onViewConflict ? <Button type="button" variant="outline" size="sm" onClick={() => onViewConflict(conflict)}>View event</Button> : null}
+                </div>
               </li>
             ))}
           </ul>
@@ -1834,7 +2177,7 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit }: { eve
         <div className="flex justify-end gap-2">
           {onEdit ? (
             <Button type="button" variant="outline" size="sm" onClick={() => onEdit(event)}>
-              Edit Event
+              Reschedule Event
             </Button>
           ) : null}
           {onCancel ? (

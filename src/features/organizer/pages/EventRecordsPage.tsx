@@ -14,8 +14,8 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
-import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { dateKey, formatDisplayTime } from "@/lib/utils/date";
+import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
+import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
@@ -57,13 +57,19 @@ type EventRecord = {
   name: string;
   category: string;
   venue: string;
+  startsAt: string;
   date: string;
   startTime: string;
   endTime: string;
   predictedTurnout: string;
-  objectives: string[];
+  objectives: EventObjective[];
   priorityLevel?: PriorityLevel;
   impactScore?: number | null;
+};
+
+type EventObjective = {
+  id: string;
+  text: string;
 };
 
 type AttendanceRow = OrganizerAttendanceRow;
@@ -72,6 +78,7 @@ type CompletedRecord = EventRecord & {
   present: number;
   late: number;
   absent: number;
+  notCheckedOut: number;
   totalRegistered: number;
   attendanceRate: string;
   sentiment: {
@@ -79,7 +86,9 @@ type CompletedRecord = EventRecord & {
     neutral: number;
     negative: number;
   };
+  feedbackCount: number;
   feedbackComments: string[];
+  objectiveResults: Record<string, ObjectiveFeedbackSummary>;
 };
 
 const lateReasons: LateReason[] = [
@@ -186,8 +195,8 @@ function completedFromRepositoryEvent(event: {
     name: event.title,
     category: event.category,
     venue: event.venue,
-    date: 
-    (event.startsAt),
+    startsAt: event.startsAt,
+    date: formatDisplayDate(event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
@@ -197,10 +206,13 @@ function completedFromRepositoryEvent(event: {
     present: 0,
     late: 0,
     absent: 0,
+    notCheckedOut: 0,
     totalRegistered: 0,
     attendanceRate: "N/A",
     sentiment: { positive: 0, neutral: 0, negative: 0 },
-    feedbackComments: []
+    feedbackCount: 0,
+    feedbackComments: [],
+    objectiveResults: {}
   };
 }
 

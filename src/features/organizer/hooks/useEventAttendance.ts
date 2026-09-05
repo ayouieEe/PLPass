@@ -43,8 +43,34 @@ export type EventAttendanceSummary = {
   present: number;
   late: number;
   absent: number;
+  notCheckedOut: number;
   totalRegistered: number;
   attendanceRate: number; // 0-100
+};
+
+export type ObjectiveFeedbackSummary = {
+  averageRating: number | null;
+  responseCount: number;
+};
+
+export type EventFeedbackSummary = {
+  feedbackCount: number;
+  sentiment: { positive: number; neutral: number; negative: number };
+  feedbackComments: string[];
+  objectiveResults: Record<string, ObjectiveFeedbackSummary>;
+};
+
+type EventFeedbackRow = {
+  id: string;
+  event_id: string;
+  comment: string | null;
+  sentiment_label: string | null;
+};
+
+type EventFeedbackRatingRow = {
+  feedback_id: string;
+  objective_id: string;
+  rating: number | null;
 };
 
 function mapVerificationMethod(value: string | null): AttendanceMethod {
@@ -124,6 +150,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       present: 0,
       late: 0,
       absent: 0,
+      notCheckedOut: 0,
       totalRegistered: registeredCountByEvent.get(eventId) ?? 0,
       attendanceRate: 0
     };
@@ -150,6 +177,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     if (status === "present") summaries[eventId].present += 1;
     else if (status === "late") summaries[eventId].late += 1;
     else if (status === "absent") summaries[eventId].absent += 1;
+    if (status !== "absent" && row.time_in && !row.time_out) summaries[eventId].notCheckedOut += 1;
   });
 
   Object.values(summaries).forEach((summary) => {
@@ -165,6 +193,104 @@ export function useAttendanceSummaries(eventIds: string[]) {
   return useQuery({
     queryKey: ["event-attendance-summaries", key],
     queryFn: () => fetchAttendanceForEvents(eventIds),
+    enabled: eventIds.length > 0
+  });
+}
+
+function emptyFeedbackSummary(): EventFeedbackSummary {
+  return {
+    feedbackCount: 0,
+    sentiment: { positive: 0, neutral: 0, negative: 0 },
+    feedbackComments: [],
+    objectiveResults: {}
+  };
+}
+
+async function fetchFeedbackForEvents(eventIds: string[]): Promise<Record<string, EventFeedbackSummary>> {
+  if (eventIds.length === 0) return {};
+
+  const client = getSupabaseBrowserClient();
+  const summaries: Record<string, EventFeedbackSummary> = {};
+  eventIds.forEach((eventId) => {
+    summaries[eventId] = emptyFeedbackSummary();
+  });
+
+  const { data: feedbackData, error: feedbackError } = await client
+    .from("event_feedback")
+    .select("id, event_id, comment, sentiment_label")
+    .in("event_id", eventIds);
+  if (feedbackError) throw feedbackError;
+
+  const feedbackRows = (feedbackData ?? []) as EventFeedbackRow[];
+  const eventIdByFeedbackId = new Map<string, string>();
+  const sentimentCounts: Record<string, { positive: number; neutral: number; negative: number }> = {};
+
+  feedbackRows.forEach((feedback) => {
+    const summary = summaries[feedback.event_id];
+    if (!summary) return;
+
+    summary.feedbackCount += 1;
+    eventIdByFeedbackId.set(feedback.id, feedback.event_id);
+    const comment = feedback.comment?.trim();
+    if (comment) summary.feedbackComments.push(comment);
+
+    const label = feedback.sentiment_label?.trim().toLowerCase();
+    if (label === "positive" || label === "neutral" || label === "negative") {
+      const counts = sentimentCounts[feedback.event_id] ?? { positive: 0, neutral: 0, negative: 0 };
+      counts[label] += 1;
+      sentimentCounts[feedback.event_id] = counts;
+    }
+  });
+
+  Object.entries(sentimentCounts).forEach(([eventId, counts]) => {
+    const total = counts.positive + counts.neutral + counts.negative;
+    if (!total || !summaries[eventId]) return;
+    summaries[eventId].sentiment = {
+      positive: Math.round((counts.positive / total) * 100),
+      neutral: Math.round((counts.neutral / total) * 100),
+      negative: Math.round((counts.negative / total) * 100)
+    };
+  });
+
+  const feedbackIds = [...eventIdByFeedbackId.keys()];
+  if (feedbackIds.length === 0) return summaries;
+
+  const { data: ratingsData, error: ratingsError } = await client
+    .from("event_feedback_ratings")
+    .select("feedback_id, objective_id, rating")
+    .in("feedback_id", feedbackIds);
+  if (ratingsError) throw ratingsError;
+
+  const ratingsByEventAndObjective = new Map<string, number[]>();
+  ((ratingsData ?? []) as EventFeedbackRatingRow[]).forEach((rating) => {
+    const eventId = eventIdByFeedbackId.get(rating.feedback_id);
+    if (!eventId || !Number.isFinite(rating.rating)) return;
+    const key = `${eventId}:${rating.objective_id}`;
+    const ratings = ratingsByEventAndObjective.get(key) ?? [];
+    ratings.push(Number(rating.rating));
+    ratingsByEventAndObjective.set(key, ratings);
+  });
+
+  ratingsByEventAndObjective.forEach((ratings, key) => {
+    const separator = key.indexOf(":");
+    const eventId = key.slice(0, separator);
+    const objectiveId = key.slice(separator + 1);
+    const summary = summaries[eventId];
+    if (!summary) return;
+    summary.objectiveResults[objectiveId] = {
+      averageRating: Math.round((ratings.reduce((total, rating) => total + rating, 0) / ratings.length) * 10) / 10,
+      responseCount: ratings.length
+    };
+  });
+
+  return summaries;
+}
+
+export function useEventFeedbackSummaries(eventIds: string[]) {
+  const key = [...eventIds].sort().join(",");
+  return useQuery({
+    queryKey: ["event-feedback-summaries", key],
+    queryFn: () => fetchFeedbackForEvents(eventIds),
     enabled: eventIds.length > 0
   });
 }
