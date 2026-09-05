@@ -606,7 +606,7 @@ export function OrganizerAnalyticsPage() {
     const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
     
     return lateRows
-      .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !lateReasons.includes(row.lateReason as any))
+      .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !(lateReasons as string[]).includes(row.lateReason))
       .map((row) => ({
         text: row.lateReason as string,
         category: row.lateReasonCategory || "Other",
