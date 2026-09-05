@@ -496,9 +496,9 @@ export function OrganizerAnalyticsPage() {
   const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 1000 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 1000 }, scope.context);
-  const objectivesQuery = useAllEventObjectives({ pageSize: 1000 }, scope.context);
-  const summariesQuery = useAllEventSummarySnapshots({ pageSize: 200 }, scope.context);
-  const feedbackQuery = useAllEventFeedback({ pageSize: 1000 }, scope.context);
+  const objectivesQuery = useAllEventObjectives({ pageIndex: 0, pageSize: 1000 }, scope.context);
+  const summariesQuery = useAllEventSummarySnapshots({ pageIndex: 0, pageSize: 200 }, scope.context);
+  const feedbackQuery = useAllEventFeedback({ pageIndex: 0, pageSize: 1000 }, scope.context);
   const eventData = useMemo(
     () =>
       (eventsQuery.data?.items ?? []).map((event) => ({

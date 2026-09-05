@@ -1602,6 +1602,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
   },
 
   async listAllEventObjectives(query, context) {
+    void context;
     const listQuery = queryOrDefault(query);
     const from = listQuery.pageIndex * listQuery.pageSize;
     const to = from + listQuery.pageSize - 1;
@@ -1612,6 +1613,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
   },
 
   async listAllEventSummarySnapshots(query, context) {
+    void context;
     const listQuery = queryOrDefault(query);
     const from = listQuery.pageIndex * listQuery.pageSize;
     const to = from + listQuery.pageSize - 1;
@@ -1622,6 +1624,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
   },
 
   async listAllEventFeedback(query, context) {
+    void context;
     const listQuery = queryOrDefault(query);
     const from = listQuery.pageIndex * listQuery.pageSize;
     const to = from + listQuery.pageSize - 1;
