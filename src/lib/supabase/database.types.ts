@@ -2125,7 +2125,7 @@ export type Database = {
         }
       }
       submit_late_reason: {
-        Args: { p_attendance_record_id: string; p_late_reason_category: string }
+        Args: { p_attendance_record_id: string; p_late_reason_category: string; p_late_reason?: string }
         Returns: {
           attendance_status: string
           checkout_verification_method: string | null

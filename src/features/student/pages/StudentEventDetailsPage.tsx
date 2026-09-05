@@ -203,6 +203,8 @@ export function StudentEventDetailsPage() {
   const [ratings, setRatings] = useState<RatingState>({});
   const [comment, setComment] = useState("");
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [selectedLateReasonCategory, setSelectedLateReasonCategory] = useState<string>("");
+  const [customLateReason, setCustomLateReason] = useState<string>("");
 
   if (scope.isLoading) return <LoadingState label="Loading student workspace" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
@@ -245,12 +247,17 @@ export function StudentEventDetailsPage() {
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
   const eventResources = resourcesQuery.data?.items ?? [];
 
-  async function submitLateReason(reason: string) {
-    if (!currentRecord) return;
+  async function submitLateReason() {
+    if (!currentRecord || !selectedLateReasonCategory) return;
+    if (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5) {
+      toast.error("Please provide a more detailed reason.");
+      return;
+    }
     try {
       await submitLateReasonMutation.mutateAsync({
         attendanceRecordId: currentRecord.id,
-        reason
+        reason: selectedLateReasonCategory,
+        customReason: customLateReason.trim() || undefined
       });
       toast.success("Late reason submitted. Event feedback is now available.");
     } catch {
@@ -353,12 +360,42 @@ export function StudentEventDetailsPage() {
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-5">
           <p className="font-semibold text-warning">Late reason required before feedback</p>
           <p className="mt-1 text-sm text-muted-foreground">Choose your reason once. It will be locked after submission.</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {lateReasonOptions.map((reason) => (
-              <Button key={reason} type="button" variant="outline" onClick={() => submitLateReason(reason)}>
-                {reason}
-              </Button>
-            ))}
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="flex flex-wrap gap-2">
+              {lateReasonOptions.map((reason) => (
+                <Button 
+                  key={reason} 
+                  type="button" 
+                  variant={selectedLateReasonCategory === reason ? "default" : "outline"} 
+                  onClick={() => setSelectedLateReasonCategory(reason)}
+                >
+                  {reason}
+                </Button>
+              ))}
+            </div>
+            {selectedLateReasonCategory && (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">
+                  Additional Details {selectedLateReasonCategory === "Other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
+                </label>
+                <textarea
+                  className="w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px]"
+                  placeholder="Explain why you were late..."
+                  value={customLateReason}
+                  onChange={(e) => setCustomLateReason(e.target.value)}
+                />
+              </div>
+            )}
+            {selectedLateReasonCategory && (
+              <div className="flex justify-end">
+                <Button 
+                  onClick={submitLateReason} 
+                  disabled={submitLateReasonMutation.isPending || (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5)}
+                >
+                  {submitLateReasonMutation.isPending ? "Submitting..." : "Submit Reason"}
+                </Button>
+              </div>
+            )}
           </div>
         </section>
       )}

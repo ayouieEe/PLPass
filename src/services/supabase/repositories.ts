@@ -1150,7 +1150,8 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
     const { data, error } = await client.rpc("submit_late_reason", {
       p_attendance_record_id: input.attendanceRecordId,
-      p_late_reason_category: input.reason
+      p_late_reason_category: input.reason,
+      p_late_reason: input.customReason
     });
     throwIfSupabaseError(error);
     return mapAttendanceRecord(data as Row);

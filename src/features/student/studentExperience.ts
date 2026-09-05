@@ -26,6 +26,7 @@ export type StudentEventRecord = {
   status: AttendanceStatus | "correction-pending";
   method: "QR" | "Facial" | "Manual" | "Online";
   recordedAt: string;
+  lateReasonCategory?: string;
   lateReason?: string;
   feedbackSubmitted?: boolean;
 };
@@ -325,7 +326,8 @@ export function recordsForStudentEvents(input: {
         status: record.status,
         method: studentAttendanceMethodLabel(record.verificationMethod),
         recordedAt: record.recordedAt,
-        lateReason: record.lateReasonCategory ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined),
+        lateReasonCategory: record.lateReasonCategory,
+        lateReason: record.lateReason ?? record.lateReasonCategory ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined),
         feedbackSubmitted: record.note?.includes("Feedback submitted") ?? false
       }];
     });
