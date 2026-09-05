@@ -590,10 +590,30 @@ export function OrganizerAnalyticsPage() {
     const sessionIds = new Set((sessionsQuery.data?.items ?? []).filter((session) => eventFilter === "all" || eventByCode.get(eventFilter)?.code === eventFilter && session.eventId === (eventsQuery.data?.items ?? []).find((event) => event.code === eventFilter)?.id).map((session) => session.id));
     const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
     if (!lateRows.length) return [];
-    return lateReasons.map((reason: string) => ({
-      category: reason,
-      share: Math.round((lateRows.filter((row) => row.lateReason === reason || row.lateReasonCategory === reason).length / lateRows.length) * 100)
-    }));
+    return lateReasons.map((reason: string) => {
+      const count = lateRows.filter((row) => row.lateReason === reason || row.lateReasonCategory === reason).length;
+      return {
+        category: reason,
+        count: count,
+        share: Math.round((count / lateRows.length) * 100)
+      };
+    });
+  }, [attendanceRecordsQuery.data?.items, eventData, eventFilter, eventsQuery.data?.items, sessionsQuery.data?.items]);
+
+  const customLateReasons = useMemo(() => {
+    const eventByCode = new Map(eventData.map((event) => [event.code, event]));
+    const sessionIds = new Set((sessionsQuery.data?.items ?? []).filter((session) => eventFilter === "all" || eventByCode.get(eventFilter)?.code === eventFilter && session.eventId === (eventsQuery.data?.items ?? []).find((event) => event.code === eventFilter)?.id).map((session) => session.id));
+    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
+    
+    return lateRows
+      .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !(lateReasons as string[]).includes(row.lateReason))
+      .map((row) => ({
+        text: row.lateReason as string,
+        category: row.lateReasonCategory || "Other",
+        date: row.recordedAt
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10); // Show top 10 most recent
   }, [attendanceRecordsQuery.data?.items, eventData, eventFilter, eventsQuery.data?.items, sessionsQuery.data?.items]);
 
   const nextEvent = eventData.filter((event) => new Date(event.startsAt) >= new Date()).sort((first, second) => first.startsAt.localeCompare(second.startsAt))[0];
@@ -616,8 +636,8 @@ export function OrganizerAnalyticsPage() {
   const topLateReason = useMemo(() => {
     const reasons = filteredLateReasons;
     return reasons.length > 0
-      ? reasons.reduce((max: { category: string; share: number }, r: { category: string; share: number }) => (r.share > max.share ? r : max))
-      : { category: "No late records", share: 0 };
+      ? reasons.reduce((max: { category: string; count: number; share: number }, r: { category: string; count: number; share: number }) => (r.share > max.share ? r : max))
+      : { category: "No late records", count: 0, share: 0 };
   }, [filteredLateReasons]);
 
   const activePdpFeature = useMemo(() => {
@@ -1114,13 +1134,21 @@ export function OrganizerAnalyticsPage() {
           </div>
 
           <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-            <ChartPanel title="Monthly Counts" description="Late arrival frequency recorded across recent months.">
+            <ChartPanel title="Late Reasons Breakdown" description="Distribution of reasons for late arrivals.">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={lateArrivalTrend} margin={{ top: 8, right: 12, left: -10, bottom: 4 }}>
+                <BarChart data={filteredLateReasons} margin={{ top: 8, right: 12, left: -10, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                  <XAxis 
+                    dataKey="category" 
+                    fontSize={11} 
+                    tickLine={false} 
+                    axisLine={false}
+                    angle={-45}
+                    textAnchor="end"
+                    height={60}
+                  />
                   <YAxis fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip />
+                  <Tooltip cursor={{ fill: "var(--color-surface-muted)", opacity: 0.4 }} />
                   <Bar dataKey="count" name="Late arrivals" fill="#f59e0b" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -1154,6 +1182,26 @@ export function OrganizerAnalyticsPage() {
                   )}
                 </div>
               </article>
+              {customLateReasons.length > 0 && (
+                <article className="rounded-xl border bg-surface p-4 shadow-xs">
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Recent Custom Reasons</h3>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto plpass-modern-scrollbar pr-1">
+                    {customLateReasons.map((reason, index) => (
+                      <div key={index} className="rounded-lg border bg-background p-3">
+                        <div className="flex justify-between items-start gap-2 mb-1">
+                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-2 py-0.5 rounded-full bg-surface-muted/50 border">
+                            {reason.category}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {new Date(reason.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </span>
+                        </div>
+                        <p className="text-sm text-foreground mt-1.5">{reason.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              )}
             </div>
           </div>
         </section>

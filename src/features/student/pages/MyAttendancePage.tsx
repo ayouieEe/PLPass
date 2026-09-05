@@ -100,6 +100,8 @@ export function MyAttendancePage() {
   const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [selectedRecord, setSelectedRecord] = useState<StudentEventRecord | null>(null);
   const [lateReasonRecord, setLateReasonRecord] = useState<StudentEventRecord | null>(null);
+  const [selectedLateReasonCategory, setSelectedLateReasonCategory] = useState<string>("");
+  const [customLateReason, setCustomLateReason] = useState<string>("");
   const [search, setSearch] = useState("");
   const [yearFilter, setYearFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
@@ -245,17 +247,24 @@ export function MyAttendancePage() {
     ? feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0)
     : feedbackComment.trim().length >= 5;
 
-  async function submitLateReason(reason: string) {
-    if (!lateReasonRecord) return;
+  async function submitLateReason() {
+    if (!lateReasonRecord || !selectedLateReasonCategory) return;
+    if (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5) {
+      toast.error("Please provide a more detailed reason.");
+      return;
+    }
     try {
       await submitLateReasonMutation.mutateAsync({
         attendanceRecordId: lateReasonRecord.id,
-        reason
+        reason: selectedLateReasonCategory,
+        customReason: customLateReason.trim() || undefined
       });
       if (selectedRecord?.eventId === lateReasonRecord.eventId) {
-        setSelectedRecord({ ...selectedRecord, lateReason: reason });
+        setSelectedRecord({ ...selectedRecord, lateReason: selectedLateReasonCategory });
       }
       setLateReasonRecord(null);
+      setSelectedLateReasonCategory("");
+      setCustomLateReason("");
       toast.success("Late reason submitted.");
     } catch {
       toast.error("Unable to submit late reason. Please try again.");
@@ -856,14 +865,49 @@ export function MyAttendancePage() {
           title="Submit Late Reason"
           description="Select the reason for your late Time In."
           size="sm"
-          onClose={() => setLateReasonRecord(null)}
+          onClose={() => {
+            setLateReasonRecord(null);
+            setSelectedLateReasonCategory("");
+            setCustomLateReason("");
+          }}
         >
-            <div className="grid gap-2">
-              {lateReasonOptions.map((reason) => (
-                <Button key={reason} type="button" variant="outline" className="justify-start" onClick={() => submitLateReason(reason)}>
-                  {reason}
-                </Button>
-              ))}
+            <div className="grid gap-3">
+              <div className="grid gap-2">
+                {lateReasonOptions.map((reason) => (
+                  <Button 
+                    key={reason} 
+                    type="button" 
+                    variant={selectedLateReasonCategory === reason ? "default" : "outline"} 
+                    className="justify-start" 
+                    onClick={() => setSelectedLateReasonCategory(reason)}
+                  >
+                    {reason}
+                  </Button>
+                ))}
+              </div>
+              {selectedLateReasonCategory && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <label className="text-sm font-medium">
+                    Additional Details {selectedLateReasonCategory === "Other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
+                  </label>
+                  <textarea
+                    className="w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px]"
+                    placeholder="Explain why you were late..."
+                    value={customLateReason}
+                    onChange={(e) => setCustomLateReason(e.target.value)}
+                  />
+                </div>
+              )}
+              {selectedLateReasonCategory && (
+                <div className="mt-2 flex justify-end">
+                  <Button 
+                    onClick={submitLateReason} 
+                    disabled={submitLateReasonMutation.isPending || (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5)}
+                  >
+                    {submitLateReasonMutation.isPending ? "Submitting..." : "Submit Reason"}
+                  </Button>
+                </div>
+              )}
             </div>
         </ModalShell>
       ) : null}

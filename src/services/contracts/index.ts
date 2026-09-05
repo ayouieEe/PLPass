@@ -142,6 +142,7 @@ export type ManualAttendanceInput = {
 export type SubmitLateReasonInput = {
   attendanceRecordId: string;
   reason: string;
+  customReason?: string;
 };
 
 export type CreateCredentialRequestInput = Pick<

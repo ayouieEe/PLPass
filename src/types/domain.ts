@@ -234,7 +234,7 @@ export type AttendanceRecord = {
   lateReasonCategory?: string;
   timeIn?: string;
   checkedOutAt?: string;
-  lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
+  lateReason?: string;
 };
 
 export type AttendanceAttempt = {

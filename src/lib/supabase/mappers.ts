@@ -401,7 +401,7 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     lateReasonCategory: optionalString(row, ["late_reason_category"]),
     timeIn: optionalString(row, ["time_in"]),
     checkedOutAt: optionalString(row, ["time_out"]),
-    lateReason: optionalString(row, ["late_reason_category", "late_reason"]) as AttendanceRecord["lateReason"]
+    lateReason: optionalString(row, ["late_reason"])
   };
   return base as AttendanceRecord;
 }
