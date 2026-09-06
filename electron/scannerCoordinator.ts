@@ -129,7 +129,16 @@ export class ScannerCoordinator {
     const root = { certificate: pems.cert, privateKey: pems.private, fingerprint: pems.fingerprint, expiresAt };
     await this.certificateStore.save(root); this.root = root; return root;
   }
-  private publicStatus(): ScannerCoordinatorStatus { return { ...this.status, stations: [...this.stations.values()].map(({ token: _token, ...station }) => station) }; }
+  private publicStatus(): ScannerCoordinatorStatus {
+    return {
+      ...this.status,
+      stations: [...this.stations.values()].map((station) => {
+        const { token, ...publicStation } = station;
+        void token;
+        return publicStation;
+      })
+    };
+  }
   private publish() { const status = this.publicStatus(); this.onStatus(status); this.sockets.clients.forEach((socket) => this.send(socket, { type: "status", status })); }
   private send(socket: WebSocket, body: unknown) { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(body)); }
   private stationFromToken(value: string) { return [...this.stations.values()].find((station) => station.token === value); }

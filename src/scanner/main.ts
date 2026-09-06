@@ -1,8 +1,9 @@
 import { BrowserQRCodeReader } from "@zxing/browser";
 import "./scanner.css";
 
-const root = document.querySelector<HTMLDivElement>("#app");
-if (!root) throw new Error("Scanner page could not start.");
+const appRoot = document.querySelector<HTMLDivElement>("#app");
+if (!appRoot) throw new Error("Scanner page could not start.");
+const root: HTMLDivElement = appRoot;
 const joinToken = new URLSearchParams(location.search).get("join");
 let stationToken = "";
 let controls: Awaited<ReturnType<BrowserQRCodeReader["decodeFromVideoDevice"]>> | null = null;

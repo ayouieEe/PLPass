@@ -848,7 +848,7 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api || !activeEvent?.id || !activeScannerSessionId) return;
 
-    let current = true;
+    const current = true;
     const refreshPhoneAttendance = async () => {
       try {
         const pending = await api.listPending(activeEvent.id);
@@ -899,18 +899,19 @@ export function EventManagementPage() {
     [activeTab, eventFilters, incomingEvents, todayEvents]
   );
   const prepareOfflinePackage = useCallback(async (event: EventRecord) => {
-    if (!event.id) return;
+    const eventId = event.id;
+    if (!eventId) return;
     if (!desktopApi()) {
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "NOT_PREPARED", error: "Open PLPass in the desktop app to prepare offline." }));
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "NOT_PREPARED", error: "Open PLPass in the desktop app to prepare offline." }));
       return;
     }
-    setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "PREPARING", preparing: true }));
+    setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "PREPARING", preparing: true }));
     try {
-      const status = await prepareEventForOffline(event.id);
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: status.packageStatus }));
+      const status = await prepareEventForOffline(eventId);
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: status.packageStatus }));
       toast.success(`${event.code} is ready for offline use.`);
     } catch (error) {
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "INCOMPLETE", error: error instanceof Error ? error.message : "Preparation failed." }));
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: error instanceof Error ? error.message : "Preparation failed." }));
       toast.error(`Unable to prepare ${event.code} for offline use.`);
     }
   }, []);
@@ -919,7 +920,7 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api) return;
     let current = true;
-    void Promise.all(repositoryEvents.filter((event) => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id) })))
+    void Promise.all(repositoryEvents.filter((event): event is EventRecord & { id: string } => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id) })))
       .then((entries) => {
         if (!current) return;
         setOfflinePreparationByEventId((previous) => {
@@ -1006,6 +1007,10 @@ export function EventManagementPage() {
   }
 
   const eventToStart = startEvent;
+  if (!eventToStart.id) {
+    toast.error("This event is missing an ID and cannot start an attendance session.");
+    return;
+  }
   let startedSession;
   try {
     startedSession = await createEventSessionMutation.mutateAsync({
@@ -1091,8 +1096,9 @@ export function EventManagementPage() {
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
     try {
-      const scanner = desktopApi() ? await desktopApi()!.getScannerStations() : undefined;
-      if (scanner?.active) await desktopApi()!.setScannerCapturePhase("time_out");
+      const api = desktopApi();
+      const scanner = api ? await api.getScannerStations() : undefined;
+      if (scanner?.active) await api?.setScannerCapturePhase("time_out");
       setAttendancePhase("time_out");
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
@@ -1185,7 +1191,7 @@ export function EventManagementPage() {
       });
       toast.success(
         attendancePhase === "time_out"
-          ? `${existing.studentName} Time Out recorded. This will be saved when you end the session.`
+          ? `${existing?.studentName ?? "Student"} Time Out recorded. This will be saved when you end the session.`
           : `${student?.fullName ?? student?.studentNumber ?? "Student"} Time In recorded. This will be saved when you end the session.`
       );
     } catch (error) {
@@ -1815,9 +1821,9 @@ export function EventManagementPage() {
           </section>
 
           <ScannerStationsPanel
-            eventId={activeEvent.id}
+            eventId={activeEvent.id ?? ""}
             sessionId={activeScannerSessionId ?? ""}
-            enabled={Boolean(activeScannerSessionId && offlinePreparationByEventId.get(activeEvent.id)?.packageStatus === "READY")}
+            enabled={Boolean(activeEvent.id && activeScannerSessionId && offlinePreparationByEventId.get(activeEvent.id)?.packageStatus === "READY")}
             capturePhase={attendancePhase}
           />
         </div>

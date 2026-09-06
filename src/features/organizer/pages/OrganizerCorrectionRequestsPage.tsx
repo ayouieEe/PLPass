@@ -649,7 +649,7 @@ export function OrganizerCorrectionRequestsPage() {
               </div>
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Attendance</p>
-                <h2 className="text-sm font-bold text-foreground">Correction Requests</h2>
+                <h2 className="text-sm font-bold text-foreground">Request Directory</h2>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -668,13 +668,12 @@ export function OrganizerCorrectionRequestsPage() {
             </div>
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Correction request status">
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Correction request status">
               {(["all", "pending", "approved", "rejected"] as const).map((tab) => (
                 <Button
                   key={tab}
                   type="button"
-                  role="tab"
-                  aria-selected={statusFilter === tab}
+                  aria-pressed={statusFilter === tab}
                   variant={statusFilter === tab ? "default" : "outline"}
                   size="sm"
                   className="capitalize"
