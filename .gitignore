@@ -5,6 +5,7 @@ __pycache__/
 supabase/.temp/
 .supabase-home/
 dist
+dist-electron/
 tmp/
 *.log
 .env
