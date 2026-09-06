@@ -14,7 +14,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
-import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
+import { type ObjectiveFeedbackSummary, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
@@ -144,7 +144,6 @@ function lateBreakdown(rows: AttendanceRow[]) {
 function completedStats(events: CompletedRecord[]) {
   const totalPresent = events.reduce((sum, event) => sum + event.present, 0);
   const totalAbsent = events.reduce((sum, event) => sum + event.absent, 0);
-  const totalNotCheckedOut = events.reduce((sum, event) => sum + (event.notCheckedOut ?? 0), 0);
   const rates = events
     .map((event) => Number.parseFloat(event.attendanceRate))
     .filter((rate) => !Number.isNaN(rate));
@@ -153,7 +152,6 @@ function completedStats(events: CompletedRecord[]) {
     totalEvents: events.length,
     totalPresent,
     totalAbsent,
-    totalNotCheckedOut,
     avgRate
   };
 }
@@ -230,11 +228,6 @@ export function EventRecordsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [venueFilter, setVenueFilter] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("");
-  const [attendanceRateFilter, setAttendanceRateFilter] = useState("all");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
 
   const { session } = useDevelopmentSession();
@@ -244,7 +237,7 @@ export function EventRecordsPage() {
   );
   const auditLogMutations = useAuditLogMutations(context);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
-  const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, EventObjective[]>>(new Map());
+  const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     const eventIds = (eventsQuery.data?.items ?? []).map((event) => event.id);
@@ -257,7 +250,7 @@ export function EventRecordsPage() {
       const client = getSupabaseBrowserClient();
       const { data, error } = await client
         .from("event_objectives")
-        .select("id, event_id, objective_text, objective_order")
+        .select("event_id, objective_text, objective_order")
         .in("event_id", eventIds)
         .order("objective_order", { ascending: true });
 
@@ -267,14 +260,13 @@ export function EventRecordsPage() {
         return;
       }
 
-      const map = new Map<string, EventObjective[]>();
+      const map = new Map<string, string[]>();
       for (const row of data ?? []) {
         const eventId = String(row.event_id ?? "");
         const objectiveText = String(row.objective_text ?? "").trim();
-        const objectiveId = String(row.id ?? "");
-        if (!eventId || !objectiveId || !objectiveText) continue;
+        if (!eventId || !objectiveText) continue;
         const existing = map.get(eventId) ?? [];
-        existing.push({ id: objectiveId, text: objectiveText });
+        existing.push(objectiveText);
         map.set(eventId, existing);
       }
       setObjectivesByEventId(map);
@@ -310,7 +302,6 @@ export function EventRecordsPage() {
     [repositoryCompletedEvents]
   );
   const attendanceSummariesQuery = useAttendanceSummaries(completedEventIds);
-  const feedbackSummariesQuery = useEventFeedbackSummaries(completedEventIds);
 
   const repositoryCompletedEventsWithAttendance = useMemo<CompletedRecord[]>(() => {
     return repositoryCompletedEvents.map((event) => {
@@ -323,27 +314,13 @@ export function EventRecordsPage() {
         present: summary.present,
         late: summary.late,
         absent: summary.absent,
-        notCheckedOut: summary.notCheckedOut,
         totalRegistered: summary.totalRegistered,
         attendanceRate: `${summary.attendanceRate}%`
       };
     });
   }, [repositoryCompletedEvents, attendanceSummariesQuery.data]);
 
-  const completedRows = useMemo(
-    () => repositoryCompletedEventsWithAttendance.map((event) => {
-      const feedback = event.id ? feedbackSummariesQuery.data?.[event.id] : undefined;
-      if (!feedback) return event;
-      return {
-        ...event,
-        feedbackCount: feedback.feedbackCount,
-        sentiment: feedback.sentiment,
-        feedbackComments: feedback.feedbackComments,
-        objectiveResults: feedback.objectiveResults
-      };
-    }),
-    [feedbackSummariesQuery.data, repositoryCompletedEventsWithAttendance]
-  );
+  const completedRows = repositoryCompletedEventsWithAttendance;
 
   useEffect(() => {
     const eventId = new URLSearchParams(location.search).get("event");
@@ -356,37 +333,10 @@ export function EventRecordsPage() {
     navigate(APP_ROUTES.organizerRecords, { replace: true });
   }, [completedRows, location.search, navigate]);
 
-  const venueOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.venue).filter(Boolean))].sort(),
-    [completedRows]
+  const pastEvents = useMemo(
+    () => completedRows.filter((event) => matchesSearch(event, search)),
+    [completedRows, search]
   );
-  const categoryOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.category).filter(Boolean))].sort(),
-    [completedRows]
-  );
-  const pastEvents = useMemo(() => completedRows.filter((event) => {
-    if (!matchesSearch(event, search)) return false;
-    const eventDate = dateKey(event.startsAt);
-    if (dateFrom && (!eventDate || eventDate < dateFrom)) return false;
-    if (dateTo && (!eventDate || eventDate > dateTo)) return false;
-    if (venueFilter && event.venue !== venueFilter) return false;
-    if (categoryFilter && event.category !== categoryFilter) return false;
-
-    const rate = Number.parseFloat(event.attendanceRate);
-    if (attendanceRateFilter === "0-49" && (!Number.isFinite(rate) || rate >= 50)) return false;
-    if (attendanceRateFilter === "50-79" && (!Number.isFinite(rate) || rate < 50 || rate >= 80)) return false;
-    if (attendanceRateFilter === "80-100" && (!Number.isFinite(rate) || rate < 80)) return false;
-    return true;
-  }), [attendanceRateFilter, categoryFilter, completedRows, dateFrom, dateTo, search, venueFilter]);
-
-  const hasRecordFilters = Boolean(dateFrom || dateTo || venueFilter || categoryFilter || attendanceRateFilter !== "all");
-  function clearRecordFilters() {
-    setDateFrom("");
-    setDateTo("");
-    setVenueFilter("");
-    setCategoryFilter("");
-    setAttendanceRateFilter("all");
-  }
 
   const pastEventsStats = useMemo(() => completedStats(pastEvents), [pastEvents]);
 
@@ -532,57 +482,11 @@ export function EventRecordsPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border bg-surface p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">Filter records</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Narrow completed events by schedule and attendance outcome.</p>
-                </div>
-                <Button type="button" variant="outline" size="sm" onClick={clearRecordFilters} disabled={!hasRecordFilters}>
-                  Clear filters
-                </Button>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                  <span>From date</span>
-                  <input className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-                </label>
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                  <span>To date</span>
-                  <input className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" type="date" min={dateFrom || undefined} value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-                </label>
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                  <span>Venue</span>
-                  <select className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" value={venueFilter} onChange={(event) => setVenueFilter(event.target.value)}>
-                    <option value="">All venues</option>
-                    {venueOptions.map((venue) => <option key={venue} value={venue}>{venue}</option>)}
-                  </select>
-                </label>
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                  <span>Category</span>
-                  <select className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-                    <option value="">All categories</option>
-                    {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-                  </select>
-                </label>
-                <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                  <span>Attendance rate</span>
-                  <select className="h-10 w-full rounded-lg border bg-background px-3 text-sm text-foreground" value={attendanceRateFilter} onChange={(event) => setAttendanceRateFilter(event.target.value)}>
-                    <option value="all">All rates</option>
-                    <option value="80-100">80% - 100%</option>
-                    <option value="50-79">50% - 79%</option>
-                    <option value="0-49">Below 50%</option>
-                  </select>
-                </label>
-              </div>
-            </section>
-
             {pastEvents.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
                 <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
                 <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
-                <SummaryTile label="Missing checkout" value={pastEventsStats.totalNotCheckedOut.toString()} />
                 <SummaryTile
                   label="Avg Attendance"
                   value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
