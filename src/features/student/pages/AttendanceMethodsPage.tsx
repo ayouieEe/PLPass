@@ -396,7 +396,7 @@ export function AttendanceMethodsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Attendance Methods"
-        description="View your QR access, backup verification, and attendance issue reporting."
+        description="View your attendance options and report verification issues."
         actions={
           <Button type="button" variant="outline" onClick={() => setShowIssueReport(true)}>
             <AlertTriangle className="mr-2 h-4 w-4" />

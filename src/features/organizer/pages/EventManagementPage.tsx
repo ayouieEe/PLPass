@@ -848,7 +848,7 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api || !activeEvent?.id || !activeScannerSessionId) return;
 
-    let current = true;
+    const current = true;
     const refreshPhoneAttendance = async () => {
       try {
         const pending = await api.listPending(activeEvent.id);
@@ -899,18 +899,19 @@ export function EventManagementPage() {
     [activeTab, eventFilters, incomingEvents, todayEvents]
   );
   const prepareOfflinePackage = useCallback(async (event: EventRecord) => {
-    if (!event.id) return;
+    const eventId = event.id;
+    if (!eventId) return;
     if (!desktopApi()) {
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "NOT_PREPARED", error: "Open PLPass in the desktop app to prepare offline." }));
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "NOT_PREPARED", error: "Open PLPass in the desktop app to prepare offline." }));
       return;
     }
-    setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "PREPARING", preparing: true }));
+    setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "PREPARING", preparing: true }));
     try {
-      const status = await prepareEventForOffline(event.id);
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: status.packageStatus }));
+      const status = await prepareEventForOffline(eventId);
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: status.packageStatus }));
       toast.success(`${event.code} is ready for offline use.`);
     } catch (error) {
-      setOfflinePreparationByEventId((current) => new Map(current).set(event.id, { packageStatus: "INCOMPLETE", error: error instanceof Error ? error.message : "Preparation failed." }));
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: error instanceof Error ? error.message : "Preparation failed." }));
       toast.error(`Unable to prepare ${event.code} for offline use.`);
     }
   }, []);
@@ -919,7 +920,7 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api) return;
     let current = true;
-    void Promise.all(repositoryEvents.filter((event) => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id) })))
+    void Promise.all(repositoryEvents.filter((event): event is EventRecord & { id: string } => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id) })))
       .then((entries) => {
         if (!current) return;
         setOfflinePreparationByEventId((previous) => {
@@ -952,10 +953,6 @@ export function EventManagementPage() {
   }, [activeTab, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
   const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
   const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
-  const selectedListDescription =
-    activeTab === "today"
-      ? "Events scheduled to run today, ranked by priority and impact."
-      : "Published future events, ranked by priority and impact.";
 
   useEffect(() => {
     if (selectedEventForSession && !selectedEvents.some((event) => event.code === selectedEventForSession.code)) {
@@ -1010,6 +1007,10 @@ export function EventManagementPage() {
   }
 
   const eventToStart = startEvent;
+  if (!eventToStart.id) {
+    toast.error("This event is missing an ID and cannot start an attendance session.");
+    return;
+  }
   let startedSession;
   try {
     startedSession = await createEventSessionMutation.mutateAsync({
@@ -1095,8 +1096,9 @@ export function EventManagementPage() {
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
     try {
-      const scanner = desktopApi() ? await desktopApi()!.getScannerStations() : undefined;
-      if (scanner?.active) await desktopApi()!.setScannerCapturePhase("time_out");
+      const api = desktopApi();
+      const scanner = api ? await api.getScannerStations() : undefined;
+      if (scanner?.active) await api?.setScannerCapturePhase("time_out");
       setAttendancePhase("time_out");
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
@@ -1189,7 +1191,7 @@ export function EventManagementPage() {
       });
       toast.success(
         attendancePhase === "time_out"
-          ? `${existing.studentName} Time Out recorded. This will be saved when you end the session.`
+          ? `${existing?.studentName ?? "Student"} Time Out recorded. This will be saved when you end the session.`
           : `${student?.fullName ?? student?.studentNumber ?? "Student"} Time In recorded. This will be saved when you end the session.`
       );
     } catch (error) {
@@ -1575,7 +1577,7 @@ export function EventManagementPage() {
   if (eventsQuery.isLoading && !repositoryEvents.length) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
+        <PageHeader title="Events" description="Manage events and start attendance sessions." />
         <LoadingState label="Loading events..." />
       </div>
     );
@@ -1584,7 +1586,7 @@ export function EventManagementPage() {
   if (eventsQuery.isError) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
+        <PageHeader title="Events" description="Manage events and start attendance sessions." />
         <ErrorState
           title="Failed to load events"
           message="There was an error fetching events from Supabase. Please try again."
@@ -1595,7 +1597,7 @@ export function EventManagementPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Events" description="Review today&apos;s schedule, prepare upcoming events, and start attendance sessions." />
+      <PageHeader title="Events" description="Manage events and start attendance sessions." />
 
 
       {activeEvent ? (
@@ -1819,39 +1821,36 @@ export function EventManagementPage() {
           </section>
 
           <ScannerStationsPanel
-            eventId={activeEvent.id}
+            eventId={activeEvent.id ?? ""}
             sessionId={activeScannerSessionId ?? ""}
-            enabled={Boolean(activeScannerSessionId && offlinePreparationByEventId.get(activeEvent.id)?.packageStatus === "READY")}
+            enabled={Boolean(activeEvent.id && activeScannerSessionId && offlinePreparationByEventId.get(activeEvent.id)?.packageStatus === "READY")}
             capturePhase={attendancePhase}
           />
         </div>
         </>
       ) : (
         <>
-          <section className="rounded-lg border bg-surface p-4 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <section className="rounded-xl border bg-surface p-4 shadow-sm lg:p-5" aria-label="Event schedule overview">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Event workspace</p>
-                <h2 className="mt-1 text-lg font-semibold text-foreground">Schedule overview</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Select an event from the list, then use Start Session to begin attendance.</p>
+                <div className="flex items-center gap-3">
+                  <span className="h-8 w-1 rounded-full bg-primary" aria-hidden="true" />
+                  <div>
+                    <h2 className="text-lg font-semibold leading-6 text-foreground">Schedule</h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">Select an event to start attendance.</p>
+                  </div>
+                </div>
               </div>
-              <div className="w-full lg:max-w-sm">
+              <div className="w-full lg:max-w-md">
                 <label className="text-xs font-medium text-muted-foreground" htmlFor="event-record-search">Search events</label>
-                <div className="mt-1.5 flex items-center gap-2 rounded-md border bg-background px-3 py-2">
+                <div className="mt-1 flex h-10 items-center gap-2 rounded-lg border bg-background px-3">
                   <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                   <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
                 </div>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <SummaryTile label="Today" value={todayEvents.length.toString()} />
-              <SummaryTile label="Upcoming" value={incomingEvents.length.toString()} />
-              <SummaryTile label="Schedule conflicts" value={conflictsByCode.size.toString()} />
-            </div>
-          </section>
-
-          <section className="flex items-center" aria-label="Event schedule filters">
-            <div className="inline-flex items-center rounded-full border bg-background p-1 shadow-sm" role="tablist" aria-label="Event tabs">
+            <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="inline-flex w-fit items-center rounded-lg border bg-background p-1" role="tablist" aria-label="Event schedule">
               <button
                 type="button"
                 role="tab"
@@ -1860,7 +1859,7 @@ export function EventManagementPage() {
                   setActiveTab("today");
                   setSelectedEventForSession(null);
                 }}
-                className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
+                className={`inline-flex items-center gap-2.5 rounded-md px-4 py-1.5 text-sm font-medium ${
                   activeTab === "today" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
                 }`}
               >
@@ -1877,7 +1876,7 @@ export function EventManagementPage() {
                   setActiveTab("incoming");
                   setSelectedEventForSession(null);
                 }}
-                className={`inline-flex items-center gap-3 rounded-full px-5 py-2 text-sm font-medium ${
+                className={`inline-flex items-center gap-2.5 rounded-md px-4 py-1.5 text-sm font-medium ${
                   activeTab === "incoming" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
                 }`}
               >
@@ -1886,6 +1885,10 @@ export function EventManagementPage() {
                   {incomingEvents.length}
                 </span>
               </button>
+              </div>
+              <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
+                {conflictsByCode.size ? `${conflictsByCode.size} schedule ${conflictsByCode.size === 1 ? "conflict" : "conflicts"}` : "No schedule conflicts"}
+              </span>
             </div>
           </section>
 
@@ -1966,20 +1969,7 @@ export function EventManagementPage() {
             </div>
           </section>
 
-          <section className="animate-fade-in-up rounded-lg border bg-surface p-4 shadow-sm">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">{selectedListTitle}</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">{selectedListDescription}</p>
-              </div>
-              {selectedEventForSession ? (
-                <span className="w-fit rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
-                  {selectedEventForSession.code} selected
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Click an event to start a session.</span>
-              )}
-            </div>
+          <section className="animate-fade-in-up" aria-label={selectedListTitle}>
             <PLPassDataGrid
               label={selectedListTitle}
               data={selectedEvents}

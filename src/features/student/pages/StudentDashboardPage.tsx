@@ -270,7 +270,7 @@ export function StudentDashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title={`Welcome back, ${student.fullName}`}
-        description="Here are your events, attendance progress, and pending tasks."
+        description="See your events, attendance progress, and pending tasks."
       />
 
       {credentialReadinessError ? (

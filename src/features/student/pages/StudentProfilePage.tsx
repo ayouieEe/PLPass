@@ -143,7 +143,7 @@ export function StudentProfilePage() {
     <div className="space-y-8 p-1">
       <PageHeader
         title="Profile"
-        description="Review your student details, attendance access, and account status."
+        description="Manage your student details and attendance access."
         actions={
           <Button variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
             <LogOut className="h-4 w-4" />

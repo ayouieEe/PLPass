@@ -166,7 +166,7 @@ export function RequestHistoryPage() {
     <div className="space-y-6">
       <PageHeader
         title="Request History"
-        description="Track submitted corrections, attendance issues, and facial review requests."
+        description="Track your requests and view their status."
       />
 
       {hasPartialDataIssue ? (

@@ -2,7 +2,8 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
-import { Eye, FileDown, FileSpreadsheet, Search, X } from "lucide-react";
+import { BarChart3, CalendarCheck, Download, Eye, FileDown, FileSpreadsheet, Filter, Search, UserCheck, UserX, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -454,97 +455,74 @@ export function EventRecordsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Event Records" />
+    <div className="space-y-4">
+      <PageHeader title="Event Records" description="Review completed events and attendance records." />
 
       <section className="space-y-4">
-        {/* Search card (left, flexible width) and Reports card (right, fixed 320px)
-            are stretched to the same row height so Reports doesn't tower over
-            Search — keeps the top strip compact and leaves room for the table. */}
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
-            <section className="rounded-lg border bg-surface p-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-foreground">Search completed events</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Filter by code, name, venue, or category.</p>
-                </div>
-                <div className="flex w-full max-w-md items-center gap-2 rounded-lg border bg-background px-3 py-2">
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    id="event-record-search"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                    placeholder="Search completed events..."
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
-
-            {pastEvents.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <SummaryTile label="Events" value={pastEventsStats.totalEvents.toString()} />
-                <SummaryTile label="Total Present" value={pastEventsStats.totalPresent.toString()} />
-                <SummaryTile label="Total Absent" value={pastEventsStats.totalAbsent.toString()} />
-                <SummaryTile
-                  label="Avg Attendance"
-                  value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"}
-                />
-              </div>
-            ) : null}
+        {pastEvents.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <EventMetricCard title="Events" value={pastEventsStats.totalEvents.toString()} icon={CalendarCheck} />
+            <EventMetricCard title="Total Present" value={pastEventsStats.totalPresent.toString()} icon={UserCheck} />
+            <EventMetricCard title="Total Absent" value={pastEventsStats.totalAbsent.toString()} icon={UserX} />
+            <EventMetricCard title="Avg Attendance" value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"} icon={BarChart3} />
           </div>
+        ) : null}
 
-          <section className="flex flex-col justify-center gap-3 rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="rounded-lg border bg-surface p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+              <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+                <FileDown className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Event Records</p>
+                <h2 className="text-sm font-bold text-foreground">Completed Events</h2>
+              </div>
+            </div>
             <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <FileDown className="h-3.5 w-3.5" aria-hidden="true" />
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                <Filter className="h-3 w-3" aria-hidden="true" />
+                {pastEvents.length} results
               </span>
-              <h2 className="text-sm font-semibold text-foreground">Reports</h2>
+              <details className="relative">
+                <summary className="list-none">
+                  <Button type="button" variant="default" size="sm" className="border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800" asChild>
+                    <span><Download className="h-3.5 w-3.5" aria-hidden="true" /> Export</span>
+                  </Button>
+                </summary>
+                <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
+                  <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Download report</p>
+                  <div className="mt-1 divide-y divide-border rounded-md border bg-background">
+                    <ReportExportRow icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />} label="Attendance" onExportXlsx={() => exportAllAttendanceReport("Attendance Report XLSX")} onExportPdf={() => exportAllAttendanceReport("Attendance Report PDF")} />
+                    <ReportExportRow icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />} label="Event Summary" onExportXlsx={() => exportReport("Event Summary Report XLSX")} onExportPdf={() => exportReport("Event Summary Report PDF")} />
+                  </div>
+                </div>
+              </details>
             </div>
-
-            <div className="divide-y divide-border rounded-lg border bg-background">
-              <ReportExportRow
-                icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />}
-                label="Attendance"
-                onExportXlsx={() => exportAllAttendanceReport("Attendance Report XLSX")}
-                onExportPdf={() => exportAllAttendanceReport("Attendance Report PDF")}
-              />
-              <ReportExportRow
-                icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />}
-                label="Event Summary"
-                onExportXlsx={() => exportReport("Event Summary Report XLSX")}
-                onExportPdf={() => exportReport("Event Summary Report PDF")}
-              />
-            </div>
-          </section>
+          </div>
+          <div className="mt-4">
+            <label className="relative block w-full">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input id="event-record-search" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by code, name, venue, or category..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            </label>
+          </div>
         </div>
 
-        <section className="rounded-lg border bg-surface p-4 shadow-sm">
-          {eventsQuery.isPending ? (
-            <LoadingState />
-          ) : eventsQuery.isError ? (
-            <ErrorState title="Failed to load events" message={eventsQuery.error?.message ?? "An error occurred while loading events. Please try again."} />
-          ) : pastEvents.length > 0 ? (
-            <>
-              <PLPassDataGrid
-                label="Completed events"
-                data={pastEvents}
-                columns={pastColumns}
-                emptyTitle="No completed events"
-                emptyDescription="Completed events will appear here."
-              />
-            </>
-          ) : (
-            <PLPassDataGrid
-              label="Completed events"
-              data={pastEvents}
-              columns={pastColumns}
-              emptyTitle="No completed events"
-              emptyDescription="Completed events will appear here."
-            />
-          )}
-        </section>
+        {eventsQuery.isPending ? (
+          <LoadingState />
+        ) : eventsQuery.isError ? (
+          <ErrorState title="Failed to load events" message={eventsQuery.error?.message ?? "An error occurred while loading events. Please try again."} />
+        ) : (
+          <PLPassDataGrid
+            label="Completed events"
+            data={pastEvents}
+            columns={pastColumns}
+            emptyTitle="No completed events"
+            emptyDescription="Completed events will appear here."
+            enableColumnVisibility
+            hideHeader
+          />
+        )}
       </section>
 
       {completedModal ? (
@@ -559,6 +537,22 @@ export function EventRecordsPage() {
         />
       ) : null}
     </div>
+  );
+}
+
+function EventMetricCard({ title, value, icon: Icon }: { title: string; value: string; icon: LucideIcon }) {
+  return (
+    <article className="rounded-lg border bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
+          <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
+        </div>
+        <span className="grid h-9 w-9 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+          <Icon className="h-4 w-4" aria-hidden="true" />
+        </span>
+      </div>
+    </article>
   );
 }
 

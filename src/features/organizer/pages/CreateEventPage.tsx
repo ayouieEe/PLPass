@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
 import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import { TextAreaField } from "@/components/forms/TextAreaField";
 import { TextField } from "@/components/forms/TextField";
 import { TimePickerField } from "@/components/forms/TimePickerField";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
@@ -456,6 +457,10 @@ export function CreateEventPage() {
   const [yearLevel, setYearLevel] = useState("");
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [participantPage, setParticipantPage] = useState(1);
+  const [isSelectedParticipantsOpen, setIsSelectedParticipantsOpen] = useState(false);
+  const [selectedParticipantSearch, setSelectedParticipantSearch] = useState("");
+  const [selectedParticipantPage, setSelectedParticipantPage] = useState(1);
   const [participantError, setParticipantError] = useState("");
   const [pendingPublish, setPendingPublish] = useState<EventFormValues | null>(null);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
@@ -525,6 +530,14 @@ export function CreateEventPage() {
   useEffect(() => {
     form.setValue("numberOfPax", selectedIds.length, { shouldValidate: selectedIds.length > 0 });
   }, [form, selectedIds.length]);
+
+  useEffect(() => {
+    setParticipantPage(1);
+  }, [search, programId, yearLevel, section]);
+
+  useEffect(() => {
+    setSelectedParticipantPage(1);
+  }, [selectedParticipantSearch]);
   
   const watchedCategory = form.watch("category");
   const watchedInstitutionalCategory = form.watch("institutionalCategory");
@@ -545,6 +558,8 @@ export function CreateEventPage() {
   }
   const students = studentsQuery.data?.items ?? [];
   const normalizedStudentSearch = search.trim().toLowerCase();
+  const hasParticipantFilters = Boolean(normalizedStudentSearch || programId || yearLevel || section);
+  const activeParticipantFilterCount = [normalizedStudentSearch, programId, yearLevel, section].filter(Boolean).length;
   const availableSections = [...new Set(students.map((student) => student.section).filter(Boolean))].sort();
   const filteredStudents = students.filter((student) => {
     const searchableStudentDetails = [student.fullName, student.formattedName, student.studentNumber, student.email]
@@ -558,7 +573,29 @@ export function CreateEventPage() {
       && (!section || student.section === section)
     );
   });
+  const participantPageSize = 8;
+  const participantPageCount = Math.max(1, Math.ceil(filteredStudents.length / participantPageSize));
+  const visibleStudents = filteredStudents.slice((participantPage - 1) * participantPageSize, participantPage * participantPageSize);
+  const matchingSelectedCount = filteredStudents.filter((student) => selectedIds.includes(student.id)).length;
+  const allMatchingSelected = filteredStudents.length > 0 && matchingSelectedCount === filteredStudents.length;
+  const someMatchingSelected = matchingSelectedCount > 0 && !allMatchingSelected;
   const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const normalizedSelectedParticipantSearch = selectedParticipantSearch.trim().toLowerCase();
+  const visibleSelectedStudents = selectedStudents.filter((student) => {
+    if (!normalizedSelectedParticipantSearch) return true;
+    return [student.fullName, student.formattedName, student.studentNumber]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedSelectedParticipantSearch);
+  });
+  const selectedParticipantPageSize = 8;
+  const selectedParticipantPageCount = Math.max(1, Math.ceil(visibleSelectedStudents.length / selectedParticipantPageSize));
+  const effectiveSelectedParticipantPage = Math.min(selectedParticipantPage, selectedParticipantPageCount);
+  const selectedParticipantPageRows = visibleSelectedStudents.slice(
+    (effectiveSelectedParticipantPage - 1) * selectedParticipantPageSize,
+    effectiveSelectedParticipantPage * selectedParticipantPageSize
+  );
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
   const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
@@ -578,8 +615,14 @@ export function CreateEventPage() {
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
   }
-  function selectAllFiltered() {
-    setSelectedIds((current) => [...new Set([...current, ...filteredStudents.map((student) => student.id)])]);
+  function toggleAllFiltered() {
+    setSelectedIds((current) => {
+      if (allMatchingSelected) {
+        const matchingIds = new Set(filteredStudents.map((student) => student.id));
+        return current.filter((id) => !matchingIds.has(id));
+      }
+      return [...new Set([...current, ...filteredStudents.map((student) => student.id)])];
+    });
     setParticipantError("");
   }
   function clearParticipantFilters() {
@@ -587,6 +630,7 @@ export function CreateEventPage() {
     setProgramId("");
     setYearLevel("");
     setSection("");
+    setParticipantPage(1);
   }
   function addObjective() {
     appendObjective({ value: "" });
@@ -651,6 +695,7 @@ export function CreateEventPage() {
     <OrganizerFrame>
       <PageHeader
         title="Create Event"
+        description="Set up an event and schedule attendance."
       />
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -820,87 +865,150 @@ export function CreateEventPage() {
           </aside>
         </section>
 
-        <section className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
+        <section className="space-y-4 rounded-xl border bg-surface p-5 shadow-sm">
           <CreateEventSectionHeader
             eyebrow="Participants"
             title="Participant Selection"
-            description="Choose all students or build a compact participant list for this event."
+            description="Select a cohort or refine your list one student at a time."
           />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="font-semibold text-foreground">Participants</h2>
-              <p className="text-sm text-muted-foreground">{selectedIds.length} selected participants · {filteredStudents.length} matching students</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Users className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="font-semibold leading-5 text-foreground">{selectedIds.length} selected</p>
+                <p className="text-sm text-muted-foreground">{filteredStudents.length} matching student{filteredStudents.length === 1 ? "" : "s"}</p>
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="default" onClick={selectAllFiltered} disabled={filteredStudents.length === 0}>Select matching students</Button>
-              <Button type="button" variant="outline" onClick={() => setSelectedIds([])}>Clear selected students</Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="default" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)} disabled={selectedIds.length === 0}>
+                <Users className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                View selected participants
+              </Button>
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  ref={(element) => {
+                    if (element) element.indeterminate = someMatchingSelected;
+                  }}
+                  type="checkbox"
+                  checked={allMatchingSelected}
+                  onChange={toggleAllFiltered}
+                  disabled={filteredStudents.length === 0}
+                  aria-label="Select all matching students"
+                />
+                Select all matching
+              </label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedIds([])} disabled={selectedIds.length === 0}>Clear selection</Button>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <SearchInput value={search} placeholder="Search students" onChange={setSearch} />
-            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
-              <option value="">All programs</option>
-              {catalog.programs.data?.items.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
-            </select>
-            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
-              <option value="">All year levels</option>
-              {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
-            </select>
-            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
-              <option value="">All sections</option>
-              {availableSections.map((item) => <option key={item} value={item}>Section {item}</option>)}
-            </select>
+          <div className="rounded-lg border bg-background p-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-4 w-4 text-primary" aria-hidden="true" />
+                <p className="text-sm font-semibold text-foreground">Filter students</p>
+                {activeParticipantFilterCount ? <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{activeParticipantFilterCount} active</span> : null}
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={clearParticipantFilters} disabled={!hasParticipantFilters} className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground">
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                Clear filters
+              </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[minmax(220px,1.5fr)_repeat(3,minmax(0,1fr))]">
+              <SearchInput value={search} placeholder="Search by name or student number" onChange={setSearch} />
+              <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
+                <option value="">All programs</option>
+                {catalog.programs.data?.items.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
+              </select>
+              <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={yearLevel} onChange={(event) => setYearLevel(event.target.value)} aria-label="Year level filter">
+                <option value="">All year levels</option>
+                {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+              </select>
+              <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={section} onChange={(event) => setSection(event.target.value)} aria-label="Section filter">
+                <option value="">All sections</option>
+                {availableSections.map((item) => <option key={item} value={item}>Section {item}</option>)}
+              </select>
+            </div>
           </div>
           {participantError ? <p role="alert" aria-live="assertive" className="text-sm text-danger">{participantError}</p> : null}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="max-h-[360px] overflow-y-auto rounded-lg border bg-background p-3">
+          <div className="min-w-0">
+            <div className="flex h-[min(55vh,560px)] min-h-[380px] flex-col overflow-hidden rounded-lg border bg-background">
               {filteredStudents.length ? (
-                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {filteredStudents.map((student) => (
-                  <label key={student.id} className="flex items-start gap-3 rounded-lg border bg-surface p-3 text-sm transition-colors hover:border-primary/30 hover:bg-primary/5">
-                    <input type="checkbox" checked={selectedIds.includes(student.id)} onChange={() => toggleStudent(student.id)} />
-                      <span className="min-w-0">
-                        <span className="block font-medium text-foreground">{student.fullName ?? student.studentNumber}</span>
-                      <span className="block text-xs text-muted-foreground">{student.studentNumber}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">{programById.get(student.programId) ?? student.programId} - Year {student.yearLevel} - {student.section}</span>
-                    </span>
-                  </label>
-                  ))}
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <table className="w-full min-w-[680px] text-left text-sm">
+                    <thead className="sticky top-0 z-10 border-b bg-muted/80 text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
+                      <tr>
+                        <th scope="col" className="w-12 px-4 py-3"><span className="sr-only">Select</span></th>
+                        <th scope="col" className="px-3 py-3">Student</th>
+                        <th scope="col" className="px-3 py-3">Student number</th>
+                        <th scope="col" className="px-3 py-3">Program</th>
+                        <th scope="col" className="px-3 py-3">Year</th>
+                        <th scope="col" className="px-3 py-3">Section</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {visibleStudents.map((student) => {
+                        const isSelected = selectedIds.includes(student.id);
+                        return (
+                          <tr key={student.id} className={isSelected ? "bg-primary/5" : "hover:bg-muted/30"}>
+                            <td className="px-4 py-3 align-middle">
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} />
+                            </td>
+                            <th scope="row" className="px-3 py-3 font-medium text-foreground">{student.fullName ?? student.studentNumber}</th>
+                            <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{programById.get(student.programId) ?? student.programId}</td>
+                            <td className="px-3 py-3 text-muted-foreground">Year {student.yearLevel}</td>
+                            <td className="px-3 py-3 text-muted-foreground">{student.section || "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               ) : (
-                <div className="flex min-h-[230px] items-center justify-center rounded-lg border border-dashed bg-muted/20 p-6 text-center">
+                <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center">
                   <div className="max-w-sm">
-                    <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-                      <Search className="h-5 w-5" aria-hidden="true" />
-                    </span>
+                    <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary"><Search className="h-5 w-5" aria-hidden="true" /></span>
                     <h3 className="mt-4 text-base font-semibold text-foreground">No students match these filters</h3>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">Try another search term, or clear the filters to view all available students.</p>
-                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={clearParticipantFilters}>
-                      Clear filters
-                    </Button>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">Try another search term, or clear the filters to view all students.</p>
+                    <Button type="button" variant="outline" size="sm" className="mt-4" onClick={clearParticipantFilters}>Clear filters</Button>
                   </div>
                 </div>
               )}
-            </div>
-
-            <aside className="rounded-lg border bg-background p-4">
-              <h3 className="font-semibold text-foreground">Selected Participants</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{selectedStudents.length} selected students</p>
-              <div className="mt-4 max-h-72 overflow-y-auto rounded-md border bg-surface p-3">
-                {selectedStudents.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedStudents.map((student) => (
-                      <span key={student.id} className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-foreground">
-                        {student.fullName ?? student.studentNumber}
-                      </span>
-                    ))}
+              {filteredStudents.length > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground">
+                  <span>
+                    Showing {(participantPage - 1) * participantPageSize + 1}–{Math.min(participantPage * participantPageSize, filteredStudents.length)} of {filteredStudents.length}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => setParticipantPage((page) => Math.max(1, page - 1))}
+                      disabled={participantPage === 1}
+                      aria-label="Previous participant page"
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                    <span className="min-w-16 text-center font-medium text-foreground">Page {participantPage} of {participantPageCount}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => setParticipantPage((page) => Math.min(participantPageCount, page + 1))}
+                      disabled={participantPage === participantPageCount}
+                      aria-label="Next participant page"
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                    </Button>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No selected participants yet.</p>
-                )}
-              </div>
-            </aside>
+                </div>
+              ) : null}
+            </div>
           </div>
         </section>
         {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
@@ -942,6 +1050,61 @@ export function CreateEventPage() {
           </SubmitButton>
         </section>
       </form>
+      <ModalShell
+        open={isSelectedParticipantsOpen}
+        title="Selected participants"
+        description={`${selectedStudents.length} participant${selectedStudents.length === 1 ? "" : "s"} selected for this event.`}
+        size="lg"
+        onClose={() => setIsSelectedParticipantsOpen(false)}
+        footer={
+          <Button type="button" variant="outline" onClick={() => setIsSelectedParticipantsOpen(false)}>
+            Done
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          <SearchInput value={selectedParticipantSearch} placeholder="Search selected participants" onChange={setSelectedParticipantSearch} />
+          {visibleSelectedStudents.length ? (
+            <div className="overflow-hidden rounded-xl border bg-background">
+              <div className="divide-y">
+                {selectedParticipantPageRows.map((student) => {
+                  const displayName = student.fullName ?? student.studentNumber;
+                  return (
+                    <div key={student.id} className="group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-primary/5 sm:px-4">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary" aria-hidden="true">
+                        {displayName.split(" ").map((part) => part[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {student.studentNumber} · {programById.get(student.programId) ?? student.programId} · Year {student.yearLevel} · {student.section || "No section"}
+                        </p>
+                      </div>
+                      <button type="button" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive" onClick={() => toggleStudent(student.id)} aria-label={`Remove ${displayName}`} title="Remove participant">
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
+                <span>Showing {(effectiveSelectedParticipantPage - 1) * selectedParticipantPageSize + 1}–{Math.min(effectiveSelectedParticipantPage * selectedParticipantPageSize, visibleSelectedStudents.length)} of {visibleSelectedStudents.length}</span>
+                <div className="flex items-center gap-1.5">
+                  <Button type="button" variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSelectedParticipantPage((page) => Math.max(1, page - 1))} disabled={effectiveSelectedParticipantPage === 1} aria-label="Previous selected participants page">
+                    <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                  <span className="min-w-16 text-center font-medium text-foreground">Page {effectiveSelectedParticipantPage} of {selectedParticipantPageCount}</span>
+                  <Button type="button" variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSelectedParticipantPage((page) => Math.min(selectedParticipantPageCount, page + 1))} disabled={effectiveSelectedParticipantPage === selectedParticipantPageCount} aria-label="Next selected participants page">
+                    <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">No selected participants match your search.</div>
+          )}
+        </div>
+      </ModalShell>
       <ConfirmModal
         open={Boolean(pendingPublish)}
         title={pendingScheduleConflicts.length > 0 ? "Review conflict and publish?" : "Review and publish event"}

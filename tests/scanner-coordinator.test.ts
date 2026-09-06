@@ -47,7 +47,8 @@ describe("scanner coordinator", () => {
     const coordinator = new ScannerCoordinator(store, path.resolve(process.cwd(), "dist"), () => {});
     try {
       const active = await coordinator.start("event-1", "session-1");
-      const joinUrl = new URL(active.joinUrl!); const sharedToken = joinUrl.searchParams.get("join");
+      if (!active.joinUrl) throw new Error("Scanner join URL was not created.");
+      const joinUrl = new URL(active.joinUrl); const sharedToken = joinUrl.searchParams.get("join");
       const bootstrap = await page(joinUrl.toString()); expect(bootstrap.status).toBe(200); expect(bootstrap.body).toContain("Download PLPass Scanner certificate"); expect(bootstrap.body).toContain("Open scanner");
       const secureBase = active.addresses[0];
       const stations = await Promise.all(Array.from({ length: 5 }, () => post(`${secureBase}/api/join`, { joinToken: sharedToken })));

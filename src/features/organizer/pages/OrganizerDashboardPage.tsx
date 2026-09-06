@@ -91,7 +91,7 @@ export function OrganizerDashboardPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Dashboard" description="Live sessions, turnout forecasts, and event scheduling at a glance." actions={<><Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink></Button><Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button></>} />
+      <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<><Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink></Button><Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button></>} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} />

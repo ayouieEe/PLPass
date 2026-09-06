@@ -265,7 +265,7 @@ export function CorrectionRequestsPage() {
     <div className="space-y-8 p-1">
       <PageHeader
         title="Correction Requests"
-        description="File event absence excuse notices or request corrections for organizer-recorded event attendance."
+        description="Submit attendance corrections and absence notices."
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
