@@ -671,7 +671,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
     p_scheduled_start: scheduledStart,
     p_scheduled_end: scheduledEnd,
     p_mode: input.attendanceMode === "online" ? "online" : "f2f",
-    p_late_cutoff_minutes: 15
+    p_late_cutoff_minutes: input.lateCutoffMinutes ?? 15
   });
   if (error && (error.code === "23505" || /already has an active attendance session/i.test(error.message))) {
     const { data: activeSession, error: activeSessionError } = await client

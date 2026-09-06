@@ -1,0 +1,26 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f3f8f2; color: #1c2a1f; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% -10%, #dcefdc 0, #f4f8f3 42%, #eef5ed 100%); }
+.scanner-shell { min-height: 100vh; width: 100%; display: flex; align-items: center; justify-content: center; padding: 20px 14px; }
+.scanner-card { width: min(100%, 510px); overflow: hidden; border: 1px solid #d7e5d5; border-radius: 28px; background: #fff; padding: 22px; box-shadow: 0 20px 50px rgba(28, 57, 31, .12); }
+.scanner-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 8px; color: #2f6d3b; font-size: 17px; font-weight: 800; }
+.brand-mark { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 11px; background: #3e7743; color: #fff; font-size: 23px; font-weight: 800; line-height: 1; }
+.connection { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d8ead6; border-radius: 999px; padding: 6px 9px; color: #37673d; background: #f4fbf3; font-size: 12px; font-weight: 700; }
+.connection i { width: 7px; height: 7px; border-radius: 50%; background: #4d9b58; box-shadow: 0 0 0 3px #dff2df; }
+.scanner-title { padding: 23px 2px 17px; }
+.station-name, .eyebrow { margin: 0 0 7px; color: #4a8150; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+h1 { margin: 0; color: #1a291d; font-size: clamp(25px, 6vw, 31px); letter-spacing: -.035em; }
+.phase-badge { display: inline-flex; margin: 13px 0 0; border: 1px solid #bcd9bd; border-radius: 999px; background: #eff8ee; padding: 7px 11px; color: #2d6938; font-size: 13px; font-weight: 800; }
+.camera-frame { position: relative; overflow: hidden; min-height: 310px; border: 1px solid #203924; border-radius: 22px; background: #172219; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
+video { display: block; width: 100%; height: 310px; object-fit: cover; transform: scaleX(-1); }
+.scan-guide { position: absolute; inset: 50% auto auto 50%; width: min(56vw, 210px); aspect-ratio: 1; transform: translate(-50%, -54%); }
+.scan-guide span { position: absolute; width: 27px; height: 27px; border-color: #e9f8e8; border-style: solid; filter: drop-shadow(0 1px 4px #000); }
+.scan-guide span:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-radius: 8px 0 0; }.scan-guide span:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-radius: 0 8px 0 0; }.scan-guide span:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-radius: 0 0 0 8px; }.scan-guide span:nth-child(4) { right: 0; bottom: 0; border-width: 0 4px 4px 0; border-radius: 0 0 8px; }
+.camera-hint { position: absolute; right: 12px; bottom: 11px; left: 12px; margin: 0; border-radius: 10px; background: rgba(8, 18, 10, .67); padding: 8px; color: #fff; text-align: center; font-size: 12px; font-weight: 600; }
+.scan-status { min-height: 54px; margin: 15px 0; border: 1px solid #d9e6d8; border-radius: 14px; background: #f8fbf7; padding: 13px 14px; color: #506052; line-height: 1.35; font-size: 14px; font-weight: 600; }
+.scan-status.success { border-color: #b9dfbd; background: #edf9ed; color: #216d31; }.scan-status.error { border-color: #f2c2bc; background: #fff3f1; color: #b52f28; }
+.start-button, .button { width: 100%; border: 0; border-radius: 14px; background: #3e7743; color: #fff; padding: 15px 18px; font: inherit; font-weight: 800; font-size: 16px; box-shadow: 0 5px 0 #28542e; text-decoration: none; }.start-button:disabled { opacity: .7; }.start-button:active { transform: translateY(2px); box-shadow: 0 3px 0 #28542e; }
+.scanner-footer { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 18px 0 1px; color: #738274; font-size: 12px; }.lock-icon { font-size: 15px; color: #4e8253; }
+.loading-card, .error-card { text-align: center; }.loading-card .brand-mark, .error-card .brand-mark { margin: 0 auto 18px; }.intro { margin: 12px 0 0; color: #5d6d60; line-height: 1.55; }.loading-line { height: 7px; overflow: hidden; margin-top: 27px; border-radius: 99px; background: #e9f1e8; }.loading-line span { display: block; width: 42%; height: 100%; border-radius: inherit; background: #4e9156; animation: load 1.2s ease-in-out infinite; }@keyframes load { 0% { transform: translateX(-110%); } 100% { transform: translateX(260%); } }
+@media (max-width: 420px) { .scanner-shell { align-items: flex-start; padding: 10px; }.scanner-card { padding: 18px; border-radius: 23px; }.camera-frame, video { min-height: 285px; height: 285px; } }

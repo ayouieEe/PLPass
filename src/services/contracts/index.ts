@@ -102,6 +102,7 @@ export type CreateEventSessionInput = {
   startTime: string;
   expectedEndTime: string;
   attendanceMode: "face-to-face" | "online";
+  lateCutoffMinutes?: number;
 };
 
 export type EndAttendanceSessionInput = {

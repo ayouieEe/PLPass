@@ -1,5 +1,7 @@
 # PLPass
 
+For the Windows offline-event runtime, synchronization lifecycle, security boundary, and recovery steps, see [Offline attendance architecture](docs/OFFLINE_ATTENDANCE_ARCHITECTURE.md).
+
 PLPass is a capstone-ready event attendance information system with dedicated organizer and student workspaces. It supports event management, attendance sessions, QR and facial backup workflows, corrections, feedback, reporting, analytics, audit logs, and responsive access.
 
 ## Requirements
