@@ -538,6 +538,12 @@ export function EventManagementPage() {
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const credentialStatusesQuery = useStudentCredentialStatuses(context);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
+  // A newly started live session stays local until End Session. Only reuse an
+  // already persisted ongoing session when opening the separate verification view.
+  const resolvedLiveSessionId = useMemo(
+    () => sessionsList.find((attendanceSession) => attendanceSession.eventId === activeEvent?.id && attendanceSession.status === "active")?.id,
+    [activeEvent?.id, sessionsList]
+  );
   const manualLateLock = useMemo(
     () =>
       resolveLateStudentManualState({
