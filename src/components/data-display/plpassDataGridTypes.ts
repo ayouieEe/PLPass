@@ -27,4 +27,6 @@ export type PLPassDataGridProps<TData extends object> = {
   headerHeight?: number;
   toolbarActions?: ReactNode;
   hideHeader?: boolean;
+  /** Removes the standalone card treatment when the grid lives inside another page section. */
+  flat?: boolean;
 };

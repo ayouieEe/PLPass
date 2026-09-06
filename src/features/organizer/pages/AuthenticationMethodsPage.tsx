@@ -9,6 +9,8 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
+import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 
 type FacialStatus = "Activated" | "Damaged" | "Inactive";
@@ -18,10 +20,40 @@ type ActiveTab = "facial" | "qr";
 type QrRow = {
   studentId: string;
   studentName: string;
+  studentNumber: string;
+  credentialId: string;
   status: QRStatus;
   dateGenerated: string;
   lastUsed: string;
 };
+
+function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
+  const value = student?.credentialId
+    ? buildStudentQrPayload(student.studentNumber, student.credentialId)
+    : "";
+  const qrDataUrl = useQrCredentialDataUrl(student?.status === "Active", value);
+
+  return (
+    <div className="rounded-md border border-dashed border-border bg-background p-3">
+      <div className="mx-auto flex h-52 w-52 items-center justify-center rounded-lg bg-primary/10 p-3 text-primary">
+        {qrDataUrl ? (
+          <img
+            src={qrDataUrl}
+            alt={`PLPass QR credential for ${student?.studentName ?? "student"}`}
+            className="h-full w-full object-contain"
+          />
+        ) : (
+          <QrCode className="h-12 w-12" aria-hidden="true" />
+        )}
+      </div>
+      <div className="mt-3 space-y-1 text-center">
+        <p className="font-semibold text-foreground">{student?.studentName}</p>
+        <p>QR status: {student?.status || "Active"}</p>
+        <p>Issued: {student?.dateGenerated || new Date().toISOString().slice(0, 10)}</p>
+      </div>
+    </div>
+  );
+}
 
 type FacialRow = {
   studentId: string;
@@ -437,6 +469,8 @@ export function AuthenticationMethodsPage() {
     return {
       studentId: student.id,
       studentName: student.formattedName || student.fullName || student.studentNumber,
+      studentNumber: student.studentNumber,
+      credentialId: credential?.id ?? "",
       status: !credential || credential.revokedAt || credential.status !== "activated" ? "Disabled" : expired ? "Expired" : "Active",
       dateGenerated: credential?.issuedAt?.slice(0, 10) ?? "-",
       lastUsed: credential?.lastSuccessfulCheckInAt?.slice(0, 10) ?? "-"
@@ -695,16 +729,7 @@ export function AuthenticationMethodsPage() {
                 {activeModal.title.includes("Regenerate") ? "New credential" : "Current credential"}
               </span>
             </div>
-            <div className="rounded-md border border-dashed border-border bg-background p-3">
-              <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <QrCode className="h-12 w-12" />
-              </div>
-              <div className="mt-3 space-y-1 text-center">
-                <p className="font-semibold text-foreground">{activeModal.studentName}</p>
-                <p>QR status: {selectedStudentQrInfo?.status || "Active"}</p>
-                <p>Issued: {selectedStudentQrInfo?.dateGenerated || new Date().toISOString().slice(0, 10)}</p>
-              </div>
-            </div>
+            <OrganizerQrPreview student={selectedStudentQrInfo} />
             <p>
               {activeModal.title.includes("Regenerate")
                 ? "A fresh QR code will be generated and assigned to this student for the next event." 
