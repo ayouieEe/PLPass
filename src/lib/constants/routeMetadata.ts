@@ -13,77 +13,84 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/organizer" || pathname === "/organizer/dashboard") {
     return {
       title: "Dashboard",
-      description: "Day-to-day workspace for live sessions, turnout forecasts, attendance trends, and feedback signals.",
+      description: "See live sessions, event schedules, and attendance trends.",
       breadcrumbs: [rolePrefix, "Dashboard"]
     };
   }
   if (pathname === "/organizer/events/create") {
     return {
       title: "Create Event",
-      description: "Set up and schedule a new event for attendance tracking.",
+      description: "Set up an event and schedule attendance.",
       breadcrumbs: [rolePrefix, "Events", "Create Event"]
     };
   }
   if (pathname === "/organizer/events") {
     return {
       title: "Event Management",
-      description: "Manage, publish, and track all student events.",
+      description: "Manage events and start attendance sessions.",
       breadcrumbs: [rolePrefix, "Event Management"]
     };
   }
   if (pathname.startsWith("/organizer/events/")) {
     return {
       title: "Event Details",
-      description: "View event configuration, enrolled participants, and sessions.",
+      description: "Review event details, participants, and attendance sessions.",
       breadcrumbs: [rolePrefix, "Events", "Event Details"]
     };
   }
   if (pathname.startsWith("/organizer/sessions/")) {
     return {
       title: "Event Attendance",
-      description: "Live check-in monitoring and session management.",
+      description: "Monitor check-ins during a live attendance session.",
       breadcrumbs: [rolePrefix, "Sessions", "Live Attendance"]
     };
   }
   if (pathname === "/organizer/users") {
     return {
       title: "User Management",
-      description: "Manage student accounts, academic catalog, and enrollment status.",
+      description: "Manage student accounts and enrollment details.",
       breadcrumbs: [rolePrefix, "User Management"]
     };
   }
   if (pathname === "/organizer/records") {
     return {
       title: "Event Records",
-      description: "Review completed attendance sessions, event details, feedback sentiment, and export reports.",
+      description: "Review completed events and attendance records.",
       breadcrumbs: [rolePrefix, "Event Records"]
     };
   }
   if (pathname === "/organizer/reports") {
     return {
       title: "Authentication Methods",
-      description: "Review QR, facial, manual, and online attendance verification options.",
+      description: "Manage the ways students verify attendance.",
       breadcrumbs: [rolePrefix, "Authentication Methods"]
+    };
+  }
+  if (pathname === "/organizer/audit-logs") {
+    return {
+      title: "Audit Logs",
+      description: "See a history of important actions and changes.",
+      breadcrumbs: [rolePrefix, "Audit Logs"]
     };
   }
   if (pathname === "/organizer/corrections") {
     return {
       title: "Correction Requests",
-      description: "Review student requests for attendance adjustment, check verification evidence, and issue approvals or rejections.",
+      description: "Review and process attendance correction requests.",
       breadcrumbs: [rolePrefix, "Correction Requests"]
     };
   }
   if (pathname === "/organizer/analytics") {
     return {
       title: "Analytics Insights",
-      description: "Comprehensive reporting, ML risk forecasts, turnout distributions, and student attendance insights.",
+      description: "Understand attendance trends, event turnout, and feedback.",
       breadcrumbs: [rolePrefix, "Analytics Insights"]
     };
   }
   if (pathname === "/organizer/profile") {
     return {
       title: "Organizer Profile",
-      description: "Manage your profile details, notifications preferences, security credentials, and organization assignment.",
+      description: "Manage your organizer profile and account settings.",
       breadcrumbs: [rolePrefix, "Profile"]
     };
   }
@@ -92,7 +99,7 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/student" || pathname === "/student/dashboard") {
     return {
       title: "Dashboard",
-      description: "Overview of your events, attendance progress, and pending tasks.",
+      description: "See your events, attendance progress, and pending tasks.",
       breadcrumbs: [rolePrefix, "Dashboard"]
     };
   }
@@ -113,42 +120,42 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname.startsWith("/student/events/")) {
     return {
       title: "Event Details",
-      description: "View details of selected event.",
+      description: "Review event details, schedule, and attendance information.",
       breadcrumbs: [rolePrefix, "Events", "Event Details"]
     };
   }
   if (pathname === "/student/attendance") {
     return {
       title: "My Attendance",
-      description: "Review completed attendance records and required pending tasks.",
+      description: "Review your attendance records and complete pending tasks.",
       breadcrumbs: [rolePrefix, "Attendance"]
     };
   }
   if (pathname === "/student/methods") {
     return {
       title: "Attendance Methods",
-      description: "View QR access, backup verification, and attendance issue reporting.",
+      description: "View your attendance options and report verification issues.",
       breadcrumbs: [rolePrefix, "Methods"]
     };
   }
   if (pathname === "/student/request-history") {
     return {
       title: "Request History",
-      description: "Track submitted requests and review status updates.",
+      description: "Track your requests and view their status.",
       breadcrumbs: [rolePrefix, "Request History"]
     };
   }
   if (pathname === "/student/corrections") {
     return {
       title: "Correction Requests",
-      description: "Submit attendance correction requests.",
+      description: "Submit attendance corrections and absence notices.",
       breadcrumbs: [rolePrefix, "Correction Requests"]
     };
   }
   if (pathname === "/student/profile") {
     return {
       title: "Student Profile",
-      description: "Manage student profile.",
+      description: "Manage your student details and attendance access.",
       breadcrumbs: [rolePrefix, "Profile"]
     };
   }
@@ -157,14 +164,14 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/notifications") {
     return {
       title: "Notifications",
-      description: "System notifications and alerts.",
+      description: "Review updates about your attendance, requests, reports, and account.",
       breadcrumbs: [rolePrefix, "Notifications"]
     };
   }
   if (pathname === "/profile") {
     return {
       title: "Profile",
-      description: "Account settings and security parameters.",
+      description: "Manage your account details and settings.",
       breadcrumbs: [rolePrefix, "Profile"]
     };
   }

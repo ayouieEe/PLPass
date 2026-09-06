@@ -766,7 +766,7 @@ export function OrganizerAnalyticsPage() {
       {/* Header with Export Action */}
       <PageHeader
         title="Analytics Insights"
-        description="Event turnout predictions, attendance trends, sentiment scores, and late arrival patterns."
+        description="Understand attendance trends, event turnout, and feedback."
         actions={
           <div className="flex items-center gap-2">
             <Button

@@ -82,6 +82,7 @@ export function RoleBasedSidebar({
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    end={item.path === APP_ROUTES.organizerEvents}
                     title={collapsed ? item.label : undefined}
                     aria-label={item.label}
                     onClick={onNavigate}

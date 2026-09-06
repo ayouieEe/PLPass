@@ -315,7 +315,7 @@ export function StudentEventDetailsPage() {
         </Button>
       </div>
 
-      <PageHeader eyebrow={event.code} title={event.title} description={event.category} />
+      <PageHeader eyebrow={event.code} title={event.title} description="Review event details, schedule, and attendance information." />
 
       {event.description ? (
         <section className="rounded-2xl border bg-surface p-5 shadow-sm">

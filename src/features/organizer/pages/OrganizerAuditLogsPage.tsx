@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Search } from "lucide-react";
+import { Download, FileText, Filter, Search } from "lucide-react";
+import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -9,6 +10,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAuditLogs } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { AuditLog } from "@/types/domain";
+import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 
 export function OrganizerAuditLogsPage() {
   const [search, setSearch] = useState("");
@@ -21,6 +23,18 @@ export function OrganizerAuditLogsPage() {
 
   const queryParams = useMemo(() => ({ pageSize: 100, search, sortBy: "created_at", sortDirection: "desc" as const }), [search]);
   const auditLogsQuery = useAuditLogs(queryParams, context);
+  const auditLogs = auditLogsQuery.data?.items ?? [];
+
+  function exportAuditLogs() {
+    exportTabularReport("Audit Logs", auditLogs.map((log) => ({
+      "Date & Time": log.timestamp,
+      User: "Organizer 1",
+      "Event Type": log.action,
+      Change: log.targetType,
+      "Target ID": log.targetId ?? "—"
+    })));
+    toast.success("Audit Logs downloaded.");
+  }
 
   const columns: ColumnDef<AuditLog>[] = [
     {
@@ -79,49 +93,55 @@ export function OrganizerAuditLogsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="Audit Logs" 
-        description="Review all actions performed within the organizer workspace."
-      />
+    <div className="space-y-4">
+      <PageHeader title="Audit Logs" description="See a history of important actions and changes." />
 
       <section className="space-y-4">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-stretch">
-          <section className="rounded-lg border bg-surface p-4 shadow-sm">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-foreground">Search logs</h2>
-                <p className="mt-1 text-sm text-muted-foreground">Filter by action, target type, or target ID.</p>
+        <div className="rounded-lg border bg-surface p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+              <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+                <FileText className="h-4 w-4" aria-hidden="true" />
               </div>
-              <div className="flex w-full max-w-md items-center gap-2 rounded-lg border bg-background px-3 py-2">
-                <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <input
-                  id="audit-log-search"
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  placeholder="Search audit logs..."
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Activity</p>
+                <h2 className="text-sm font-bold text-foreground">Audit Logs</h2>
               </div>
             </div>
-          </section>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                <Filter className="h-3 w-3" aria-hidden="true" />
+                {auditLogs.length} results
+              </span>
+              <button type="button" onClick={exportAuditLogs} disabled={!auditLogs.length} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                Export
+              </button>
+            </div>
+          </div>
+          <div className="mt-4">
+            <label className="relative block w-full">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input id="audit-log-search" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by action, target type, or target ID..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            </label>
+          </div>
         </div>
 
-        <section className="rounded-lg border bg-surface p-4 shadow-sm">
-          {auditLogsQuery.isPending ? (
-            <LoadingState />
-          ) : auditLogsQuery.isError ? (
-            <ErrorState title="Failed to load audit logs" message={auditLogsQuery.error?.message ?? "An error occurred while loading logs. Please try again."} />
-          ) : (
-            <PLPassDataGrid
-              label="Audit logs"
-              data={auditLogsQuery.data.items}
-              columns={columns}
-              emptyTitle="No audit logs found"
-              emptyDescription="Audit records matching your criteria will appear here."
-            />
-          )}
-        </section>
+        {auditLogsQuery.isPending ? (
+          <LoadingState />
+        ) : auditLogsQuery.isError ? (
+          <ErrorState title="Failed to load audit logs" message={auditLogsQuery.error?.message ?? "An error occurred while loading logs. Please try again."} />
+        ) : (
+          <PLPassDataGrid
+            label="Audit logs"
+            data={auditLogs}
+            columns={columns}
+            emptyTitle="No audit logs found"
+            emptyDescription="Audit records matching your criteria will appear here."
+            enableColumnVisibility
+            hideHeader
+          />
+        )}
       </section>
     </div>
   );

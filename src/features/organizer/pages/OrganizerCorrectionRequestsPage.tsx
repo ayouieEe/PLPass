@@ -2,7 +2,7 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertCircle, Check, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -613,6 +613,15 @@ export function OrganizerCorrectionRequestsPage() {
     {
       id: "actions",
       header: "Actions",
+      meta: {
+        agGrid: {
+          pinned: "right",
+          minWidth: 150,
+          maxWidth: 165,
+          sortable: false,
+          filter: false
+        }
+      },
       cell: ({ row }) => (
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => viewRequest(row.original)} aria-label={`View more ${row.original.requestId}`}>
@@ -628,45 +637,63 @@ export function OrganizerCorrectionRequestsPage() {
     <div className="space-y-4">
       <PageHeader
         title="Correction Requests"
-        actions={
-          <button
-            type="button"
-            onClick={() => setIsExportModalOpen(true)}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Export Report
-          </button>
-        }
+        description="Review and process attendance correction requests."
       />
 
-      <section className="rounded-lg border bg-surface p-4 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(["all", "pending", "approved", "rejected"] as const).map((tab) => (
-              <Button
-                key={tab}
+      <section className="space-y-4">
+        <div className="rounded-lg border bg-surface p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+              <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+                <FileText className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Attendance</p>
+                <h2 className="text-sm font-bold text-foreground">Correction Requests</h2>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                <Filter className="h-3 w-3" aria-hidden="true" />
+                {filteredRequests.length} results
+              </span>
+              <button
                 type="button"
-                variant={statusFilter === tab ? "default" : "outline"}
-                size="sm"
-                className="capitalize"
-                onClick={() => setStatusFilter(tab)}
+                onClick={() => setIsExportModalOpen(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
               >
-                {tab}
-              </Button>
-            ))}
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                Export
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg border bg-background px-3 py-1.5 w-64 md:w-80">
-              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Correction request status">
+              {(["all", "pending", "approved", "rejected"] as const).map((tab) => (
+                <Button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={statusFilter === tab}
+                  variant={statusFilter === tab ? "default" : "outline"}
+                  size="sm"
+                  className="capitalize"
+                  onClick={() => setStatusFilter(tab)}
+                >
+                  {tab}
+                </Button>
+              ))}
+            </div>
+            <label className="relative block w-full sm:w-80">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
                 id="correction-search"
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
                 placeholder="Search request, student, or event..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-            </div>
+            </label>
           </div>
         </div>
 
@@ -681,6 +708,8 @@ export function OrganizerCorrectionRequestsPage() {
           }}
           emptyTitle="No requests"
           emptyDescription="No requests matching current filter."
+          enableColumnVisibility
+          hideHeader
         />
       </section>
 

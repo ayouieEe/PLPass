@@ -119,6 +119,7 @@ export function PLPassDataGrid<TData extends object>({
   headerHeight,
   toolbarActions,
   hideHeader = false,
+  hidePaginationWhenSinglePage = false,
   flat = false
 }: PLPassDataGridProps<TData>) {
   const gridTitleId = useId();
@@ -135,6 +136,7 @@ export function PLPassDataGrid<TData extends object>({
   const firstRow = hasRows ? currentPage * DEFAULT_PAGE_SIZE + 1 : 0;
   const lastRow = hasRows ? Math.min(displayedRowCount, (currentPage + 1) * DEFAULT_PAGE_SIZE) : 0;
   const visiblePageNumbers = pageNumbers(currentPage, totalPages);
+  const shouldShowPagination = !hidePaginationWhenSinglePage || totalPages > 1;
 
   const columnDefs = useMemo<ColDef<TData>[]>(() => {
     return columns.map((inputColumn, index) => {
@@ -339,7 +341,7 @@ export function PLPassDataGrid<TData extends object>({
           onSelectionChanged={handleSelectionChanged}
         />
       </div>
-      {hasRows ? (
+      {shouldShowPagination && hasRows ? (
         <div className="mt-6 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-mono text-sm text-muted-foreground">Page {currentPage + 1} of {totalPages}</p>
           <nav className="flex items-center gap-2" aria-label={`${label} pagination`}>
@@ -380,7 +382,7 @@ export function PLPassDataGrid<TData extends object>({
             </Button>
           </nav>
         </div>
-      ) : (
+      ) : shouldShowPagination ? (
         <div className="mt-6 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="font-mono text-sm text-muted-foreground">Page 1 of 1</p>
           <nav className="flex items-center gap-2" aria-label={`${label} pagination`}>
@@ -395,7 +397,7 @@ export function PLPassDataGrid<TData extends object>({
             </Button>
           </nav>
         </div>
-      )}
+        ) : null}
     </section>
   );
 }

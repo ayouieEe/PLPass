@@ -1002,7 +1002,7 @@ export function OrganizerUserManagementPage() {
         valueFormatter: ({ value }) => `${value ?? 0} filed`
       },
       {
-        headerName: "View More",
+        headerName: "Actions",
         colId: "viewMore",
         minWidth: 145,
         maxWidth: 160,
@@ -1032,16 +1032,7 @@ export function OrganizerUserManagementPage() {
     <div className="space-y-4">
       <PageHeader
         title="User Management"
-        actions={
-          <button
-            type="button"
-            onClick={() => setIsExportModalOpen(true)}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Export Report
-          </button>
-        }
+        description="Manage student accounts and enrollment details."
       />
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
@@ -1070,7 +1061,7 @@ export function OrganizerUserManagementPage() {
               <button
                 type="button"
                 onClick={() => setIsExportModalOpen(true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 Export

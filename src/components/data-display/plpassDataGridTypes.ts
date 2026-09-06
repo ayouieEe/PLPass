@@ -27,6 +27,8 @@ export type PLPassDataGridProps<TData extends object> = {
   headerHeight?: number;
   toolbarActions?: ReactNode;
   hideHeader?: boolean;
+  /** Omits redundant pagination controls when every result is already on one page. */
+  hidePaginationWhenSinglePage?: boolean;
   /** Removes the standalone card treatment when the grid lives inside another page section. */
   flat?: boolean;
 };

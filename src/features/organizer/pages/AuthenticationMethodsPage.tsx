@@ -680,6 +680,7 @@ export function AuthenticationMethodsPage() {
     <div className="space-y-4">
       <PageHeader
         title="Authentication Methods"
+        description="Manage the ways students verify attendance."
         actions={
           <button
             type="button"

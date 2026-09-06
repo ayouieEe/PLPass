@@ -239,6 +239,7 @@ export function OrganizerProfilePage() {
     <div className="space-y-4 p-1">
       <PageHeader
         title="Profile"
+        description="Manage your organizer profile and account settings."
         actions={
           <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
             <LogOut className="h-4 w-4" />

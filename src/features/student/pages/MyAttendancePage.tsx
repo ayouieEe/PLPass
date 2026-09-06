@@ -396,7 +396,7 @@ export function MyAttendancePage() {
     <div className="space-y-6">
       <PageHeader
         title="Attendance Records"
-        description="Completed records appear here after required tasks are finished."
+        description="Review your attendance records and complete pending tasks."
       />
 
       <section className="rounded-2xl border bg-surface p-4 shadow-sm">

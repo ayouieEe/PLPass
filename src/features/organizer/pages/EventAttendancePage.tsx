@@ -575,7 +575,7 @@ export function EventAttendancePage() {
     <OrganizerFrame>
       <PageHeader
         title={event?.title ?? session.title}
-        description="Record live QR check-ins, organizer manual attendance, and attendance session activity."
+        description="Monitor check-ins during a live attendance session."
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
