@@ -22,5 +22,6 @@
     },
     "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  "exclude": ["tests/offline-local-database.test.ts"]
 }

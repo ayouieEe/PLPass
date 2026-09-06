@@ -118,7 +118,8 @@ export function PLPassDataGrid<TData extends object>({
   rowHeight,
   headerHeight,
   toolbarActions,
-  hideHeader = false
+  hideHeader = false,
+  flat = false
 }: PLPassDataGridProps<TData>) {
   const gridTitleId = useId();
   const gridInstructionsId = useId();
@@ -235,7 +236,7 @@ export function PLPassDataGrid<TData extends object>({
 
   return (
     <section
-      className={cn("plpass-data-grid-shell rounded-2xl border border-border bg-surface shadow-sm", hideHeader ? "p-4" : "p-6")}
+      className={cn("plpass-data-grid-shell", flat ? "plpass-data-grid-shell-flat p-0" : "rounded-2xl border border-border bg-surface shadow-sm", !flat && (hideHeader ? "p-4" : "p-6"))}
       aria-label={label}
       aria-describedby={`${gridInstructionsId} ${gridStatusId}`}
     >
@@ -380,7 +381,20 @@ export function PLPassDataGrid<TData extends object>({
           </nav>
         </div>
       ) : (
-        <div className="mt-4 border-t border-border pt-4 font-mono text-sm text-muted-foreground">0 records</div>
+        <div className="mt-6 flex flex-col gap-4 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="font-mono text-sm text-muted-foreground">Page 1 of 1</p>
+          <nav className="flex items-center gap-2" aria-label={`${label} pagination`}>
+            <Button type="button" variant="outline" size="icon" className="h-10 w-10 rounded-lg" disabled aria-label="Previous page">
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button type="button" variant="default" className="h-10 w-10 rounded-lg px-0 font-mono" disabled aria-label="Page 1" aria-current="page">
+              1
+            </Button>
+            <Button type="button" variant="outline" size="icon" className="h-10 w-10 rounded-lg" disabled aria-label="Next page">
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </nav>
+        </div>
       )}
     </section>
   );

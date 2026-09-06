@@ -12,6 +12,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, "index.html"),
+        scanner: path.resolve(__dirname, "scanner.html")
+      },
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;

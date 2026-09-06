@@ -5,7 +5,7 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules", "ml_env", ".venv"] },
+  { ignores: ["dist", "dist-electron", "node_modules", "ml_env", ".venv"] },
   js.configs.recommended,
   ...tseslint.configs.strict,
   {
@@ -22,5 +22,10 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }]
     }
+  },
+  {
+    files: ["electron/**/*.cjs"],
+    languageOptions: { globals: globals.node },
+    rules: { "@typescript-eslint/no-require-imports": "off" }
   }
 );

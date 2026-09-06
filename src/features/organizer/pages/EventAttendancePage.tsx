@@ -61,6 +61,9 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
+import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
+import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
+import { identifyOfflineStudent, recordOfflineAttendance } from "@/features/offline/offlineService";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -328,6 +331,7 @@ export function EventAttendancePage() {
   const mutations = useAttendanceSessionMutations(scope.context);
   const attendanceMutations = useAttendanceSubmissionMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
+  const offline = useOfflineEvent(sessionQuery.data?.eventId, sessionId);
   const [qrEnabled, setQrEnabled] = useState(false);
   const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
   const [manualStudentId, setManualStudentId] = useState("");
@@ -385,17 +389,25 @@ export function EventAttendancePage() {
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
   }
-  if (sessionQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || eventsQuery.isLoading || participantQuery.isLoading || tapsQuery.isLoading) {
+  const cachedSession = offline.preparedEvent?.sessions.find((item) => item.id === sessionId);
+  const canUsePreparedCache = offline.status.packageStatus === "READY" && Boolean(cachedSession);
+  if (!canUsePreparedCache && (sessionQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || eventsQuery.isLoading || participantQuery.isLoading || tapsQuery.isLoading)) {
     return <LoadingState label="Loading active event session" />;
   }
-  if (sessionQuery.isError || !sessionQuery.data) {
+  if ((sessionQuery.isError || !sessionQuery.data) && !cachedSession) {
     return <ErrorState title="Session unavailable" message="This event session was not found or is outside the signed-in organizer scope." />;
   }
-  const session = sessionQuery.data;
-  const event = eventsQuery.data?.items.find((item) => item.id === session.eventId);
-  const records = (recordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
-  const students = studentsQuery.data?.items ?? [];
-  const participants = participantQuery.data?.items ?? [];
+  const session = sessionQuery.data ?? (cachedSession ? ({ id: cachedSession.id, type: "event", eventId: cachedSession.eventId, title: cachedSession.title, mode: "required", status: cachedSession.status === "ongoing" ? "active" : cachedSession.status, startsAt: cachedSession.startsAt, endsAt: cachedSession.endsAt, lateCutoffAt: cachedSession.lateCutoffAt, attendanceWindowStartAt: cachedSession.attendanceWindowStartAt, attendanceWindowEndAt: cachedSession.attendanceWindowEndAt, createdByUserId: "offline-cache" } as AttendanceSession) : undefined);
+  if(!session)return <ErrorState title="Session unavailable" message="No online or prepared local session is available." />;
+  const activeSession: AttendanceSession = session;
+  const preparedEvent=offline.preparedEvent;
+  const cachedEvent=preparedEvent?.event;
+  const event = eventsQuery.data?.items.find((item) => item.id === session.eventId) ?? (cachedEvent ? ({id:cachedEvent.id,code:cachedEvent.code,title:cachedEvent.title,status:"approved",startsAt:cachedEvent.startsAt,endsAt:cachedEvent.endsAt,venue:cachedSession?.venue??"Event venue",organizerId:"offline-cache",category:"Event",priorityLevel:"Flexible",impactScore:null,predictedTurnout:null} as Event) : undefined);
+  const cachedRecords: AttendanceRecord[]=(preparedEvent?.attendance??[]).filter((item)=>item.sessionId===session.id).map((item)=>({id:`cached-${item.sessionId}-${item.studentId}`,sessionId:item.sessionId,studentId:item.studentId,status:item.attendanceStatus as AttendanceRecord["status"],verificationMethod:"manual",recordedAt:item.timeIn??preparedEvent?.preparedAt??new Date().toISOString(),timeIn:item.timeIn,checkedOutAt:item.timeOut}));
+  const records = recordsQuery.data?.items ? recordsQuery.data.items.filter((record) => record.sessionId === session.id) : cachedRecords;
+  const cachedStudents: Student[]=(preparedEvent?.participants??[]).map((item)=>({id:item.studentId,userId:"offline-cache",studentNumber:item.studentNumber,status:"enrolled",programId:"offline-cache",departmentId:"offline-cache",yearLevel:1,section:"",fullName:item.displayName,formattedName:item.displayName,createdAt:preparedEvent?.preparedAt??new Date().toISOString()}));
+  const students = studentsQuery.data?.items ?? cachedStudents;
+  const participants = participantQuery.data?.items ?? (preparedEvent?.participants??[]).map((item)=>({id:`cached-${item.studentId}`,eventId:preparedEvent?.event.id??"",studentId:item.studentId,registeredAt:preparedEvent?.preparedAt??new Date().toISOString()}));
   const participantStudents = participants
     .map((participant) => students.find((student) => student.id === participant.studentId))
     .filter((student): student is Student => Boolean(student));
@@ -442,17 +454,23 @@ export function EventAttendancePage() {
       : undefined;
   function simulatedTime(outcome?: string) {
     if (outcome === "late") {
-      return session.lateCutoffAt ? new Date(new Date(session.lateCutoffAt).getTime() + 60_000).toISOString() : undefined;
+      return activeSession.lateCutoffAt ? new Date(new Date(activeSession.lateCutoffAt).getTime() + 60_000).toISOString() : undefined;
     }
     if (outcome === "outside-window") {
-      return session.attendanceWindowEndAt ? new Date(new Date(session.attendanceWindowEndAt).getTime() + 60_000).toISOString() : undefined;
+      return activeSession.attendanceWindowEndAt ? new Date(new Date(activeSession.attendanceWindowEndAt).getTime() + 60_000).toISOString() : undefined;
     }
-    return session.startsAt ? new Date(new Date(session.startsAt).getTime() + 120_000).toISOString() : undefined;
+    return activeSession.startsAt ? new Date(new Date(activeSession.startsAt).getTime() + 120_000).toISOString() : undefined;
   }
   async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
     try {
+      if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
+        const student=await identifyOfflineStudent(event.id,method,code);
+        if(!student) throw new Error("No eligible participant matched the local event package.");
+        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:simulatedTime(outcome)??new Date().toISOString()});
+        setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}}); toast.success("Attendance recorded locally",{description:local.safeMessage}); await offline.refresh(); return;
+      }
       const result = await attendanceMutations.credentialScanMutation.mutateAsync({
-        sessionId: session.id,
+        sessionId: activeSession.id,
         credentialCode: code,
         method,
         faceSimilarity: similarity,
@@ -461,7 +479,8 @@ export function EventAttendancePage() {
       setLatestResult(result);
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
-      toast.error("Attendance simulation failed", { description: "The attendance service rejected the scan." });
+      if(canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,method,code);if(student){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:simulatedTime(outcome)??new Date().toISOString()});setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;}}catch{/* Show the safe failure below. */}}
+      toast.error("Attendance was not saved", { description: "Neither the central service nor the prepared local package could confirm this scan." });
     }
   }
   async function verifyFacialAttendance() {
@@ -474,13 +493,15 @@ export function EventAttendancePage() {
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
-      const result = await identifyLiveFace(session.id, facialActionMode, [await captureVideoFrame(video)]);
+      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){const student=await identifyOfflineStudent(event.id,"facial",video);if(!student)throw new Error("No unambiguous eligible face match was found in the local event package.");const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}
+      const result = await identifyLiveFace(activeSession.id, facialActionMode, [await captureVideoFrame(video)]);
       const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
       setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. Face distance: ${result.distance.toFixed(3)}. Returning to QR for the next student.`);
       toast.success(`${result.display_name}: ${actionLabel}`);
       await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
       setFacialCameraOpen(false);
     } catch (error) {
+      if(canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,"facial",video);if(student){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}}catch{/* Preserve the original safe status. */}}
       setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
     } finally {
       setFacialVerifying(false);
@@ -500,8 +521,13 @@ export function EventAttendancePage() {
         toast.error("Provide a manual attendance reason of at least 5 characters.");
         return;
       }
+      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){
+        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.id,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),attendanceStatus:manualStatus,remarks:[manualReason,manualRemarks].filter(Boolean).join(": "),lateReason:manualLateReason||undefined});
+        setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:studentName(selectedStudent),studentNumber:selectedStudent.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:"manual",recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}});
+        setManualStudentId("");setManualReason("");setManualRemarks("");setManualStatus("present");setManualLateReason("");toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;
+      }
       const result = await attendanceMutations.manualAttendanceMutation.mutateAsync({
-        sessionId: session.id,
+        sessionId: activeSession.id,
         studentId: selectedStudent.id,
         reason: manualReason,
         remarks: manualRemarks,
@@ -521,10 +547,11 @@ export function EventAttendancePage() {
         action: "Submitted Manual Attendance",
         targetType: "attendance_record",
         targetId: result.attendanceRecord?.id,
-        metadata: { studentId: selectedStudent.id, sessionId: session.id, status: manualStatus }
+        metadata: { studentId: selectedStudent.id, sessionId: activeSession.id, status: manualStatus }
       });
     } catch {
-      toast.error("Manual attendance was not saved", { description: "Select a participant, reason, and remarks." });
+      if(canUsePreparedCache&&event){try{const selectedStudent=await identifyOfflineStudent(event.id,"manual",manualStudentId);if(selectedStudent){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.studentId,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),attendanceStatus:manualStatus,remarks:[manualReason,manualRemarks].filter(Boolean).join(": "),lateReason:manualLateReason||undefined});toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;}}catch{/* Show safe failure below. */}}
+      toast.error("Manual attendance was not saved", { description: "Neither the central service nor the prepared local package confirmed the record." });
     }
   }
   async function confirmEnd() {
@@ -532,14 +559,14 @@ export function EventAttendancePage() {
       toast.error("Select a reason before ending the session.");
       return;
     }
-    await mutations.endSessionMutation.mutateAsync({ sessionId: session.id, reason: endReason });
+    await mutations.endSessionMutation.mutateAsync({ sessionId: activeSession.id, reason: endReason });
     setEndOpen(false);
     
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Ended Live Session",
       targetType: "attendance_session",
-      targetId: session.id,
-      metadata: { sessionId: session.id, reason: endReason }
+      targetId: activeSession.id,
+      metadata: { sessionId: activeSession.id, reason: endReason }
     });
     
     navigate(APP_ROUTES.organizerRecords);
@@ -552,6 +579,7 @@ export function EventAttendancePage() {
         actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
       />
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
+      <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync().then(()=>toast.success("Synchronization attempt completed."))} />
       <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
         <div className="min-w-0 space-y-4">
           <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">

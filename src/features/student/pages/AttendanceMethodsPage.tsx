@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import QRCode from "qrcode";
 import {
   AlertTriangle,
   Camera,
@@ -26,6 +25,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useCredentialRequests, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import { enrollFacePose } from "@/services/api/facialRecognitionClient";
 import { cn } from "@/lib/utils/cn";
@@ -62,36 +62,7 @@ function CardAccent() {
 }
 
 function QrPreview({ active, value, fileName }: { active: boolean; value: string; fileName: string }) {
-  const [qrDataUrl, setQrDataUrl] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!active || !value) {
-      setQrDataUrl("");
-      return;
-    }
-
-    QRCode.toDataURL(value, {
-      width: 280,
-      margin: 2,
-      errorCorrectionLevel: "M",
-      color: {
-        dark: "#16351f",
-        light: "#ffffff"
-      }
-    })
-      .then((dataUrl) => {
-        if (!cancelled) setQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setQrDataUrl("");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, value]);
+  const qrDataUrl = useQrCredentialDataUrl(active, value);
 
   return (
     <div className="flex flex-col items-center gap-3">

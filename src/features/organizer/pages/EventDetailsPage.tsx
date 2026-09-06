@@ -86,6 +86,9 @@ import type {
   StudentStatus,
   VerificationMethod
 } from "@/types/enums";
+import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
+import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
+import { desktopApi } from "@/features/offline/offlineService";
 
 type OrganizerScope = {
   context: RepositoryContext;
@@ -323,6 +326,8 @@ export function EventDetailsPage() {
   const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
+  const offline = useOfflineEvent(eventId);
+  const [cleanupMessage,setCleanupMessage]=useState("");
   
   const selectedEvent = eventQuery.data;
 
@@ -567,6 +572,8 @@ export function EventDetailsPage() {
   return (
     <OrganizerFrame>
       <PageHeader title={eventLabel(event)} description={`${event.category} at ${event.venue}`} />
+      <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync()} />
+      {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
       
       {/* Event Overview Stats */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

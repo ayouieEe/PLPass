@@ -23,6 +23,7 @@ export type Database = {
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
           recorded_by: string | null
@@ -42,6 +43,7 @@ export type Database = {
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
+          local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
           recorded_by?: string | null
@@ -61,6 +63,7 @@ export type Database = {
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
+          local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
           recorded_by?: string | null
@@ -1966,6 +1969,25 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      prepare_offline_event_package: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      sync_offline_event_attendance: {
+        Args: {
+          p_attendance_status: string
+          p_checkout_identification_method?: string
+          p_identification_method: string
+          p_late_reason?: string
+          p_local_attendance_uuid: string
+          p_remarks?: string
+          p_session_id: string
+          p_student_id: string
+          p_time_in: string
+          p_time_out?: string
+        }
+        Returns: Database["public"]["Tables"]["attendance_records"]["Row"]
       }
       reschedule_organizer_event: {
         Args: {
