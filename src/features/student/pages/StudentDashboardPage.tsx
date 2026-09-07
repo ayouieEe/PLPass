@@ -620,6 +620,7 @@ export function StudentDashboardPage() {
                       </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
+                      <StatusBadge label={task.status} tone={task.status === "late" ? "warning" : "success"} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
                         Feedback due
                       </span>

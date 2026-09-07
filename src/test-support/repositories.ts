@@ -77,6 +77,7 @@ import type {
   Notification,
   Report,
   Student,
+  StudentDashboardTask,
   User
 } from "@/types/domain";
 import type { AttendanceStatus, EventStatus, VerificationMethod } from "@/types/enums";
@@ -572,6 +573,52 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
+  },
+  async createStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const newStudent: Student = {
+      id: `student-simulated-${Date.now()}`,
+      userId: `user-simulated-${Date.now()}`,
+      studentNumber: input.studentNumber,
+      status: "enrolled",
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      createdAt: new Date().toISOString(),
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    studentFixtures.push(newStudent);
+    return newStudent;
+  },
+  async bulkCreateStudents(inputs, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    let success = 0;
+    for (const input of inputs) {
+      const newStudent: Student = {
+        id: `student-simulated-${Date.now()}-${success}`,
+        userId: `user-simulated-${Date.now()}-${success}`,
+        studentNumber: input.studentNumber,
+        status: "enrolled",
+        programId: input.programId,
+        departmentId: input.departmentId,
+        yearLevel: input.yearLevel,
+        section: input.sectionId,
+        createdAt: new Date().toISOString(),
+        email: input.email,
+        firstName: input.firstName,
+        middleName: input.middleName,
+        lastName: input.lastName,
+        fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+      };
+      studentFixtures.push(newStudent);
+      success++;
+    }
+    return { success, failed: 0 };
   },
   async listFacultyProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin", "faculty", "student"]);
@@ -1132,6 +1179,47 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     await beforeRead("attendanceRecords", context, ["student"]);
     const student = getStudentForContext(contextOrDefault(context));
     const records = attendanceRecordState.filter((record) => record.studentId === student?.id);
+    const tasks = records.flatMap((record): StudentDashboardTask[] => {
+      const session = attendanceSessionState.find((entry) => entry.id === record.sessionId);
+      const event = eventState.find((entry) => entry.id === session?.eventId);
+      if (!session?.eventId || !event) return [];
+
+      const lateReason = record.lateReasonCategory
+        ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined);
+      if (record.status === "late" && !lateReason) {
+        return [{
+          id: `late-reason-${record.id}`,
+          kind: "late_reason" as const,
+          eventId: session.eventId,
+          attendanceRecordId: record.id,
+          title: event.title,
+          code: event.code,
+          category: event.category,
+          status: record.status,
+          startsAt: session.startsAt,
+          dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }];
+      }
+
+      const feedbackTaskId = `feedback-task-${record.id}`;
+      const feedbackComplete = completedFeedbackTaskIds.has(feedbackTaskId) || Boolean(record.note?.includes("Feedback submitted"));
+      if (["present", "late"].includes(record.status) && !feedbackComplete) {
+        return [{
+          id: feedbackTaskId,
+          kind: "feedback" as const,
+          eventId: session.eventId,
+          attendanceRecordId: record.id,
+          title: event.title,
+          code: event.code,
+          category: event.category,
+          status: record.status,
+          startsAt: session.startsAt,
+          dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }];
+      }
+      return [];
+    });
+    const rejectedCorrections = correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected");
     const count = (status: string) => records.filter((record) => record.status === status).length;
     const presentCount = count("present");
     const lateCount = count("late");
@@ -1144,11 +1232,11 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
       excusedCount: count("excused"),
       attendedCount: presentCount + lateCount,
       attendanceRate: totalCount ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 0,
-      lateReasonTaskCount: 0,
-      feedbackTaskCount: 0,
-      rejectedCorrectionCount: correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected").length,
-      pendingTaskCount: correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected").length,
-      tasks: []
+      lateReasonTaskCount: tasks.filter((task) => task.kind === "late_reason").length,
+      feedbackTaskCount: tasks.filter((task) => task.kind === "feedback").length,
+      rejectedCorrectionCount: rejectedCorrections.length,
+      pendingTaskCount: tasks.length + rejectedCorrections.length,
+      tasks
     };
   },
   async listLateReasonOptions() {

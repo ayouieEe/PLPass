@@ -99,12 +99,15 @@ export function MyAttendancePage() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
   const [yearFilter, setYearFilter] = useState("");
   const [recordsPage, setRecordsPage] = useState(0);
+  const attendanceStatusFilter = ["present", "late", "absent", "excused"].includes(statusFilter)
+    ? statusFilter as "present" | "late" | "absent" | "excused"
+    : undefined;
   const eventsQuery = useEvents({ pageSize: 25 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 25 }, scope.context);
   const recordsQuery = useAttendanceRecords({
     pageIndex: recordsPage,
     pageSize: 25,
-    attendanceStatus: (statusFilter || undefined) as "present" | "late" | "absent" | "excused" | undefined,
+    attendanceStatus: attendanceStatusFilter,
     dateFrom: yearFilter ? `${yearFilter}-01-01T00:00:00+08:00` : undefined,
     dateTo: yearFilter ? `${Number(yearFilter) + 1}-01-01T00:00:00+08:00` : undefined
   }, scope.context);

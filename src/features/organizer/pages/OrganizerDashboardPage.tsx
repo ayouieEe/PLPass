@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
-import { CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { CalendarCheck, Clock3, LayoutDashboard, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { PageHeader } from "@/components/shared/PageHeader";
+
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -91,7 +91,28 @@ export function OrganizerDashboardPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<><Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink></Button><Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button></>} />
+      <h1 className="sr-only">Organizer Dashboard</h1>
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Overview</p>
+              <h2 className="text-sm font-bold text-foreground">Dashboard</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button asChild size="sm" variant="outline">
+              <NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink>
+            </Button>
+            <Button asChild size="sm" className="border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800">
+              <NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink>
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} />

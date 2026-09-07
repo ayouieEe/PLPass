@@ -50,7 +50,7 @@ test.describe("high-risk visual regression", () => {
       test(`${role} dashboard mobile`, async ({ page }) => {
         await seedSession(page, sessions[role]);
         await page.goto(path);
-        await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+        await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
         await expect(page.getByRole("button", { name: "Open navigation menu" })).toBeVisible();
         await expectStableScreenshot(page, `${role}-dashboard-mobile.png`);
       });

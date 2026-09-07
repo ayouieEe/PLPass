@@ -36,6 +36,18 @@ import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { AttendanceMode, EventStatus, VerificationMethod } from "@/types/enums";
 
+export type CreateStudentInput = {
+  studentNumber: string;
+  email: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  programId: string;
+  departmentId: string;
+  sectionId: string;
+  yearLevel: number;
+};
+
 export type CreateCorrectionRequestInput = Pick<
   CorrectionRequest,
   "studentId" | "attendanceRecordId" | "classId" | "eventId" | "requestedStatus" | "reason"
@@ -249,6 +261,8 @@ export interface UserManagementRepository {
   listUsers(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<User>>;
   getUserById(userId: string, context?: RepositoryContext): Promise<User>;
   listStudents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Student>>;
+  createStudent(input: CreateStudentInput, context?: RepositoryContext): Promise<Student>;
+  bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<{ success: number; failed: number }>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
   listAdminProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AdminProfile>>;

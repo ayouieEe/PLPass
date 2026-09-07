@@ -2,7 +2,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,7 +14,7 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { PageHeader } from "@/components/shared/PageHeader";
+
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -1064,7 +1064,7 @@ export function EventManagementPage() {
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
       .from("attendance_records")
       .select("attendance_status, late_reason_category")
-      .eq("event_session_id", sessionId);
+      .eq("session_id", sessionId);
     if (finalizedRecordsError) throw finalizedRecordsError;
     setFinalizedSummary(
       summarizeFinalizedSession(
@@ -1374,6 +1374,7 @@ export function EventManagementPage() {
 
         return (
           <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 340 }}>
+      <h1 className="sr-only">Event Management</h1>
               <Button
                 type="button"
                 variant={ready ? "outline" : "default"}
@@ -1577,7 +1578,7 @@ export function EventManagementPage() {
   if (eventsQuery.isLoading && !repositoryEvents.length) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+
         <LoadingState label="Loading events..." />
       </div>
     );
@@ -1586,7 +1587,7 @@ export function EventManagementPage() {
   if (eventsQuery.isError) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+
         <ErrorState
           title="Failed to load events"
           message="There was an error fetching events from Supabase. Please try again."
@@ -1597,8 +1598,25 @@ export function EventManagementPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Events" description="Manage events and start attendance sessions." />
-
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <CalendarClock className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Management</p>
+              <h2 className="text-sm font-bold text-foreground">Events</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              <Filter className="h-3 w-3" aria-hidden="true" />
+              {activeEvent ? 1 : storeEvents.length} results
+            </span>
+          </div>
+        </div>
+      </div>
 
       {activeEvent ? (
         // The original Live Session workspace stays inside Event Management.
