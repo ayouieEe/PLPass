@@ -1327,6 +1327,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     return mapAttendanceRecord(data as Row);
   },
   async listLateReasonOptions(locale = "en", context) {
+    void context;
     const client = getSupabaseBrowserClient();
     const { data, error } = await client
       .from("attendance_late_reason_options")
@@ -1731,8 +1732,8 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
       ? await currentStudentIdForProfile(context.actorUserId)
       : studentId;
     if (!scopedStudentId) return [];
-    const { data, error } = await (client as any)
-      .from("event_feedback_tasks")
+    const { data, error } = await client
+      .from("event_feedback_tasks" as never)
       .select("*, event_feedback_task_objectives(*)")
       .eq("student_id", scopedStudentId)
       .order("due_at", { ascending: true });
