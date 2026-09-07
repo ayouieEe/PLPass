@@ -22,7 +22,6 @@ import { TextAreaField } from "@/components/forms/TextAreaField";
 import { TextField } from "@/components/forms/TextField";
 import { TimePickerField } from "@/components/forms/TimePickerField";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";

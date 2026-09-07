@@ -25,7 +25,6 @@ import {
   X
 } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -1030,10 +1029,7 @@ export function OrganizerUserManagementPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="User Management"
-        description="Manage student accounts and enrollment details."
-      />
+      
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
         <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Active" icon={UserRoundCheck} />

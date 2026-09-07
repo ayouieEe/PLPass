@@ -5,7 +5,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, Check, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -635,10 +634,7 @@ export function OrganizerCorrectionRequestsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Correction Requests"
-        description="Review and process attendance correction requests."
-      />
+      
 
       <section className="space-y-4">
         <div className="rounded-lg border bg-surface p-4 shadow-sm">

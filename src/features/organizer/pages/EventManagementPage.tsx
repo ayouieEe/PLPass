@@ -14,7 +14,7 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
-import { PageHeader } from "@/components/shared/PageHeader";
+
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -1577,7 +1577,7 @@ export function EventManagementPage() {
   if (eventsQuery.isLoading && !repositoryEvents.length) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+
         <LoadingState label="Loading events..." />
       </div>
     );
@@ -1586,7 +1586,7 @@ export function EventManagementPage() {
   if (eventsQuery.isError) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+
         <ErrorState
           title="Failed to load events"
           message="There was an error fetching events from Supabase. Please try again."
@@ -1597,7 +1597,7 @@ export function EventManagementPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Events" description="Manage events and start attendance sessions." />
+      
 
 
       {activeEvent ? (

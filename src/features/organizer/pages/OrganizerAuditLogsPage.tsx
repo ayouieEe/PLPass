@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAuditLogs } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
@@ -94,7 +93,7 @@ export function OrganizerAuditLogsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Audit Logs" description="See a history of important actions and changes." />
+      
 
       <section className="space-y-4">
         <div className="rounded-lg border bg-surface p-4 shadow-sm">

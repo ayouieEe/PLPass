@@ -11,7 +11,6 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
@@ -456,7 +455,7 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Event Records" description="Review completed events and attendance records." />
+      
 
       <section className="space-y-4">
         {pastEvents.length > 0 ? (

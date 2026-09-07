@@ -22,7 +22,6 @@ import { TextField } from "@/components/forms/TextField";
 import { TimePickerField } from "@/components/forms/TimePickerField";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { ModalShell } from "@/components/modals/ModalShell";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
@@ -693,10 +692,7 @@ export function CreateEventPage() {
   }
   return (
     <OrganizerFrame>
-      <PageHeader
-        title="Create Event"
-        description="Set up an event and schedule attendance."
-      />
+      
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
