@@ -1374,6 +1374,7 @@ export function EventManagementPage() {
 
         return (
           <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 340 }}>
+      <h1 className="sr-only">Event Management</h1>
               <Button
                 type="button"
                 variant={ready ? "outline" : "default"}
@@ -1604,7 +1605,7 @@ export function EventManagementPage() {
               <CalendarClock className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Management</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Management</p>
               <h2 className="text-sm font-bold text-foreground">Events</h2>
             </div>
           </div>

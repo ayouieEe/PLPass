@@ -455,6 +455,7 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">Event Records</h1>
       
 
       <section className="space-y-4">
@@ -465,7 +466,7 @@ export function EventRecordsPage() {
                 <FileDown className="h-4 w-4" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Event Records</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Event Records</p>
                 <h2 className="text-sm font-bold text-foreground">Completed Events</h2>
               </div>
             </div>

@@ -634,6 +634,7 @@ export function OrganizerCorrectionRequestsPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">Correction Requests</h1>
       
 
       <section className="space-y-4">
@@ -644,7 +645,7 @@ export function OrganizerCorrectionRequestsPage() {
                 <FileText className="h-4 w-4" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Attendance</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Attendance</p>
                 <h2 className="text-sm font-bold text-foreground">Request Directory</h2>
               </div>
             </div>

@@ -91,6 +91,7 @@ export function OrganizerDashboardPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
+      <h1 className="sr-only">Organizer Dashboard</h1>
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
@@ -98,7 +99,7 @@ export function OrganizerDashboardPage() {
               <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Overview</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Overview</p>
               <h2 className="text-sm font-bold text-foreground">Dashboard</h2>
             </div>
           </div>

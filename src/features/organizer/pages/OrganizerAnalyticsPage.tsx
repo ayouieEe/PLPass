@@ -798,7 +798,7 @@ export function OrganizerAnalyticsPage() {
               <BarChart3 className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Analytics</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Analytics</p>
               <h2 className="text-sm font-bold text-foreground">Insights & Reporting</h2>
             </div>
           </div>

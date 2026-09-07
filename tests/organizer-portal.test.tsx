@@ -1,6 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
@@ -11,14 +10,18 @@ import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
 
 vi.mock("@/components/data-display/PLPassDataGrid", () => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   PLPassDataGrid: ({ toolbarActions, data, columns, onSelectionChange }: any) => (
     <div>
       {toolbarActions}
+      { }
       <button type="button" onClick={() => onSelectionChange?.(data?.slice(0, 1) ?? [])}>Select first row</button>
       <div data-testid="mock-grid-rows">
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         {(data ?? []).map((row: any) => (
           <div key={row.id ?? row.requestId ?? row.studentId ?? row.code}>
             {row.name ?? row.studentName ?? row.title ?? row.requestId ?? row.code ?? row.id}
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
             {columns?.find((c: any) => c.colId === "actions")?.cellRenderer?.({ data: row })}
           </div>
         ))}

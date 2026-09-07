@@ -44,7 +44,8 @@ export function OrganizerAuditLogsPage() {
         const date = formatDisplayDate(row.original.timestamp);
         const time = formatDisplayTime(row.original.timestamp);
         return (
-          <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2">
+      <h1 className="sr-only">Audit Logs</h1>
             <span className="font-medium text-foreground whitespace-nowrap">{date}</span>
             <span className="text-sm text-muted-foreground whitespace-nowrap">{time}</span>
           </div>
@@ -103,7 +104,7 @@ export function OrganizerAuditLogsPage() {
                 <FileText className="h-4 w-4" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Activity</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Activity</p>
                 <h2 className="text-sm font-bold text-foreground">Audit Logs</h2>
               </div>
             </div>

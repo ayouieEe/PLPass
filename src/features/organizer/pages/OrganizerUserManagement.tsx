@@ -1029,6 +1029,7 @@ export function OrganizerUserManagementPage() {
 
   return (
     <div className="space-y-4">
+      <h1 className="sr-only">User Management</h1>
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
@@ -1036,7 +1037,7 @@ export function OrganizerUserManagementPage() {
               <GraduationCap className="h-4 w-4" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">User Management</p>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">User Management</p>
               <h2 className="text-sm font-bold text-foreground">Student Accounts</h2>
             </div>
           </div>
