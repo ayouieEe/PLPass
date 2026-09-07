@@ -786,6 +786,8 @@ export function OrganizerAnalyticsPage() {
 
   return (
     <div className="space-y-6 pb-12">
+      <h1 className="sr-only">Analytics Insights</h1>
+      <h2 className="sr-only">Event Attendance Prediction</h2>
       {/* Header with Export Action */}
       
 
@@ -1255,4 +1257,3 @@ export function OrganizerAnalyticsPage() {
     </div>
   );
 }
-

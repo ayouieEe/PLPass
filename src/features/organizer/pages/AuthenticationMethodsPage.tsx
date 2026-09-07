@@ -513,6 +513,24 @@ export function AuthenticationMethodsPage() {
     });
   }, []);
 
+  const handleViewQr = useCallback((studentName: string) => {
+    setActiveModal({
+      type: "qr",
+      title: "QR credential details",
+      description: `Review the current QR credential for ${studentName}.`,
+      confirmLabel: "Close",
+      studentName
+    });
+  }, []);
+
+  const handleQuickViewQr = useCallback(() => {
+    if (!qrRows.length) {
+      toast.warning("No QR credentials available to preview.");
+      return;
+    }
+    handleViewQr(qrRows[0].studentName);
+  }, [handleViewQr, qrRows]);
+
   const handleApproveRequest = useCallback((requestId: string) => {
     setActiveModal({
       type: "request",
@@ -646,18 +664,23 @@ export function AuthenticationMethodsPage() {
     {
       headerName: "Actions",
       colId: "actions",
-      minWidth: 120,
+      minWidth: 240,
       pinned: "right",
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: ICellRendererParams<QrRow>) =>
         data ? (
-          <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDisableQr(data.studentName)}>
-            Disable
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewQr(data.studentName)}>
+              View QR
+            </Button>
+            <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDisableQr(data.studentName)}>
+              Disable
+            </Button>
+          </div>
         ) : null
     }
-  ], [handleDisableQr]);
+  ], [handleDisableQr, handleViewQr]);
 
   const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
     { headerName: "School ID", field: "studentNumber", minWidth: 120 },
@@ -733,6 +756,11 @@ export function AuthenticationMethodsPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {activeTab === "qr" ? (
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleQuickViewQr}>
+                View QR
+              </Button>
+            ) : null}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />
               {activeTab === "qr" ? qrRows.length : facialRows.length} results
