@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { getEventResourceDownloadUrl } from "@/features/organizer/lib/eventResources";
 import {
   buildStudentEventWorkflow,
   getStudentFeedbackDeadlineStatus,
@@ -32,7 +33,7 @@ import {
   recordsForStudentEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
-import type { EventObjective } from "@/types/domain";
+import type { EventObjective, EventResource } from "@/types/domain";
 
 type RatingState = Record<string, number>;
 function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
@@ -247,6 +248,15 @@ export function StudentEventDetailsPage() {
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
   const eventResources = resourcesQuery.data?.items ?? [];
 
+  async function openEventResource(resource: EventResource) {
+    try {
+      const url = await getEventResourceDownloadUrl(resource);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error("This resource could not be opened. Please try again.");
+    }
+  }
+
   async function submitLateReason() {
     if (!currentRecord || !selectedLateReasonCategory) return;
     if (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5) {
@@ -458,14 +468,10 @@ export function StudentEventDetailsPage() {
                 <p className="text-sm text-muted-foreground">Organizer-provided event resource</p>
               </div>
               </div>
-            {resource.externalUrl ? (
-              <Button asChild variant="outline">
-                <a href={resource.externalUrl} target="_blank" rel="noreferrer">
-                  <Download className="mr-2 h-4 w-4" />
-                  Open / Download
-                </a>
-              </Button>
-            ) : null}
+            <Button type="button" variant="outline" onClick={() => void openEventResource(resource)}>
+              <Download className="mr-2 h-4 w-4" />
+              {resource.externalUrl ? "Open link" : "Download file"}
+            </Button>
             </div>)}
             {!resourcesQuery.isLoading && eventResources.length === 0 ? <p className="rounded-xl border border-dashed bg-background p-4 text-sm text-muted-foreground">No resources have been added for this event.</p> : null}
           </div>

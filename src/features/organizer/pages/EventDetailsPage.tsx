@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, Plus, Search, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarCheck, ChevronDown, ClipboardList, Download, FileText, FileUp, Link2, Play, Plus, Search, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -45,6 +45,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
+  useAuditLogMutations,
   useAttendanceSubmissionMutations,
   useAttendanceSession,
   useAttendanceSessionMutations,
@@ -54,6 +55,7 @@ import {
   useEventMutations,
   useEventObjectives,
   useEventResources,
+  useEventRescheduleMutation,
   useEventParticipants,
   useEvents,
   useMlPredictions,
@@ -64,8 +66,18 @@ import {
   useStudentCredentialStatuses
 } from "@/hooks/useRepositoryQueries";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  createEventLinkResource,
+  eventResourceErrorMessage,
+  getEventResourceDownloadUrl,
+  isSecureResourceUrl,
+  MAX_EVENT_RESOURCES,
+  MAX_EVENT_RESOURCE_BYTES,
+  removeEventResource,
+  uploadEventFileResource
+} from "@/features/organizer/lib/eventResources";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
@@ -74,6 +86,7 @@ import type {
   CorrectionRequest,
   Event,
   EventParticipant,
+  EventResource,
   MlPrediction,
   Student
 } from "@/types/domain";
@@ -235,6 +248,20 @@ function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
+function timeInputValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function sharesSchedule(event: Event, other: Event) {
+  if (event.id === other.id || other.status === "cancelled" || other.status === "completed") return false;
+  if (event.venue.trim().toLowerCase() !== other.venue.trim().toLowerCase()) return false;
+  if (dateKey(event.startsAt) !== dateKey(other.startsAt)) return false;
+  return new Date(event.startsAt).getTime() < new Date(other.endsAt).getTime()
+    && new Date(other.startsAt).getTime() < new Date(event.endsAt).getTime();
+}
+
 function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
   return records.map((record) => ({
     id: record.id,
@@ -314,10 +341,25 @@ export function EventDetailsPage() {
   const [isUpdatingParticipants, setIsUpdatingParticipants] = useState(false);
   const [invitationStatuses, setInvitationStatuses] = useState<ParticipantInvitationStatus[]>([]);
   const [isRetryingInvitationId, setIsRetryingInvitationId] = useState<string | null>(null);
+  const [isSendingQueuedInvitations, setIsSendingQueuedInvitations] = useState(false);
   const [invitationStatusRefreshKey, setInvitationStatusRefreshKey] = useState(0);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  const [isStartSessionOpen, setIsStartSessionOpen] = useState(false);
+  const [sessionModalMode, setSessionModalMode] = useState<"start" | "existing">("start");
+  const [isDiscardSessionOpen, setIsDiscardSessionOpen] = useState(false);
+  const [lateCutoffMinutes, setLateCutoffMinutes] = useState(15);
+  const [rescheduleValues, setRescheduleValues] = useState({ venue: "", date: "", startTime: "", endTime: "", reason: "" });
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [resourceTitle, setResourceTitle] = useState("");
+  const [resourceUrl, setResourceUrl] = useState("");
+  const [isSavingResource, setIsSavingResource] = useState(false);
+  const [resourcePendingRemoval, setResourcePendingRemoval] = useState<EventResource | null>(null);
+  const resourceFileInputRef = useRef<HTMLInputElement>(null);
   const eventQuery = useEvent(eventId, scope.context);
+  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId, sortBy: "actual_start", sortDirection: "desc" }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
@@ -326,17 +368,37 @@ export function EventDetailsPage() {
   const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
   const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
+  const { cancelEventMutation } = useEventMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
+  const rescheduleEventMutation = useEventRescheduleMutation(scope.context);
   const offline = useOfflineEvent(eventId);
   const [cleanupMessage,setCleanupMessage]=useState("");
   
   const selectedEvent = eventQuery.data;
 
   useEffect(() => {
+    if (!selectedEvent) return;
+    setRescheduleValues({
+      venue: selectedEvent.venue,
+      date: dateKey(selectedEvent.startsAt),
+      startTime: timeInputValue(selectedEvent.startsAt),
+      endTime: timeInputValue(selectedEvent.endsAt),
+      reason: ""
+    });
+  }, [selectedEvent]);
+
+  useEffect(() => {
+    setIsStartSessionOpen(false);
+    setSessionModalMode("start");
+    setLateCutoffMinutes(15);
+  }, [eventId]);
+
+  useEffect(() => {
     if (selectedEvent) {
       setHeaderOverride({
-        title: `${selectedEvent.code} - ${selectedEvent.title}`,
+        title: "Event details",
         breadcrumbs: ["Organizer", "Events", selectedEvent.code],
-        description: `${selectedEvent.category} at ${selectedEvent.venue}`
+        description: undefined
       });
     }
   }, [selectedEvent, setHeaderOverride]);
@@ -400,9 +462,174 @@ export function EventDetailsPage() {
   // A legacy in-progress session must not lock participant management. Under
   // the current lifecycle, an event is finalized only after End Session.
   const hasCompletedSession = sessions.some((session) => session.status === "completed");
+  const activeSession = sessions.find((session) => session.eventId === event.id && session.status === "active");
+  const activeSessionRecordCount = activeSession ? recordsForSession(records, activeSession.id).length : 0;
+  const existingSessionForDialog = sessionModalMode === "existing" ? activeSession : undefined;
   const canManageParticipants = !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
+  const canChangeEvent = event.status !== "completed" && event.status !== "cancelled";
+  const earliestRescheduleDate = dateKey(new Date());
+  const scheduleConflicts = (eventsQuery.data?.items ?? []).filter((otherEvent) => sharesSchedule(event, otherEvent));
   const counts = attendanceCounts(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
+
+  async function rescheduleEvent() {
+    if (!rescheduleValues.reason.trim() || rescheduleValues.reason.trim().length < 5) {
+      toast.error("Add a short reason for changing this event's schedule.");
+      return;
+    }
+    if (!rescheduleValues.venue || !rescheduleValues.date || !rescheduleValues.startTime || !rescheduleValues.endTime) {
+      toast.error("Complete the venue, date, start time, and end time.");
+      return;
+    }
+    if (rescheduleValues.date < earliestRescheduleDate) {
+      toast.error("Choose today or a future date for the new schedule.");
+      return;
+    }
+    if (rescheduleValues.endTime <= rescheduleValues.startTime) {
+      toast.error("End time must be after start time.");
+      return;
+    }
+
+    try {
+      await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
+      await eventQuery.refetch();
+      setIsRescheduleOpen(false);
+    } catch {
+      // The mutation displays the repository error in a toast.
+    }
+  }
+
+  async function cancelEvent() {
+    if (cancellationReason.trim().length < 5) {
+      toast.error("Add a short reason for cancelling this event.");
+      return;
+    }
+
+    try {
+      await cancelEventMutation.mutateAsync({ eventId: event.id, reason: cancellationReason.trim() });
+      await eventQuery.refetch();
+      setIsCancelOpen(false);
+      setCancellationReason("");
+      toast.success("Event cancelled.");
+    } catch {
+      // The mutation displays the repository error in a toast.
+    }
+  }
+
+  async function startAttendanceSession() {
+    try {
+      const session = await mutations.createEventSessionMutation.mutateAsync({
+        eventId: event.id,
+        venue: event.venue,
+        date: dateKey(event.startsAt),
+        startTime: timeInputValue(event.startsAt),
+        expectedEndTime: timeInputValue(event.endsAt),
+        attendanceMode: "face-to-face",
+        lateCutoffMinutes
+      });
+      setIsStartSessionOpen(false);
+      toast.success("Attendance session started.");
+      navigate(`${APP_ROUTES.organizerEvents}?session=${session.id}`);
+    } catch {
+      // The mutation displays the repository error in a toast.
+    }
+  }
+
+  async function discardEmptySession() {
+    if (!activeSession) return;
+
+    try {
+      const { error } = await getSupabaseBrowserClient().rpc("discard_empty_event_session" as never, {
+        p_session_id: activeSession.id
+      } as never);
+      if (error) throw error;
+
+      setIsDiscardSessionOpen(false);
+      setIsStartSessionOpen(false);
+      await Promise.all([eventQuery.refetch(), sessionsQuery.refetch()]);
+      toast.success("Session discarded. The event is ready to start again.");
+    } catch (error) {
+      console.error("Failed to discard the session:", error);
+      const message = error && typeof error === "object" && "message" in error
+        ? String(error.message)
+        : "";
+      toast.error(
+        /discard_empty_event_session|PGRST202/i.test(message)
+          ? "Discard session needs the latest database update. Apply migrations, then try again."
+          : "This session could not be discarded."
+      );
+    }
+  }
+
+  async function addResourceLink() {
+    if (!eventId) return;
+    if ((resourcesQuery.data?.items.length ?? 0) >= MAX_EVENT_RESOURCES) {
+      toast.error(`You can add up to ${MAX_EVENT_RESOURCES} resources to an event.`);
+      return;
+    }
+    if (!resourceTitle.trim() || !isSecureResourceUrl(resourceUrl)) {
+      toast.error("Enter a resource title and an HTTPS link.");
+      return;
+    }
+    setIsSavingResource(true);
+    try {
+      await createEventLinkResource(eventId, resourceTitle, resourceUrl);
+      await resourcesQuery.refetch();
+      void auditLogMutations.logActionMutation.mutateAsync({ action: "Added Event Resource", targetType: "event_resource", targetId: eventId, metadata: { title: resourceTitle.trim(), type: "link" } });
+      setResourceTitle("");
+      setResourceUrl("");
+      toast.success("Resource link added.");
+    } catch (error) {
+      toast.error(eventResourceErrorMessage(error, "Unable to add the resource link."));
+    } finally {
+      setIsSavingResource(false);
+    }
+  }
+
+  async function addResourceFile(file: File | null) {
+    if (!eventId || !file) return;
+    if ((resourcesQuery.data?.items.length ?? 0) >= MAX_EVENT_RESOURCES) {
+      toast.error(`You can add up to ${MAX_EVENT_RESOURCES} resources to an event.`);
+      return;
+    }
+    if (file.size > MAX_EVENT_RESOURCE_BYTES) {
+      toast.error("Each attached file must be 25 MB or smaller.");
+      return;
+    }
+    setIsSavingResource(true);
+    try {
+      await uploadEventFileResource(eventId, resourceTitle, file);
+      await resourcesQuery.refetch();
+      void auditLogMutations.logActionMutation.mutateAsync({ action: "Added Event Resource", targetType: "event_resource", targetId: eventId, metadata: { title: resourceTitle.trim() || file.name, type: "file" } });
+      setResourceTitle("");
+      toast.success("File attached.");
+    } catch (error) {
+      toast.error(eventResourceErrorMessage(error, "Unable to attach the file."));
+    } finally {
+      setIsSavingResource(false);
+    }
+  }
+
+  async function confirmResourceRemoval() {
+    if (!resourcePendingRemoval) return;
+    try {
+      await removeEventResource(resourcePendingRemoval);
+      await resourcesQuery.refetch();
+      void auditLogMutations.logActionMutation.mutateAsync({ action: "Removed Event Resource", targetType: "event_resource", targetId: resourcePendingRemoval.id, metadata: { title: resourcePendingRemoval.title } });
+      toast.success("Resource removed.");
+      setResourcePendingRemoval(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to remove the resource.");
+    }
+  }
+
+  async function openResource(resource: EventResource) {
+    try {
+      window.open(await getEventResourceDownloadUrl(resource), "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to open this resource.");
+    }
+  }
 
   async function addParticipant(student: Student) {
     if (participantStudentIds.has(student.id)) {
@@ -491,6 +718,30 @@ export function EventDetailsPage() {
     }
   }
 
+  async function sendQueuedInvitations() {
+    setIsSendingQueuedInvitations(true);
+    try {
+      const { data, error } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
+        body: { eventId: event.id }
+      });
+      const processed = data && typeof data === "object" && "processed" in data ? Number(data.processed) : 0;
+      const failed = data && typeof data === "object" && "failed" in data ? Number(data.failed) : 0;
+      if (error || failed > 0) {
+        toast.error("Some invitation emails could not be sent. Please try again.");
+      } else if (processed === 0) {
+        toast.info("There are no invitation emails waiting to send.");
+      } else {
+        toast.success("Queued invitation emails sent.");
+      }
+    } catch (error) {
+      console.error("Failed to send queued invitations:", error);
+      toast.error("The invitation emails could not be sent. Please try again.");
+    } finally {
+      setIsSendingQueuedInvitations(false);
+      setInvitationStatusRefreshKey((current) => current + 1);
+    }
+  }
+
   const participantColumns: ColumnDef<Student>[] = [
     { id: "name", header: "Student name", cell: ({ row }) => studentName(row.original) },
     { accessorKey: "studentNumber", header: "Student number" },
@@ -518,7 +769,7 @@ export function EventDetailsPage() {
       header: "Invitation",
       cell: ({ row }) => {
         const invitation = invitationStatusByProfileId.get(row.original.userId);
-        if (!invitation) return <StatusBadge label="Not sent" tone="muted" />;
+        if (!invitation) return <StatusBadge label="No email queued" tone="muted" />;
 
         const statusPresentation = {
           pending: { label: "Email queued", tone: "warning" as const },
@@ -571,7 +822,32 @@ export function EventDetailsPage() {
   ];
   return (
     <OrganizerFrame>
-      <PageHeader title={eventLabel(event)} description="Review event details, participants, and attendance sessions." />
+      <PageHeader
+        title={eventLabel(event)}
+        description="Review event details, participants, and attendance sessions."
+        actions={canChangeEvent ? (
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
+              setSessionModalMode(activeSession ? "existing" : "start");
+              if (!activeSession) setLateCutoffMinutes(15);
+              setIsStartSessionOpen(true);
+            }}>
+              <Play className="h-4 w-4" aria-hidden="true" />
+              Start session
+            </Button>
+            <details className="relative">
+              <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-input bg-surface px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+                More actions
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              </summary>
+              <div className="absolute right-0 z-20 mt-2 w-44 rounded-md border bg-surface p-1 shadow-lg">
+                <button type="button" className="w-full rounded-sm px-3 py-2 text-left text-sm font-medium hover:bg-muted" onClick={() => setIsRescheduleOpen(true)}>Reschedule event</button>
+                <button type="button" className="w-full rounded-sm px-3 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10" onClick={() => setIsCancelOpen(true)}>Cancel event</button>
+              </div>
+            </details>
+          </div>
+        ) : undefined}
+      />
       <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync()} />
       {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
       
@@ -579,16 +855,16 @@ export function EventDetailsPage() {
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Total participants" value={String(participants.length)} icon={Users} />
         <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} />
-        <StatCard title="Average participation" value={`${attendanceRate(records)}%`} icon={BarChart3} />
+        <StatCard title="Average participation" value={hasCompletedSession ? `${attendanceRate(records)}%` : "N/A"} icon={BarChart3} />
         <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} />
       </section>
 
       {/* Event Details Card */}
-      <section className="rounded-lg border bg-surface p-6 shadow-sm">
-        <div className="grid gap-6 md:grid-cols-2">
+      <section className="rounded-lg border bg-surface p-5 shadow-sm">
+        <div className="grid gap-5 lg:grid-cols-2">
           <div>
-            <h3 className="font-semibold text-foreground mb-4">Event Information</h3>
-            <dl className="space-y-3">
+            <h3 className="font-semibold text-foreground">Event Information</h3>
+            <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-medium text-muted-foreground uppercase">Event Code</dt>
                 <dd className="mt-1 text-sm font-semibold">{event.code}</dd>
@@ -608,8 +884,8 @@ export function EventDetailsPage() {
             </dl>
           </div>
           <div>
-            <h3 className="font-semibold text-foreground mb-4">Schedule</h3>
-            <dl className="space-y-3">
+            <h3 className="font-semibold text-foreground">Schedule</h3>
+            <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-medium text-muted-foreground uppercase">Date</dt>
                 <dd className="mt-1 text-sm font-semibold">{formatDate(event.startsAt)}</dd>
@@ -630,6 +906,37 @@ export function EventDetailsPage() {
           </div>
         </div>
       </section>
+
+      {scheduleConflicts.length > 0 ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50/70 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold text-foreground">Schedule Conflict</h2>
+                <span className="rounded-full border border-amber-200 bg-background px-2.5 py-1 text-xs font-medium text-amber-800">
+                  {scheduleConflicts.length} overlapping {scheduleConflicts.length === 1 ? "event" : "events"}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">The following event overlaps with this event at {event.venue}. Reschedule one of the events before attendance starts.</p>
+              <div className="mt-4 space-y-2">
+                {scheduleConflicts.map((conflict) => (
+                  <div key={conflict.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-background px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Conflicting event</p>
+                      <p className="font-medium text-foreground">{eventLabel(conflict)}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(conflict.startsAt)} · {formatTime(conflict.startsAt)} – {formatTime(conflict.endsAt)}</p>
+                    </div>
+                    <Button asChild type="button" variant="outline" size="sm">
+                      <NavLink to={APP_ROUTES.organizerEvent(conflict.id)}>Review event</NavLink>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-5 lg:grid-cols-2">
         <section className="rounded-lg border bg-surface p-5 shadow-sm">
@@ -655,13 +962,74 @@ export function EventDetailsPage() {
         </section>
       </section>
 
-      {(event.description || resources.length > 0) ? (
+      {event.description ? (
         <section className="rounded-lg border bg-surface p-5 shadow-sm">
           <h3 className="font-semibold text-foreground">Event Description</h3>
           {event.description ? <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground">{event.description}</p> : null}
-          {resources.length > 0 ? <div className="mt-4 space-y-2">{resources.map((resource) => <a key={resource.id} href={resource.externalUrl} target="_blank" rel="noreferrer" className="block rounded-md border bg-background p-3 text-sm font-medium text-primary hover:underline">{resource.title}</a>)}</div> : null}
         </section>
       ) : null}
+
+      <section className="rounded-lg border bg-surface p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-foreground">Event Resources</h3>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{resources.length} of {MAX_EVENT_RESOURCES}</span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Share files or HTTPS links with assigned participants. Files can be up to 25 MB.</p>
+          </div>
+          <input ref={resourceFileInputRef} type="file" className="sr-only" onChange={(inputEvent) => { void addResourceFile(inputEvent.target.files?.[0] ?? null); inputEvent.currentTarget.value = ""; }} />
+        </div>
+
+        <div className="mt-5 border-t pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.25fr)_auto_auto]">
+            <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={resourceTitle} onChange={(inputEvent) => setResourceTitle(inputEvent.target.value)} placeholder="Link title" aria-label="Link title" />
+            <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={resourceUrl} onChange={(inputEvent) => setResourceUrl(inputEvent.target.value)} placeholder="https://..." aria-label="HTTPS link" />
+            <Button type="button" variant="outline" size="sm" onClick={() => void addResourceLink()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}>
+              <Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Add link
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => resourceFileInputRef.current?.click()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}>
+              <FileUp className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Attach file
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Added resources</p>
+            {isSavingResource ? <span className="text-xs text-muted-foreground">Saving…</span> : null}
+          </div>
+          {resources.length ? (
+            <div className="divide-y overflow-hidden rounded-md border bg-background">
+              {resources.map((resource) => (
+                <div key={resource.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                      {resource.externalUrl ? <Link2 className="h-4 w-4" aria-hidden="true" /> : <FileText className="h-4 w-4" aria-hidden="true" />}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{resource.title}</p>
+                      <p className="text-xs text-muted-foreground">{resource.externalUrl ? "External link" : "Attached file"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void openResource(resource)}>
+                      <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                      {resource.externalUrl ? "Open" : "Download"}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setResourcePendingRemoval(resource)}>Remove</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">No resources added yet. Attach a file or add a link above.</p>
+          )}
+        </div>
+      </section>
 
       <section className="rounded-lg border bg-surface p-5 shadow-sm">
         <h3 className="font-semibold text-foreground">Event objectives</h3>
@@ -709,12 +1077,9 @@ export function EventDetailsPage() {
 
         <div className="rounded-lg border bg-surface p-5">
           {tab === "participants" ? (
-            <div className="space-y-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h3 className="font-semibold text-foreground">Participant management</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">QR is the primary attendance method. Facial recognition is an optional backup.</p>
-                </div>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-semibold text-foreground">Participant management</h3>
                 {!canManageParticipants ? <span className="w-fit rounded-full border bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground">Changes locked</span> : null}
               </div>
               {canManageParticipants ? (
@@ -762,12 +1127,85 @@ export function EventDetailsPage() {
               ) : (
                 <p className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">Participant changes are locked after a session is completed or when the event is completed.</p>
               )}
-              <PLPassDataGrid label="Event participants" data={participantList} columns={participantColumns} emptyTitle="No participants" emptyDescription="Add students here before the event session is completed." />
+              <PLPassDataGrid
+                label="Event participants"
+                data={participantList}
+                columns={participantColumns}
+                emptyTitle="No participants"
+                emptyDescription="Add students here before the event session is completed."
+                toolbarActions={
+                  <Button type="button" variant="outline" size="sm" onClick={() => void sendQueuedInvitations()} disabled={isSendingQueuedInvitations || !canManageParticipants}>
+                    {isSendingQueuedInvitations ? "Sending..." : "Send pending emails"}
+                  </Button>
+                }
+              />
             </div>
           ) : null}
           {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
         </div>
       </section>
+
+      <ModalShell
+        open={isStartSessionOpen}
+        title={existingSessionForDialog ? "Live session already started" : "Start attendance"}
+        description={existingSessionForDialog ? "Continue this event's attendance, or discard it if it was started by mistake." : "Attendance starts now. The planned schedule stays unchanged."}
+        size="sm"
+        onClose={() => !mutations.createEventSessionMutation.isPending && setIsStartSessionOpen(false)}
+        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={`${APP_ROUTES.organizerEvents}?session=${existingSessionForDialog.id}`}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+            <div><p className="text-xs font-medium uppercase text-muted-foreground">Venue</p><p className="mt-1 font-semibold">{event.venue}</p></div>
+            <div><p className="text-xs font-medium uppercase text-muted-foreground">Planned time</p><p className="mt-1 font-semibold">{formatTime(event.startsAt)} - {formatTime(event.endsAt)}</p></div>
+          </div>
+          {existingSessionForDialog ? (
+            <div className="flex gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-emerald-950">{activeSessionRecordCount === 0 ? "No attendance recorded yet" : "Attendance is being recorded"}</p>
+                <p className="mt-1 text-sm leading-5 text-emerald-900/80">{activeSessionRecordCount === 0 ? "You can safely discard this session if it was started by mistake." : "The session must be ended normally because attendance has already been recorded."}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Late arrival rule</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Students checking in after this time are marked Late.</p>
+                </div>
+                <label className="flex shrink-0 items-center gap-2 text-sm font-medium text-foreground">
+                  <span className="sr-only">Minutes before a student is marked late</span>
+                  <input type="number" min="0" max="240" className="plpass-field h-10 w-20 rounded-md border bg-background px-2 text-center text-sm font-semibold" value={lateCutoffMinutes} onChange={(inputEvent) => setLateCutoffMinutes(Math.max(0, Number(inputEvent.target.value) || 0))} />
+                  <span>min</span>
+                </label>
+              </div>
+              <p className="text-sm text-muted-foreground">The actual start time is saved when you start the session.</p>
+            </>
+          )}
+        </div>
+      </ModalShell>
+
+      <ConfirmModal
+        open={isDiscardSessionOpen}
+        title="Discard this session?"
+        description="No attendance has been recorded. The event will return to its scheduled state and can be started again later."
+        confirmLabel="Discard session"
+        cancelLabel="Keep session"
+        tone="danger"
+        onCancel={() => setIsDiscardSessionOpen(false)}
+        onConfirm={() => void discardEmptySession()}
+      />
+
+      <ConfirmModal
+        open={Boolean(resourcePendingRemoval)}
+        title="Remove this resource?"
+        description={resourcePendingRemoval ? `${resourcePendingRemoval.title} will no longer be available to event participants.` : undefined}
+        confirmLabel="Remove resource"
+        cancelLabel="Keep resource"
+        tone="danger"
+        onCancel={() => setResourcePendingRemoval(null)}
+        onConfirm={() => void confirmResourceRemoval()}
+      />
 
       <ConfirmModal
         open={Boolean(participantPendingAddition)}
@@ -833,6 +1271,56 @@ export function EventDetailsPage() {
             </div>
           </div>
         ) : null}
+      </ModalShell>
+
+      <ModalShell
+        open={isRescheduleOpen}
+        title="Reschedule event"
+        description="Update the schedule and let participants know why it changed."
+        size="md"
+        onClose={() => !rescheduleEventMutation.isPending && setIsRescheduleOpen(false)}
+        footer={<><Button type="button" variant="outline" onClick={() => setIsRescheduleOpen(false)} disabled={rescheduleEventMutation.isPending}>Cancel</Button><Button type="submit" form="reschedule-event-form" disabled={rescheduleEventMutation.isPending}>{rescheduleEventMutation.isPending ? "Saving..." : "Save new schedule"}</Button></>}
+      >
+        <form id="reschedule-event-form" className="space-y-4" onSubmit={(submitEvent) => { submitEvent.preventDefault(); void rescheduleEvent(); }}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-1.5 text-sm font-medium text-foreground">
+              <span>Venue</span>
+              <input className="plpass-field h-10 w-full rounded-md border bg-background px-3 text-sm" value={rescheduleValues.venue} onChange={(inputEvent) => setRescheduleValues((current) => ({ ...current, venue: inputEvent.target.value }))} />
+            </label>
+            <label className="space-y-1.5 text-sm font-medium text-foreground">
+              <span>Date</span>
+              <input type="date" min={earliestRescheduleDate} className="plpass-field h-10 w-full rounded-md border bg-background px-3 text-sm" value={rescheduleValues.date} onChange={(inputEvent) => setRescheduleValues((current) => ({ ...current, date: inputEvent.target.value }))} />
+            </label>
+            <label className="space-y-1.5 text-sm font-medium text-foreground">
+              <span>Start time</span>
+              <input type="time" className="plpass-field h-10 w-full rounded-md border bg-background px-3 text-sm" value={rescheduleValues.startTime} onChange={(inputEvent) => setRescheduleValues((current) => ({ ...current, startTime: inputEvent.target.value }))} />
+            </label>
+            <label className="space-y-1.5 text-sm font-medium text-foreground">
+              <span>End time</span>
+              <input type="time" className="plpass-field h-10 w-full rounded-md border bg-background px-3 text-sm" value={rescheduleValues.endTime} onChange={(inputEvent) => setRescheduleValues((current) => ({ ...current, endTime: inputEvent.target.value }))} />
+            </label>
+          </div>
+          <label className="block space-y-1.5 text-sm font-medium text-foreground">
+            <span>Reason for the change</span>
+            <textarea className="plpass-field min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="For example: Venue is unavailable at the original time." value={rescheduleValues.reason} onChange={(inputEvent) => setRescheduleValues((current) => ({ ...current, reason: inputEvent.target.value }))} />
+          </label>
+          <p className="rounded-md border border-primary/15 bg-primary/5 p-3 text-sm text-muted-foreground">Participants will receive an updated event email after you save the new schedule.</p>
+        </form>
+      </ModalShell>
+
+      <ModalShell
+        open={isCancelOpen}
+        title="Cancel event?"
+        description="Participants will no longer be able to attend this event."
+        size="sm"
+        onClose={() => !cancelEventMutation.isPending && setIsCancelOpen(false)}
+        footer={<><Button type="button" variant="outline" onClick={() => setIsCancelOpen(false)} disabled={cancelEventMutation.isPending}>Keep event</Button><Button type="button" variant="destructive" onClick={() => void cancelEvent()} disabled={cancelEventMutation.isPending || cancellationReason.trim().length < 5}>{cancelEventMutation.isPending ? "Cancelling..." : "Cancel event"}</Button></>}
+      >
+        <label className="block space-y-1.5 text-sm font-medium text-foreground">
+          <span>Reason for cancelling</span>
+          <textarea className="plpass-field min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Explain why this event is being cancelled." value={cancellationReason} onChange={(inputEvent) => setCancellationReason(inputEvent.target.value)} />
+          <span className="text-xs font-normal text-muted-foreground">Add at least 5 characters.</span>
+        </label>
       </ModalShell>
     </OrganizerFrame>
   );

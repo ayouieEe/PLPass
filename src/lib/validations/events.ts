@@ -81,24 +81,10 @@ export const eventBaseSchema = z.object({
   fixedPriority: z.boolean().default(false),
   requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
   collegeOffice: z.string().trim().min(2, "College/Office is required.").max(255),
-  numberOfPax: z.number().int("No. of Pax must be a whole number").min(1, "No. of Pax is required."),
-  resourceTitle: z.string().trim().max(255).optional(),
-  resourceUrl: z.string().trim().refine((value) => !value || /^https:\/\//.test(value), "Resource link must use HTTPS.").optional()
+  numberOfPax: z.number().int("No. of Pax must be a whole number").min(1, "No. of Pax is required.")
 });
 
 export const eventFormSchema = eventBaseSchema
-  .superRefine((value, ctx) => {
-    const resourceUrl = value.resourceUrl?.trim();
-    const resourceTitle = value.resourceTitle?.trim();
-
-    if (resourceUrl && !resourceTitle) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["resourceTitle"],
-        message: "Resource title is required when a resource link is provided."
-      });
-    }
-  })
   .refine((value) => timeToMinutes(value.endTime) > timeToMinutes(value.startTime), {
     path: ["endTime"],
     message: "End time must be after start time"

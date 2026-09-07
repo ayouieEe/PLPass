@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
-import { dateKey, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
@@ -497,12 +497,15 @@ export function EventManagementPage() {
     if (tab === "incoming") return "incoming" as const;
     return "today" as const;
   }, [location.search]);
+  const sessionIdFromQuery = useMemo(
+    () => new URLSearchParams(location.search).get("session"),
+    [location.search]
+  );
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
-  const [eventModal, setEventModal] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
@@ -535,6 +538,8 @@ export function EventManagementPage() {
   });
   const qrInputRef = useRef<HTMLInputElement>(null);
   const previousManualStudentIdRef = useRef<string | null>(null);
+  const hydratedSessionIdRef = useRef<string | null>(null);
+  const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -556,8 +561,10 @@ export function EventManagementPage() {
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
   const resolvedLiveSessionId = useMemo(
-    () => sessionsList.find((attendanceSession) => attendanceSession.eventId === activeEvent?.id && attendanceSession.status === "active")?.id,
-    [activeEvent?.id, sessionsList]
+    () =>
+      sessionsList.find((attendanceSession) => attendanceSession.id === liveSessionId && attendanceSession.status === "active")?.id
+      ?? sessionsList.find((attendanceSession) => attendanceSession.eventId === activeEvent?.id && attendanceSession.status === "active")?.id,
+    [activeEvent?.id, liveSessionId, sessionsList]
   );
   const manualLateLock = useMemo(
     () =>
@@ -712,6 +719,37 @@ export function EventManagementPage() {
     () => repositoryEvents,
     [repositoryEvents]
   );
+
+  useEffect(() => {
+    if (!sessionIdFromQuery) {
+      setHandledSessionRouteId(null);
+      return;
+    }
+
+    const requestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
+    const requestedEvent = requestedSession
+      ? repositoryEvents.find((event) => event.id === requestedSession.eventId)
+      : undefined;
+
+    if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
+      if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
+        setHandledSessionRouteId(sessionIdFromQuery);
+      }
+      return;
+    }
+
+    setActiveEvent(requestedEvent);
+    setLiveSessionId(requestedSession.id);
+    setHandledSessionRouteId(sessionIdFromQuery);
+    if (hydratedSessionIdRef.current !== requestedSession.id) {
+      hydratedSessionIdRef.current = requestedSession.id;
+      setActiveRows([]);
+      setCaptureMode(defaultAttendanceMethod);
+      setAttendancePhase("time_in");
+      setManualInput("");
+      setQrInput("");
+    }
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, repositoryEvents, sessionIdFromQuery, sessionsList]);
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
     const now = Date.now();
@@ -777,7 +815,6 @@ export function EventManagementPage() {
     [completedExtras, search, storeCompletedEvents]
   );
   const completedCodes = useMemo(() => new Set(completedEvents.map((event) => event.code)), [completedEvents]);
-  const eventModalStatus = eventModal ? getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes) : "";
 
   // Today and incoming events are published events that haven't been cancelled,
   // haven't been completed, and aren't currently live. New events appear here automatically.
@@ -835,8 +872,10 @@ export function EventManagementPage() {
   const activeCounts = countRows(activeRows);
   const missingTimeOutRows = useMemo(() => activeRows.filter((row) => !row.checkOutAt), [activeRows]);
   const activeAttendanceSession = useMemo(
-    () => sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
-    [activeEvent?.id, sessionsList]
+    () =>
+      sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
+      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
+    [activeEvent?.id, liveSessionId, sessionsList]
   );
   const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
   const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
@@ -868,8 +907,8 @@ export function EventManagementPage() {
               eventCode: activeEvent.code,
               attendanceMethod: record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code",
               checkInAt: record.timeIn,
-              checkInTime: formatDisplayTime(record.timeIn),
-              ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatDisplayTime(record.timeOut) } : {}),
+              checkInTime: formatLocalTime(record.timeIn),
+              ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
               attendanceStatus: record.attendanceStatus,
               ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
             };
@@ -980,7 +1019,6 @@ export function EventManagementPage() {
     await cancelEventMutation.mutateAsync({ eventId: event.id, reason: cancelReason.trim() });
     setCancelledCodes((current) => (current.includes(event.code) ? current : [...current, event.code]));
     setConfirmCancelEvent(null);
-    setEventModal(null);
     setCancelReason("");
     toast.warning(`${event.code} has been cancelled.`);
   }
@@ -1170,7 +1208,7 @@ export function EventManagementPage() {
         if (currentRow) {
           return current.map((row) =>
             row.studentId === studentId
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
               : row
           );
         }
@@ -1184,7 +1222,7 @@ export function EventManagementPage() {
             eventCode: activeEvent.code,
             attendanceMethod: "QR Code",
             checkInAt: occurredAt,
-            checkInTime: formatDisplayTime(occurredAt),
+            checkInTime: formatLocalTime(occurredAt),
               attendanceStatus: activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt) ? "late" : "present"
           }
         ];
@@ -1251,7 +1289,7 @@ export function EventManagementPage() {
       if (existing) {
         return current.map((row) =>
           row.studentId === resolvedStudentId
-            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
             : row
         );
       }
@@ -1265,7 +1303,7 @@ export function EventManagementPage() {
           eventCode: activeEvent?.code ?? "LIVE",
           attendanceMethod: "Manual",
           checkInAt: occurredAt,
-          checkInTime: formatDisplayTime(occurredAt),
+          checkInTime: formatLocalTime(occurredAt),
           attendanceStatus: resolvedStatus
         }
       ];
@@ -1328,28 +1366,7 @@ export function EventManagementPage() {
     });
   }
 
-  const startSessionToolbar = (
-    <Button
-      type="button"
-      size="sm"
-      className="h-9 rounded-lg px-3"
-      title="Start Session"
-      aria-label="Start selected session"
-      onClick={() => {
-        if (!selectedEventForSession) {
-          toast.warning("Select an event first to start a session.");
-          return;
-        }
-        openStartSession(selectedEventForSession);
-      }}
-      disabled={!selectedEventForSession}
-    >
-      <Play className="h-4 w-4" aria-hidden="true" />
-      Start Session
-    </Button>
-  );
-
-  const incomingColumns: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
+  const incomingColumnsWithActions: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
     {
       id: "actions",
       headerName: "Actions",
@@ -1358,7 +1375,8 @@ export function EventManagementPage() {
       lockPosition: true,
       lockPinned: true,
       suppressMovable: true,
-      width: 390,
+      width: 270,
+      resizable: false,
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: { data: EventRecord }) => {
@@ -1373,7 +1391,7 @@ export function EventManagementPage() {
               : "Prepare for Offline Use";
 
         return (
-          <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 340 }}>
+          <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 220 }}>
               <Button
                 type="button"
                 variant={ready ? "outline" : "default"}
@@ -1384,7 +1402,7 @@ export function EventManagementPage() {
                 disabled={preparation?.preparing || !data.id}
                 onClick={() => void prepareOfflinePackage(data)}
               >
-                {label}
+                {preparation?.preparing ? "Preparing…" : ready ? "Refresh offline" : preparation?.error ? "Retry offline setup" : "Prepare offline"}
               </Button>
               <Button
                 type="button"
@@ -1393,7 +1411,9 @@ export function EventManagementPage() {
                 className="h-9 rounded-lg px-3"
                 title="View More"
                 aria-label={`View ${data.code}`}
-                onClick={() => setEventModal(data)}
+                onClick={() => {
+                  if (data.id) navigate(APP_ROUTES.organizerEvent(data.id));
+                }}
               >
                 <Eye className="h-4 w-4" aria-hidden="true" />
                 View More
@@ -1416,8 +1436,10 @@ export function EventManagementPage() {
           return <span className="text-xs text-muted-foreground">—</span>;
         }
         return (
-          <div
-            className="cursor-pointer hover:opacity-75 transition-opacity"
+          <button
+            type="button"
+            className="block max-w-full text-left transition-opacity hover:opacity-75"
+            title={objectives.join("\n")}
             onClick={() => objectives.length > 1 && setSelectedObjectivesEvent(row.original)}
           >
             <p className="text-sm text-foreground truncate">
@@ -1428,7 +1450,7 @@ export function EventManagementPage() {
                 +{objectives.length - 1} more
               </p>
             )}
-          </div>
+          </button>
         );
       }
     },
@@ -1467,7 +1489,7 @@ export function EventManagementPage() {
     },
     {
       id: "conflict",
-      header: "Conflict",
+      header: "Schedule",
       cell: ({ row }) => {
         const conflicts = conflictsByCode.get(row.original.code);
         if (!conflicts || conflicts.length === 0) {
@@ -1478,12 +1500,14 @@ export function EventManagementPage() {
           <button
             type="button"
             className="flex items-center gap-1.5 text-left text-sm font-medium text-danger underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            title={`Overlaps with ${conflictCodes} at the same venue and time`}
-            aria-label={`View schedule conflict for ${row.original.code}`}
-            onClick={() => setEventModal(row.original)}
+            title={`Another event uses the same venue at the same time: ${conflictCodes}`}
+            aria-label={`View schedule warning for ${row.original.code}`}
+            onClick={() => {
+              if (row.original.id) navigate(APP_ROUTES.organizerEvent(row.original.id));
+            }}
           >
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            {conflicts.length === 1 ? `Conflicts with ${conflictCodes}` : `${conflicts.length} conflicts`}
+            {conflicts.length === 1 ? `Same venue and time as ${conflictCodes}` : `${conflicts.length} events share this schedule`}
           </button>
         );
       }
@@ -1501,6 +1525,8 @@ export function EventManagementPage() {
       }
     }
   ];
+
+  const incomingColumns = incomingColumnsWithActions.slice(1);
 
   const liveColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
@@ -1583,6 +1609,17 @@ export function EventManagementPage() {
     );
   }
 
+  const isOpeningLiveSession = Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
+
+  if (isOpeningLiveSession) {
+    return (
+      <div className="space-y-4 lg:space-y-5">
+        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+        <LoadingState label="Opening live attendance..." />
+      </div>
+    );
+  }
+
   if (eventsQuery.isError) {
     return (
       <div className="space-y-4 lg:space-y-5">
@@ -1613,7 +1650,7 @@ export function EventManagementPage() {
                 <StatusBadge label="Live" tone="success" />
                 <StatusBadge label={attendancePhase === "time_out" ? "Recording Time Out" : "Recording Time In"} tone={attendancePhase === "time_out" ? "warning" : "success"} />
               </div>
-              <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Time In cutoff {formatDisplayTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Late after {formatLocalTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
@@ -1636,7 +1673,7 @@ export function EventManagementPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 id="attendance-capture-heading" className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{attendancePhase === "time_out" ? "Scan students who have already checked in." : "Record arrivals until the Time In cutoff."}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{attendancePhase === "time_out" ? "Scan students who have already checked in." : "Students who check in after the late time are marked Late."}</p>
               </div>
               <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-background p-1">
                 <Button
@@ -1774,7 +1811,7 @@ export function EventManagementPage() {
 
                       <div className="grid gap-3">
                         <label className="space-y-2 text-sm font-medium">
-                          Student lookup
+                          Find student
                           <input
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
@@ -1830,26 +1867,29 @@ export function EventManagementPage() {
         </>
       ) : (
         <>
-          <section className="rounded-xl border bg-surface p-4 shadow-sm lg:p-5" aria-label="Event schedule overview">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <span className="h-8 w-1 rounded-full bg-primary" aria-hidden="true" />
-                  <div>
-                    <h2 className="text-lg font-semibold leading-6 text-foreground">Schedule</h2>
-                    <p className="mt-0.5 text-sm text-muted-foreground">Select an event to start attendance.</p>
-                  </div>
+          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Event schedule overview">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3 border-l-2 border-primary pl-3">
+                <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Event schedule</p>
+                  <h2 className="text-sm font-bold text-foreground">Schedule</h2>
                 </div>
               </div>
-              <div className="w-full lg:max-w-md">
-                <label className="text-xs font-medium text-muted-foreground" htmlFor="event-record-search">Search events</label>
-                <div className="mt-1 flex h-10 items-center gap-2 rounded-lg border bg-background px-3">
-                  <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
-                </div>
-              </div>
+              <span className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
+                {conflictsByCode.size ? `${conflictsByCode.size} events need scheduling` : "No schedule conflicts"}
+              </span>
             </div>
-            <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-3">
+              <label className="relative block w-full" htmlFor="event-record-search">
+                <span className="sr-only">Search events</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input id="event-record-search" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by code, name, venue, or category..." value={search} onChange={(event) => setSearch(event.target.value)} />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center">
               <div className="inline-flex w-fit items-center rounded-lg border bg-background p-1" role="tablist" aria-label="Event schedule">
               <button
                 type="button"
@@ -1886,52 +1926,45 @@ export function EventManagementPage() {
                 </span>
               </button>
               </div>
-              <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
-                {conflictsByCode.size ? `${conflictsByCode.size} schedule ${conflictsByCode.size === 1 ? "conflict" : "conflicts"}` : "No schedule conflicts"}
-              </span>
             </div>
           </section>
 
-          <section className="rounded-lg border bg-surface p-4 shadow-sm" aria-label="Refine event list">
+          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Refine event list">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Filter events</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">Use Today or Incoming above to filter by status.</p>
-              </div>
-              <Button
+              <h2 className="text-sm font-semibold text-foreground">Filters</h2>
+              {hasEventFilters ? <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 onClick={() => setEventFilters({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" })}
-                disabled={!hasEventFilters}
               >
                 Clear filters
-              </Button>
+              </Button> : null}
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="space-y-1 xl:col-span-2">
-                <p className="text-xs font-medium text-muted-foreground">Schedule date</p>
-                <div className="flex items-center gap-2">
-                  <label className="sr-only" htmlFor="event-date-from">From date</label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:col-span-2">
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>From date</span>
                   <input
                     id="event-date-from"
                     type="date"
-                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
                     value={eventFilters.dateFrom}
                     max={eventFilters.dateTo || undefined}
                     onChange={(event) => setEventFilters((current) => ({ ...current, dateFrom: event.target.value }))}
                   />
-                  <span className="shrink-0 text-xs text-muted-foreground">to</span>
-                  <label className="sr-only" htmlFor="event-date-to">To date</label>
+                </label>
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>To date</span>
                   <input
                     id="event-date-to"
                     type="date"
-                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
                     value={eventFilters.dateTo}
                     min={eventFilters.dateFrom || undefined}
                     onChange={(event) => setEventFilters((current) => ({ ...current, dateTo: event.target.value }))}
                   />
-                </div>
+                </label>
               </div>
               <label className="space-y-1 text-xs font-medium text-muted-foreground">
                 <span>Venue</span>
@@ -1976,12 +2009,11 @@ export function EventManagementPage() {
               columns={incomingColumns}
               emptyTitle={activeTab === "today" ? "No events today" : "No incoming events"}
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : "Future published events will appear here."}
-              rowSelection="single"
-              onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)}
-              toolbarActions={startSessionToolbar}
+              onRowClick={(event) => {
+                if (event.id) navigate(`${APP_ROUTES.organizerEvents}/${event.id}`);
+              }}
               rowHeight={44}
               headerHeight={40}
-              enableColumnVisibility
             />
           </section>
         </>
@@ -1990,7 +2022,7 @@ export function EventManagementPage() {
       {readinessEvent && readinessModalSummary ? (
         <ModalFrame onClose={() => setReadinessEvent(null)} width="max-w-3xl">
           <div className="border-b pb-4">
-            <h2 className="text-xl font-semibold">Attendance readiness</h2>
+            <h2 className="text-xl font-semibold">Attendance Readiness</h2>
             <p className="mt-1 text-sm text-muted-foreground">{readinessEvent.code} · {readinessEvent.name}</p>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
@@ -2057,22 +2089,6 @@ export function EventManagementPage() {
         </ModalFrame>
       ) : null}
 
-      {eventModal ? (
-        <ModalFrame onClose={() => setEventModal(null)}>
-          <EventDetails
-            event={eventModal}
-            status={eventModalStatus}
-            conflicts={conflictsByCode.get(eventModal.code) ?? []}
-            onCancel={() => setConfirmCancelEvent(eventModal)}
-            onViewConflict={(event) => setEventModal(event)}
-            onEdit={(event) => {
-              setEditEvent(event);
-              setEventModal(null);
-            }}
-          />
-        </ModalFrame>
-      ) : null}
-
       {confirmCancelEvent ? (
         <ModalFrame onClose={() => setConfirmCancelEvent(null)} width="max-w-md">
           <h2 className="text-lg font-semibold">Confirm Cancel</h2>
@@ -2105,59 +2121,43 @@ export function EventManagementPage() {
 
       {startEvent ? (
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Live Attendance</h2>
+          <h2 className="text-xl font-semibold">Start Attendance</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Venue <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.venue}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Schedule Date <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="date"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.date}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Start Time <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="time"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.startTime}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>End Time <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="time"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.endTime}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Late cutoff (minutes after Time In starts)</span>
-              <input type="number" min={0} max={240} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
+          <section className="mt-5 rounded-xl border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-foreground">Planned Schedule</h3>
+              </div>
+              <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">Read only</span>
+            </div>
+            <dl className="mt-4 grid gap-4 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt>
+                <dd className="mt-1 font-medium text-foreground">{sessionForm.venue}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Date</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.date}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Planned time</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.startTime} - {startEvent.endTime}</dd>
+              </div>
+            </dl>
+          </section>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Late attendance</p>
+              <p className="text-xs text-muted-foreground">Counted from the actual start time.</p>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <span>Late after</span>
+              <input type="number" min={0} max={240} className="h-9 w-16 rounded-lg border border-border bg-surface px-2 text-center text-sm font-semibold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
+              <span>min</span>
             </label>
           </div>
-          <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            Attendance will use <span className="font-medium text-foreground">QR Code</span> and <span className="font-medium text-foreground">Facial Recognition</span>. Nothing is saved until you end the session.
+          <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Actual time:</span> Starts when you click Start Session and ends when you end the session.
           </div>
           {credentialStatusesQuery.isLoading ? (
             <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -2282,7 +2282,7 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, conflicts = [], onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
+function EventDetails({ event, status, conflicts = [], onStart, onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onStart?: (event: EventRecord) => void; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -2350,6 +2350,12 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit, onViewC
       </section>
       <div className="mt-6 border-t pt-4">
         <div className="flex justify-end gap-2">
+          {onStart ? (
+            <Button type="button" size="sm" onClick={() => onStart(event)}>
+              <Play className="h-4 w-4" aria-hidden="true" />
+              Start attendance
+            </Button>
+          ) : null}
           {onEdit ? (
             <Button type="button" variant="outline" size="sm" onClick={() => onEdit(event)}>
               Reschedule Event

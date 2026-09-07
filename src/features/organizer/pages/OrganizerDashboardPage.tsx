@@ -28,10 +28,10 @@ function isSameDay(iso: string, reference: Date) {
   return date.getFullYear() === reference.getFullYear() && date.getMonth() === reference.getMonth() && date.getDate() === reference.getDate();
 }
 
-function DashboardMetricCard({ title, value, detail, icon: Icon, tone = "default", compact = false }: { title: string; value: string; detail: string; icon: LucideIcon; tone?: "default" | "warning" | "success"; compact?: boolean }) {
+function DashboardMetricCard({ title, value, detail, icon: Icon, tone = "default", compact = false, to }: { title: string; value: string; detail: string; icon: LucideIcon; tone?: "default" | "warning" | "success"; compact?: boolean; to?: string }) {
   const toneClass = tone === "warning" ? "border-amber-200 bg-amber-50 text-amber-700" : tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-primary/15 bg-primary/5 text-primary";
-  return (
-    <article className={`rounded-lg border bg-surface shadow-sm transition-shadow hover:shadow-md ${compact ? "p-3" : "p-4"}`}>
+  const card = (
+    <article className={`flex h-full flex-col rounded-lg border bg-surface shadow-sm transition-shadow hover:shadow-md ${compact ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
@@ -42,6 +42,12 @@ function DashboardMetricCard({ title, value, detail, icon: Icon, tone = "default
       <p className={`${compact ? "mt-2 text-xs leading-4" : "mt-3 text-sm leading-5"} line-clamp-2 text-muted-foreground`}>{detail}</p>
     </article>
   );
+
+  return to ? (
+    <NavLink to={to} aria-label={`View ${title}`} className="block h-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+      {card}
+    </NavLink>
+  ) : card;
 }
 
 function ChartPanel({ title, description, summary, children, empty, emptyMessage, className = "" }: { title: string; description: string; summary?: string; children: ReactNode; empty?: boolean; emptyMessage?: string; className?: string }) {
@@ -80,7 +86,7 @@ export function OrganizerDashboardPage() {
     [events, liveEventIds]
   );
   const liveEvent = liveEvents[0];
-  const highlightedEvent = liveEvent ?? activeEvent;
+  const highlightedEvent = activeEvent;
   const nextEvent = useMemo(() => activeEvents.filter((event) => new Date(event.startsAt).getTime() > today.getTime()).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0], [activeEvents, today]);
   const predictionOverviewData = useMemo(() => activeEvents.map((event) => ({ label: shortCode(event.code), title: event.title, predictedAttend: event.predictedTurnout ?? 0, predictedMiss: 100 - (event.predictedTurnout ?? 0) })), [activeEvents]);
   const activeSemester = semestersQuery.data?.items.find((semester) => semester.isActive);
@@ -91,26 +97,25 @@ export function OrganizerDashboardPage() {
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<><Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink></Button><Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button></>} />
+      <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button>} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} />
-        <DashboardMetricCard title="Active Today" value={liveEvents.length.toLocaleString()} detail={liveEvent ? `${liveEvent.code}: ${liveEvent.title}` : "No live session right now."} icon={Clock3} tone="success" />
-        <DashboardMetricCard title="Registered Students" value={(studentsQuery.data?.total ?? 0).toLocaleString()} detail="Total students enrolled in the system." icon={Users} />
-        <DashboardMetricCard title="Next Event Turnout" value={nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A"} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" />
+        <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={APP_ROUTES.organizerEvents} />
+        <DashboardMetricCard title="Active Today" value={liveEvents.length.toLocaleString()} detail={liveEvent ? `${liveEvent.code}: ${liveEvent.title}` : "No live session right now."} icon={Clock3} tone="success" to={`${APP_ROUTES.organizerEvents}?tab=today`} />
+        <DashboardMetricCard title="Registered Students" value={(studentsQuery.data?.total ?? 0).toLocaleString()} detail="Total students enrolled in the system." icon={Users} to={APP_ROUTES.organizerUsers} />
+        <DashboardMetricCard title="Next Event Turnout" value={nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A"} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" to={APP_ROUTES.organizerAnalytics} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
         <section className="rounded-lg border bg-surface p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-foreground">{liveEvent ? "Live Event" : "Today’s Event"}</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">{liveEvent ? "Active attendance session." : "Current schedule and readiness overview."}</p>
+              <h2 className="text-sm font-semibold text-foreground">Today’s Event</h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">Current schedule and readiness overview.</p>
             </div>
             <div className="flex items-center gap-3">
-              {liveEvent ? <span className="whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">Live now</span> : null}
               <Button asChild size="sm" variant="outline">
-                <NavLink to={`${APP_ROUTES.organizerEvents}?tab=today`}>{liveEvent ? "View live event" : "View today’s events"}</NavLink>
+                <NavLink to={`${APP_ROUTES.organizerEvents}?tab=today`}>View today’s events</NavLink>
               </Button>
             </div>
           </div>
@@ -131,7 +136,7 @@ export function OrganizerDashboardPage() {
       {analyticsQuery.isError ? <section className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-sm text-muted-foreground">Analytics could not be loaded. Refresh the page to try again.</section> : analyticsQuery.isLoading ? <section className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">Loading attendance analytics…</section> : <>
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_15.5rem]">
           <ChartPanel title="Attendance Trends" description="Attendance rate per completed event session." empty={!trend.length} emptyMessage="Attendance trends will appear after event sessions are completed."><ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{ top: 4, right: 6, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => [`${value}%`, "Attendance rate"]} labelFormatter={(label, payload) => `${label} — ${payload?.[0]?.payload?.date ?? ""}`} /><Line type="monotone" dataKey="attendanceRate" name="Attendance rate" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} /></LineChart></ResponsiveContainer></ChartPanel>
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1"><DashboardMetricCard compact title="Total Present" value={totalPresent.toLocaleString()} detail="Across completed sessions." icon={Users} tone="success" /><DashboardMetricCard compact title="Total Late" value={totalLate.toLocaleString()} detail="After the check-in cutoff." icon={Clock3} tone="warning" /><DashboardMetricCard compact title="Attendance Rate" value={`${averageRate}%`} detail="Average across completed sessions." icon={TrendingUp} /></div>
+          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1"><DashboardMetricCard compact title="Total Present" value={totalPresent.toLocaleString()} detail="Across completed sessions." icon={Users} tone="success" to={APP_ROUTES.organizerAnalytics} /><DashboardMetricCard compact title="Total Late" value={totalLate.toLocaleString()} detail="After the check-in cutoff." icon={Clock3} tone="warning" to={APP_ROUTES.organizerAnalytics} /><DashboardMetricCard compact title="Attendance Rate" value={`${averageRate}%`} detail="Average across completed sessions." icon={TrendingUp} to={APP_ROUTES.organizerAnalytics} /></div>
         </section>
         <section className="grid gap-4 xl:grid-cols-2">
           <ChartPanel title="Feedback Sentiment" description="Submitted event feedback." empty={!analyticsQuery.data?.sentiment.some((item) => item.value > 0)} emptyMessage="Feedback sentiment will appear after students submit feedback."><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={analyticsQuery.data?.sentiment ?? []} dataKey="value" nameKey="name" innerRadius={44} outerRadius={76} paddingAngle={3}>{(analyticsQuery.data?.sentiment ?? []).map((item, index) => <Cell key={item.name} fill={["#16a34a", "#64748b", "#dc2626"][index]} />)}</Pie><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /></PieChart></ResponsiveContainer></ChartPanel>
