@@ -803,8 +803,8 @@ function AddStudentModal({
   isOpen: boolean;
   onClose: () => void;
   mutations: ReturnType<typeof useStudentMutations>;
-  programs: any[];
-  departments: any[];
+  programs: { id: string; code: string; departmentId: string }[];
+  departments: { id: string; code: string }[];
 }) {
   const [formData, setFormData] = useState<CreateStudentInput>({
     studentNumber: "",
@@ -920,8 +920,8 @@ function BulkAddStudentModal({
   isOpen: boolean;
   onClose: () => void;
   mutations: ReturnType<typeof useStudentMutations>;
-  programs: any[];
-  departments: any[];
+  programs: { id: string; code: string; departmentId: string }[];
+  departments: { id: string; code: string }[];
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const [fileError, setFileError] = useState("");
@@ -940,7 +940,7 @@ function BulkAddStudentModal({
       skipEmptyLines: true,
       complete: async (results) => {
         try {
-          const parsedData = results.data as any[];
+          const parsedData = results.data as Record<string, string>[];
           const inputs: CreateStudentInput[] = parsedData.map(row => {
             const dept = departments.find(d => d.code === row["Department Code"]);
             const prog = programs.find(p => p.code === row["Program Code"]);
@@ -963,8 +963,8 @@ function BulkAddStudentModal({
           await mutations.bulkCreateStudentsMutation.mutateAsync(inputs);
           toast.success(`Successfully imported ${inputs.length} students`);
           onClose();
-        } catch (error: any) {
-          setFileError(error.message || "Failed to process the CSV file.");
+        } catch (error) {
+          setFileError(error instanceof Error ? error.message : "Failed to process the CSV file.");
         } finally {
           setIsLoading(false);
         }

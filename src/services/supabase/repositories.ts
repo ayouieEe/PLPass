@@ -1,5 +1,4 @@
 import type {
-  AddRosterStudentInput,
   AcademicManagementRepository,
   AnalyticsMlRepository,
   AttendanceRecordRepository,
@@ -61,10 +60,10 @@ import type {
   MlPrediction,
   Program,
   Semester,
-  Student,
   StudentCredentialStatus,
   SystemSettings
 } from "@/types/domain";
+import type { FacultyEmploymentStatus } from "@/types/enums";
 import type { AttendanceStatus, EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
@@ -422,17 +421,20 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return { success: data?.success || 0, failed: data?.failed || 0 };
   },
   async listFacultyProfiles(query) {
-    const rows = await selectRowsFiltered("faculty_profiles", query, "*, profiles(*)");
+    const rows = await selectRowsFiltered("faculty_profiles", query, "*, profiles(*)", {});
     return pageResult(
-      rows.items.map((row: any): FacultyProfile => ({
-        id: String(row.id ?? ""),
-        userId: String(row.profile_id ?? ""),
-        employeeNumber: String(row.employee_number ?? ""),
-        departmentId: String(row.department_id ?? ""),
-        employmentStatus: row.employment_status as FacultyEmploymentStatus,
-        title: String(row.title ?? ""),
-        displayName: `${row.profiles?.first_name || ""} ${row.profiles?.last_name || ""}`.trim()
-      })),
+      rows.items.map((row: Row): FacultyProfile => {
+        const profiles = row.profiles as Record<string, unknown> | undefined;
+        return {
+          id: String(row.id ?? ""),
+          userId: String(row.profile_id ?? ""),
+          employeeNumber: String(row.employee_number ?? ""),
+          departmentId: String(row.department_id ?? ""),
+          employmentStatus: row.employment_status as FacultyEmploymentStatus,
+          title: String(row.title ?? ""),
+          displayName: `${profiles?.first_name || ""} ${profiles?.last_name || ""}`.trim()
+        };
+      }),
       rows.total,
       query
     );
@@ -442,9 +444,9 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return pageResult(rows.items.map(mapOrganizer), rows.total, query);
   },
   async listAdminProfiles(query) {
-    const rows = await selectRowsFiltered("admin_profiles", query, "*, profiles(*)");
+    const rows = await selectRowsFiltered("admin_profiles", query, "*, profiles(*)", {});
     return pageResult(
-      rows.items.map((row: any): AdminProfile => ({
+      rows.items.map((row: Row): AdminProfile => ({
         id: String(row.id ?? ""),
         userId: String(row.profile_id ?? ""),
         employeeNumber: String(row.employee_number ?? ""),
@@ -482,29 +484,32 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
   );
 },
   async listClasses(query) {
-    const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)");
+    const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)", {});
     return pageResult(
-      rows.items.map((row: any): Class => ({
-        id: String(row.id ?? ""),
-        facultyId: String(row.faculty_id ?? ""),
-        programId: String(row.program_id ?? ""),
-        departmentId: String(row.department_id ?? ""),
-        semesterId: String(row.semester_id ?? ""),
-        subjectCode: String(row.subject_code ?? ""),
-        subjectTitle: String(row.subject_title ?? ""),
-        room: String(row.room ?? ""),
-        section: String(row.section?.section_name ?? ""),
-        yearLevel: Number(row.year_level ?? 0),
-        scheduleLabel: String(row.schedule_label ?? ""),
-        status: row.status as "active" | "archived",
-        rosterId: String(row.id ?? "")
-      })),
+      rows.items.map((row: Row): Class => {
+        const section = row.section as Record<string, unknown> | undefined;
+        return {
+          id: String(row.id ?? ""),
+          facultyId: String(row.faculty_id ?? ""),
+          programId: String(row.program_id ?? ""),
+          departmentId: String(row.department_id ?? ""),
+          semesterId: String(row.semester_id ?? ""),
+          subjectCode: String(row.subject_code ?? ""),
+          subjectTitle: String(row.subject_title ?? ""),
+          room: String(row.room ?? ""),
+          section: String(section?.section_name ?? ""),
+          yearLevel: Number(row.year_level ?? 0),
+          scheduleLabel: String(row.schedule_label ?? ""),
+          status: row.status as "active" | "archived",
+          rosterId: String(row.id ?? "")
+        };
+      }),
       rows.total,
       query
     );
   },
   async getClassById(classId) {
-    const row = await selectSingleRow("classes", classId, "*, section:sections(section_name)");
+    const row = await selectSingleRowWithColumns("classes", classId, "*, section:sections(section_name)");
     if (!row) {
       throw new RepositoryError("Class not found", "NOT_FOUND");
     }
@@ -517,7 +522,7 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
       subjectCode: String(row.subject_code ?? ""),
       subjectTitle: String(row.subject_title ?? ""),
       room: String(row.room ?? ""),
-      section: String((row as any).section?.section_name ?? ""),
+      section: String((row.section as Record<string, unknown> | undefined)?.section_name ?? ""),
       yearLevel: Number(row.year_level ?? 0),
       scheduleLabel: String(row.schedule_label ?? ""),
       status: row.status as "active" | "archived",
@@ -528,9 +533,9 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
 
 export const supabaseClassRosterRepository: ClassRosterRepository = {
   async listClassRosters(query) {
-    const rows = await selectRowsFiltered("class_rosters", query);
+    const rows = await selectRowsFiltered("class_rosters", query, "*", {});
     return pageResult(
-      rows.items.map((row: any): ClassRoster => ({
+      rows.items.map((row: Row): ClassRoster => ({
         id: String(row.id ?? ""),
         classId: String(row.class_id ?? ""),
         studentId: String(row.student_id ?? ""),
@@ -543,30 +548,39 @@ export const supabaseClassRosterRepository: ClassRosterRepository = {
   async listStudentsForClass(classId, query) {
     const client = getSupabaseBrowserClient();
     let builder = client.from("class_rosters").select("*, student:students(*, profiles(*))", { count: "exact" }).eq("class_id", classId);
-    if (query?.limit) builder = builder.limit(query.limit);
-    if (query?.offset) builder = builder.range(query.offset, query.offset + (query.limit ?? 10) - 1);
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    builder = builder.range(from, to);
     
     const { data, count, error } = await builder;
-    if (error) throw mapSupabaseRepositoryError(error);
+    throwIfSupabaseError(error);
     
     return pageResult(
-      (data || []).map((row: any) => mapStudent(row.student)),
+      (data || []).map((row: Record<string, unknown>) => mapStudent(row.student as Row)),
       count ?? 0,
       query
     );
   },
   async addStudentToClass(input) {
     const client = getSupabaseBrowserClient();
-    const { error } = await client.from("class_rosters").insert({
+    const { data, error } = await client.from("class_rosters").insert({
       class_id: input.classId,
       student_id: input.studentId
-    });
-    if (error) throw mapSupabaseRepositoryError(error);
+    }).select("*").single();
+    throwIfSupabaseError(error);
+    const row = data as Record<string, unknown>;
+    return {
+      id: String(row.id ?? ""),
+      classId: String(row.class_id ?? ""),
+      studentId: String(row.student_id ?? ""),
+      enrolledAt: String(row.enrolled_at ?? "")
+    };
   },
   async removeStudentFromClass(classId, studentId) {
     const client = getSupabaseBrowserClient();
     const { error } = await client.from("class_rosters").delete().eq("class_id", classId).eq("student_id", studentId);
-    if (error) throw mapSupabaseRepositoryError(error);
+    throwIfSupabaseError(error);
   }
 };
 
@@ -665,12 +679,12 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const createdEvent = eventRow as Row;
     const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
       p_event_id: String(createdEvent.id ?? ""),
-      p_requested_by: input.requestedBy?.trim() || null,
-      p_college_office: input.collegeOffice?.trim() || null,
+      p_requested_by: input.requestedBy?.trim() || undefined,
+      p_college_office: input.collegeOffice?.trim() || undefined,
       p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length
-      ,p_institutional_category: input.institutionalCategory ?? null
-      ,p_participation_status: input.participationStatus ?? null
-      ,p_target_group: input.targetGroup ?? null
+      ,p_institutional_category: input.institutionalCategory ?? undefined
+      ,p_participation_status: input.participationStatus ?? undefined
+      ,p_target_group: input.targetGroup ?? undefined
       ,p_urgency_points: input.urgencyPoints ?? 0
       ,p_priority_score: input.priorityScore ?? 0
       ,p_priority_tier: input.priorityTier ?? "Low"

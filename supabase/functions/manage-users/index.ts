@@ -66,7 +66,7 @@ Deno.serve(async (request) => {
 
   let success = 0;
   let failed = 0;
-  const errors: any[] = [];
+  const errors: Record<string, string>[] = [];
 
   for (const student of students) {
     try {
@@ -172,14 +172,14 @@ Deno.serve(async (request) => {
       }
 
       success++;
-    } catch (err: any) {
+    } catch (err) {
       failed++;
-      errors.push({ email: student.email, error: err.message });
+      errors.push({ email: student.email, error: err instanceof Error ? err.message : String(err) });
     }
   }
 
     return json({ processed: students.length, success, failed, errors });
-  } catch (err: any) {
-    return json({ error: err.message }, 500);
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
 });
