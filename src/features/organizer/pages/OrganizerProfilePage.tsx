@@ -236,16 +236,25 @@ export function OrganizerProfilePage() {
 
   return (
     <div className="space-y-4 p-1">
-      <PageHeader
-        title="Profile"
-        description="Manage your organizer profile and account settings."
-        actions={
-          <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
-            <LogOut className="h-4 w-4" />
-            <span>Logout</span>
-          </Button>
-        }
-      />
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <User className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Account</p>
+              <h2 className="text-sm font-bold text-foreground">Profile</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2 h-8">
+              <LogOut className="h-3.5 w-3.5" />
+              <span>Logout</span>
+            </Button>
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col items-center space-y-4 rounded-2xl border border-border bg-card/40 p-6 text-center shadow-sm">

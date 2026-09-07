@@ -940,16 +940,7 @@ export function OrganizerAnalyticsPage() {
       {/* Tab 1: TURNOUT FORECAST TAB */}
       {activeTab === "prediction" && (
         <section className="space-y-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Event Attendance Prediction</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Forecast turnout with a Random Forest view of attendance determinants.</p>
-            </div>
-            <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-              <Sparkles className="h-3.5 w-3.5" />
-              Random Forest
-            </span>
-          </div>
+
 
           <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
             {/* Left Column: Ranked Factors */}
@@ -1066,13 +1057,7 @@ export function OrganizerAnalyticsPage() {
       {/* Tab 2: ATTENDANCE ANALYTICS TAB */}
       {activeTab === "attendance" && (
         <section className="space-y-4 pt-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Attendance Analytics</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Review session turnout trends and present/late/absent breakdowns.</p>
-            </div>
-            <span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary">Session view</span>
-          </div>
+
 
           <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <ChartPanel title="Attendance Trends" description="Attendance rate per session across recorded events.">
@@ -1120,13 +1105,7 @@ export function OrganizerAnalyticsPage() {
       {/* Tab 3: FEEDBACK & SENTIMENT TAB */}
       {activeTab === "sentiment" && (
         <section className="space-y-4 pt-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Feedback & Objective Insights</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Compare objective rating performance and VADER sentiment analysis.</p>
-            </div>
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">VADER Sentiment</span>
-          </div>
+
 
           <div className="grid gap-6 xl:grid-cols-2">
             <ChartPanel title="Objective Performance" description="Average rating score and response volume per goal.">
@@ -1189,13 +1168,7 @@ export function OrganizerAnalyticsPage() {
       {/* Tab 4: LATE ARRIVAL PATTERNS TAB */}
       {activeTab === "late" && (
         <section className="space-y-4 pt-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Late Arrival Insights</h2>
-              <p className="mt-0.5 text-xs text-muted-foreground">Identify key causes for late arrivals and analyze frequency patterns.</p>
-            </div>
-            <span className="rounded-full border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">Late Analysis</span>
-          </div>
+
 
           <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <ChartPanel title="Late Reasons Breakdown" description="Distribution of reasons for late arrivals.">

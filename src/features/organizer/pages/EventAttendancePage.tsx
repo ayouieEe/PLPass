@@ -572,11 +572,24 @@ export function EventAttendancePage() {
   }
   return (
     <OrganizerFrame>
-      <PageHeader
-        title={event?.title ?? session.title}
-        description="Monitor check-ins during a live attendance session."
-        actions={<Button type="button" variant="destructive" onClick={() => setEndOpen(true)}>End Session</Button>}
-      />
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <ClipboardList className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Attendance</p>
+              <h2 className="text-sm font-bold text-foreground">{event?.title ?? session.title}</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="destructive" size="sm" className="h-8" onClick={() => setEndOpen(true)}>
+              End Session
+            </Button>
+          </div>
+        </div>
+      </div>
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
       <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync().then(()=>toast.success("Synchronization attempt completed."))} />
       <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
