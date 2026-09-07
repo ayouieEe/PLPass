@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { FilePenLine, ListFilter, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, FilePenLine, ListFilter, Search } from "lucide-react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
+import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
@@ -31,6 +32,7 @@ type RequestHistoryRow = {
 };
 
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
+const requestHistoryPageSize = 10;
 
 function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
@@ -65,6 +67,7 @@ export function RequestHistoryPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
   const [selectedRequest, setSelectedRequest] = useState<RequestHistoryRow | null>(null);
 
   if (scope.isLoading) {
@@ -159,6 +162,11 @@ export function RequestHistoryPage() {
     const matchesStatus = !statusFilter || row.status === statusFilter;
     return matchesSearch && matchesType && matchesStatus;
   });
+  const pageCount = Math.max(1, Math.ceil(visibleRows.length / requestHistoryPageSize));
+  const safePageIndex = Math.min(pageIndex, pageCount - 1);
+  const paginatedRows = visibleRows.slice(safePageIndex * requestHistoryPageSize, (safePageIndex + 1) * requestHistoryPageSize);
+  const firstPageNumber = Math.max(1, Math.min(safePageIndex + 1 - 2, pageCount - 4));
+  const pageNumbers = Array.from({ length: Math.min(5, pageCount) }, (_, index) => firstPageNumber + index);
 
   const resolvedCount = requestRows.filter((row) => row.status === "approved" || row.status === "rejected" || row.status === "resolved").length;
 
@@ -196,7 +204,7 @@ export function RequestHistoryPage() {
             <input
               aria-label="Search request history"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => { setSearch(event.target.value); setPageIndex(0); }}
               className="w-full bg-transparent outline-none"
               placeholder="Search requests..."
             />
@@ -207,7 +215,7 @@ export function RequestHistoryPage() {
               aria-label="Request type"
               className="plpass-select pl-9"
               value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
+              onChange={(event) => { setTypeFilter(event.target.value); setPageIndex(0); }}
             >
               <option value="">All request types</option>
               <option value="attendance_correction">Correction requests</option>
@@ -221,7 +229,7 @@ export function RequestHistoryPage() {
               aria-label="Request status"
               className="plpass-select pl-9"
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => { setStatusFilter(event.target.value); setPageIndex(0); }}
             >
               <option value="">All statuses</option>
               <option value="pending">Pending</option>
@@ -232,7 +240,7 @@ export function RequestHistoryPage() {
           </label>
         </div>
 
-        <div className="border-t p-5 pb-24 md:p-6 md:pb-24">
+        <div className="border-t p-5 md:p-6">
           {visibleRows.length ? (
             <div className="overflow-hidden rounded-2xl border bg-background">
               <div className="hidden grid-cols-[150px_190px_minmax(0,1fr)_150px] gap-4 border-b bg-surface-muted/50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
@@ -242,7 +250,7 @@ export function RequestHistoryPage() {
                 <span className="text-center">Status</span>
               </div>
               <div className="divide-y">
-                {visibleRows.map((row) => (
+                {paginatedRows.map((row) => (
                   <button
                     key={row.id}
                     type="button"
@@ -280,6 +288,26 @@ export function RequestHistoryPage() {
           ) : (
             <EmptyState title="No requests found" description="Try adjusting your filters or submit a request first." />
           )}
+          {visibleRows.length ? (
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t pt-5">
+              <p className="text-sm text-muted-foreground">
+                Page <span className="font-medium text-foreground">{safePageIndex + 1}</span> of <span className="font-medium text-foreground">{pageCount}</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="icon" className="h-11 w-11 rounded-2xl" disabled={safePageIndex === 0} onClick={() => setPageIndex((page) => Math.max(0, page - 1))} aria-label="Previous page">
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+                {pageNumbers.map((pageNumber) => (
+                  <Button key={pageNumber} type="button" variant={pageNumber === safePageIndex + 1 ? "default" : "outline"} size="icon" className="h-11 w-11 rounded-2xl" onClick={() => setPageIndex(pageNumber - 1)} aria-label={`Page ${pageNumber}`} aria-current={pageNumber === safePageIndex + 1 ? "page" : undefined}>
+                    {pageNumber}
+                  </Button>
+                ))}
+                <Button type="button" variant="outline" size="icon" className="h-11 w-11 rounded-2xl" disabled={safePageIndex >= pageCount - 1} onClick={() => setPageIndex((page) => Math.min(pageCount - 1, page + 1))} aria-label="Next page">
+                  <ChevronRight className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 

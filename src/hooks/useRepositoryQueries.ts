@@ -630,6 +630,7 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
       repositories.eventFeedback.submitEventFeedback(input, context),
     onSuccess: async (_feedback, input) => {
       await queryClient.invalidateQueries({ queryKey: ["studentEventFeedback"] });
+      await queryClient.invalidateQueries({ queryKey: ["studentFeedbackTasks"] });
       await queryClient.invalidateQueries({ queryKey: ["eventObjectives", input.eventId] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
       toast.success("Feedback submitted successfully");
@@ -640,6 +641,37 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
   });
 
   return { ...listQueryResult, submitMutation };
+}
+
+export function useFinalizedEventYears(context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["finalizedEventYears", context],
+    queryFn: () => repositories.attendanceRecords.listFinalizedEventYears(context),
+    staleTime: 5 * 60 * 1000
+  });
+}
+
+export function useStudentDashboardSummary(context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["studentDashboardSummary", context],
+    queryFn: () => boundedDashboardRequest(repositories.attendanceRecords.getStudentDashboardSummary(context), "Dashboard summary")
+  });
+}
+
+export function useLateReasonOptions(locale = typeof navigator !== "undefined" ? navigator.language : "en", context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["lateReasonOptions", locale, context],
+    queryFn: () => repositories.attendanceRecords.listLateReasonOptions(locale, context),
+    staleTime: 5 * 60 * 1000
+  });
+}
+
+export function useStudentFeedbackTasks(studentId: string | undefined, context?: RepositoryContext) {
+  return useQuery({
+    queryKey: ["studentFeedbackTasks", studentId, context],
+    queryFn: () => repositories.eventFeedback.listStudentFeedbackTasks(studentId ?? "", context),
+    enabled: Boolean(studentId)
+  });
 }
 
 export function useAllEventObjectives(query?: ListQuery, context?: RepositoryContext) {

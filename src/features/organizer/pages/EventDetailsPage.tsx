@@ -421,25 +421,11 @@ export function EventDetailsPage() {
         );
       if (error) throw error;
 
-      const { data: emailResult, error: emailError } = await client.functions.invoke("send-event-emails", {
-        body: { eventId: event.id }
-      });
       await participantsQuery.refetch();
       setParticipantStudentNumber("");
       setParticipantPendingAddition(null);
       setInvitationStatusRefreshKey((current) => current + 1);
-
-      const failedEmails = typeof emailResult === "object" && emailResult && "failed" in emailResult
-        ? Number(emailResult.failed)
-        : 0;
-      const processedEmails = typeof emailResult === "object" && emailResult && "processed" in emailResult
-        ? Number(emailResult.processed)
-        : 0;
-      if (emailError || failedEmails > 0 || processedEmails < 1) {
-        toast.warning(`${studentName(student)} was added. The invitation email is queued for retry.`);
-      } else {
-        toast.success(`${studentName(student)} was added and the event invitation email was sent.`);
-      }
+      toast.success(`${studentName(student)} was added. The invitation email is queued for delivery.`);
     } catch (error) {
       console.error("Failed to add event participant:", error);
       toast.error("Could not add this participant. Please try again.");
@@ -476,11 +462,10 @@ export function EventDetailsPage() {
       const { data, error } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
         body: { eventId: event.id, action: "retry", outboxId }
       });
-      const failed = data && typeof data === "object" && "failed" in data ? Number(data.failed) : 0;
-      if (error || failed > 0) {
-        toast.error("The invitation could not be resent. Please try again.");
+      if (error) {
+        toast.error("The invitation could not be queued for resend. Please try again.");
       } else {
-        toast.success("Invitation email sent.");
+        toast.success("Invitation email queued for resend.");
       }
     } catch (error) {
       console.error("Failed to retry participant invitation:", error);

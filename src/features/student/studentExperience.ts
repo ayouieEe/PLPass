@@ -31,7 +31,6 @@ export type StudentEventRecord = {
   feedbackSubmitted?: boolean;
 };
 
-const STUDENT_FEEDBACK_DEADLINE_HOURS = 72;
 
 export type StudentEventState =
   | "Session Not Started"
@@ -68,14 +67,6 @@ export type StudentEventWorkflow = {
 };
 
 export type StudentRequestKind = "attendance_correction" | "authentication_issue" | "face_reenrollment";
-
-export const lateReasonOptions = [
-  "Traffic / Commute",
-  "Class or Academic Conflict",
-  "Personal / Health",
-  "Weather / Force Majeure",
-  "Other"
-] as const;
 
 export function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -231,68 +222,6 @@ export function studentVisibleEvents(events: Event[]) {
   return sortEventsByDate(visible);
 }
 
-export type StudentEventConflictInfo = {
-  eventId: string;
-  conflictingEvents: Array<Pick<Event, "id" | "title" | "startsAt" | "endsAt">>;
-};
-
-function eventTimeRange(event: Event) {
-  const startsAt = toValidDate(event.startsAt);
-  const endsAt = toValidDate(event.endsAt);
-  if (!startsAt || !endsAt) return null;
-  const start = startsAt.getTime();
-  const end = endsAt.getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
-  return { start, end };
-}
-
-function eventsOverlap(first: Event, second: Event) {
-  const firstRange = eventTimeRange(first);
-  const secondRange = eventTimeRange(second);
-  if (!firstRange || !secondRange) return false;
-  return firstRange.start < secondRange.end && secondRange.start < firstRange.end;
-}
-
-export function getStudentEventConflictMap(events: Event[]) {
-  const conflictMap = new Map<string, StudentEventConflictInfo>();
-  const relevantEvents = studentVisibleEvents(events).filter((event) => event.status !== "completed");
-
-  for (let firstIndex = 0; firstIndex < relevantEvents.length; firstIndex += 1) {
-    for (let secondIndex = firstIndex + 1; secondIndex < relevantEvents.length; secondIndex += 1) {
-      const first = relevantEvents[firstIndex];
-      const second = relevantEvents[secondIndex];
-      if (!eventsOverlap(first, second)) continue;
-
-      const firstConflict = conflictMap.get(first.id) ?? { eventId: first.id, conflictingEvents: [] };
-      firstConflict.conflictingEvents.push({
-        id: second.id,
-        title: second.title,
-        startsAt: second.startsAt,
-        endsAt: second.endsAt
-      });
-      conflictMap.set(first.id, firstConflict);
-
-      const secondConflict = conflictMap.get(second.id) ?? { eventId: second.id, conflictingEvents: [] };
-      secondConflict.conflictingEvents.push({
-        id: first.id,
-        title: first.title,
-        startsAt: first.startsAt,
-        endsAt: first.endsAt
-      });
-      conflictMap.set(second.id, secondConflict);
-    }
-  }
-
-  return conflictMap;
-}
-
-export function getEventConflictLabel(conflict?: StudentEventConflictInfo) {
-  if (!conflict?.conflictingEvents.length) return "";
-  const [firstConflict] = conflict.conflictingEvents;
-  const extraCount = conflict.conflictingEvents.length - 1;
-  return `Conflicts with ${firstConflict.title}${extraCount > 0 ? ` +${extraCount} more` : ""}`;
-}
-
 export function studentAttendanceMethodLabel(method: AttendanceRecord["verificationMethod"]): StudentEventRecord["method"] {
   if (method === "qr") return "QR";
   if (method === "facial") return "Facial";
@@ -328,7 +257,7 @@ export function recordsForStudentEvents(input: {
         recordedAt: record.recordedAt,
         lateReasonCategory: record.lateReasonCategory,
         lateReason: record.lateReason ?? record.lateReasonCategory ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined),
-        feedbackSubmitted: record.note?.includes("Feedback submitted") ?? false
+        feedbackSubmitted: false
       }];
     });
   return repositoryRecords;
@@ -386,44 +315,6 @@ export function getStudentEventMetrics(records: StudentEventRecord[]) {
   };
 }
 
-export function getStudentFeedbackDeadline(record: Pick<StudentEventRecord, "endsAt" | "startsAt">) {
-  const eventEnd = toValidDate(record.endsAt) ?? toValidDate(record.startsAt);
-  if (!eventEnd) return null;
-
-  return new Date(eventEnd.getTime() + STUDENT_FEEDBACK_DEADLINE_HOURS * 60 * 60 * 1000).toISOString();
-}
-
-export function getStudentFeedbackDeadlineStatus(record: Pick<StudentEventRecord, "endsAt" | "startsAt">, now = Date.now()) {
-  const dueAt = getStudentFeedbackDeadline(record);
-  if (!dueAt) {
-    return {
-      dueAt: null,
-      isOverdue: false,
-      isDueSoon: false,
-      label: "Feedback deadline unavailable"
-    };
-  }
-
-  const dueTime = new Date(dueAt).getTime();
-  const remainingHours = Math.ceil((dueTime - now) / (60 * 60 * 1000));
-  const dueDateLabel = `${formatDisplayDate(dueAt)} at ${formatDisplayTime(dueAt)}`;
-
-  if (remainingHours <= 0) {
-    return {
-      dueAt,
-      isOverdue: true,
-      isDueSoon: false,
-      label: `Overdue since ${dueDateLabel}`
-    };
-  }
-
-  return {
-    dueAt,
-    isOverdue: false,
-    isDueSoon: remainingHours <= 24,
-    label: remainingHours <= 24 ? `Due in ${remainingHours} hour${remainingHours === 1 ? "" : "s"}` : `Due by ${dueDateLabel}`
-  };
-}
 
 export function eventFromStudentRecord(record: StudentEventRecord): Event {
   return {

@@ -72,6 +72,7 @@ import type {
   CorrectionRequest,
   CredentialRequest,
   Event,
+  EventFeedbackTask,
   EventParticipant,
   Notification,
   Report,
@@ -269,6 +270,7 @@ let credentialRequestState: CredentialRequest[] = [];
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
 let eventObjectiveState: Array<{ id: string; eventId: string; order: number; text: string }> = [];
+let completedFeedbackTaskIds = new Set<string>();
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let systemSettingsState = { ...systemSettingsFixture };
@@ -290,6 +292,7 @@ export function resetSimulatedRepositoryState() {
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
   eventObjectiveState = [];
+  completedFeedbackTaskIds = new Set<string>();
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   systemSettingsState = { ...systemSettingsFixture };
@@ -1109,9 +1112,53 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     if (record.studentId !== student?.id || record.status !== "late") {
       throw new RepositoryError("Students can only submit late reasons for their own late records.", "PERMISSION_DENIED");
     }
-    const updated = { ...record, lateReasonCategory: input.reason, note: record.note ?? `Late reason: ${input.reason}` };
+    const option = (await this.listLateReasonOptions()).find((entry) => entry.id === input.reasonOptionId);
+    if (!option) throw new RepositoryError("Invalid late reason option.", "VALIDATION_ERROR");
+    const updated = { ...record, lateReasonCategory: option.label, note: record.note ?? `Late reason: ${option.label}` };
     attendanceRecordState[index] = updated;
     return updated;
+  },
+  async listFinalizedEventYears(context) {
+    await beforeRead("attendanceRecords", context, ["student"]);
+    const student = getStudentForContext(contextOrDefault(context));
+    return Array.from(new Set(
+      attendanceRecordState
+        .filter((record) => record.studentId === student?.id && ["present", "late", "absent", "excused"].includes(record.status))
+        .map((record) => new Date(record.recordedAt).getFullYear())
+        .filter((year) => Number.isInteger(year))
+    )).sort((left, right) => right - left);
+  },
+  async getStudentDashboardSummary(context) {
+    await beforeRead("attendanceRecords", context, ["student"]);
+    const student = getStudentForContext(contextOrDefault(context));
+    const records = attendanceRecordState.filter((record) => record.studentId === student?.id);
+    const count = (status: string) => records.filter((record) => record.status === status).length;
+    const presentCount = count("present");
+    const lateCount = count("late");
+    const totalCount = records.length;
+    return {
+      totalCount,
+      presentCount,
+      lateCount,
+      absentCount: count("absent"),
+      excusedCount: count("excused"),
+      attendedCount: presentCount + lateCount,
+      attendanceRate: totalCount ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 0,
+      lateReasonTaskCount: 0,
+      feedbackTaskCount: 0,
+      rejectedCorrectionCount: correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected").length,
+      pendingTaskCount: correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected").length,
+      tasks: []
+    };
+  },
+  async listLateReasonOptions() {
+    return [
+      { id: "traffic_commute", code: "traffic_commute", defaultLabel: "Traffic / Commute", label: "Traffic / Commute", locale: "en", sortOrder: 10, isActive: true },
+      { id: "class_academic_conflict", code: "class_academic_conflict", defaultLabel: "Class or Academic Conflict", label: "Class or Academic Conflict", locale: "en", sortOrder: 20, isActive: true },
+      { id: "personal_health", code: "personal_health", defaultLabel: "Personal / Health", label: "Personal / Health", locale: "en", sortOrder: 30, isActive: true },
+      { id: "weather_force_majeure", code: "weather_force_majeure", defaultLabel: "Weather / Force Majeure", label: "Weather / Force Majeure", locale: "en", sortOrder: 40, isActive: true },
+      { id: "other", code: "other", defaultLabel: "Other", label: "Other", locale: "en", sortOrder: 50, isActive: true }
+    ];
   }
 };
 
@@ -1355,7 +1402,27 @@ export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
   async listStudentFeedback() {
     return [];
   },
+  async listStudentFeedbackTasks(studentId) {
+    return attendanceRecordState.flatMap((record): EventFeedbackTask[] => {
+      const session = attendanceSessionState.find((entry) => entry.id === record.sessionId);
+      if (record.studentId !== studentId || !session?.eventId || !["present", "late"].includes(record.status)) return [];
+      const id = `feedback-task-${record.id}`;
+      const status = completedFeedbackTaskIds.has(id) || Boolean(record.note?.includes("Feedback submitted")) ? "completed" : "pending";
+      const completedAt = record.checkedOutAt ?? session.endsAt ?? record.recordedAt;
+      return [{
+        id,
+        attendanceRecordId: record.id,
+        eventId: session.eventId,
+        studentId: record.studentId,
+        status,
+        dueAt: status === "pending" ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : new Date(new Date(completedAt).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        completedAt: status === "completed" ? completedAt : undefined,
+        objectives: eventObjectiveState.filter((objective) => objective.eventId === session.eventId).map((objective) => ({ ...objective }))
+      }];
+    });
+  },
   async submitEventFeedback(input) {
+    completedFeedbackTaskIds.add(input.taskId);
     return {
       id: `feedback-${input.eventId}-${input.studentId}`,
       eventId: input.eventId,

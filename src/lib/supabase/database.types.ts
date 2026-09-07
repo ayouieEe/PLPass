@@ -10,10 +10,46 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      attendance_late_reason_options: {
+        Row: {
+          id: string
+          code: string
+          default_label: string
+          sort_order: number
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          code: string
+          default_label: string
+          sort_order?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          code?: string
+          default_label?: string
+          sort_order?: number
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      attendance_late_reason_option_translations: {
+        Row: { option_id: string; locale: string; label: string; created_at: string; updated_at: string }
+        Insert: { option_id: string; locale: string; label: string; created_at?: string; updated_at?: string }
+        Update: { option_id?: string; locale?: string; label?: string; updated_at?: string }
+        Relationships: []
+      }
       attendance_records: {
         Row: {
           attendance_status: string
@@ -23,6 +59,7 @@ export type Database = {
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          late_reason_option_id: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
@@ -43,6 +80,7 @@ export type Database = {
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
+          late_reason_option_id?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -63,6 +101,7 @@ export type Database = {
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
+          late_reason_option_id?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -395,6 +434,7 @@ export type Database = {
       event_email_outbox: {
         Row: {
           body: string
+          attempt_count: number
           created_at: string
           delivery_status: string
           error_message: string | null
@@ -402,8 +442,13 @@ export type Database = {
           event_id: string
           event_revision: string
           event_title: string
+          html_body: string | null
           id: string
           notification_type: string
+          next_attempt_at: string
+          last_attempt_at: string | null
+          processing_started_at: string | null
+          processing_token: string | null
           provider_message_id: string | null
           recipient_email: string
           recipient_profile_id: string
@@ -412,6 +457,7 @@ export type Database = {
         }
         Insert: {
           body: string
+          attempt_count?: number
           created_at?: string
           delivery_status?: string
           error_message?: string | null
@@ -419,8 +465,13 @@ export type Database = {
           event_id: string
           event_revision: string
           event_title: string
+          html_body?: string | null
           id?: string
           notification_type: string
+          next_attempt_at?: string
+          last_attempt_at?: string | null
+          processing_started_at?: string | null
+          processing_token?: string | null
           provider_message_id?: string | null
           recipient_email: string
           recipient_profile_id: string
@@ -429,6 +480,7 @@ export type Database = {
         }
         Update: {
           body?: string
+          attempt_count?: number
           created_at?: string
           delivery_status?: string
           error_message?: string | null
@@ -436,8 +488,13 @@ export type Database = {
           event_id?: string
           event_revision?: string
           event_title?: string
+          html_body?: string | null
           id?: string
           notification_type?: string
+          next_attempt_at?: string
+          last_attempt_at?: string | null
+          processing_started_at?: string | null
+          processing_token?: string | null
           provider_message_id?: string | null
           recipient_email?: string
           recipient_profile_id?: string
@@ -560,6 +617,7 @@ export type Database = {
       }
       event_objectives: {
         Row: {
+          average_rating: number | null
           created_at: string
           event_id: string
           id: string
@@ -568,6 +626,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          average_rating?: number | null
           created_at?: string
           event_id: string
           id?: string
@@ -576,6 +635,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          average_rating?: number | null
           created_at?: string
           event_id?: string
           id?: string
@@ -847,27 +907,34 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by: string | null
           category_id: string
+          college_office: string | null
           created_at: string
           department_id: string | null
           description: string | null
           ends_at: string
           event_code: string
           event_status: string
+          fixed_priority: boolean
           id: string
           impact_score: number | null
-          requested_by: string | null
-          college_office: string | null
-          number_of_pax: number | null
+          institutional_category: string | null
           last_rescheduled_at: string | null
+          number_of_pax: number | null
           organizer_id: string
+          participation_status: string | null
           predicted_turnout_percent: number | null
           priority_level: string
+          priority_score: number
+          priority_tier: string
           published_at: string | null
           published_by: string | null
+          requested_by: string | null
           reschedule_count: number | null
           starts_at: string
+          target_group: string | null
           title: string
           updated_at: string
+          urgency_points: number
           venue: string
           visibility: string
         }
@@ -878,27 +945,34 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by?: string | null
           category_id: string
+          college_office?: string | null
           created_at?: string
           department_id?: string | null
           description?: string | null
           ends_at: string
           event_code: string
           event_status?: string
+          fixed_priority?: boolean
           id?: string
           impact_score?: number | null
-          requested_by?: string | null
-          college_office?: string | null
-          number_of_pax?: number | null
+          institutional_category?: string | null
           last_rescheduled_at?: string | null
+          number_of_pax?: number | null
           organizer_id: string
+          participation_status?: string | null
           predicted_turnout_percent?: number | null
           priority_level?: string
+          priority_score?: number
+          priority_tier?: string
           published_at?: string | null
           published_by?: string | null
+          requested_by?: string | null
           reschedule_count?: number | null
           starts_at: string
+          target_group?: string | null
           title: string
           updated_at?: string
+          urgency_points?: number
           venue: string
           visibility?: string
         }
@@ -909,27 +983,34 @@ export type Database = {
           cancelled_at?: string | null
           cancelled_by?: string | null
           category_id?: string
+          college_office?: string | null
           created_at?: string
           department_id?: string | null
           description?: string | null
           ends_at?: string
           event_code?: string
           event_status?: string
+          fixed_priority?: boolean
           id?: string
           impact_score?: number | null
-          requested_by?: string | null
-          college_office?: string | null
-          number_of_pax?: number | null
+          institutional_category?: string | null
           last_rescheduled_at?: string | null
+          number_of_pax?: number | null
           organizer_id?: string
+          participation_status?: string | null
           predicted_turnout_percent?: number | null
           priority_level?: string
+          priority_score?: number
+          priority_tier?: string
           published_at?: string | null
           published_by?: string | null
+          requested_by?: string | null
           reschedule_count?: number | null
           starts_at?: string
+          target_group?: string | null
           title?: string
           updated_at?: string
+          urgency_points?: number
           venue?: string
           visibility?: string
         }
@@ -1549,6 +1630,47 @@ export type Database = {
         }
         Relationships: []
       }
+      student_face_embeddings: {
+        Row: {
+          created_at: string
+          detector_backend: string
+          embedding: Json
+          id: string
+          model_name: string
+          pose: string
+          student_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          detector_backend: string
+          embedding: Json
+          id?: string
+          model_name: string
+          pose: string
+          student_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          detector_backend?: string
+          embedding?: Json
+          id?: string
+          model_name?: string
+          pose?: string
+          student_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_face_embeddings_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       students: {
         Row: {
           created_at: string
@@ -1702,24 +1824,34 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by: string | null
           category_id: string
+          college_office: string | null
           created_at: string
           department_id: string | null
           description: string | null
           ends_at: string
           event_code: string
           event_status: string
+          fixed_priority: boolean
           id: string
           impact_score: number | null
+          institutional_category: string | null
           last_rescheduled_at: string | null
+          number_of_pax: number | null
           organizer_id: string
+          participation_status: string | null
           predicted_turnout_percent: number | null
           priority_level: string
+          priority_score: number
+          priority_tier: string
           published_at: string | null
           published_by: string | null
+          requested_by: string | null
           reschedule_count: number | null
           starts_at: string
+          target_group: string | null
           title: string
           updated_at: string
+          urgency_points: number
           venue: string
           visibility: string
         }
@@ -1778,48 +1910,6 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by: string | null
           category_id: string
-          created_at: string
-          department_id: string | null
-          description: string | null
-          ends_at: string
-          event_code: string
-          event_status: string
-          id: string
-          impact_score: number | null
-          last_rescheduled_at: string | null
-          organizer_id: string
-          predicted_turnout_percent: number | null
-          priority_level: string
-          published_at: string | null
-          published_by: string | null
-          reschedule_count: number | null
-          starts_at: string
-          title: string
-          updated_at: string
-          venue: string
-          visibility: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "events"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
-      update_organizer_event_metadata: {
-        Args: {
-          p_college_office?: string | null
-          p_event_id: string
-          p_number_of_pax?: number | null
-          p_requested_by?: string | null
-        }
-        Returns: {
-          approval_reason: string | null
-          approval_status: string
-          cancellation_reason: string | null
-          cancelled_at: string | null
-          cancelled_by: string | null
-          category_id: string
           college_office: string | null
           created_at: string
           department_id: string | null
@@ -1827,20 +1917,27 @@ export type Database = {
           ends_at: string
           event_code: string
           event_status: string
+          fixed_priority: boolean
           id: string
           impact_score: number | null
+          institutional_category: string | null
           last_rescheduled_at: string | null
           number_of_pax: number | null
           organizer_id: string
+          participation_status: string | null
           predicted_turnout_percent: number | null
           priority_level: string
+          priority_score: number
+          priority_tier: string
           published_at: string | null
           published_by: string | null
           requested_by: string | null
           reschedule_count: number | null
           starts_at: string
+          target_group: string | null
           title: string
           updated_at: string
+          urgency_points: number
           venue: string
           visibility: string
         }
@@ -1853,6 +1950,42 @@ export type Database = {
       }
       end_event_attendance_session: {
         Args: { p_reason: string; p_session_id: string }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      finalize_event_attendance_session: {
+        Args: {
+          p_attendance_records?: Json
+          p_reason: string
+          p_session_id: string
+        }
         Returns: {
           actual_end: string | null
           actual_start: string | null
@@ -1900,6 +2033,30 @@ export type Database = {
         Args: { p_event_session_id: string; p_student_id: string }
         Returns: Json
       }
+      get_live_facial_candidate_ids: {
+        Args: { p_event_session_id: string }
+        Returns: {
+          display_name: string
+          student_id: string
+          student_number: string
+        }[]
+      }
+      get_live_facial_candidates: {
+        Args: { p_event_session_id: string }
+        Returns: {
+          display_name: string
+          enrollment_reference: string
+          student_id: string
+          student_number: string
+        }[]
+      }
+      identify_event_participant_by_face: {
+        Args: { p_event_session_id: string; p_live_descriptor: Json }
+        Returns: {
+          similarity: number
+          student_id: string
+        }[]
+      }
       issue_qr_credential: {
         Args: { p_expires_at?: string; p_student_id: string }
         Returns: {
@@ -1930,9 +2087,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      prepare_offline_event_package: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       queue_emails_for_event: {
         Args: { p_event_id: string }
         Returns: undefined
+      }
+      record_live_facial_attendance: {
+        Args: {
+          p_action: string
+          p_event_session_id: string
+          p_occurred_at?: string
+          p_similarity: number
+          p_student_id: string
+        }
+        Returns: Json
       }
       record_manual_event_attendance: {
         Args: {
@@ -1952,6 +2123,7 @@ export type Database = {
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
           recorded_by: string | null
@@ -1970,25 +2142,6 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      prepare_offline_event_package: {
-        Args: { p_event_id: string }
-        Returns: Json
-      }
-      sync_offline_event_attendance: {
-        Args: {
-          p_attendance_status: string
-          p_checkout_identification_method?: string
-          p_identification_method: string
-          p_late_reason?: string
-          p_local_attendance_uuid: string
-          p_remarks?: string
-          p_session_id: string
-          p_student_id: string
-          p_time_in: string
-          p_time_out?: string
-        }
-        Returns: Database["public"]["Tables"]["attendance_records"]["Row"]
-      }
       reschedule_organizer_event: {
         Args: {
           p_ends_at: string
@@ -2004,24 +2157,34 @@ export type Database = {
           cancelled_at: string | null
           cancelled_by: string | null
           category_id: string
+          college_office: string | null
           created_at: string
           department_id: string | null
           description: string | null
           ends_at: string
           event_code: string
           event_status: string
+          fixed_priority: boolean
           id: string
           impact_score: number | null
+          institutional_category: string | null
           last_rescheduled_at: string | null
+          number_of_pax: number | null
           organizer_id: string
+          participation_status: string | null
           predicted_turnout_percent: number | null
           priority_level: string
+          priority_score: number
+          priority_tier: string
           published_at: string | null
           published_by: string | null
+          requested_by: string | null
           reschedule_count: number | null
           starts_at: string
+          target_group: string | null
           title: string
           updated_at: string
+          urgency_points: number
           venue: string
           visibility: string
         }
@@ -2146,8 +2309,21 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      store_student_face_embedding: {
+        Args: {
+          p_detector_backend: string
+          p_embedding: Json
+          p_model_name: string
+          p_pose: string
+        }
+        Returns: Json
+      }
       submit_late_reason: {
-        Args: { p_attendance_record_id: string; p_late_reason_category: string; p_late_reason?: string }
+        Args: {
+          p_attendance_record_id: string
+          p_late_reason_option_id: string
+          p_late_reason?: string
+        }
         Returns: {
           attendance_status: string
           checkout_verification_method: string | null
@@ -2156,6 +2332,8 @@ export type Database = {
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          late_reason_option_id: string | null
+          local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
           recorded_by: string | null
@@ -2170,6 +2348,170 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "attendance_records"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_organizer_event_with_metadata: {
+        Args: {
+          p_category_id: string
+          p_college_office?: string
+          p_description: string
+          p_ends_at: string
+          p_event_code: string
+          p_fixed_priority?: boolean
+          p_impact_score: number
+          p_institutional_category?: string
+          p_number_of_pax?: number
+          p_objectives: string[]
+          p_participant_ids: string[]
+          p_participation_status?: string
+          p_priority_level: string
+          p_priority_score?: number
+          p_priority_tier?: string
+          p_publish_reason?: string
+          p_requested_by?: string
+          p_resource_title?: string
+          p_resource_url?: string
+          p_starts_at: string
+          p_target_group?: string
+          p_title: string
+          p_urgency_points?: number
+          p_venue: string
+          p_visibility: string
+        }
+        Returns: Database["public"]["Tables"]["events"]["Row"]
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_event_email_outbox_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          body: string
+          html_body: string | null
+          id: string
+          processing_token: string
+          recipient_email: string
+          subject: string
+        }[]
+      }
+      complete_event_email_outbox_delivery: {
+        Args: { p_outbox_id: string; p_processing_token: string; p_provider_message_id?: string }
+        Returns: undefined
+      }
+      fail_event_email_outbox_delivery: {
+        Args: { p_error_message: string; p_outbox_id: string; p_processing_token: string }
+        Returns: undefined
+      }
+      list_student_finalized_event_years: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          event_year: number
+        }[]
+      }
+      get_student_dashboard_summary: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      sync_offline_event_attendance: {
+        Args: {
+          p_attendance_status: string
+          p_checkout_identification_method?: string
+          p_identification_method: string
+          p_late_reason?: string
+          p_local_attendance_uuid: string
+          p_remarks?: string
+          p_session_id: string
+          p_student_id: string
+          p_time_in: string
+          p_time_out?: string
+        }
+        Returns: {
+          attendance_status: string
+          checkout_verification_method: string | null
+          created_at: string
+          event_session_id: string
+          id: string
+          late_reason: string | null
+          late_reason_category: string | null
+          local_attendance_uuid: string | null
+          minutes_late: number | null
+          recorded_at: string
+          recorded_by: string | null
+          remarks: string | null
+          student_id: string
+          time_in: string | null
+          time_out: string | null
+          updated_at: string
+          verification_attempt_id: string | null
+          verification_method: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attendance_records"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      update_organizer_event_metadata: {
+        Args: {
+          p_college_office?: string
+          p_event_id: string
+          p_fixed_priority?: boolean
+          p_institutional_category?: string
+          p_number_of_pax?: number
+          p_participation_status?: string
+          p_priority_score?: number
+          p_priority_tier?: string
+          p_requested_by?: string
+          p_target_group?: string
+          p_urgency_points?: number
+        }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          college_office: string | null
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          fixed_priority: boolean
+          id: string
+          impact_score: number | null
+          institutional_category: string | null
+          last_rescheduled_at: string | null
+          number_of_pax: number | null
+          organizer_id: string
+          participation_status: string | null
+          predicted_turnout_percent: number | null
+          priority_level: string
+          priority_score: number
+          priority_tier: string
+          published_at: string | null
+          published_by: string | null
+          requested_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          target_group: string | null
+          title: string
+          updated_at: string
+          urgency_points: number
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -2192,12 +2534,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2221,11 +2563,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2246,11 +2588,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2271,11 +2613,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2288,11 +2630,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

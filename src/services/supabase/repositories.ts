@@ -38,9 +38,11 @@ import {
   mapCredentialRequest,
   mapEvent,
   mapEventFeedback,
+  mapEventFeedbackTask,
   mapEventObjective,
   mapEventParticipant,
   mapEventSummarySnapshot,
+  mapLateReasonOption,
   mapFacialProfile,
   mapNotification,
   mapOrganizer,
@@ -60,6 +62,7 @@ import type {
   Semester,
   Student,
   StudentCredentialStatus,
+  StudentDashboardSummary,
   SystemSettings
 } from "@/types/domain";
 import type { AttendanceStatus, EventStatus } from "@/types/enums";
@@ -202,7 +205,7 @@ async function selectRowsFiltered(
 
 async function selectSingleRow(table: TableName, id: string): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).select("*").eq("id", id).maybeSingle();
+  const { data, error } = await client.from(table).select("*").eq("id" as never, id).maybeSingle();
   throwIfSupabaseError(error);
   if (!data) {
     throw new RepositoryError(`${table} row was not found.`, "NOT_FOUND");
@@ -212,7 +215,7 @@ async function selectSingleRow(table: TableName, id: string): Promise<Row> {
 
 async function selectSingleRowWithColumns(table: TableName, id: string, columns: string): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).select(columns).eq("id", id).maybeSingle();
+  const { data, error } = await client.from(table).select(columns).eq("id" as never, id).maybeSingle();
   throwIfSupabaseError(error);
   if (!data) {
     throw new RepositoryError(`${table} row was not found.`, "NOT_FOUND");
@@ -229,7 +232,7 @@ async function insertRow(table: TableName, values: Row): Promise<Row> {
 
 async function updateRow(table: TableName, id: string, values: Row): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).update(values as never).eq("id", id).select("*").single();
+  const { data, error } = await client.from(table).update(values as never).eq("id" as never, id).select("*").single();
   throwIfSupabaseError(error);
   return data as unknown as Row;
 }
@@ -481,6 +484,10 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       if (listQuery.sortBy) {
         builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
       }
+      if (listQuery.search) {
+        const term = listQuery.search.trim().replace(/[,%()]/g, " ").replace(/\s+/g, " ");
+        if (term) builder = builder.or(`event_code.ilike.*${term}*,title.ilike.*${term}*,category.ilike.*${term}*,venue.ilike.*${term}*`);
+      }
 
       const { data, error, count } = await builder.range(from, to);
       throwIfSupabaseError(error);
@@ -540,7 +547,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const trimmedObjectives = (input.objectives ?? [])
       .map((objective) => objective.trim())
       .filter((objective) => objective.length > 0);
-    const { data: eventRow, error: eventError } = await client.rpc("create_organizer_event", {
+    const { data: eventRow, error: eventError } = await client.rpc("create_organizer_event_with_metadata", {
       p_event_code: input.code,
       p_category_id: category.id,
       p_title: input.title,
@@ -555,32 +562,20 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_objectives: trimmedObjectives,
       ...(input.resourceTitle?.trim() ? { p_resource_title: input.resourceTitle.trim() } : {}),
       ...(input.resourceUrl?.trim() ? { p_resource_url: input.resourceUrl.trim() } : {}),
-      p_publish_reason: input.publishReason ?? "Published by event organizer"
+      p_publish_reason: input.publishReason ?? "Published by event organizer",
+      p_requested_by: input.requestedBy?.trim() || undefined,
+      p_college_office: input.collegeOffice?.trim() || undefined,
+      p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length,
+      p_institutional_category: input.institutionalCategory ?? undefined,
+      p_participation_status: input.participationStatus ?? undefined,
+      p_target_group: input.targetGroup ?? undefined,
+      p_urgency_points: input.urgencyPoints ?? 0,
+      p_priority_score: input.priorityScore ?? 0,
+      p_priority_tier: input.priorityTier ?? "Low",
+      p_fixed_priority: input.fixedPriority ?? false
     });
     throwIfSupabaseError(eventError);
-    const createdEvent = eventRow as Row;
-    const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
-      p_event_id: String(createdEvent.id ?? ""),
-      p_requested_by: input.requestedBy?.trim() || null,
-      p_college_office: input.collegeOffice?.trim() || null,
-      p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length
-      ,p_institutional_category: input.institutionalCategory ?? null
-      ,p_participation_status: input.participationStatus ?? null
-      ,p_target_group: input.targetGroup ?? null
-      ,p_urgency_points: input.urgencyPoints ?? 0
-      ,p_priority_score: input.priorityScore ?? 0
-      ,p_priority_tier: input.priorityTier ?? "Low"
-      ,p_fixed_priority: input.fixedPriority ?? false
-    });
-    throwIfSupabaseError(metadataError);
-    const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);
-    const { error: emailProcessingError } = await client.functions.invoke("send-event-emails", {
-      body: { eventId: savedEvent.id }
-    });
-    if (emailProcessingError) {
-      console.warn("Event published, but participant email processing was not completed:", emailProcessingError);
-    }
-    return savedEvent;
+    return mapEvent(eventRow as Row);
   },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
@@ -633,14 +628,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_reason: reason
     });
     throwIfSupabaseError(error);
-    const updatedEvent = mapEvent(data as Row);
-    const { error: emailProcessingError } = await client.functions.invoke("send-event-emails", {
-      body: { eventId: updatedEvent.id }
-    });
-    if (emailProcessingError) {
-      console.warn("Event rescheduled, but participant email processing was not completed:", emailProcessingError);
-    }
-    return updatedEvent;
+    return mapEvent(data as Row);
   }
 };
 
@@ -740,11 +728,25 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       builder = builder.in("event_session_id", sessionIds);
     }
 
+    if (listQuery.dateFrom || listQuery.dateTo) {
+      let sessionsForDate = client.from("event_sessions").select("id");
+      if (listQuery.dateFrom) sessionsForDate = sessionsForDate.gte("scheduled_start", listQuery.dateFrom);
+      if (listQuery.dateTo) sessionsForDate = sessionsForDate.lt("scheduled_start", listQuery.dateTo);
+      const { data: sessionRows, error: sessionError } = await sessionsForDate;
+      throwIfSupabaseError(sessionError);
+      const sessionIds = (sessionRows ?? []).map((row) => String((row as Row).id ?? "")).filter(Boolean);
+      if (sessionIds.length === 0) return emptyPage(listQuery);
+      builder = builder.in("event_session_id", sessionIds);
+    }
+
     if (sessionId) {
       builder = builder.eq("event_session_id", sessionId);
     }
     if (studentId) {
       builder = builder.eq("student_id", studentId);
+    }
+    if (listQuery.attendanceStatus) {
+      builder = builder.eq("attendance_status", listQuery.attendanceStatus);
     }
     if (listQuery.sortBy) {
       builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
@@ -755,6 +757,53 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const { data, error, count } = await builder.range(from, to);
     throwIfSupabaseError(error);
     return pageResult((data ?? []).map(mapAttendanceRecord), count ?? data?.length ?? 0, listQuery);
+  },
+  async listFinalizedEventYears(context) {
+    if (context?.actorRole !== "student") return [];
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("list_student_finalized_event_years");
+    throwIfSupabaseError(error);
+    return (data ?? [])
+      .map((row) => Number((row as Row).event_year))
+      .filter((year) => Number.isInteger(year) && year > 0);
+  },
+  async getStudentDashboardSummary(context) {
+    if (context?.actorRole !== "student") {
+      throw new RepositoryError("A student profile is required to load the dashboard summary.", "PERMISSION_DENIED");
+    }
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("get_student_dashboard_summary");
+    throwIfSupabaseError(error);
+    const summary = (data ?? {}) as Row;
+    const tasks = Array.isArray(summary.tasks) ? summary.tasks : [];
+    return {
+      totalCount: Number(summary.totalCount ?? 0),
+      presentCount: Number(summary.presentCount ?? 0),
+      lateCount: Number(summary.lateCount ?? 0),
+      absentCount: Number(summary.absentCount ?? 0),
+      excusedCount: Number(summary.excusedCount ?? 0),
+      attendedCount: Number(summary.attendedCount ?? 0),
+      attendanceRate: Number(summary.attendanceRate ?? 0),
+      lateReasonTaskCount: Number(summary.lateReasonTaskCount ?? 0),
+      feedbackTaskCount: Number(summary.feedbackTaskCount ?? 0),
+      rejectedCorrectionCount: Number(summary.rejectedCorrectionCount ?? 0),
+      pendingTaskCount: Number(summary.pendingTaskCount ?? 0),
+      tasks: tasks.map((task) => {
+        const row = task as Row;
+        return {
+          id: String(row.id ?? ""),
+          kind: String(row.kind ?? "feedback") as StudentDashboardSummary["tasks"][number]["kind"],
+          attendanceRecordId: typeof row.attendanceRecordId === "string" ? row.attendanceRecordId : undefined,
+          eventId: typeof row.eventId === "string" ? row.eventId : undefined,
+          title: String(row.title ?? "Required attendance task"),
+          code: typeof row.code === "string" ? row.code : undefined,
+          category: typeof row.category === "string" ? row.category : undefined,
+          status: String(row.status ?? "pending"),
+          startsAt: typeof row.startsAt === "string" ? row.startsAt : undefined,
+          dueAt: typeof row.dueAt === "string" ? row.dueAt : undefined
+        };
+      })
+    } satisfies StudentDashboardSummary;
   },
   async getAttendanceRecordById(recordId, context) {
     const row = await selectSingleRow("attendance_records", recordId);
@@ -1153,11 +1202,30 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
     const { data, error } = await client.rpc("submit_late_reason", {
       p_attendance_record_id: input.attendanceRecordId,
-      p_late_reason_category: input.reason,
+      p_late_reason_option_id: input.reasonOptionId,
       p_late_reason: input.customReason
     });
     throwIfSupabaseError(error);
     return mapAttendanceRecord(data as Row);
+  },
+  async listLateReasonOptions(locale = "en", context) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("attendance_late_reason_options")
+      .select("id, code, default_label, sort_order, is_active, attendance_late_reason_option_translations(label, locale)")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    throwIfSupabaseError(error);
+    return (data ?? [] as unknown as Array<Record<string, unknown>>).map((row) => {
+      const translations = Array.isArray((row as Record<string, unknown>).attendance_late_reason_option_translations)
+        ? ((row as Record<string, unknown>).attendance_late_reason_option_translations as Array<Record<string, unknown>>)
+        : [];
+      const translation = translations.find((item) => item.locale === locale) ?? translations.find((item) => item.locale === "en");
+      return mapLateReasonOption(
+        { ...(row as Record<string, unknown>), translation_label: typeof translation?.label === "string" ? translation.label : undefined },
+        typeof translation?.locale === "string" ? translation.locale : "en"
+      );
+    });
   }
 };
 
@@ -1539,6 +1607,21 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     return ((data ?? []) as Row[]).map(mapEventFeedback);
   },
 
+  async listStudentFeedbackTasks(studentId, context) {
+    const client = getSupabaseBrowserClient();
+    const scopedStudentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : studentId;
+    if (!scopedStudentId) return [];
+    const { data, error } = await (client as any)
+      .from("event_feedback_tasks")
+      .select("*, event_feedback_task_objectives(*)")
+      .eq("student_id", scopedStudentId)
+      .order("due_at", { ascending: true });
+    throwIfSupabaseError(error);
+    return ((data ?? []) as Row[]).map(mapEventFeedbackTask);
+  },
+
   async submitEventFeedback(input: SubmitEventFeedbackInput, context) {
     const client = getSupabaseBrowserClient();
     const studentId = context?.actorRole === "student"
@@ -1547,20 +1630,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     if (!studentId) {
       throw new RepositoryError("A student profile is required to submit event feedback.", "VALIDATION_ERROR");
     }
-    if (context?.actorRole === "student") {
-      await supabaseEventManagementRepository.getEventById(input.eventId, context);
-      const { data: record, error: recordError } = await client
-        .from("attendance_records")
-        .select("id, student_id, event_session_id, event_sessions(event_id)")
-        .eq("id", input.attendanceRecordId)
-        .maybeSingle();
-      throwIfSupabaseError(recordError);
-      const session = Array.isArray(record?.event_sessions) ? record?.event_sessions[0] : record?.event_sessions;
-      const recordEventId = typeof session?.event_id === "string" ? session.event_id : "";
-      if (!record || String(record.student_id) !== studentId || recordEventId !== input.eventId) {
-        throw new RepositoryError("Students can only submit feedback for their own attendance records.", "PERMISSION_DENIED");
-      }
-    }
+    void studentId;
     if (input.ratings.length > 0) {
       const objectiveIds = input.ratings.map((rating) => rating.objectiveId);
       if (
@@ -1584,6 +1654,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     const comment = input.comment?.trim() || null;
     const { data: edgeResult, error: edgeError } = await client.functions.invoke("analyze-feedback", {
       body: {
+        taskId: input.taskId,
         eventId: input.eventId,
         attendanceRecordId: input.attendanceRecordId,
         comment,

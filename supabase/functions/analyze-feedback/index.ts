@@ -5,6 +5,7 @@ const HF_API_TOKEN = Deno.env.get("HUGGING_FACE_TOKEN");
 const HF_MODEL_URL = "https://api-inference.huggingface.co/models/cardiffnlp/twitter-xlm-roberta-base-sentiment";
 
 interface FeedbackPayload {
+  taskId: string;
   eventId: string;
   attendanceRecordId: string;
   comment?: string;
@@ -40,11 +41,11 @@ Deno.serve(async (req) => {
       throw new Error("Unauthorized");
     }
     
-    // We get the student ID. In this app, student ID might be tied to the user.
+    // Students are linked to the authenticated profile through students.profile_id.
     const { data: student, error: studentError } = await supabase
       .from("students")
       .select("id")
-      .eq("auth_user_id", user.id)
+      .eq("profile_id", user.id)
       .single();
       
     if (studentError || !student) {
@@ -94,42 +95,17 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 1. Upsert into event_feedback (RLS will validate if student attended)
-    const { data: feedbackData, error: feedbackError } = await supabase
-      .from("event_feedback")
-      .upsert({
-        event_id: payload.eventId,
-        student_id: student.id,
-        attendance_record_id: payload.attendanceRecordId,
-        comment: payload.comment && payload.comment.trim() !== "" ? payload.comment : null,
-        sentiment_label: payload.comment && payload.comment.trim() !== "" ? sentimentLabel : null,
-        sentiment_score: payload.comment && payload.comment.trim() !== "" ? sentimentScore : null,
-      }, { onConflict: "event_id,student_id" })
-      .select("id")
-      .single();
-
-    if (feedbackError) throw feedbackError;
-
-    // Clear existing ratings before inserting new ones
-    await supabase.from("event_feedback_ratings").delete().eq("feedback_id", feedbackData.id);
-
-    // 2. Insert into event_feedback_ratings
-    if (payload.ratings.length > 0) {
-      const ratingsData = payload.ratings.map(r => ({
-        feedback_id: feedbackData.id,
-        objective_id: r.objectiveId,
-        rating: r.rating,
-      }));
-
-      const { error: ratingsError } = await supabase
-        .from("event_feedback_ratings")
-        .insert(ratingsData);
-
-      if (ratingsError) throw ratingsError;
-    }
+    const { data: feedbackId, error: submissionError } = await supabase.rpc("submit_feedback_task", {
+      p_task_id: payload.taskId,
+      p_comment: payload.comment?.trim() || null,
+      p_ratings: payload.ratings.map((rating) => ({ objective_id: rating.objectiveId, rating: rating.rating })),
+      p_sentiment_label: payload.comment?.trim() ? sentimentLabel : null,
+      p_sentiment_score: payload.comment?.trim() ? sentimentScore : null,
+    });
+    if (submissionError) throw submissionError;
 
     return new Response(
-      JSON.stringify({ success: true, feedbackId: feedbackData.id }),
+      JSON.stringify({ success: true, feedbackId }),
       {
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         status: 200,

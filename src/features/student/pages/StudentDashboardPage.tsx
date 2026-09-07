@@ -24,18 +24,12 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentCredentialStatus, useStudentEventFeedback } from "@/hooks/useRepositoryQueries";
+import { useEvents, useStudentCredentialStatus, useStudentDashboardSummary } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   ensureStudentIdentityReadiness,
-  getEventConflictLabel,
-  getStudentEventConflictMap,
-  getStudentEventMetrics,
-  getStudentEventRecords,
-  getStudentFeedbackDeadlineStatus,
   hasUsableQrCredential,
-  statusTone,
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
@@ -174,10 +168,7 @@ function DashboardNotice({
 export function StudentDashboardPage() {
   const scope = useStudentScope();
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
-  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
-  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
+  const summaryQuery = useStudentDashboardSummary(scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
   const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
   const [monthAnchor, setMonthAnchor] = useState(() => new Date());
@@ -191,11 +182,11 @@ export function StudentDashboardPage() {
     return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
+  if (eventsQuery.isLoading || summaryQuery.isLoading) {
     return <LoadingState label="Loading dashboard" />;
   }
 
-  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError) {
+  if (eventsQuery.isError || summaryQuery.isError) {
     return (
       <ErrorState
         title="Unable to load student dashboard"
@@ -205,39 +196,21 @@ export function StudentDashboardPage() {
   }
 
   const student = scope.student;
-  const optionalDataWarnings = [
-    feedbackQuery.isError ? "feedback tasks" : "",
-    correctionsQuery.isError ? "request status" : ""
-  ].filter(Boolean);
   const credentialReadinessError = credentialStatusQuery.isError;
   const qrReady = hasUsableQrCredential(ensureStudentIdentityReadiness(credentialStatusQuery.data));
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
-  const conflictMap = getStudentEventConflictMap(events);
   const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
   const dashboardEvents = dashboardEventList(sortedEvents);
   const ongoingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Ongoing");
   const upcomingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Upcoming");
 
-  const eventRecords = getStudentEventRecords({
-    studentId: student.id,
-    records: recordsQuery.data?.items ?? [],
-    sessions: sessionsQuery.data?.items ?? [],
-    events: eventsQuery.data?.items ?? []
-  });
-  const eventMetrics = getStudentEventMetrics(eventRecords);
-  const attendedCount = eventMetrics.attendedCount;
-  const attendanceRate = eventMetrics.attendanceRate;
-  const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
-  const lateReasonRecords = eventMetrics.attendedRecords.filter((record) => record.status === "late" && !record.lateReason);
-  const pendingFeedbackRecords = eventMetrics.attendedRecords.filter(
-    (record) => record.status !== "late" || Boolean(record.lateReason)
-  ).filter(
-    (record) => !record.feedbackSubmitted && !submittedFeedbackEventIds.has(record.eventId)
-  );
-  const pendingFeedback = pendingFeedbackRecords.length;
-  const studentCorrectionRequests = (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
-  const rejectedCorrectionRequests = studentCorrectionRequests.filter((request) => request.status === "rejected");
-  const pendingTaskCount = lateReasonRecords.length + pendingFeedback + rejectedCorrectionRequests.length;
+  const summary = summaryQuery.data;
+  const attendedCount = summary?.attendedCount ?? 0;
+  const attendanceRate = summary?.attendanceRate ?? 0;
+  const lateReasonTasks = summary?.tasks.filter((task) => task.kind === "late_reason") ?? [];
+  const pendingFeedbackTasks = summary?.tasks.filter((task) => task.kind === "feedback") ?? [];
+  const rejectedCorrectionTasks = summary?.tasks.filter((task) => task.kind === "correction") ?? [];
+  const pendingTaskCount = summary?.pendingTaskCount ?? 0;
   const eventDateKeys = new Set(dashboardEvents.map((event) => dateKey(event.startsAt)).filter(Boolean));
   const selectedDateEvents = dashboardEvents.filter((event) => dateKey(event.startsAt) === selectedDate);
 
@@ -281,13 +254,6 @@ export function StudentDashboardPage() {
         />
       ) : null}
 
-      {optionalDataWarnings.length ? (
-        <DashboardNotice
-          title="Some dashboard details are temporarily incomplete"
-          description={`PLPass loaded your main student data, but ${optionalDataWarnings.join(", ")} could not be checked right now.`}
-        />
-      ) : null}
-
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attended event records">
           <StatCard
@@ -295,15 +261,17 @@ export function StudentDashboardPage() {
             value={String(attendedCount)}
             description={attendedCount ? "Open attendance records" : "No recorded attendance yet"}
             icon={CalendarCheck}
+            className="h-full"
           />
         </MetricLink>
         <MetricLink to={APP_ROUTES.studentAttendance} label="Open attendance records">
           <StatCard
             title="Attendance Rate"
             value={`${attendanceRate}%`}
-            description={eventMetrics.totalCount ? "Based on recorded attendance" : "Waiting for attendance records"}
+            description={summary?.totalCount ? "Based on recorded attendance" : "Waiting for attendance records"}
             icon={History}
-            tone={eventMetrics.totalCount && attendanceRate < 80 ? "warning" : "success"}
+            tone={summary?.totalCount && attendanceRate < 80 ? "warning" : "success"}
+            className="h-full"
           />
         </MetricLink>
         <MetricLink to={APP_ROUTES.studentUpcomingEvents} label="Open event cards">
@@ -312,6 +280,7 @@ export function StudentDashboardPage() {
             value={String(dashboardEvents.length)}
             description={dashboardEvents.length ? `${ongoingEvents.length} ongoing, ${upcomingEvents.length} upcoming` : "No active events"}
             icon={CalendarDays}
+            className="h-full"
           />
         </MetricLink>
         <MetricButton label="Open pending tasks" onClick={() => setFeedbackModalOpen(true)}>
@@ -376,7 +345,6 @@ export function StudentDashboardPage() {
             aria-label="Available events"
           >
             {dashboardEvents.length ? dashboardEvents.map((event) => {
-              const conflict = conflictMap.get(event.id);
               return (
               <NavLink
                 key={event.id}
@@ -408,12 +376,6 @@ export function StudentDashboardPage() {
                     {event.description ? (
                       <p className="mt-2 max-w-xl text-sm leading-5 text-muted-foreground">
                         {event.description}
-                      </p>
-                    ) : null}
-                    {conflict ? (
-                      <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
-                        <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
-                        {getEventConflictLabel(conflict)}
                       </p>
                     ) : null}
                   </div>
@@ -533,14 +495,11 @@ export function StudentDashboardPage() {
               {selectedDateLabel}
             </p>
             {selectedDateEvents.length ? selectedDateEvents.map((event) => {
-              const conflict = conflictMap.get(event.id);
               return (
                 <NavLink
                   key={event.id}
                   to={APP_ROUTES.studentEvent(event.id)}
-                  className={`block rounded-xl border bg-background p-3 text-sm transition-colors ${
-                    conflict ? "border-warning/30 hover:border-warning/50" : "hover:border-primary/30"
-                  }`}
+                  className="block rounded-xl border bg-background p-3 text-sm transition-colors hover:border-primary/30"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -556,12 +515,6 @@ export function StudentDashboardPage() {
                     </div>
                     <ArrowRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                   </div>
-                  {conflict ? (
-                    <p className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-warning">
-                      <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
-                      {getEventConflictLabel(conflict)}
-                    </p>
-                  ) : null}
                 </NavLink>
               );
             }) : (
@@ -621,21 +574,21 @@ export function StudentDashboardPage() {
       >
         {pendingTaskCount ? (
           <div className="space-y-3">
-            {lateReasonRecords.map((record) => (
-              <article key={record.id} className="rounded-2xl border border-warning/30 bg-warning/5 p-4">
+            {lateReasonTasks.map((task) => (
+              <article key={task.id} className="rounded-2xl border border-warning/30 bg-warning/5 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {record.eventCode} - {record.category}
+                      {task.code} - {task.category}
                     </p>
-                    <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                    <h3 className="mt-1 text-base font-semibold tracking-tight">{task.title}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">Submit your late reason before event feedback becomes available.</p>
                   </div>
                   <StatusBadge label="Late reason needed" tone="warning" />
                 </div>
                 <div className="mt-4 flex justify-end border-t pt-4">
                   <Button asChild size="sm">
-                    <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(record.eventId)}`}>
+                    <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(task.eventId ?? task.attendanceRecordId ?? "")}`}>
                       Submit Late Reason
                       <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                     </NavLink>
@@ -644,41 +597,33 @@ export function StudentDashboardPage() {
               </article>
             ))}
 
-            {pendingFeedbackRecords.map((record) => {
-              const deadline = getStudentFeedbackDeadlineStatus(record);
-              const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(record.eventId)}`;
+            {pendingFeedbackTasks.map((task) => {
+              const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(task.eventId ?? task.attendanceRecordId ?? "")}`;
 
               return (
-                <article key={record.id} className="rounded-2xl border bg-background p-4">
+                <article key={task.id} className="rounded-2xl border bg-background p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {record.eventCode} - {record.category}
+                      {task.code} - {task.category}
                       </p>
-                      <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                      <h3 className="mt-1 text-base font-semibold tracking-tight">{task.title}</h3>
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1.5">
                           <CalendarDays className="h-3.5 w-3.5 text-primary" />
-                          {formatDisplayDate(record.startsAt)}
+                          {formatDisplayDate(task.startsAt)}
                         </span>
                         <span className="flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 text-primary" />
-                          {formatDisplayTime(record.startsAt)}
+                          {formatDisplayTime(task.startsAt)}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
-                      <StatusBadge label={record.status} tone={statusTone(record.status)} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
                         Feedback due
                       </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                          deadline.isOverdue ? "bg-destructive/10 text-destructive" : deadline.isDueSoon ? "bg-warning/10 text-warning" : "bg-info/10 text-info"
-                        }`}
-                      >
-                        {deadline.label}
-                      </span>
+                      {task.dueAt ? <span className="rounded-full bg-info/10 px-3 py-1 text-xs font-semibold text-info">Due {formatDisplayDate(task.dueAt)} {formatDisplayTime(task.dueAt)}</span> : null}
                     </div>
                   </div>
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
@@ -696,18 +641,18 @@ export function StudentDashboardPage() {
               );
             })}
 
-            {rejectedCorrectionRequests.length ? (
+            {rejectedCorrectionTasks.length ? (
               <article className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-base font-semibold tracking-tight">
-                      Review rejected correction request{rejectedCorrectionRequests.length === 1 ? "" : "s"}
+                      Review rejected correction request{rejectedCorrectionTasks.length === 1 ? "" : "s"}
                     </h3>
                     <p className="mt-2 text-sm text-muted-foreground">
                       Check the organizer response, then submit a clearer request if needed.
                     </p>
                   </div>
-                  <StatusBadge label={`${rejectedCorrectionRequests.length} rejected`} tone="danger" />
+                  <StatusBadge label={`${rejectedCorrectionTasks.length} rejected`} tone="danger" />
                 </div>
                 <div className="mt-4 flex justify-end border-t pt-4">
                   <Button asChild variant="outline" size="sm">
