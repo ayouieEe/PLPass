@@ -150,7 +150,7 @@ describe("student UI flows", () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Events by Year" })).toBeInTheDocument();
     const yearSelect = screen.getByRole("combobox", { name: "Attendance year" });
     expect(screen.getByRole("option", { name: "2026" })).toBeInTheDocument();
     await user.selectOptions(yearSelect, "2026");
@@ -289,7 +289,7 @@ describe("student UI flows", () => {
     setRoute("/student/attendance");
     const view = render(<App />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Events by Year" })).toBeInTheDocument();
     expect(await screen.findByText(/EVT-2026-001/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Calendar View" })).not.toBeInTheDocument();
 
@@ -298,6 +298,6 @@ describe("student UI flows", () => {
     queryClient.clear();
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Attended Events by Year" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Events by Year" })).toBeInTheDocument();
   });
 });

@@ -25,9 +25,12 @@ import type {
   User,
   DevelopmentAccount,
   EventFeedback,
+  EventFeedbackTask,
   EventObjective,
   EventSummarySnapshot,
-  EventResource
+  EventResource,
+  LateReasonOption,
+  StudentDashboardSummary
 } from "@/types/domain";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -154,7 +157,7 @@ export type ManualAttendanceInput = {
 
 export type SubmitLateReasonInput = {
   attendanceRecordId: string;
-  reason: string;
+  reasonOptionId: string;
   customReason?: string;
 };
 
@@ -224,6 +227,7 @@ export type ReviewCredentialRequestInput = {
 };
 
 export type SubmitEventFeedbackInput = {
+  taskId: string;
   eventId: string;
   studentId: string;
   attendanceRecordId: string;
@@ -302,10 +306,13 @@ export interface AttendanceSessionRepository {
 
 export interface AttendanceRecordRepository {
   listAttendanceRecords(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AttendanceRecord>>;
+  listFinalizedEventYears(context?: RepositoryContext): Promise<number[]>;
+  getStudentDashboardSummary(context?: RepositoryContext): Promise<StudentDashboardSummary>;
   getAttendanceRecordById(recordId: string, context?: RepositoryContext): Promise<AttendanceRecord>;
   recordCredentialAttendance(input: AttendanceScanInput, context?: RepositoryContext): Promise<AttendanceSubmissionResult>;
   recordManualAttendance(input: ManualAttendanceInput, context?: RepositoryContext): Promise<AttendanceSubmissionResult>;
   submitLateReason(input: SubmitLateReasonInput, context?: RepositoryContext): Promise<AttendanceRecord>;
+  listLateReasonOptions(locale?: string, context?: RepositoryContext): Promise<LateReasonOption[]>;
 }
 
 export interface AttendanceAttemptRepository {
@@ -335,6 +342,7 @@ export interface StudentCredentialRepository {
 export interface EventFeedbackRepository {
   listEventObjectives(eventId: string, context?: RepositoryContext): Promise<EventObjective[]>;
   listStudentFeedback(studentId: string, context?: RepositoryContext): Promise<EventFeedback[]>;
+  listStudentFeedbackTasks(studentId: string, context?: RepositoryContext): Promise<EventFeedbackTask[]>;
   submitEventFeedback(input: SubmitEventFeedbackInput, context?: RepositoryContext): Promise<EventFeedback>;
   listAllEventObjectives(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventObjective>>;
   listAllEventSummarySnapshots(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventSummarySnapshot>>;

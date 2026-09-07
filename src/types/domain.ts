@@ -166,6 +166,7 @@ export type EventObjective = {
   order: number;
   text: string;
   averageRating?: number | null;
+  ratingCount?: number;
 };
 
 export type EventResource = {
@@ -196,6 +197,28 @@ export type EventFeedback = {
   ratings?: EventFeedbackRating[];
 };
 
+export type LateReasonOption = {
+  id: ID;
+  code: string;
+  defaultLabel: string;
+  label: string;
+  locale: string;
+  sortOrder: number;
+  isActive: boolean;
+};
+
+export type EventFeedbackTask = {
+  id: ID;
+  attendanceRecordId: ID;
+  eventId: ID;
+  studentId: ID;
+  status: "pending" | "completed" | "expired";
+  dueAt: ISODateString;
+  completedAt?: ISODateString;
+  expiredAt?: ISODateString;
+  objectives: EventObjective[];
+};
+
 export type EventSummarySnapshot = {
   eventId: ID;
   positivePercentage: number;
@@ -203,6 +226,34 @@ export type EventSummarySnapshot = {
   negativePercentage: number;
   totalFeedbackCount: number;
   updatedAt: ISODateString;
+};
+
+export type StudentDashboardTask = {
+  id: ID;
+  kind: "late_reason" | "feedback" | "correction";
+  eventId?: ID;
+  attendanceRecordId?: ID;
+  title: string;
+  code?: string;
+  category?: string;
+  status: string;
+  startsAt?: ISODateString;
+  dueAt?: ISODateString;
+};
+
+export type StudentDashboardSummary = {
+  totalCount: number;
+  presentCount: number;
+  lateCount: number;
+  absentCount: number;
+  excusedCount: number;
+  attendedCount: number;
+  attendanceRate: number;
+  lateReasonTaskCount: number;
+  feedbackTaskCount: number;
+  rejectedCorrectionCount: number;
+  pendingTaskCount: number;
+  tasks: StudentDashboardTask[];
 };
 
 export type AttendanceSession = {
@@ -232,6 +283,7 @@ export type AttendanceRecord = {
   recordedByUserId?: string;
   note?: string;
   lateReasonCategory?: string;
+  lateReasonOptionId?: string;
   timeIn?: string;
   checkedOutAt?: string;
   lateReason?: string;
