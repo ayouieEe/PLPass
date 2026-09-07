@@ -97,13 +97,14 @@ test.describe("organizer critical journeys", () => {
     await expect(page.getByText("Select at least one participant.")).toBeVisible();
 
     await page.goto("/organizer/reports");
+    await expect(page.getByText("Student 01").first()).toBeVisible();
     await page.getByRole("button", { name: /view qr/i }).first().click();
     await expect(page.getByRole("dialog", { name: /qr credential details/i })).toBeVisible();
   });
 
   test("loads correction controls", async ({ page }) => {
     await page.goto("/organizer/corrections");
-    await expect(page.getByRole("heading", { name: "Correction Requests", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request Directory" })).toBeVisible();
     for (const name of [/^all$/i, /pending/i, /approved/i, /rejected/i]) {
       await expect(page.getByRole("button", { name })).toBeVisible();
     }

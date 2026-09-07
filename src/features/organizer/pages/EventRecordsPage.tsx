@@ -11,7 +11,6 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
@@ -490,18 +489,10 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Event Records" description="Review completed events and attendance records." />
+      <h1 className="sr-only">Event Records</h1>
+      
 
       <section className="space-y-4">
-        {pastEvents.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <EventMetricCard title="Events" value={pastEventsStats.totalEvents.toString()} icon={CalendarCheck} />
-            <EventMetricCard title="Total Present" value={pastEventsStats.totalPresent.toString()} icon={UserCheck} />
-            <EventMetricCard title="Total Absent" value={pastEventsStats.totalAbsent.toString()} icon={UserX} />
-            <EventMetricCard title="Avg Attendance" value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"} icon={BarChart3} />
-          </div>
-        ) : null}
-
         <div className="rounded-lg border bg-surface p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
@@ -509,7 +500,7 @@ export function EventRecordsPage() {
                 <FileDown className="h-4 w-4" aria-hidden="true" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Event Records</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Event Records</p>
                 <h2 className="text-sm font-bold text-foreground">Completed Events</h2>
               </div>
             </div>

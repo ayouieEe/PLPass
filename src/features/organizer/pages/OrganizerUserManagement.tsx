@@ -25,7 +25,6 @@ import {
   X
 } from "lucide-react";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -1030,10 +1029,83 @@ export function OrganizerUserManagementPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="User Management"
-        description="Manage student accounts and enrollment details."
-      />
+      <h1 className="sr-only">User Management</h1>
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <GraduationCap className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">User Management</p>
+              <h2 className="text-sm font-bold text-foreground">Student Accounts</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              <Filter className="h-3 w-3" aria-hidden="true" />
+              {filteredStudents.length} results
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px_140px_140px]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by name, ID, program, year, section..."
+              className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </label>
+
+          <select
+            value={programFilter}
+            onChange={(event) => setProgramFilter(event.target.value)}
+            className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            aria-label="Filter by program"
+          >
+            <option value="all">All programs</option>
+            {programs.map((program) => (
+              <option key={program} value={program}>
+                {program}
+              </option>
+            ))}
+          </select>
+          <select
+            value={sectionFilter}
+            onChange={(event) => setSectionFilter(event.target.value)}
+            className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            aria-label="Filter by section"
+          >
+            <option value="all">All sections</option>
+            {sections.map((section) => (
+              <option key={section} value={section}>
+                {section}
+              </option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value)}
+            className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            aria-label="Filter by account status"
+          >
+            <option value="all">All statuses</option>
+            <option value="Active">Active</option>
+            <option value="Suspended">Suspended</option>
+          </select>
+        </div>
+      </div>
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
         <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Active" icon={UserRoundCheck} />
@@ -1042,81 +1114,6 @@ export function OrganizerUserManagementPage() {
       </section>
 
       <section className="space-y-4">
-        <div className="rounded-lg border bg-surface p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-              <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-                <GraduationCap className="h-4 w-4" aria-hidden="true" />
-              </div>
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">User Management</p>
-                <h2 className="text-sm font-bold text-foreground">Student Accounts</h2>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-                <Filter className="h-3 w-3" aria-hidden="true" />
-                {filteredStudents.length} results
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsExportModalOpen(true)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
-              >
-                <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                Export
-              </button>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px_140px_140px]">
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by name, ID, program, year, section..."
-                className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              />
-            </label>
-
-            <select
-              value={programFilter}
-              onChange={(event) => setProgramFilter(event.target.value)}
-              className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              aria-label="Filter by program"
-            >
-              <option value="all">All programs</option>
-              {programs.map((program) => (
-                <option key={program} value={program}>
-                  {program}
-                </option>
-              ))}
-            </select>
-            <select
-              value={sectionFilter}
-              onChange={(event) => setSectionFilter(event.target.value)}
-              className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              aria-label="Filter by section"
-            >
-              <option value="all">All sections</option>
-              {sections.map((section) => (
-                <option key={section} value={section}>
-                  {section}
-                </option>
-              ))}
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              aria-label="Filter by account status"
-            >
-              <option value="all">All statuses</option>
-              <option value="Active">Active</option>
-              <option value="Suspended">Suspended</option>
-            </select>
-          </div>
-        </div>
         <PLPassDataGrid
           label="Student accounts"
           data={filteredStudents}

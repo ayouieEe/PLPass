@@ -1,8 +1,8 @@
 import { useMemo, type ReactNode } from "react";
-import { CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { CalendarCheck, Clock3, LayoutDashboard, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { PageHeader } from "@/components/shared/PageHeader";
+
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
