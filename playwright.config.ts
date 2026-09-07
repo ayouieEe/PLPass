@@ -13,6 +13,7 @@ export default defineConfig({
     command: "npm run build && npm run preview -- --host 127.0.0.1",
     url: "http://127.0.0.1:4173",
     reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
     env: {
       ...process.env,
       VITE_DATA_SOURCE: "mock"

@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Camera, CheckCircle2, Download, FileSpreadsheet, FileText, QrCode, RefreshCw, ScanLine, UserRound, X } from "lucide-react";
+import type { ColDef, ICellRendererParams } from "ag-grid-community";
+import { Camera, CheckCircle2, Download, FileSpreadsheet, FileText, Filter, QrCode, RefreshCw, ScanLine, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
-import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
@@ -58,18 +59,10 @@ function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
 type FacialRow = {
   studentId: string;
   studentName: string;
+  studentNumber: string;
   enrollmentDate: string;
   status: FacialStatus;
   lastScan: string;
-};
-
-type RegenerationRequest = {
-  id: string;
-  rawId: string;
-  studentName: string;
-  dateRequested: string;
-  reason: string;
-  status: "Pending" | "Approved" | "Rejected";
 };
 
 type FacialEnrollmentRequest = {
@@ -481,28 +474,15 @@ export function AuthenticationMethodsPage() {
     return {
       studentId: student.id,
       studentName: student.formattedName || student.fullName || student.studentNumber,
+      studentNumber: student.studentNumber,
       enrollmentDate: profile?.enrolledAt?.slice(0, 10) ?? "-",
       status: !profile || profile.status === "inactive" ? "Inactive" : profile.status === "activated" ? "Activated" : "Damaged",
       lastScan: profile?.lastVerifiedAt?.slice(0, 10) ?? "-"
     };
   }), [credentialMap, rawStudents]);
 
-  const { regenerationRequestsState, facialRequestsState } = useMemo(() => {
+  const { facialRequestsState } = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
-
-    const mappedQrReqs: RegenerationRequest[] = rawRequests
-      .filter((r) => r.credentialType === "qr" || !r.credentialType)
-      .map((r, index) => {
-        const studentInfo = studentMap.get(r.studentId);
-        return {
-          id: formatRequestId(r.id, index),
-          rawId: r.id,
-          studentName: studentInfo?.name || r.studentId,
-          dateRequested: r.requestedAt ? r.requestedAt.slice(0, 10) : todayStr,
-          reason: r.reason || "QR code scanning error",
-          status: r.status === "approved" ? "Approved" : r.status === "rejected" ? "Rejected" : "Pending"
-        };
-      });
 
     const mappedFacialReqs: FacialEnrollmentRequest[] = rawRequests
       .filter((r) => r.credentialType === "facial")
@@ -518,31 +498,10 @@ export function AuthenticationMethodsPage() {
         };
       });
 
-    return { regenerationRequestsState: mappedQrReqs, facialRequestsState: mappedFacialReqs };
+    return { facialRequestsState: mappedFacialReqs };
   }, [rawRequests, studentMap]);
 
-  function handleViewQr(studentName: string) {
-    setActiveModal({
-      type: "qr",
-      title: "QR credential details",
-      description: `Review the current QR credential for ${studentName}.`,
-      confirmLabel: "Close",
-      studentName
-    });
-  }
-
-  function handleRegenerateQr(studentName: string) {
-    setActiveModal({
-      type: "qr",
-      title: "Regenerate QR credential",
-      description: `This action will issue a fresh QR credential for ${studentName}.`,
-      confirmLabel: "Confirm regeneration",
-      cancelLabel: "Cancel",
-      studentName
-    });
-  }
-
-  function handleDisableQr(studentName: string) {
+  const handleDisableQr = useCallback((studentName: string) => {
     setActiveModal({
       type: "qr",
       title: "Are you sure?",
@@ -552,9 +511,27 @@ export function AuthenticationMethodsPage() {
       tone: "danger",
       studentName
     });
-  }
+  }, []);
 
-  function handleApproveRequest(requestId: string) {
+  const handleViewQr = useCallback((studentName: string) => {
+    setActiveModal({
+      type: "qr",
+      title: "QR credential details",
+      description: `Review the current QR credential for ${studentName}.`,
+      confirmLabel: "Close",
+      studentName
+    });
+  }, []);
+
+  const handleQuickViewQr = useCallback(() => {
+    if (!qrRows.length) {
+      toast.warning("No QR credentials available to preview.");
+      return;
+    }
+    handleViewQr(qrRows[0].studentName);
+  }, [handleViewQr, qrRows]);
+
+  const handleApproveRequest = useCallback((requestId: string) => {
     setActiveModal({
       type: "request",
       title: "Are you sure?",
@@ -563,9 +540,9 @@ export function AuthenticationMethodsPage() {
       cancelLabel: "Cancel",
       requestId
     });
-  }
+  }, []);
 
-  function handleApproveFacialRequest(requestId: string) {
+  const handleApproveFacialRequest = useCallback((requestId: string) => {
     setActiveModal({
       type: "request",
       title: "Are you sure?",
@@ -574,9 +551,9 @@ export function AuthenticationMethodsPage() {
       cancelLabel: "Cancel",
       requestId
     });
-  }
+  }, []);
 
-  function handleViewFacial(studentName: string) {
+  const handleViewFacial = useCallback((studentName: string) => {
     setActiveModal({
       type: "facial",
       title: "Facial enrollment details",
@@ -584,9 +561,9 @@ export function AuthenticationMethodsPage() {
       confirmLabel: "Close",
       studentName
     });
-  }
+  }, []);
 
-  function handleReEnrollFacial(studentName: string) {
+  const handleReEnrollFacial = useCallback((studentName: string) => {
     setActiveModal({
       type: "facial",
       title: "Re-enroll facial credential",
@@ -595,9 +572,9 @@ export function AuthenticationMethodsPage() {
       cancelLabel: "Cancel",
       studentName
     });
-  }
+  }, []);
 
-  function handleDeactivateFacial(studentName: string) {
+  const handleDeactivateFacial = useCallback((studentName: string) => {
     setActiveModal({
       type: "facial",
       title: "Are you sure?",
@@ -607,7 +584,7 @@ export function AuthenticationMethodsPage() {
       tone: "danger",
       studentName
     });
-  }
+  }, []);
 
   async function confirmModalAction() {
     if (!activeModal) return;
@@ -619,18 +596,13 @@ export function AuthenticationMethodsPage() {
         setActiveModal(null);
         return;
       }
-      if (activeModal.title.includes("Regenerate")) {
-        await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
-        toast.success(`QR credential regenerated for ${activeModal.studentName}.`);
-      } else if (activeModal.title.includes("Disable")) {
+      if (activeModal.title.includes("Disable")) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
           status: "inactive"
         });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
-      } else {
-        toast.success(`QR credential for ${activeModal.studentName} opened.`);
       }
     }
 
@@ -676,22 +648,135 @@ export function AuthenticationMethodsPage() {
     return facialRows.find((r) => r.studentName === activeModal.studentName);
   }, [activeModal?.studentName, facialRows]);
 
+  const qrColumns = useMemo<ColDef<QrRow>[]>(() => [
+    { headerName: "School ID", field: "studentNumber", minWidth: 120 },
+    { headerName: "Student Name", field: "studentName", minWidth: 200, flex: 1 },
+    {
+      headerName: "QR Status",
+      field: "status",
+      minWidth: 130,
+      cellRenderer: ({ value }: ICellRendererParams<QrRow, QRStatus>) => (
+        <StatusBadge label={value ?? "Disabled"} tone={qrTone(value ?? "Disabled")} />
+      )
+    },
+    { headerName: "Date Generated", field: "dateGenerated", minWidth: 150 },
+    { headerName: "Last Used", field: "lastUsed", minWidth: 150 },
+    {
+      headerName: "Actions",
+      colId: "actions",
+      minWidth: 240,
+      pinned: "right",
+      sortable: false,
+      filter: false,
+      cellRenderer: ({ data }: ICellRendererParams<QrRow>) =>
+        data ? (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewQr(data.studentName)}>
+              View QR
+            </Button>
+            <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDisableQr(data.studentName)}>
+              Disable
+            </Button>
+          </div>
+        ) : null
+    }
+  ], [handleDisableQr, handleViewQr]);
+
+  const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
+    { headerName: "School ID", field: "studentNumber", minWidth: 120 },
+    { headerName: "Student Name", field: "studentName", minWidth: 200, flex: 1 },
+    { headerName: "Enrollment Date", field: "enrollmentDate", minWidth: 150 },
+    {
+      headerName: "Status",
+      field: "status",
+      minWidth: 130,
+      cellRenderer: ({ value }: ICellRendererParams<FacialRow, FacialStatus>) => (
+        <StatusBadge label={value ?? "Inactive"} tone={facialTone(value ?? "Inactive")} />
+      )
+    },
+    { headerName: "Last Scan", field: "lastScan", minWidth: 150 },
+    {
+      headerName: "Actions",
+      colId: "actions",
+      minWidth: 280,
+      pinned: "right",
+      sortable: false,
+      filter: false,
+      cellRenderer: ({ data }: ICellRendererParams<FacialRow>) =>
+        data ? (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewFacial(data.studentName)}><UserRound className="mr-2 h-4 w-4" />View</Button>
+            <Button type="button" variant="secondary" size="sm" className="shadow-sm" onClick={() => handleReEnrollFacial(data.studentName)}><RefreshCw className="mr-2 h-4 w-4" />Re-enroll</Button>
+            <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDeactivateFacial(data.studentName)}>Disable</Button>
+          </div>
+        ) : null
+    }
+  ], [handleViewFacial, handleReEnrollFacial, handleDeactivateFacial]);
+
+  const facialRequestColumns = useMemo<ColDef<FacialEnrollmentRequest>[]>(() => [
+    { headerName: "Request ID", field: "id", minWidth: 120 },
+    { headerName: "Student", field: "studentName", minWidth: 200, flex: 1 },
+    { headerName: "Issue", field: "issue", minWidth: 200 },
+    { headerName: "Date", field: "dateRequested", minWidth: 120 },
+    {
+      headerName: "Status",
+      field: "status",
+      minWidth: 120,
+      cellRenderer: ({ value }: ICellRendererParams<FacialEnrollmentRequest, FacialEnrollmentRequest["status"]>) => (
+        <StatusBadge label={value ?? "Pending"} tone={value === "Approved" ? "success" : value === "Rejected" ? "danger" : "warning"} />
+      )
+    },
+    {
+      headerName: "Action",
+      colId: "actions",
+      minWidth: 120,
+      pinned: "right",
+      sortable: false,
+      filter: false,
+      cellRenderer: ({ data }: ICellRendererParams<FacialEnrollmentRequest>) =>
+        data ? (
+          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(data.rawId)} disabled={data.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
+        ) : null
+    }
+  ], [handleApproveFacialRequest, credentialRequestsQuery.reviewMutation.isPending]);
+
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Authentication Methods"
-        description="Manage the ways students verify attendance."
-        actions={
-          <button
-            type="button"
-            onClick={() => setIsExportModalOpen(true)}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-          >
-            <Download className="h-4 w-4" aria-hidden="true" />
-            Export Report
-          </button>
-        }
-      />
+      <h1 className="sr-only">Authentication Methods</h1>
+      
+
+      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
+            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+              <QrCode className="h-4 w-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Authentication</p>
+              <h2 className="text-sm font-bold text-foreground">Methods & Requests</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {activeTab === "qr" ? (
+              <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleQuickViewQr}>
+                View QR
+              </Button>
+            ) : null}
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              <Filter className="h-3 w-3" aria-hidden="true" />
+              {activeTab === "qr" ? qrRows.length : facialRows.length} results
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-1">
         <button
@@ -775,7 +860,7 @@ export function AuthenticationMethodsPage() {
 
       {activeTab === "qr" ? (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-lg border bg-surface p-4">
               <p className="text-sm text-muted-foreground">Total QR Credentials</p>
               <p className="mt-2 text-2xl font-semibold">{qrRows.length}</p>
@@ -785,106 +870,20 @@ export function AuthenticationMethodsPage() {
               <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Active").length}</p>
             </div>
             <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Pending Regeneration Requests</p>
-              <p className="mt-2 text-2xl font-semibold">{regenerationRequestsState.filter((row) => row.status === "Pending").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
               <p className="text-sm text-muted-foreground">Disabled QR Credentials</p>
               <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Disabled").length}</p>
             </div>
           </div>
 
-          <section className="rounded-lg border bg-surface p-4">
-            <div>
-              <h2 className="text-lg font-semibold">Student QR Credentials</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Manage student QR credentials used for authentication.</p>
-            </div>
-            <div className="mt-4 overflow-hidden rounded-lg border bg-background">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/60 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Student ID</th>
-                    <th className="px-3 py-2">Student Name</th>
-                    <th className="px-3 py-2">QR Status</th>
-                    <th className="px-3 py-2">Date Generated</th>
-                    <th className="px-3 py-2">Last Used</th>
-                    <th className="px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {qrRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                        {studentsQuery.isLoading ? "Loading student credentials..." : "No student QR credentials found."}
-                      </td>
-                    </tr>
-                  ) : (
-                    qrRows.map((row) => (
-                      <tr key={row.studentId} className="border-t">
-                        <td className="px-3 py-2">{row.studentId}</td>
-                        <td className="px-3 py-2">{row.studentName}</td>
-                        <td className="px-3 py-2"><StatusBadge label={row.status} tone={qrTone(row.status)} /></td>
-                        <td className="px-3 py-2">{row.dateGenerated}</td>
-                        <td className="px-3 py-2">{row.lastUsed}</td>
-                        <td className="px-3 py-2">
-                          <div className="rounded-lg border border-border/80 bg-muted/40 p-2 shadow-sm">
-                            <div className="flex flex-wrap gap-2">
-                              <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewQr(row.studentName)}><ScanLine className="mr-2 h-4 w-4" />View QR</Button>
-                              <Button type="button" variant="secondary" size="sm" className="shadow-sm" onClick={() => handleRegenerateQr(row.studentName)}><RefreshCw className="mr-2 h-4 w-4" />Regenerate</Button>
-                              <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDisableQr(row.studentName)}>Disable</Button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="rounded-lg border bg-surface p-4">
-            <div>
-              <h2 className="text-lg font-semibold">QR Regeneration Requests</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Students can request new QR credentials when their code is not working.</p>
-            </div>
-            <div className="mt-4 overflow-hidden rounded-lg border bg-background">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/60 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Request ID</th>
-                    <th className="px-3 py-2">Student</th>
-                    <th className="px-3 py-2">Date Requested</th>
-                    <th className="px-3 py-2">Reason</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {regenerationRequestsState.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                        {credentialRequestsQuery.isLoading ? "Loading requests..." : "No QR regeneration requests found."}
-                      </td>
-                    </tr>
-                  ) : (
-                    regenerationRequestsState.map((request) => (
-                      <tr key={request.id} className="border-t">
-                        <td className="px-3 py-2">{request.id}</td>
-                        <td className="px-3 py-2">{request.studentName}</td>
-                        <td className="px-3 py-2">{request.dateRequested}</td>
-                        <td className="px-3 py-2">{request.reason}</td>
-                        <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
-                        <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveRequest(request.rawId)} disabled={request.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <PLPassDataGrid
+            label="Student QR Credentials"
+            data={qrRows}
+            columns={qrColumns}
+            isLoading={studentsQuery.isLoading}
+            emptyTitle="No QR credentials found"
+            emptyDescription="There are no student QR credentials to display."
+            enableQuickFilter
+          />
         </div>
       ) : (
         <div className="space-y-6">
@@ -907,97 +906,25 @@ export function AuthenticationMethodsPage() {
             </div>
           </div>
 
-          <section className="rounded-lg border bg-surface p-4">
-            <div>
-              <h2 className="text-lg font-semibold">Facial Enrollment Records</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Monitor facial enrollment status and manage credential issues.</p>
-            </div>
-            <div className="mt-4 overflow-hidden rounded-lg border bg-background">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/60 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Student ID</th>
-                    <th className="px-3 py-2">Student Name</th>
-                    <th className="px-3 py-2">Enrollment Date</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Last Scan</th>
-                    <th className="px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {facialRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                        {studentsQuery.isLoading ? "Loading facial records..." : "No facial enrollment records found."}
-                      </td>
-                    </tr>
-                  ) : (
-                    facialRows.map((row) => (
-                      <tr key={row.studentId} className="border-t">
-                        <td className="px-3 py-2">{row.studentId}</td>
-                        <td className="px-3 py-2">{row.studentName}</td>
-                        <td className="px-3 py-2">{row.enrollmentDate}</td>
-                        <td className="px-3 py-2"><StatusBadge label={row.status} tone={facialTone(row.status)} /></td>
-                        <td className="px-3 py-2">{row.lastScan}</td>
-                        <td className="px-3 py-2">
-                          <div className="rounded-lg border border-border/80 bg-muted/40 p-2 shadow-sm">
-                            <div className="flex flex-wrap gap-2">
-                              <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewFacial(row.studentName)}><UserRound className="mr-2 h-4 w-4" />View</Button>
-                              <Button type="button" variant="secondary" size="sm" className="shadow-sm" onClick={() => handleReEnrollFacial(row.studentName)}><RefreshCw className="mr-2 h-4 w-4" />Re-enroll</Button>
-                              <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDeactivateFacial(row.studentName)}>Disable</Button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <PLPassDataGrid
+            label="Facial Enrollment Records"
+            data={facialRows}
+            columns={facialColumns}
+            isLoading={studentsQuery.isLoading}
+            emptyTitle="No facial enrollment records found"
+            emptyDescription="There are no facial enrollment records to display."
+            enableQuickFilter
+          />
 
-          <section className="rounded-lg border bg-surface p-4">
-            <div>
-              <h2 className="text-lg font-semibold">Enrollment Requests</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Review student-reported facial enrollment issues and re-enrollment requests.</p>
-            </div>
-            <div className="mt-4 overflow-hidden rounded-lg border bg-background">
-              <table className="min-w-full text-sm">
-                <thead className="bg-muted/60 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Request ID</th>
-                    <th className="px-3 py-2">Student</th>
-                    <th className="px-3 py-2">Issue</th>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {facialRequestsState.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-muted-foreground">
-                        {credentialRequestsQuery.isLoading ? "Loading enrollment requests..." : "No pending facial enrollment requests found."}
-                      </td>
-                    </tr>
-                  ) : (
-                    facialRequestsState.map((request) => (
-                      <tr key={request.id} className="border-t">
-                        <td className="px-3 py-2">{request.id}</td>
-                        <td className="px-3 py-2">{request.studentName}</td>
-                        <td className="px-3 py-2">{request.issue}</td>
-                        <td className="px-3 py-2">{request.dateRequested}</td>
-                        <td className="px-3 py-2"><StatusBadge label={request.status} tone={request.status === "Approved" ? "success" : request.status === "Rejected" ? "danger" : "warning"} /></td>
-                        <td className="px-3 py-2">
-                          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(request.rawId)} disabled={request.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <PLPassDataGrid
+            label="Enrollment Requests"
+            data={facialRequestsState}
+            columns={facialRequestColumns}
+            isLoading={credentialRequestsQuery.isLoading}
+            emptyTitle="No pending facial enrollment requests found"
+            emptyDescription="There are no facial enrollment requests to review."
+            enableQuickFilter
+          />
         </div>
       )}
 
