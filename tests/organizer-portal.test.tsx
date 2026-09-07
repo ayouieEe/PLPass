@@ -11,12 +11,17 @@ import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
 
 vi.mock("@/components/data-display/PLPassDataGrid", () => ({
-  PLPassDataGrid: ({ toolbarActions, data, onSelectionChange }: { toolbarActions?: ReactNode; data?: Array<{ code?: string; requestId?: string; id?: string; name?: string; title?: string }> ; onSelectionChange?: (rows: Array<{ code?: string; requestId?: string; id?: string; name?: string; title?: string }>) => void }) => (
+  PLPassDataGrid: ({ toolbarActions, data, columns, onSelectionChange }: any) => (
     <div>
       {toolbarActions}
       <button type="button" onClick={() => onSelectionChange?.(data?.slice(0, 1) ?? [])}>Select first row</button>
       <div data-testid="mock-grid-rows">
-        {(data ?? []).map((row) => <div key={row.id ?? row.requestId ?? row.code}>{row.name ?? row.title ?? row.requestId ?? row.code ?? row.id}</div>)}
+        {(data ?? []).map((row: any) => (
+          <div key={row.id ?? row.requestId ?? row.studentId ?? row.code}>
+            {row.name ?? row.studentName ?? row.title ?? row.requestId ?? row.code ?? row.id}
+            {columns?.find((c: any) => c.colId === "actions")?.cellRenderer?.({ data: row })}
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -85,8 +90,8 @@ describe("organizer route access", () => {
     setRoute("/organizer/analytics");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /event attendance prediction/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /insights & reporting/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /turnout forecast/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /attendance trends/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /feedback & sentiment/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /late arrival patterns/i })).toBeInTheDocument();
@@ -278,9 +283,9 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     const user = userEvent.setup();
-    await user.click((await screen.findAllByRole("button", { name: /view qr/i }))[0]);
+    await user.click((await screen.findAllByRole("button", { name: /^disable$/i }))[0]);
 
-    expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /are you sure\?/i })).toBeInTheDocument();
     expect(screen.getByText(/qr credential preview/i)).toBeInTheDocument();
   });
 
@@ -347,7 +352,7 @@ describe("organizer UI flows", () => {
     render(<App />);
     const user = userEvent.setup();
 
-    expect(await screen.findByRole("heading", { name: "Create Event" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Event Details" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Publish Event" }));
 
     expect(await screen.findByText("Select at least one participant.")).toBeInTheDocument();
