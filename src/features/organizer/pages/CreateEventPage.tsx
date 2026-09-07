@@ -692,7 +692,7 @@ export function CreateEventPage() {
   }
   return (
     <OrganizerFrame>
-      
+      <h1 className="sr-only">Create Event</h1>
       <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
