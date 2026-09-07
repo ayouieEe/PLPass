@@ -22,7 +22,10 @@ import {
   ShieldCheck,
   UserRoundCheck,
   Users,
-  X
+  X,
+  UserPlus,
+  UploadCloud,
+  FileDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -35,8 +38,12 @@ import {
   useStudentCredentialMutations,
   useStudentCredentialStatuses,
   useStudents,
-  useAuditLogMutations
+  useAuditLogMutations,
+  useStudentMutations
 } from "@/hooks/useRepositoryQueries";
+import Papa from "papaparse";
+import { downloadStudentCsvTemplate } from "@/features/organizer/utils/csvTemplate";
+import type { CreateStudentInput } from "@/services/contracts";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -786,6 +793,231 @@ function ReportExportModal({
   );
 }
 
+function AddStudentModal({
+  isOpen,
+  onClose,
+  mutations,
+  programs,
+  departments
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  mutations: ReturnType<typeof useStudentMutations>;
+  programs: any[];
+  departments: any[];
+}) {
+  const [formData, setFormData] = useState<CreateStudentInput>({
+    studentNumber: "",
+    email: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
+    programId: "",
+    departmentId: "",
+    sectionId: "",
+    yearLevel: 1
+  });
+  const [isLoading, setIsLoading] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await mutations.createStudentMutation.mutateAsync(formData);
+      toast.success("Student added successfully");
+      onClose();
+    } catch (error) {
+      toast.error("Failed to add student");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <h2 className="text-lg font-bold text-foreground">Add Student Manually</h2>
+          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name (Optional)</label>
+            <input type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Student Number</label>
+            <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.studentNumber} onChange={(e) => setFormData({ ...formData, studentNumber: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+            <input required type="email" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}>
+                <option value="">Select Department</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.code}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Program</label>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value })}>
+                <option value="">Select Program</option>
+                {programs.filter(p => !formData.departmentId || p.departmentId === formData.departmentId).map((p) => (
+                  <option key={p.id} value={p.id}>{p.code}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Year Level</label>
+              <input required type="number" min="1" max="5" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel || ""} onChange={(e) => { const v = parseInt(e.target.value, 10); setFormData({ ...formData, yearLevel: isNaN(v) ? 0 : v }); }} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Section</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })} />
+            </div>
+          </div>
+          <div className="pt-4 flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
+              {isLoading ? "Saving..." : "Save Student"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function BulkAddStudentModal({
+  isOpen,
+  onClose,
+  mutations,
+  programs,
+  departments
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  mutations: ReturnType<typeof useStudentMutations>;
+  programs: any[];
+  departments: any[];
+}) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [fileError, setFileError] = useState("");
+
+  if (!isOpen) return null;
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setFileError("");
+    setIsLoading(true);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const parsedData = results.data as any[];
+          const inputs: CreateStudentInput[] = parsedData.map(row => {
+            const dept = departments.find(d => d.code === row["Department Code"]);
+            const prog = programs.find(p => p.code === row["Program Code"]);
+            if (!dept || !prog) {
+              throw new Error(`Invalid department or program code for student ${row["Student Number"]}`);
+            }
+            return {
+              studentNumber: row["Student Number"],
+              email: row["Email"],
+              firstName: row["First Name"],
+              middleName: row["Middle Name"],
+              lastName: row["Last Name"],
+              programId: prog.id,
+              departmentId: dept.id,
+              sectionId: row["Section Name"],
+              yearLevel: parseInt(row["Year Level"], 10) || 1
+            };
+          });
+
+          await mutations.bulkCreateStudentsMutation.mutateAsync(inputs);
+          toast.success(`Successfully imported ${inputs.length} students`);
+          onClose();
+        } catch (error: any) {
+          setFileError(error.message || "Failed to process the CSV file.");
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      error: () => {
+        setFileError("Error reading the CSV file.");
+        setIsLoading(false);
+      }
+    });
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-foreground">Bulk Import Students</h2>
+          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        
+        <div className="mb-6 rounded-md bg-slate-50 border p-4 text-sm text-slate-600">
+          <p className="mb-3 font-semibold">Instructions:</p>
+          <ol className="list-decimal pl-4 space-y-1">
+            <li>Download the template file.</li>
+            <li>Fill in student details exactly matching the headers.</li>
+            <li>Use existing Program/Department codes.</li>
+            <li>Upload the completed CSV file below.</li>
+          </ol>
+          <button type="button" onClick={downloadStudentCsvTemplate} className="mt-4 flex items-center gap-2 text-primary hover:underline font-medium">
+            <FileDown className="h-4 w-4" /> Download Template
+          </button>
+        </div>
+
+        {fileError && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
+            {fileError}
+          </div>
+        )}
+
+        <div className="flex justify-center">
+          <label className={`cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition hover:bg-slate-50 ${isLoading ? "opacity-50 pointer-events-none" : ""}`}>
+            <UploadCloud className="mx-auto h-8 w-8 text-slate-400 mb-2" />
+            <span className="text-sm font-medium text-slate-600">{isLoading ? "Processing..." : "Click to select CSV file"}</span>
+            <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={isLoading} />
+          </label>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 export function OrganizerUserManagementPage() {
   const scope = useOrganizerScope();
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
@@ -795,11 +1027,15 @@ export function OrganizerUserManagementPage() {
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
+  const studentMutations = useStudentMutations(scope.context);
 
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
+  const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
 
   const studentAccounts = useMemo<StudentAccount[]>(() => {
     const rawStudents = studentsQuery.data?.items ?? [];
@@ -1046,6 +1282,23 @@ export function OrganizerUserManagementPage() {
               <Filter className="h-3 w-3" aria-hidden="true" />
               {filteredStudents.length} results
             </span>
+            <div className="h-4 w-px bg-slate-200 mx-1"></div>
+            <button
+              type="button"
+              onClick={() => setIsAddStudentModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary bg-primary px-3 text-xs font-semibold text-white transition hover:border-primary/90 hover:bg-primary/90"
+            >
+              <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+              Add Student
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsBulkAddModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              <UploadCloud className="h-3.5 w-3.5" aria-hidden="true" />
+              Bulk Add
+            </button>
             <button
               type="button"
               onClick={() => setIsExportModalOpen(true)}
@@ -1148,6 +1401,20 @@ export function OrganizerUserManagementPage() {
             metadata
           });
         }}
+      />
+      <AddStudentModal
+        isOpen={isAddStudentModalOpen}
+        onClose={() => setIsAddStudentModalOpen(false)}
+        mutations={studentMutations}
+        programs={academicCatalog.programs.data?.items ?? []}
+        departments={academicCatalog.departments.data?.items ?? []}
+      />
+      <BulkAddStudentModal
+        isOpen={isBulkAddModalOpen}
+        onClose={() => setIsBulkAddModalOpen(false)}
+        mutations={studentMutations}
+        programs={academicCatalog.programs.data?.items ?? []}
+        departments={academicCatalog.departments.data?.items ?? []}
       />
     </div>
   );

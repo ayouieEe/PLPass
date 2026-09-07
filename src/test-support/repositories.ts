@@ -570,6 +570,52 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
+  async createStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const newStudent: Student = {
+      id: `student-simulated-${Date.now()}`,
+      userId: `user-simulated-${Date.now()}`,
+      studentNumber: input.studentNumber,
+      status: "enrolled",
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      createdAt: new Date().toISOString(),
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    studentFixtures.push(newStudent);
+    return newStudent;
+  },
+  async bulkCreateStudents(inputs, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    let success = 0;
+    for (const input of inputs) {
+      const newStudent: Student = {
+        id: `student-simulated-${Date.now()}-${success}`,
+        userId: `user-simulated-${Date.now()}-${success}`,
+        studentNumber: input.studentNumber,
+        status: "enrolled",
+        programId: input.programId,
+        departmentId: input.departmentId,
+        yearLevel: input.yearLevel,
+        section: input.sectionId,
+        createdAt: new Date().toISOString(),
+        email: input.email,
+        firstName: input.firstName,
+        middleName: input.middleName,
+        lastName: input.lastName,
+        fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+      };
+      studentFixtures.push(newStudent);
+      success++;
+    }
+    return { success, failed: 0 };
+  },
   async listFacultyProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin", "faculty", "student"]);
     const currentContext = contextOrDefault(context);
