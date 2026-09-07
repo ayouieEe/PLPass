@@ -188,7 +188,6 @@ export function StudentEventDetailsPage() {
     return <ErrorState title="Event unavailable" message="This event is not published for students." />;
   }
   const feedbackObjectives = objectivesQuery.data ?? [];
-  const hasConfiguredObjectives = feedbackObjectives.length > 0;
   const displayObjectives = feedbackObjectives;
   const currentEventId = event.id;
   const repositoryRecords = recordsForStudentEvents({
