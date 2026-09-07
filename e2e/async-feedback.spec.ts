@@ -40,6 +40,14 @@ test("student correction success remains available as an inline status", async (
   await recordTrigger.click();
   await page.getByRole("option", { name: /Business Forum.*absent/i }).click();
   await page.getByLabel("Reason & Explanation").fill("I attended the event but my attendance was not recorded correctly.");
+  await page.route("**/rest/v1/correction_requests*", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 201, json: [{ id: "mock-id", status: "pending" }] });
+    } else {
+      await route.continue();
+    }
+  });
+
   await page.getByRole("button", { name: "Submit correction request" }).click();
 
   const success = page.getByRole("status").filter({ hasText: "Correction request submitted successfully." });

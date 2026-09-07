@@ -9,6 +9,7 @@ import type {
   CreateCorrectionRequestInput,
   CreateEventInput,
   CreateEventSessionInput,
+  CreateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
   EnrollFacialProfileInput,
@@ -91,6 +92,30 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
     retry: retryUnlessTimedOut,
     enabled: Boolean(context)
   });
+}
+
+export function useStudentMutations(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const invalidateStudents = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["students"] });
+  };
+  
+  return {
+    createStudentMutation: useMutation({
+      mutationFn: (input: CreateStudentInput) => repositories.userManagement.createStudent(input, context),
+      onSuccess: invalidateStudents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
+    }),
+    bulkCreateStudentsMutation: useMutation({
+      mutationFn: (inputs: CreateStudentInput[]) => repositories.userManagement.bulkCreateStudents(inputs, context),
+      onSuccess: invalidateStudents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
+    })
+  };
 }
 
 export function useFacultyProfiles(query?: Partial<ListQuery>, context?: RepositoryContext) {

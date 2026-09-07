@@ -265,7 +265,7 @@ begin
     set participant_status = excluded.participant_status,
         updated_at = now();
 
-  insert into public.event_sessions (
+  insert into public.attendance_sessions (
     id,
     event_id,
     session_name,
@@ -365,7 +365,7 @@ begin
 
   insert into public.attendance_records (
     id,
-    event_session_id,
+    session_id,
     student_id,
     attendance_status,
     verification_method,
@@ -422,7 +422,7 @@ begin
     );
 
   insert into public.attendance_records (
-    event_session_id,
+    session_id,
     student_id,
     attendance_status,
     verification_method,
@@ -497,7 +497,7 @@ begin
     from unnest(v_student_ids) with ordinality as selected_students(student_id, ordinality)
     where student_id <> v_student_id
   ) seeded
-  on conflict (event_session_id, student_id) where event_session_id is not null do update
+  on conflict (session_id, student_id) where session_id is not null do update
     set attendance_status = excluded.attendance_status,
         verification_method = excluded.verification_method,
         time_in = excluded.time_in,
