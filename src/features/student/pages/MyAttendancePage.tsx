@@ -237,7 +237,6 @@ export function MyAttendancePage() {
     || record.status === "excused"
     || isCompletedAttendedRecord(record)
   ));
-  const completedAttendedCount = finalizedRecords.filter((record) => record.status === "present" || record.status === "late").length;
   const pendingTaskCount = pendingTaskRecords.length;
   const yearOptions = (finalizedEventYearsQuery.data ?? []).map(String);
   const visibleRecords = finalizedRecords.filter((record) => {
@@ -273,7 +272,6 @@ export function MyAttendancePage() {
   const feedbackTask = taskForRecord(feedbackRecord);
   const feedbackObjectives = feedbackTask?.objectives ?? [];
   const hasConfiguredObjectives = feedbackObjectives.length > 0;
-  const displayObjectives = feedbackObjectives;
   const canSubmitFeedback = hasConfiguredObjectives && feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0);
 
   async function submitLateReason() {
