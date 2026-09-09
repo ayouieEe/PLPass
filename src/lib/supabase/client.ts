@@ -34,7 +34,9 @@ export function getSupabaseBrowserClient() {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true
+        // Recovery links are handled explicitly by ResetPasswordPage so both
+        // PKCE query codes and implicit fragment tokens are verified safely.
+        detectSessionInUrl: false
       }
     });
   }

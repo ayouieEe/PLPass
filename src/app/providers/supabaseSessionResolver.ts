@@ -125,12 +125,17 @@ function databaseQueryError(error: unknown): SupabaseAuthResolutionError {
 
 export function toSafeAuthErrorMessage(error: unknown) {
   if (error instanceof SupabaseAuthResolutionError) {
-    return `${error.message} [${error.code}]`;
+    if (error.code === "AUTH_FAILED") return "We couldn't sign you in with those details. Check your email and password, then try again.";
+    if (error.code === "AUTH_TIMEOUT") return "Sign-in is taking longer than expected. Check your internet connection and try again.";
+    if (error.code === "ACCOUNT_INACTIVE") return error.message;
+    if (error.code === "UNSUPPORTED_ROLE") return "This account role is not available in PLPass yet. Contact PLPass support for help.";
+    if (error.code === "PROFILE_MISSING" || error.code === "STUDENT_RECORD_MISSING" || error.code === "ORGANIZER_RECORD_MISSING") return "Your PLPass account is not fully set up. Contact PLPass support for help.";
+    return "PLPass sign-in is temporarily unavailable. Please try again later.";
   }
   if (error instanceof Error) {
-    return `${error.message} [UNEXPECTED_RESOLVER_ERROR]`;
+    if (error.message.toLowerCase().includes("configuration")) return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
   }
-  return "Unexpected resolver error. [UNEXPECTED_RESOLVER_ERROR]";
+  return "PLPass sign-in is temporarily unavailable. Please try again later.";
 }
 
 export function shouldSignOutAfterAuthFailure(error: unknown) {
@@ -140,8 +145,8 @@ export function shouldSignOutAfterAuthFailure(error: unknown) {
   return true;
 }
 
-export function authFailure(message: string): SupabaseAuthResolutionError {
-  return new SupabaseAuthResolutionError("AUTH_FAILED", message, false);
+export function authFailure(): SupabaseAuthResolutionError {
+  return new SupabaseAuthResolutionError("AUTH_FAILED", "Incorrect email or password.", false);
 }
 
 export function authTimeoutFailure(): SupabaseAuthResolutionError {
@@ -241,7 +246,7 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
     if (accountStatus === "inactive" || accountStatus === "suspended") {
       throw new SupabaseAuthResolutionError(
         "ACCOUNT_INACTIVE",
-        `Your PLPass account is ${accountStatus}. Contact an administrator for access.`,
+        `This PLPass account is ${accountStatus}. Contact PLPass support if you believe this is a mistake.`,
         true
       );
     }

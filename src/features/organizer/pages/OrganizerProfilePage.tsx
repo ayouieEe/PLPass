@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -47,10 +48,6 @@ export function OrganizerProfilePage() {
   const auditLogMutations = useAuditLogMutations(context);
 
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   useEffect(() => {
@@ -168,68 +165,16 @@ export function OrganizerProfilePage() {
     }
   }
 
-  async function handlePasswordSubmit(event: React.FormEvent) {
-    event.preventDefault();
-
-    if (!oldPassword || !newPassword || !confirmPassword) {
-      toast.error("Please fill out all password fields.");
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      toast.error("New password must be at least 8 characters long.");
-      return;
-    }
-
-    if (newPassword === oldPassword) {
-      toast.error("Your new password must be different from your current password.");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast.error("New password and confirmation do not match.");
-      return;
-    }
-
-    setIsChangingPassword(true);
+  async function recordPasswordChange() {
     try {
-      const client = getSupabaseBrowserClient();
-      const email = organizerEmail.trim();
-      if (!email) {
-        throw new Error("Your organizer account does not have an email address.");
-      }
-
-      const { error: reauthenticationError } = await client.auth.signInWithPassword({
-        email,
-        password: oldPassword
-      });
-      if (reauthenticationError) {
-        throw new Error("The current password is incorrect.");
-      }
-
-      const { error: updateError } = await client.auth.updateUser({ password: newPassword });
-      if (updateError) throw updateError;
-
-      toast.success("Password changed successfully.");
-      setOldPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-
-      try {
-        await auditLogMutations.logActionMutation.mutateAsync({
+      await auditLogMutations.logActionMutation.mutateAsync({
           action: "Changed Password",
           targetType: "organizer_profile",
           targetId: organizerUserId,
           metadata: { method: "reauthenticated_password_change" }
         });
-      } catch {
-        // The password update already succeeded. The audit mutation reports its
-        // own error and must not incorrectly tell the organizer that it failed.
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to change the password.");
-    } finally {
-      setIsChangingPassword(false);
+    } catch {
+      // Password change already succeeded; audit logging must not report it as failed.
     }
   }
 
@@ -304,26 +249,7 @@ export function OrganizerProfilePage() {
               Change password
             </h3>
 
-            <form onSubmit={handlePasswordSubmit} className="mt-4 max-w-md space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Current Password</label>
-                <input type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={oldPassword} onChange={(event) => setOldPassword(event.target.value)} placeholder="••••••••" />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">New Password</label>
-                <input type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="••••••••" />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Confirm New Password</label>
-                <input type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="••••••••" />
-              </div>
-
-              <Button type="submit" disabled={isChangingPassword} className="mt-2 px-6">
-                {isChangingPassword ? "Updating..." : "Update Password"}
-              </Button>
-            </form>
+            <ChangePasswordForm email={organizerEmail} onChanged={recordPasswordChange} />
           </div>
         </div>
       </div>

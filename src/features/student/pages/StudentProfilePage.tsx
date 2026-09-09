@@ -28,6 +28,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate } from "@/lib/utils/date";
 import {
@@ -237,9 +238,8 @@ export function StudentProfilePage() {
               Account Security
             </h3>
 
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
-              Password resets and account access changes are handled by an administrator. If you cannot access your account, contact the PLPass support person assigned to your class or event.
-            </div>
+            <ChangePasswordForm email={user.email} />
+            <p className="text-sm text-muted-foreground">Forgot your password? Use the “Forgot password?” link on the sign-in page to receive a reset link at your school email.</p>
           </div>
         </div>
       </div>

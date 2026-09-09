@@ -23,8 +23,8 @@ const storedSessions: Partial<Record<UserRole, string>> = {
   })
 };
 
-function setRoute(path: string) {
-  window.history.pushState({}, "", path);
+function setRoute(path: string, state: Record<string, unknown> = {}) {
+  window.history.pushState({ usr: state, key: "test", idx: 0 }, "", path);
 }
 
 function storeSession(role: UserRole) {
@@ -114,6 +114,25 @@ describe("mock authentication flow", () => {
     expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeInTheDocument();
   });
 
+  it("confirms a successful password reset on the login page", async () => {
+    setRoute("/login", { passwordReset: true });
+    render(<App />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Password updated. Sign in with your new password.");
+  });
+
+  it("uses generic guidance for unsuccessful sign-in attempts", async () => {
+    const user = userEvent.setup();
+    setRoute("/login");
+    render(<App />);
+
+    await user.type(await screen.findByLabelText(/email/i), "unknown@example.test");
+    await user.type(screen.getByLabelText(/^password$/i), "not-a-password");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("We couldn't sign you in with those details. Check your email and password, then try again.");
+  });
+
   it("logs out from the profile page", async () => {
     const user = userEvent.setup();
     storeSession("organizer");
@@ -168,23 +187,23 @@ describe("shared user pages", () => {
 
     await screen.findByRole("heading", { name: "Forgot password" });
     await user.type(screen.getByLabelText("Email"), "not-an-email");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
     expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument();
     await user.clear(screen.getByLabelText("Email"));
     await user.type(screen.getByLabelText("Email"), "unknown@example.test");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(await screen.findByText(/if that email exists/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Send reset link" }));
+    expect(await screen.findByText("If there is a PLPass account for that email, a reset link is on its way. Check your inbox and spam folder.")).toBeInTheDocument();
   });
 
-  it("validates reset password locally", async () => {
+  it("validates the new password before saving a recovery reset", async () => {
     const user = userEvent.setup();
     setRoute("/reset-password");
     render(<App />);
 
     await screen.findByRole("heading", { name: "Reset password" });
-    await user.type(screen.getByLabelText("New password"), "password1");
-    await user.type(screen.getByLabelText("Confirm password"), "password2");
-    await user.click(screen.getByRole("button", { name: "Validate reset" }));
+    await user.type(screen.getByLabelText("New password"), "Password1!");
+    await user.type(screen.getByLabelText("Confirm password"), "Password2!");
+    await user.click(screen.getByRole("button", { name: "Save new password" }));
     expect(await screen.findByText("Passwords must match.")).toBeInTheDocument();
   });
 
