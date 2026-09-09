@@ -198,7 +198,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       const accounts = await repositories.authentication.listDevelopmentAccounts();
       const account = accounts.find((candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase());
       if (!account || !password) {
-        setAuthError("Invalid email or password.");
+        setAuthError(toSafeAuthErrorMessage(authFailure()));
         setSession(null);
         return null;
       }
@@ -235,7 +235,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       const nextSession = await withRequestTimeout(
         (async () => {
           const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) throw authFailure(error.message);
+          if (error) throw authFailure();
           if (!data.session?.user) throw missingAuthSessionFailure();
           return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
             id: data.session.user.id,

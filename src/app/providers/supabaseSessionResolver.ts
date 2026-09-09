@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DevelopmentSession } from "@/app/providers/developmentSessionContext";
 import type { Database } from "@/lib/supabase/database.types";
 import { mapProfileToUser } from "@/lib/supabase/mappers";
-import { formatUserErrorMessage, getErrorMessage } from "@/lib/utils/errors";
 import type { UserRole } from "@/types/roles";
 
 export type SupabaseAuthFailureCode =
@@ -128,30 +127,30 @@ export function toSafeAuthErrorMessage(error: unknown) {
   if (error instanceof SupabaseAuthResolutionError) {
     switch (error.code) {
       case "AUTH_FAILED":
-        return "Incorrect email address or password. Please check your credentials and try again.";
+        return "We couldn't sign you in with those details. Check your email and password, then try again.";
       case "AUTH_TIMEOUT":
-        return "Sign-in took longer than expected. Please check your internet connection and try again.";
+        return "Sign-in is taking longer than expected. Check your internet connection and try again.";
       case "AUTH_SESSION_MISSING":
-        return "Unable to complete sign-in. Please try signing in again.";
       case "PROFILE_MISSING":
-        return "Your account profile could not be found. Please contact support.";
-      case "ACCOUNT_INACTIVE":
-        return formatUserErrorMessage(error.message);
       case "STUDENT_RECORD_MISSING":
-        return "This account is not registered with a student profile. Please contact an administrator.";
       case "ORGANIZER_RECORD_MISSING":
-        return "This account is not registered with an organizer profile. Please contact an administrator.";
+        return "Your PLPass account is not fully set up. Contact PLPass support for help.";
+      case "ACCOUNT_INACTIVE":
+        return error.message;
       case "UNSUPPORTED_ROLE":
-        return "This system supports Student and Organizer accounts. Please sign in with an authorized account.";
+        return "This account role is not available in PLPass yet. Contact PLPass support for help.";
       case "RLS_PERMISSION_DENIED":
       case "DATABASE_QUERY_FAILED":
       case "ROLE_RECORD_MULTIPLE":
-        return "Unable to access your account profile. Please contact support if this issue continues.";
+        return "PLPass sign-in is temporarily unavailable. Please try again later.";
       default:
-        return formatUserErrorMessage(error.message);
+        return "PLPass sign-in is temporarily unavailable. Please try again later.";
     }
   }
-  return getErrorMessage(error);
+  if (error instanceof Error && error.message.toLowerCase().includes("configuration")) {
+    return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
+  }
+  return "PLPass sign-in is temporarily unavailable. Please try again later.";
 }
 
 export function shouldSignOutAfterAuthFailure(error: unknown) {
@@ -161,8 +160,8 @@ export function shouldSignOutAfterAuthFailure(error: unknown) {
   return true;
 }
 
-export function authFailure(message: string): SupabaseAuthResolutionError {
-  return new SupabaseAuthResolutionError("AUTH_FAILED", message, false);
+export function authFailure(): SupabaseAuthResolutionError {
+  return new SupabaseAuthResolutionError("AUTH_FAILED", "Incorrect email or password.", false);
 }
 
 export function authTimeoutFailure(): SupabaseAuthResolutionError {
@@ -262,7 +261,7 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
     if (accountStatus === "inactive" || accountStatus === "suspended") {
       throw new SupabaseAuthResolutionError(
         "ACCOUNT_INACTIVE",
-        `Your PLPass account is ${accountStatus}. Contact an administrator for access.`,
+        `This PLPass account is ${accountStatus}. Contact PLPass support if you believe this is a mistake.`,
         true
       );
     }

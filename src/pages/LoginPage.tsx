@@ -13,6 +13,7 @@ type LocationState = {
   from?: {
     pathname?: string;
   };
+  passwordReset?: boolean;
 };
 
 export function LoginPage() {
@@ -74,6 +75,7 @@ export function LoginPage() {
           </div>
         </div>
       ) : null}
+      {locationState?.passwordReset ? <div className="mb-4 rounded-xl border border-success/30 bg-success-muted p-3 text-sm" role="status">Password updated. Sign in with your new password.</div> : null}
       {displayError ? <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">{displayError}</div> : null}
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSignIn(); }}>
         <div className="block text-sm font-medium">

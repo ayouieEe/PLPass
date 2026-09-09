@@ -30,7 +30,7 @@ describe("bounded authentication and dashboard requests", () => {
   it("clears a possibly authenticated session after an authentication timeout", () => {
     const failure = authTimeoutFailure();
     expect(shouldSignOutAfterAuthFailure(failure)).toBe(true);
-    expect(toSafeAuthErrorMessage(failure)).toContain("Sign-in took longer than expected");
+    expect(toSafeAuthErrorMessage(failure)).toBe("Sign-in is taking longer than expected. Check your internet connection and try again.");
   });
 
   it("starts profile and role lookups in parallel", async () => {
