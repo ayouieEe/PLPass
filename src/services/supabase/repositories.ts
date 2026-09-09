@@ -684,16 +684,16 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const createdEvent = eventRow as Row;
     const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
       p_event_id: String(createdEvent.id ?? ""),
-      p_requested_by: input.requestedBy?.trim() || null,
-      p_college_office: input.collegeOffice?.trim() || null,
-      p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length
-      ,p_institutional_category: input.institutionalCategory ?? null
-      ,p_participation_status: input.participationStatus ?? null
-      ,p_target_group: input.targetGroup ?? null
-      ,p_urgency_points: input.urgencyPoints ?? 0
-      ,p_priority_score: input.priorityScore ?? 0
-      ,p_priority_tier: input.priorityTier ?? "Low"
-      ,p_fixed_priority: input.fixedPriority ?? false
+      p_requested_by: input.requestedBy?.trim() || undefined,
+      p_college_office: input.collegeOffice?.trim() || undefined,
+      p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length,
+      p_institutional_category: input.institutionalCategory ?? undefined,
+      p_participation_status: input.participationStatus ?? undefined,
+      p_target_group: input.targetGroup ?? undefined,
+      p_urgency_points: input.urgencyPoints ?? 0,
+      p_priority_score: input.priorityScore ?? 0,
+      p_priority_tier: input.priorityTier ?? "Low",
+      p_fixed_priority: input.fixedPriority ?? false
     });
     throwIfSupabaseError(metadataError);
     const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);

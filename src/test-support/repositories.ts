@@ -273,6 +273,7 @@ let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
 let eventObjectiveState: Array<{ id: string; eventId: string; order: number; text: string }> = [];
 let eventResourceState: EventResource[] = [];
+let completedFeedbackTaskIds = new Set<string>();
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let systemSettingsState = { ...systemSettingsFixture };
@@ -295,6 +296,7 @@ export function resetSimulatedRepositoryState() {
   eventState = eventFixtures.map((entry) => ({ ...entry }));
   eventObjectiveState = [];
   eventResourceState = [];
+  completedFeedbackTaskIds = new Set<string>();
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   systemSettingsState = { ...systemSettingsFixture };
