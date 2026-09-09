@@ -319,7 +319,7 @@ async function insertVerificationAttempt(
   options: Partial<{ studentId: string; qrCredentialId: string; facialProfileId: string }> = {}
 ): Promise<Row> {
   return insertRow("verification_attempts", {
-    session_id: sessionId,
+    event_session_id: sessionId,
     student_id: options.studentId || null,
     verification_method: method,
     accepted,
@@ -694,9 +694,12 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_visibility: input.visibility ?? "assigned",
       p_participant_ids: input.participantStudentIds,
       p_objectives: trimmedObjectives,
-      ...(input.resourceTitle?.trim() ? { p_resource_title: input.resourceTitle.trim() } : {}),
-      ...(input.resourceUrl?.trim() ? { p_resource_url: input.resourceUrl.trim() } : {}),
-      p_publish_reason: input.publishReason ?? "Published by event organizer",
+      p_publish_reason: input.publishReason ?? "Published by event organizer"
+    });
+    throwIfSupabaseError(eventError);
+    const createdEvent = eventRow as Row;
+    const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
+      p_event_id: String(createdEvent.id ?? ""),
       p_requested_by: input.requestedBy?.trim() || undefined,
       p_college_office: input.collegeOffice?.trim() || undefined,
       p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length,
@@ -708,8 +711,9 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_priority_tier: input.priorityTier ?? "Low",
       p_fixed_priority: input.fixedPriority ?? false
     });
-    throwIfSupabaseError(eventError);
-    return mapEvent(eventRow as Row);
+    throwIfSupabaseError(metadataError);
+    const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);
+    return savedEvent;
   },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
@@ -721,6 +725,37 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       storageBucket: typeof row.storage_bucket === "string" ? row.storage_bucket : undefined,
       storageObjectPath: typeof row.storage_object_path === "string" ? row.storage_object_path : undefined
     })), rows.total, query);
+  },
+  async addEventResource(input) {
+    const client = getSupabaseBrowserClient();
+    const { data: authData, error: authError } = await client.auth.getUser();
+    throwIfSupabaseError(authError);
+    if (!authData.user) throw new RepositoryError("You must be signed in to manage event resources.", "PERMISSION_DENIED");
+    const { data, error } = await client
+      .from("event_resources")
+      .insert({
+        event_id: input.eventId,
+        resource_title: input.title,
+        external_url: input.externalUrl ?? null,
+        storage_bucket: input.storageBucket ?? null,
+        storage_object_path: input.storageObjectPath ?? null,
+        created_by: authData.user.id
+      })
+      .select("*")
+      .single();
+    throwIfSupabaseError(error);
+    return {
+      id: String(data.id ?? ""),
+      eventId: String(data.event_id ?? ""),
+      title: String(data.resource_title ?? "Event resource"),
+      externalUrl: typeof data.external_url === "string" ? data.external_url : undefined,
+      storageBucket: typeof data.storage_bucket === "string" ? data.storage_bucket : undefined,
+      storageObjectPath: typeof data.storage_object_path === "string" ? data.storage_object_path : undefined
+    };
+  },
+  async removeEventResource(resourceId) {
+    const { error } = await getSupabaseBrowserClient().from("event_resources").delete().eq("id", resourceId);
+    throwIfSupabaseError(error);
   },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason) {
     const approvalStatus = status === "approved" ? "approved" : "declined";
@@ -770,14 +805,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const rows = await selectRowsFiltered("attendance_sessions", query, "*", {
+    const rows = await selectRowsFiltered("event_sessions", query, "*", {
       event_id: query?.eventId
     });
     return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
   },
 
   async getAttendanceSessionById(sessionId) {
-    return mapAttendanceSession(await selectSingleRow("attendance_sessions", sessionId), "event");
+    return mapAttendanceSession(await selectSingleRow("event_sessions", sessionId), "event");
   },
   async createClassSession(input) {
     void input;
@@ -797,7 +832,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
   });
   if (error && (error.code === "23505" || /already has an active attendance session/i.test(error.message))) {
     const { data: activeSession, error: activeSessionError } = await client
-      .from("attendance_sessions")
+      .from("event_sessions")
       .select("*")
       .eq("event_id", input.eventId)
       .eq("session_status", "ongoing")
@@ -851,7 +886,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
     if (eventId) {
       const { data: sessionRows, error: sessionError } = await client
-        .from("attendance_sessions")
+        .from("event_sessions")
         .select("id")
         .eq("event_id", eventId);
       throwIfSupabaseError(sessionError);
@@ -859,7 +894,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       if (sessionIds.length === 0) {
         return emptyPage(listQuery);
       }
-      builder = builder.in("session_id", sessionIds);
+      builder = builder.in("event_session_id", sessionIds);
     }
 
     if (listQuery.dateFrom || listQuery.dateTo) {
@@ -874,7 +909,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
 
     if (sessionId) {
-      builder = builder.eq("session_id", sessionId);
+      builder = builder.eq("event_session_id", sessionId);
     }
     if (studentId) {
       builder = builder.eq("student_id", studentId);
@@ -1006,7 +1041,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       const { data: existingRows, error: existingError } = await client
         .from("attendance_records")
         .select("*")
-        .eq("session_id", input.sessionId)
+        .eq("event_session_id", input.sessionId)
         .eq("student_id", studentId)
         .limit(1);
       throwIfSupabaseError(existingError);
@@ -1038,7 +1073,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
       const attempt = await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-in.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
       const recordRow = await insertRow("attendance_records", {
-        session_id: input.sessionId,
+        event_session_id: input.sessionId,
         student_id: studentId,
         verification_attempt_id: String(attempt.id ?? ""),
         attendance_status: "present",
@@ -1125,7 +1160,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const { data: existingRows, error: existingError } = await client
       .from("attendance_records")
       .select("*")
-      .eq("session_id", input.sessionId)
+      .eq("event_session_id", input.sessionId)
       .eq("student_id", studentId)
       .limit(1);
     throwIfSupabaseError(existingError);
@@ -1182,7 +1217,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     });
     const profile = await currentProfile();
     const recordRow = await insertRow("attendance_records", {
-      session_id: input.sessionId,
+      event_session_id: input.sessionId,
       student_id: studentId,
       verification_attempt_id: String(attempt.id ?? ""),
       attendance_status: "present",
@@ -1370,7 +1405,7 @@ export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = 
     return pageResult(
       rows.items.map((row) => ({
         id: String(row.id ?? ""),
-        sessionId: String(row.session_id ?? ""),
+        sessionId: String(row.event_session_id ?? row.session_id ?? ""),
         studentId: typeof row.student_id === "string" ? row.student_id : undefined,
         accepted: Boolean(row.accepted),
         attemptedAt: String(row.attempted_at ?? new Date().toISOString()),

@@ -74,6 +74,7 @@ import type {
   Event,
   EventFeedbackTask,
   EventParticipant,
+  EventResource,
   Notification,
   Report,
   Student,
@@ -271,6 +272,7 @@ let credentialRequestState: CredentialRequest[] = [];
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
 let eventObjectiveState: Array<{ id: string; eventId: string; order: number; text: string }> = [];
+let eventResourceState: EventResource[] = [];
 let completedFeedbackTaskIds = new Set<string>();
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
@@ -293,6 +295,7 @@ export function resetSimulatedRepositoryState() {
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
   eventObjectiveState = [];
+  eventResourceState = [];
   completedFeedbackTaskIds = new Set<string>();
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
@@ -841,9 +844,42 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
-  async listEventResources(_eventId, query, context) {
-    await beforeRead("eventManagement", context);
-    return paginate([], query);
+  async listEventResources(eventId, query, context) {
+    await beforeRead("eventManagement", context, ["organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext) || !isEventInStudentScope(event, currentContext)) {
+      throw new RepositoryError("You do not have access to this event's resources.", "PERMISSION_DENIED");
+    }
+    return paginate(eventResourceState.filter((resource) => resource.eventId === eventId), query);
+  },
+  async addEventResource(input, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, input.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only manage resources for their own events.", "PERMISSION_DENIED");
+    }
+    const resource: EventResource = {
+      id: `resource-${Date.now()}-${eventResourceState.length + 1}`,
+      eventId: input.eventId,
+      title: input.title,
+      externalUrl: input.externalUrl,
+      storageBucket: input.storageBucket,
+      storageObjectPath: input.storageObjectPath
+    };
+    eventResourceState = [...eventResourceState, resource];
+    return resource;
+  },
+  async removeEventResource(resourceId, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const resource = getOrThrow(eventResourceState, resourceId, "Event resource");
+    const event = getOrThrow(eventState, resource.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only manage resources for their own events.", "PERMISSION_DENIED");
+    }
+    eventResourceState = eventResourceState.filter((entry) => entry.id !== resourceId);
   },
   async generateNextEventCode(context) {
     await beforeRead("eventManagement", context, ["organizer"]);

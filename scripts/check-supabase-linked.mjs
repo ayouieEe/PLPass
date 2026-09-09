@@ -10,9 +10,9 @@ const migrationOutput = run(["supabase", "migration", "list", "--linked"]);
 const drift = migrationOutput.split(/\r?\n/u).filter((line) => {
   const cells = line.split("|").map((cell) => cell.trim());
   if (cells.length < 2) return false;
-  const local = /^\d{14}$/u.test(cells[0]);
-  const remote = /^\d{14}$/u.test(cells[1]);
-  return local !== remote;
+  const local = migrationId(cells[0]);
+  const remote = migrationId(cells[1]);
+  return Boolean(local || remote) && local !== remote;
 });
 if (drift.length) fail(`Migration drift detected:\n${drift.join("\n")}`);
 process.stdout.write("PASS  Local and linked migration histories match\n");
@@ -40,6 +40,12 @@ function run(args) {
 
 function normalize(value) {
   return value.replace(/\r\n/gu, "\n").trim();
+}
+
+function migrationId(value) {
+  if (/^\d{14}$/u.test(value)) return value;
+  const formattedDate = value.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/u);
+  return formattedDate ? formattedDate.slice(1).join("") : "";
 }
 
 function fail(message) {

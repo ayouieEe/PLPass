@@ -20,6 +20,8 @@ export type PLPassDataGridProps<TData extends object> = {
   checkboxSelection?: boolean;
   suppressRowClickSelection?: boolean;
   onSelectionChange?: (selectedRows: TData[]) => void;
+  /** Runs when a non-interactive part of a row is clicked. */
+  onRowClick?: (row: TData) => void;
   height?: number | string;
   /** Row height in pixels passed to ag-Grid. Defaults to 52. */
   rowHeight?: number;

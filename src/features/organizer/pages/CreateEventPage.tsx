@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
 import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
-import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
+import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { eventBaseSchema } from "@/lib/validations/events";
@@ -22,6 +22,7 @@ import { TextField } from "@/components/forms/TextField";
 import { TimePickerField } from "@/components/forms/TimePickerField";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { ModalShell } from "@/components/modals/ModalShell";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
@@ -58,7 +59,17 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { repositories } from "@/services/repositories";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
+import {
+  formatResourceFileSize,
+  eventResourceErrorMessage,
+  isSecureResourceUrl,
+  MAX_EVENT_RESOURCES,
+  MAX_EVENT_RESOURCE_BYTES,
+  type PendingEventResource,
+  savePendingEventResource
+} from "@/features/organizer/lib/eventResources";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
@@ -114,6 +125,17 @@ const CATEGORY_OPTIONS = [
   { label: "Cultural Program", value: "Cultural Program" },
   { label: "Election Activity", value: "Election Activity" }
 ];
+
+const COLLEGE_OFFICE_OPTIONS = [
+  { label: "College of Education", value: "College of Education" },
+  { label: "College of Business and Accountancy", value: "College of Business and Accountancy" },
+  { label: "College of Nursing", value: "College of Nursing" },
+  { label: "College of Arts and Science", value: "College of Arts and Science" },
+  { label: "College of Engineering", value: "College of Engineering" },
+  { label: "College of Computer Studies", value: "College of Computer Studies" },
+  { label: "College of Hospitality Management", value: "College of Hospitality Management" }
+];
+
 const INSTITUTIONAL_CATEGORY_OPTIONS = [
   { label: "Accreditation Linked", value: "Accreditation Linked" },
   { label: "Academic or Training", value: "Academic or Training" },
@@ -127,6 +149,13 @@ const TARGET_GROUP_OPTIONS = [
 ];
 
 const MIN_OBJECTIVES = 3;
+const RANKED_ATTENDANCE_FACTORS = [
+  { label: "Attendance history", importance: 92 },
+  { label: "Previous event participation", importance: 81 },
+  { label: "Year level", importance: 74 },
+  { label: "Event category", importance: 69 },
+  { label: "Venue accessibility", importance: 64 }
+];
 
 function timeToMinutes(value: string) {
   const [hoursPart = "0", minutesPart = "0"] = value.split(":");
@@ -173,17 +202,6 @@ const eventFormSchemaWithObjectives = eventBaseSchema
       .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
   })
   .superRefine((value, ctx) => {
-    const resourceUrl = value.resourceUrl?.trim();
-    const resourceTitle = value.resourceTitle?.trim();
-
-    if (resourceUrl && !resourceTitle) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["resourceTitle"],
-        message: "Resource title is required when a resource link is provided."
-      });
-    }
-
     if (timeToMinutes(value.endTime) <= timeToMinutes(value.startTime)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -375,41 +393,6 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 
 }
 
-function mostCommonValue<T extends string | number>(items: T[]) {
-  return items.reduce<{ value: T | null; count: number; totals: Map<T, number> }>(
-    (summary, item) => {
-      const count = (summary.totals.get(item) ?? 0) + 1;
-      summary.totals.set(item, count);
-      return count > summary.count ? { ...summary, value: item, count } : summary;
-    },
-    { value: null, count: 0, totals: new Map<T, number>() }
-  ).value;
-}
-
-function buildAttendanceFactors(selectedStudents: Student[], category: string, startTime: string) {
-  return [
-    { label: "Attendance history", importance: 92 },
-    { label: "Previous event participation", importance: 81 },
-    { label: "Year level", importance: 74 },
-    { label: "Event category", importance: 69 },
-    { label: "Venue accessibility", importance: 64 }
-  ];
-}
-
-function predictedAttendancePercentage(selectedCount: number, category: string, startTime: string) {
-  let score = 68;
-  const normalizedCategory = category.toLowerCase();
-
-  if (selectedCount >= 150) score += 8;
-  if (selectedCount >= 75 && selectedCount < 150) score += 5;
-  if (normalizedCategory.includes("assembly") || normalizedCategory.includes("career")) score += 7;
-  if (normalizedCategory.includes("competition") || normalizedCategory.includes("showcase")) score += 5;
-  if (startTime && startTime < "10:00") score += 3;
-  if (startTime && startTime >= "13:00") score -= 4;
-
-  return Math.max(45, Math.min(96, score));
-}
-
 function calculatePriority(values: Pick<EventFormValues, "category" | "institutionalCategory" | "participationStatus" | "targetGroup" | "fixedPriority" | "date">) {
   const leadTimeDays = Math.max(0, Math.ceil((new Date(`${values.date}T00:00:00`).getTime() - new Date().setHours(0, 0, 0, 0)) / 86_400_000));
   const urgencyPoints = leadTimeDays <= 1 ? 3 : leadTimeDays <= 7 ? 2 : leadTimeDays <= 14 ? 1 : 0;
@@ -451,6 +434,7 @@ function PredictionMetric({ label, value, detail }: { label: string; value: stri
 export function CreateEventPage() {
   const scope = useOrganizerScope();
   const navigate = useNavigate();
+  const location = useLocation();
   const [search, setSearch] = useState("");
   const [programId, setProgramId] = useState("");
   const [yearLevel, setYearLevel] = useState("");
@@ -462,6 +446,14 @@ export function CreateEventPage() {
   const [selectedParticipantPage, setSelectedParticipantPage] = useState(1);
   const [participantError, setParticipantError] = useState("");
   const [pendingPublish, setPendingPublish] = useState<EventFormValues | null>(null);
+  const [pendingResources, setPendingResources] = useState<PendingEventResource[]>([]);
+  const [newResourceTitle, setNewResourceTitle] = useState("");
+  const [newResourceUrl, setNewResourceUrl] = useState("");
+  const [uploadingResourceId, setUploadingResourceId] = useState<string | null>(null);
+  const [isPublishingEvent, setIsPublishingEvent] = useState(false);
+  const [pendingExitTo, setPendingExitTo] = useState<string | null>(null);
+  const [hasOrganizerInteracted, setHasOrganizerInteracted] = useState(false);
+  const resourceFileInputRef = useRef<HTMLInputElement>(null);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
@@ -486,8 +478,6 @@ export function CreateEventPage() {
       ,requestedBy: ""
       ,collegeOffice: ""
       ,numberOfPax: undefined
-      ,resourceTitle: ""
-      ,resourceUrl: ""
     }
   });
   const {
@@ -507,14 +497,14 @@ export function CreateEventPage() {
       try {
         const nextCode = await repositories.eventManagement.generateNextEventCode(scope.context);
         if (isMounted) {
-          form.setValue("code", nextCode, { shouldValidate: true, shouldDirty: true });
+          form.setValue("code", nextCode, { shouldValidate: true, shouldDirty: false });
         }
       } catch (error) {
         console.error("Failed to generate event code:", error);
         // Set a fallback code if generation fails
         if (isMounted) {
           const fallbackCode = `EVT-${new Date().getFullYear()}-001`;
-          form.setValue("code", fallbackCode, { shouldValidate: true, shouldDirty: true });
+          form.setValue("code", fallbackCode, { shouldValidate: true, shouldDirty: false });
         }
       }
     }
@@ -529,6 +519,64 @@ export function CreateEventPage() {
   useEffect(() => {
     form.setValue("numberOfPax", selectedIds.length, { shouldValidate: selectedIds.length > 0 });
   }, [form, selectedIds.length]);
+
+  const hasUnsavedProgress = hasOrganizerInteracted;
+
+  useEffect(() => {
+    const subscription = form.watch((_values, { type }) => {
+      if (type === "change") {
+        setHasOrganizerInteracted(true);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
+
+  useEffect(() => {
+    if (!hasUnsavedProgress || isPublishingEvent) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedProgress, isPublishingEvent]);
+
+  useEffect(() => {
+    if (!hasUnsavedProgress || isPublishingEvent) return;
+    const currentPath = `${location.pathname}${location.search}${location.hash}`;
+
+    const captureNavigation = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest("a[href]") as HTMLAnchorElement | null;
+      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+
+      const destination = new URL(link.href, window.location.href);
+      const nextPath = destination.origin === window.location.origin
+        ? `${destination.pathname}${destination.search}${destination.hash}`
+        : destination.href;
+      if (nextPath === currentPath) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingExitTo(nextPath);
+    };
+
+    const captureBackOrForward = () => {
+      const nextPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (nextPath === currentPath) return;
+      setPendingExitTo(nextPath);
+      navigate(currentPath, { replace: true });
+    };
+
+    document.addEventListener("click", captureNavigation, true);
+    window.addEventListener("popstate", captureBackOrForward);
+    return () => {
+      document.removeEventListener("click", captureNavigation, true);
+      window.removeEventListener("popstate", captureBackOrForward);
+    };
+  }, [hasUnsavedProgress, isPublishingEvent, location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     setParticipantPage(1);
@@ -547,7 +595,6 @@ export function CreateEventPage() {
   const watchedVenue = form.watch("venue");
   const watchedStartTime = form.watch("startTime");
   const watchedEndTime = form.watch("endTime");
-  const watchedResourceUrl = form.watch("resourceUrl");
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -596,11 +643,6 @@ export function CreateEventPage() {
     effectiveSelectedParticipantPage * selectedParticipantPageSize
   );
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
-  const dominantSelectedYear = mostCommonValue(selectedStudents.map((student) => student.yearLevel));
-  const dominantSelectedSection = mostCommonValue(selectedStudents.map((student) => student.section));
-  const predictedPercentage = predictedAttendancePercentage(selectedIds.length, watchedCategory, watchedStartTime);
-  const expectedAttendees = Math.round((selectedIds.length * predictedPercentage) / 100);
-  const attendanceFactors = buildAttendanceFactors(selectedStudents, watchedCategory, watchedStartTime);
   const scheduleConflicts = findScheduleConflicts(eventsQuery.data?.items ?? [], {
     venue: watchedVenue,
     date: watchedDate,
@@ -610,11 +652,28 @@ export function CreateEventPage() {
   const pendingScheduleConflicts = pendingPublish
     ? findScheduleConflicts(eventsQuery.data?.items ?? [], pendingPublish)
     : [];
+  function discardProgressAndLeave() {
+    const destination = pendingExitTo;
+    setPendingExitTo(null);
+    form.reset();
+    setHasOrganizerInteracted(false);
+    setSelectedIds([]);
+    setPendingResources([]);
+    setPendingPublish(null);
+    if (!destination) return;
+    if (destination.startsWith("/")) {
+      navigate(destination);
+      return;
+    }
+    window.location.assign(destination);
+  }
   function toggleStudent(studentId: string) {
+    setHasOrganizerInteracted(true);
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
   }
   function toggleAllFiltered() {
+    setHasOrganizerInteracted(true);
     setSelectedIds((current) => {
       if (allMatchingSelected) {
         const matchingIds = new Set(filteredStudents.map((student) => student.id));
@@ -632,9 +691,53 @@ export function CreateEventPage() {
     setParticipantPage(1);
   }
   function addObjective() {
+    setHasOrganizerInteracted(true);
     appendObjective({ value: "" });
   }
+  function removePendingResource(resourceId: string) {
+    setHasOrganizerInteracted(true);
+    setPendingResources((resources) => resources.filter((resource) => resource.id !== resourceId));
+  }
+  function addResourceFiles(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []);
+    if (!selectedFiles.length) return;
+    if (pendingResources.length + selectedFiles.length > MAX_EVENT_RESOURCES) {
+      toast.error(`You can add up to ${MAX_EVENT_RESOURCES} resources to an event.`);
+      return;
+    }
+    const oversizedFile = selectedFiles.find((file) => file.size > MAX_EVENT_RESOURCE_BYTES);
+    if (oversizedFile) {
+      toast.error(`${oversizedFile.name} is larger than the 25 MB limit.`);
+      return;
+    }
+    setHasOrganizerInteracted(true);
+    setPendingResources((resources) => [
+      ...resources,
+      ...selectedFiles.map((file) => ({ id: crypto.randomUUID(), kind: "file" as const, title: file.name, file }))
+    ]);
+  }
+  function addResourceLink() {
+    const url = newResourceUrl.trim();
+    if (!isSecureResourceUrl(url)) {
+      toast.error("Enter an HTTPS link for the resource.");
+      return;
+    }
+    if (!newResourceTitle.trim()) {
+      toast.error("Enter a title for the resource link.");
+      return;
+    }
+    if (pendingResources.length >= MAX_EVENT_RESOURCES) {
+      toast.error(`You can add up to ${MAX_EVENT_RESOURCES} resources to an event.`);
+      return;
+    }
+    setHasOrganizerInteracted(true);
+    setPendingResources((resources) => [...resources, { id: crypto.randomUUID(), kind: "link", title: newResourceTitle.trim(), externalUrl: url }]);
+    setNewResourceTitle("");
+    setNewResourceUrl("");
+  }
   async function publishEvent(values: EventFormValues) {
+    setIsPublishingEvent(true);
+    let createdEvent: Event | null = null;
     try {
       const ranking = calculatePriority(values);
       const event = await mutations.createEventMutation.mutateAsync({
@@ -656,8 +759,6 @@ export function CreateEventPage() {
         priorityScore: ranking.priorityScore,
         priorityTier: ranking.priorityTier,
         fixedPriority: values.fixedPriority,
-        resourceTitle: values.resourceTitle,
-        resourceUrl: values.resourceUrl,
         requestedBy: values.requestedBy,
         collegeOffice: values.collegeOffice,
         numberOfPax: selectedIds.length,
@@ -668,18 +769,40 @@ export function CreateEventPage() {
           .map((objective: { value: string }) => objective.value.trim())
           .filter((objective: string) => objective.length > 0)
       });
+      createdEvent = event;
       
+      for (const resource of pendingResources) {
+        setUploadingResourceId(resource.id);
+        await savePendingEventResource(event.id, resource);
+      }
+      setUploadingResourceId(null);
+
+      const { error: emailError } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
+        body: { eventId: event.id }
+      });
+      if (emailError) {
+        toast.warning("Event published, but invitation emails are still waiting to send.");
+      }
+
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Published Event",
         targetType: "event",
         targetId: event.id,
-        metadata: { eventCode: event.code, participantCount: selectedIds.length }
+        metadata: { eventCode: event.code, participantCount: selectedIds.length, resourceCount: pendingResources.length }
       });
       
       navigate(APP_ROUTES.organizerEvent(event.id), { state: { announcement: `${event.title} was published successfully.` } });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create event. Please try again.";
-      toast.error(message);
+      const message = eventResourceErrorMessage(error, "Failed to create event. Please try again.");
+      if (createdEvent) {
+        toast.error(`Event was published, but resources need attention: ${message}`);
+        navigate(APP_ROUTES.organizerEvent(createdEvent.id));
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setUploadingResourceId(null);
+      setIsPublishingEvent(false);
     }
   }
   async function onSubmit(values: EventFormValues) {
@@ -692,17 +815,18 @@ export function CreateEventPage() {
   }
   return (
     <OrganizerFrame>
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Create Event</h1>
-        <p className="text-sm text-muted-foreground">Schedule a new event, define objectives, and select participants.</p>
-      </div>
-      <form className="space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
-        <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-5 rounded-lg border bg-surface p-5 shadow-sm">
+      <PageHeader
+        title="Create Event"
+        description="Set up an event and schedule attendance."
+      />
+      <form className="space-y-5 lg:space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-6 rounded-xl border bg-surface p-5 shadow-sm">
+
             <CreateEventSectionHeader
-              eyebrow="Create Event"
+              eyebrow="Step 1 of 3"
               title="Event Details"
-              description="Enter the event information and at least three objectives for feedback generation."
+              description="Add the event schedule, classification, organizational details, and objectives."
             />
 
             <section className="space-y-4">
@@ -738,7 +862,7 @@ export function CreateEventPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border bg-background p-4">
+            <section className="rounded-lg border bg-muted/20 p-4">
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
               <p className="mt-1 text-sm text-muted-foreground">These values are generated automatically from the classification above.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -759,7 +883,7 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
               <div className="grid gap-4 md:grid-cols-3">
                 <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
-                <TextField control={form.control} name="collegeOffice" label="College/Office" placeholder="Enter college or office" required />
+                <SelectField control={form.control} name="collegeOffice" label="College/Office" placeholder="Select a college or office" options={COLLEGE_OFFICE_OPTIONS} required />
                 <TextField
                   control={form.control}
                   name="numberOfPax"
@@ -779,8 +903,36 @@ export function CreateEventPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
-                <TextField control={form.control} name="resourceTitle" label="Resource Title" placeholder="e.g. Event handbook or pubmat" required={Boolean(watchedResourceUrl?.trim())} />
-                <TextField control={form.control} name="resourceUrl" label="Resource Link" placeholder="https://..." helperText="Provide an HTTPS link to the event handbook, publication material, or other relevant information." />
+              </div>
+              <div className="rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-semibold text-foreground">Resources</h4>
+                      <span className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground">{pendingResources.length} of {MAX_EVENT_RESOURCES}</span>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">Attach a file or add an HTTPS link. Up to {MAX_EVENT_RESOURCES} resources; files can be up to 25 MB.</p>
+                  </div>
+                  <input ref={resourceFileInputRef} type="file" multiple className="sr-only" onChange={(event) => { addResourceFiles(event.target.files); event.currentTarget.value = ""; }} />
+                </div>
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto_auto]">
+                  <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={newResourceTitle} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceTitle(event.target.value); }} placeholder="Link title" aria-label="Resource link title" />
+                  <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={newResourceUrl} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceUrl(event.target.value); }} placeholder="https://..." aria-label="Resource link URL" />
+                  <Button type="button" variant="outline" size="sm" onClick={addResourceLink} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}>Add link</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => resourceFileInputRef.current?.click()} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}>Attach file</Button>
+                  </div>
+                </div>
+                {pendingResources.length ? <div className="mt-4 space-y-2">{pendingResources.map((resource) => (
+                  <div key={resource.id} className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{resource.title}</p>
+                      <p className="text-xs text-muted-foreground">{uploadingResourceId === resource.id ? "Uploading…" : resource.kind === "file" ? `${resource.file.name} · ${formatResourceFileSize(resource.file.size)}` : "External link"}</p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => removePendingResource(resource.id)} disabled={isPublishingEvent}>Remove</Button>
+                  </div>
+                ))}</div> : <p className="mt-4 text-sm text-muted-foreground">No resources added yet.</p>}
               </div>
             </section>
 
@@ -816,7 +968,10 @@ export function CreateEventPage() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => removeObjective(index)}
+                          onClick={() => {
+                            setHasOrganizerInteracted(true);
+                            removeObjective(index);
+                          }}
                         >
                           Remove
                         </Button>
@@ -827,80 +982,31 @@ export function CreateEventPage() {
               </div>
             </section>
           </div>
-
-          <aside className="space-y-4 rounded-lg border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-primary" aria-hidden="true" />
-              <h2 className="font-semibold text-foreground">Attendance Forecast</h2>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">A compact preview of expected turnout based on the selected participants.</p>
-            <div className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
-              Based on the current student list
-              {dominantSelectedYear ? `, mostly Year ${dominantSelectedYear}` : ""}
-              {dominantSelectedSection ? ` from ${dominantSelectedSection}` : ""}.
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <PredictionMetric label="Predicted Attendance" value={`${predictedPercentage}%`} />
-              <PredictionMetric label="Expected Attendees" value={String(expectedAttendees)} detail={`of ${selectedIds.length} selected`} />
-            </div>
-
-            <div className="rounded-lg border bg-background p-3.5">
-              <p className="text-xs font-medium uppercase text-muted-foreground">Ranked factors</p>
-              <div className="mt-3 space-y-2.5">
-                {attendanceFactors.map((factor) => (
-                  <div key={factor.label} className="grid gap-1">
-                    <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
-                      <span className="min-w-0 truncate text-foreground">{factor.label}</span>
-                      <span className="font-medium text-muted-foreground">{factor.importance}%</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${factor.importance}%` }} />
-                    </div>
+          <aside className="h-fit rounded-xl border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-primary">Ranked factors</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Reference information for planning the event.</p>
+            <div className="mt-4 space-y-2.5">
+              {RANKED_ATTENDANCE_FACTORS.map((factor) => (
+                <div key={factor.label} className="grid gap-1">
+                  <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
+                    <span className="min-w-0 truncate text-foreground">{factor.label}</span>
+                    <span className="font-medium text-muted-foreground">{factor.importance}%</span>
                   </div>
-                ))}
-              </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${factor.importance}%` }} />
+                  </div>
+                </div>
+              ))}
             </div>
           </aside>
         </section>
 
         <section className="space-y-4 rounded-xl border bg-surface p-5 shadow-sm">
           <CreateEventSectionHeader
-            eyebrow="Participants"
-            title="Participant Selection"
-            description="Select a cohort or refine your list one student at a time."
+            eyebrow="Step 2 of 3"
+            title="Select Participants"
+            description="First filter the student list, then select the participants to invite."
           />
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <Users className="h-4 w-4" aria-hidden="true" />
-              </div>
-              <div>
-                <p className="font-semibold leading-5 text-foreground">{selectedIds.length} selected</p>
-                <p className="text-sm text-muted-foreground">{filteredStudents.length} matching student{filteredStudents.length === 1 ? "" : "s"}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button type="button" variant="default" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)} disabled={selectedIds.length === 0}>
-                <Users className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                View selected participants
-              </Button>
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <input
-                  ref={(element) => {
-                    if (element) element.indeterminate = someMatchingSelected;
-                  }}
-                  type="checkbox"
-                  checked={allMatchingSelected}
-                  onChange={toggleAllFiltered}
-                  disabled={filteredStudents.length === 0}
-                  aria-label="Select all matching students"
-                />
-                Select all matching
-              </label>
-              <Button type="button" variant="outline" size="sm" onClick={() => setSelectedIds([])} disabled={selectedIds.length === 0}>Clear selection</Button>
-            </div>
-          </div>
           <div className="rounded-lg border bg-background p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -929,10 +1035,41 @@ export function CreateEventPage() {
               </select>
             </div>
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Users className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div>
+                <p className="font-semibold leading-5 text-foreground">Select participants</p>
+                <p className="text-sm text-muted-foreground">{selectedIds.length} selected from {filteredStudents.length} matching student{filteredStudents.length === 1 ? "" : "s"}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  ref={(element) => {
+                    if (element) element.indeterminate = someMatchingSelected;
+                  }}
+                  type="checkbox"
+                  checked={allMatchingSelected}
+                  onChange={toggleAllFiltered}
+                  disabled={filteredStudents.length === 0}
+                  aria-label="Select all matching students"
+                />
+                Select all matching
+              </label>
+              <Button type="button" variant="outline" size="sm" onClick={() => { setHasOrganizerInteracted(true); setSelectedIds([]); }} disabled={selectedIds.length === 0}>Clear selection</Button>
+              <Button type="button" variant="default" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)} disabled={selectedIds.length === 0}>
+                <Users className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                View selected participants
+              </Button>
+            </div>
+          </div>
           {participantError ? <p role="alert" aria-live="assertive" className="text-sm text-danger">{participantError}</p> : null}
 
           <div className="min-w-0">
-            <div className="flex h-[min(55vh,560px)] min-h-[380px] flex-col overflow-hidden rounded-lg border bg-background">
+            <div className="flex h-[min(48vh,500px)] min-h-[340px] flex-col overflow-hidden rounded-lg border bg-background">
               {filteredStudents.length ? (
                 <div className="min-h-0 flex-1 overflow-auto">
                   <table className="w-full min-w-[680px] text-left text-sm">
@@ -1031,13 +1168,14 @@ export function CreateEventPage() {
             </div>
           </section>
         ) : null}
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-surface p-4 shadow-sm">
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/5 p-5 shadow-sm">
           <div>
-            <h2 className="font-semibold text-foreground">Publish Event</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Publishes immediately and notifies the selected students.</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 3 of 3</p>
+            <h2 className="mt-1 font-semibold text-foreground">Review and publish</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Publish the event and notify the selected students.</p>
           </div>
           <SubmitButton
-            isSubmitting={mutations.createEventMutation.isPending}
+            isSubmitting={isPublishingEvent || mutations.createEventMutation.isPending}
             submittingLabel="Publishing Event…"
             onClick={() => {
               if (selectedIds.length === 0) {
@@ -1105,6 +1243,16 @@ export function CreateEventPage() {
         </div>
       </ModalShell>
       <ConfirmModal
+        open={Boolean(pendingExitTo)}
+        title="Leave without saving?"
+        description="Your event details, selected participants, and resources will be lost if you leave this page."
+        confirmLabel="Leave page"
+        cancelLabel="Keep editing"
+        tone="danger"
+        onCancel={() => setPendingExitTo(null)}
+        onConfirm={discardProgressAndLeave}
+      />
+      <ConfirmModal
         open={Boolean(pendingPublish)}
         title={pendingScheduleConflicts.length > 0 ? "Review conflict and publish?" : "Review and publish event"}
         description={pendingScheduleConflicts.length > 0
@@ -1114,7 +1262,7 @@ export function CreateEventPage() {
         cancelLabel={pendingScheduleConflicts.length > 0 ? "Review schedule" : "Edit event"}
         onCancel={() => setPendingPublish(null)}
         onConfirm={() => {
-          if (!pendingPublish || mutations.createEventMutation.isPending) return;
+          if (!pendingPublish || isPublishingEvent || mutations.createEventMutation.isPending) return;
           const values = pendingPublish;
           setPendingPublish(null);
           void publishEvent(values);

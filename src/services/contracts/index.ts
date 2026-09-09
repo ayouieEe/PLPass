@@ -107,11 +107,17 @@ export type CreateEventInput = {
   fixedPriority?: boolean;
   visibility?: "assigned" | "public";
   publishReason?: string;
-  resourceTitle?: string;
-  resourceUrl?: string;
   requestedBy?: string;
   collegeOffice?: string;
   numberOfPax?: number | null;
+};
+
+export type AddEventResourceInput = {
+  eventId: string;
+  title: string;
+  externalUrl?: string;
+  storageBucket?: string;
+  storageObjectPath?: string;
 };
 
 export type RescheduleEventInput = {
@@ -302,6 +308,8 @@ export interface EventManagementRepository {
   getEventById(eventId: string, context?: RepositoryContext): Promise<Event>;
   listEventParticipants(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventParticipant>>;
   listEventResources(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventResource>>;
+  addEventResource(input: AddEventResourceInput, context?: RepositoryContext): Promise<EventResource>;
+  removeEventResource(resourceId: string, context?: RepositoryContext): Promise<void>;
   generateNextEventCode(context?: RepositoryContext): Promise<string>;
   createEvent(input: CreateEventInput, context?: RepositoryContext): Promise<Event>;
   updateEventStatus(eventId: string, status: Extract<EventStatus, "approved" | "rejected">, reason?: string, context?: RepositoryContext): Promise<Event>;

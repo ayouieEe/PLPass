@@ -250,6 +250,18 @@ describe("student UI flows", () => {
     }
   });
 
+  it("keeps request history visible and identifies unavailable linked data", async () => {
+    storeSession(studentSession);
+    developmentErrorToggle.setRepositoryMode("attendanceRecords", "server_error");
+    setRoute("/student/request-history");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Request History" })).toBeInTheDocument();
+    expect(screen.getByText("Some linked details are temporarily unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable right now: attendance records.")).toBeInTheDocument();
+    expect(screen.getByText("Correction Request")).toBeInTheDocument();
+  });
+
   it("validates correction and verification issue forms", async () => {
     storeSession(studentSession);
     setRoute("/student/corrections");

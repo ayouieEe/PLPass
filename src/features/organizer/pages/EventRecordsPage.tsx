@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
-import { BarChart3, CalendarCheck, Download, Eye, FileDown, FileSpreadsheet, Filter, Search, UserCheck, UserX, X } from "lucide-react";
+import { BarChart3, CalendarCheck, Download, FileDown, FileSpreadsheet, Filter, Search, UserCheck, UserX, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -228,7 +228,15 @@ export function EventRecordsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [venueFilter, setVenueFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "">("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<"filtered" | "all">("filtered");
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -333,12 +341,59 @@ export function EventRecordsPage() {
     navigate(APP_ROUTES.organizerRecords, { replace: true });
   }, [completedRows, location.search, navigate]);
 
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+    const closeOnOutsideInteraction = (event: MouseEvent | TouchEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsExportMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutsideInteraction);
+    document.addEventListener("touchstart", closeOnOutsideInteraction);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideInteraction);
+      document.removeEventListener("touchstart", closeOnOutsideInteraction);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isExportMenuOpen]);
+
+  const venueOptions = useMemo(
+    () => [...new Set(completedRows.map((event) => event.venue.trim()).filter(Boolean))].sort(),
+    [completedRows]
+  );
+  const categoryOptions = useMemo(
+    () => [...new Set(completedRows.map((event) => event.category.trim()).filter(Boolean))].sort(),
+    [completedRows]
+  );
   const pastEvents = useMemo(
-    () => completedRows.filter((event) => matchesSearch(event, search)),
-    [completedRows, search]
+    () => completedRows.filter((event) => {
+      const scheduledDate = dateKey(event.startsAt ?? event.date);
+      return matchesSearch(event, search)
+        && (!fromDate || Boolean(scheduledDate && scheduledDate >= fromDate))
+        && (!toDate || Boolean(scheduledDate && scheduledDate <= toDate))
+        && (!venueFilter || event.venue === venueFilter)
+        && (!categoryFilter || event.category === categoryFilter)
+        && (!priorityFilter || event.priorityLevel === priorityFilter);
+    }),
+    [categoryFilter, completedRows, fromDate, priorityFilter, search, toDate, venueFilter]
   );
 
   const pastEventsStats = useMemo(() => completedStats(pastEvents), [pastEvents]);
+  const exportEvents = exportScope === "all" ? completedRows : pastEvents;
+  const hasActiveFilters = Boolean(search || fromDate || toDate || venueFilter || categoryFilter || priorityFilter);
+
+  function clearFilters() {
+    setSearch("");
+    setFromDate("");
+    setToDate("");
+    setVenueFilter("");
+    setCategoryFilter("");
+    setPriorityFilter("");
+  }
 
   function exportReport(label: string, events = pastEvents) {
     const rows = events.map((event) => ({
@@ -363,8 +418,8 @@ export function EventRecordsPage() {
     });
   }
 
-  function exportAllAttendanceReport(label: string) {
-    const attendanceRows = pastEvents.flatMap((event) =>
+  function exportAllAttendanceReport(label: string, events = pastEvents) {
+    const attendanceRows = events.flatMap((event) =>
       event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
         "Event Code": event.code,
         "Event Name": event.name,
@@ -430,27 +485,6 @@ export function EventRecordsPage() {
       header: "Attendance Rate",
       cell: ({ row }) => <span className="font-semibold text-foreground">{row.original.attendanceRate}</span>
     },
-    // Actions — always last, pinned to the right edge so it stays reachable
-    // no matter how far the table scrolls horizontally.
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => (
-        <Button type="button" variant="outline" size="sm" onClick={() => setCompletedModal(row.original)}>
-          <Eye className="h-4 w-4" aria-hidden="true" />
-          View More
-        </Button>
-      ),
-      meta: {
-        agGrid: {
-          pinned: "right",
-          lockPosition: true,
-          lockPinned: true,
-          suppressMovable: true,
-          width: 180
-        }
-      }
-    }
   ];
 
   return (
@@ -468,20 +502,43 @@ export function EventRecordsPage() {
                 <Filter className="h-3 w-3" aria-hidden="true" />
                 {pastEvents.length} results
               </span>
-              <details className="relative">
-                <summary className="list-none">
-                  <Button type="button" variant="default" size="sm" className="border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800" asChild>
-                    <span><Download className="h-3.5 w-3.5" aria-hidden="true" /> Export</span>
-                  </Button>
-                </summary>
-                <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
-                  <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Download report</p>
-                  <div className="mt-1 divide-y divide-border rounded-md border bg-background">
-                    <ReportExportRow icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />} label="Attendance" onExportXlsx={() => exportAllAttendanceReport("Attendance Report XLSX")} onExportPdf={() => exportAllAttendanceReport("Attendance Report PDF")} />
-                    <ReportExportRow icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />} label="Event Summary" onExportXlsx={() => exportReport("Event Summary Report XLSX")} onExportPdf={() => exportReport("Event Summary Report PDF")} />
+              <div ref={exportMenuRef} className="relative">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800"
+                  aria-expanded={isExportMenuOpen}
+                  aria-controls="event-record-export-menu"
+                  onClick={() => setIsExportMenuOpen((open) => !open)}
+                >
+                  <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                  Export
+                </Button>
+                {isExportMenuOpen ? (
+                  <div id="event-record-export-menu" role="menu" className="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-xl">
+                    <div className="border-b bg-muted/30 px-3 py-2.5">
+                      <p className="text-sm font-semibold text-foreground">Download reports</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Choose which event records to include.</p>
+                      <label className="mt-2 block">
+                        <span className="sr-only">Records to export</span>
+                        <select
+                          className="h-9 w-full rounded-md border bg-background px-2 text-xs font-medium text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          value={exportScope}
+                          onChange={(event) => setExportScope(event.target.value as "filtered" | "all")}
+                        >
+                          <option value="filtered">Current results ({pastEvents.length})</option>
+                          <option value="all">All completed events ({completedRows.length})</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="divide-y divide-border">
+                      <ReportExportRow icon={<FileSpreadsheet className="h-3.5 w-3.5" aria-hidden="true" />} label="Attendance" onExportXlsx={() => { exportAllAttendanceReport("Attendance Report XLSX", exportEvents); setIsExportMenuOpen(false); }} onExportPdf={() => { exportAllAttendanceReport("Attendance Report PDF", exportEvents); setIsExportMenuOpen(false); }} />
+                      <ReportExportRow icon={<FileDown className="h-3.5 w-3.5" aria-hidden="true" />} label="Event summary" onExportXlsx={() => { exportReport("Event Summary Report XLSX", exportEvents); setIsExportMenuOpen(false); }} onExportPdf={() => { exportReport("Event Summary Report PDF", exportEvents); setIsExportMenuOpen(false); }} />
+                    </div>
                   </div>
-                </div>
-              </details>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="mt-4">
@@ -492,14 +549,49 @@ export function EventRecordsPage() {
           </div>
         </div>
 
-        {pastEvents.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <EventMetricCard title="Events" value={pastEventsStats.totalEvents.toString()} icon={CalendarCheck} />
-            <EventMetricCard title="Total Present" value={pastEventsStats.totalPresent.toString()} icon={UserCheck} />
-            <EventMetricCard title="Total Absent" value={pastEventsStats.totalAbsent.toString()} icon={UserX} />
-            <EventMetricCard title="Avg Attendance" value={pastEventsStats.avgRate !== null ? `${pastEventsStats.avgRate}%` : "N/A"} icon={BarChart3} />
+        <section className="rounded-lg border bg-surface p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-foreground">Filters</h2>
+            {hasActiveFilters ? (
+              <Button type="button" variant="outline" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
           </div>
-        ) : null}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">From date</span>
+              <input id="event-record-from-date" type="date" className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">To date</span>
+              <input id="event-record-to-date" type="date" className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Venue</span>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={venueFilter} onChange={(event) => setVenueFilter(event.target.value)}>
+                <option value="">All venues</option>
+                {venueOptions.map((venue) => <option key={venue} value={venue}>{venue}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Category</span>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+                <option value="">All categories</option>
+                {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs font-medium text-muted-foreground">Priority</span>
+              <select className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as PriorityLevel | "")}>
+                <option value="">All priorities</option>
+                <option value="Time-Sensitive">Time-Sensitive</option>
+                <option value="Business-Critical">Business-Critical</option>
+                <option value="Flexible">Flexible</option>
+              </select>
+            </label>
+          </div>
+        </section>
 
         {eventsQuery.isPending ? (
           <LoadingState />
@@ -514,6 +606,7 @@ export function EventRecordsPage() {
             emptyDescription="Completed events will appear here."
             enableColumnVisibility
             hideHeader
+            onRowClick={setCompletedModal}
           />
         )}
       </section>
@@ -573,7 +666,7 @@ function ReportExportRow({
   onExportPdf: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 px-3 py-3 transition-colors hover:bg-surface sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+    <div className="flex items-center justify-between gap-3 px-3 py-3 transition-colors hover:bg-surface">
       <div className="flex min-w-0 items-center gap-2">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           {icon}
@@ -666,7 +759,6 @@ export function CompletedEventModal({
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-primary">View More</p>
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="text-2xl font-semibold">
                 {record.code} - {record.name}
