@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, Filter, Search, Eye, Calendar, User as UserIcon, ShieldAlert, Tag, RotateCcw } from "lucide-react";
+import { Download, Filter, Search, Eye, Calendar, User as UserIcon, Tag, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -19,7 +19,6 @@ import type { AuditLog } from "@/types/domain";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import {
   formatAuditAction,
-  formatTargetType,
   getAuditTargetInfo,
   filterAuditLogs,
   type AuditLogFilters
@@ -58,7 +57,10 @@ export function OrganizerAuditLogsPage() {
     []
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
-  const rawLogs = auditLogsQuery.data?.items ?? [];
+  const rawLogs = useMemo(
+    () => auditLogsQuery.data?.items ?? [],
+    [auditLogsQuery.data?.items]
+  );
 
   // Entity queries for target resolution
   const studentsQuery = useStudents({ pageSize: 200 }, context);
@@ -71,7 +73,7 @@ export function OrganizerAuditLogsPage() {
       events: eventsQuery.data?.items ?? [],
       sessions: sessionsQuery.data?.items ?? []
     }),
-    [studentsQuery.data, eventsQuery.data, sessionsQuery.data]
+    [studentsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items]
   );
 
   // Filtered Logs

@@ -213,7 +213,6 @@ function ChartPanel({
             title="No feedback data yet"
             description={emptyMessage}
             icon={MessageSquareQuote}
-            compact
           />
         ) : (
           children
@@ -1437,7 +1436,6 @@ export function OrganizerAnalyticsPage() {
                   title="No feedback data yet"
                   description="Student feedback comments will appear here once responses are submitted for the selected filters."
                   icon={MessageSquareQuote}
-                  compact
                 />
               </div>
             ) : (

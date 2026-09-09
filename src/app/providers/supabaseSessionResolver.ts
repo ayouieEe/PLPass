@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DevelopmentSession } from "@/app/providers/developmentSessionContext";
 import type { Database } from "@/lib/supabase/database.types";
 import { mapProfileToUser } from "@/lib/supabase/mappers";
-import { formatUserErrorMessage } from "@/lib/utils/errors";
+import { formatUserErrorMessage, getErrorMessage } from "@/lib/utils/errors";
 import type { UserRole } from "@/types/roles";
 
 export type SupabaseAuthFailureCode =
@@ -151,7 +151,7 @@ export function toSafeAuthErrorMessage(error: unknown) {
         return formatUserErrorMessage(error.message);
     }
   }
-  return formatUserErrorMessage(error);
+  return getErrorMessage(error);
 }
 
 export function shouldSignOutAfterAuthFailure(error: unknown) {
