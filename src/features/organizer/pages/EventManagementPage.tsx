@@ -1892,7 +1892,7 @@ export function EventManagementPage() {
                   <CalendarClock className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Event schedule</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Event schedule</p>
                   <h2 className="text-sm font-bold text-foreground">Schedule</h2>
                 </div>
               </div>

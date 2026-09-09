@@ -10,6 +10,7 @@ import {
   RowSelectionModule,
   RowStyleModule,
   TextFilterModule,
+  TooltipModule,
   type Module,
 } from "ag-grid-community";
 
@@ -26,6 +27,7 @@ export const plpassAgGridModules: Module[] = [
   RowStyleModule,
   RenderApiModule,
   RowApiModule,
+  TooltipModule,
 ];
 
 ModuleRegistry.registerModules(plpassAgGridModules);
