@@ -79,6 +79,17 @@ export const eventBaseSchema = z.object({
     .nullable()
     .optional(),
   fixedPriority: z.boolean().default(false),
+  // Retained for legacy event-link submissions. New event resources use the
+  // multi-resource list, but older clients and validation tests still submit
+  // these two fields together.
+  resourceTitle: z.string().trim().max(255, "Resource title must not exceed 255 characters").optional(),
+  resourceUrl: z
+    .string()
+    .trim()
+    .optional()
+    .refine((value) => !value || /^https:\/\//i.test(value), {
+      message: "Resource link must use HTTPS"
+    }),
   requestedBy: z.string().trim().min(2, "Requested by must be at least 2 characters").max(255).optional(),
   collegeOffice: z.string().trim().min(2, "College/Office is required.").max(255),
   numberOfPax: z.number().int("No. of Pax must be a whole number").min(1, "No. of Pax is required.")
@@ -92,6 +103,10 @@ export const eventFormSchema = eventBaseSchema
   .refine((value) => isTodayOrFuture(value.date), {
     path: ["date"],
     message: "Event date must be today or in the future"
+  })
+  .refine((value) => !value.resourceUrl?.trim() || Boolean(value.resourceTitle?.trim()), {
+    path: ["resourceTitle"],
+    message: "Resource title is required when a resource link is provided"
   });
 
 /**
