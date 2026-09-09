@@ -1,9 +1,6 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
-import { extractFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
-
-const FACE_MATCH_THRESHOLD = 0.72;
 
 export function desktopApi() { return window.plpassDesktop; }
 
@@ -27,16 +24,28 @@ export async function prepareEventForOffline(eventId: string): Promise<OfflineSt
   return api.prepareEvent(pkg);
 }
 
+async function captureOfflineFace(input: HTMLVideoElement | HTMLCanvasElement) {
+  const canvas = input instanceof HTMLCanvasElement ? input : document.createElement("canvas");
+  if (input instanceof HTMLVideoElement) {
+    if (!input.videoWidth || !input.videoHeight) throw new Error("Wait for the camera preview before verifying attendance.");
+    const longestEdge = Math.max(input.videoWidth, input.videoHeight);
+    const scale = Math.min(1, 720 / longestEdge);
+    canvas.width = Math.max(1, Math.round(input.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(input.videoHeight * scale));
+    canvas.getContext("2d")?.drawImage(input, 0, 0, canvas.width, canvas.height);
+  }
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("The camera frame could not be captured.");
+  return Array.from(new Uint8Array(await blob.arrayBuffer()));
+}
+
 export async function identifyOfflineStudent(eventId: string, method: OfflineIdentificationMethod, identifier: string | HTMLVideoElement | HTMLCanvasElement): Promise<PreparedEventParticipant | null> {
   const api = desktopApi(); if (!api) return null;
   if (method === "qr" && typeof identifier === "string") return api.identifyQr(eventId, extractQrCredentialId(identifier));
   if (method === "manual" && typeof identifier === "string") return api.identifyManual(eventId, identifier);
   if (method !== "facial" || typeof identifier === "string") return null;
-  const candidate = await extractFaceDescriptor(identifier);
-  const candidates = await api.listFaceCandidates(eventId);
-  const matches = candidates.map((person) => ({ person, score: Math.max(0, ...person.faceEmbeddings.map((embedding) => faceSimilarity(embedding, candidate.descriptor))) })).sort((a,b) => b.score-a.score);
-  if (!matches[0] || matches[0].score < FACE_MATCH_THRESHOLD || (matches[1] && matches[0].score-matches[1].score < 0.03)) return null;
-  return matches[0].person;
+  const match = await api.identifyOfflineFace(eventId, await captureOfflineFace(identifier));
+  return match ? { ...match, faceEmbeddings: [] } : null;
 }
 
 export async function recordOfflineAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult> {

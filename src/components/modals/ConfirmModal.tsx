@@ -19,7 +19,7 @@ export function ConfirmModal({
   title,
   description,
   confirmLabel = "Confirm",
-  cancelLabel,
+  cancelLabel = "Cancel",
   tone = "default",
   children,
   onConfirm,

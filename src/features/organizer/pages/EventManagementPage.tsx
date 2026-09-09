@@ -19,10 +19,11 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -48,7 +49,7 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, prepareEventForOffline } from "@/features/offline/offlineService";
+import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, OfflineStatus } from "@/features/offline/types";
 
 // Event Records is organized around three lifecycle tabs: Today, Incoming,
@@ -298,6 +299,22 @@ function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
 }
 
+async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    throw new Error("Camera is still preparing. Keep one face centered and try again.");
+  }
+
+  const maximumWidth = 720;
+  const scale = Math.min(1, maximumWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("The camera frame could not be captured.");
+  return blob;
+}
+
 function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>): FinalizedSessionSummary {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
   const late = rows.filter((row) => row.attendanceStatus === "late").length;
@@ -523,10 +540,14 @@ export function EventManagementPage() {
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
+  const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
+  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
+  const [facialVerifying, setFacialVerifying] = useState(false);
+  const [facialStatus, setFacialStatus] = useState("");
   const [manualInput, setManualInput] = useState("");
   const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
   const [sessionForm, setSessionForm] = useState({
@@ -538,6 +559,8 @@ export function EventManagementPage() {
     lateCutoffMinutes: 15
   });
   const qrInputRef = useRef<HTMLInputElement>(null);
+  const facialVideoRef = useRef<HTMLVideoElement>(null);
+  const facialStreamRef = useRef<MediaStream | null>(null);
   const previousManualStudentIdRef = useRef<string | null>(null);
   const hydratedSessionIdRef = useRef<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
@@ -549,6 +572,7 @@ export function EventManagementPage() {
   );
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
@@ -585,6 +609,33 @@ export function EventManagementPage() {
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
+
+  useEffect(() => {
+    if (captureMode !== "Facial Recognition" || !facialCameraOpen) {
+      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
+      facialStreamRef.current = null;
+      if (facialVideoRef.current) facialVideoRef.current.srcObject = null;
+      return;
+    }
+
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        facialStreamRef.current = stream;
+        if (facialVideoRef.current) facialVideoRef.current.srcObject = stream;
+      })
+      .catch(() => setFacialStatus("Camera access was not granted. Use QR or manual attendance instead."));
+
+    return () => {
+      cancelled = true;
+      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
+      facialStreamRef.current = null;
+    };
+  }, [captureMode, facialCameraOpen]);
 
   useEffect(() => {
     if (manualLateLock.isLateLocked) {
@@ -871,7 +922,13 @@ export function EventManagementPage() {
   }, [todayEvents, incomingEvents]);
 
   const activeCounts = countRows(activeRows);
-  const missingTimeOutRows = useMemo(() => activeRows.filter((row) => !row.checkOutAt), [activeRows]);
+  // A Time Out must be at least a minute after Time In. This is enforced at
+  // capture time; the extra check is only a recovery safeguard for an old,
+  // already-saved invalid value so End Session can still complete safely.
+  const missingTimeOutRows = useMemo(
+    () => activeRows.filter((row) => !row.checkOutAt || !canRecordTimeOut(row.checkInAt, row.checkOutAt)),
+    [activeRows]
+  );
   const activeAttendanceSession = useMemo(
     () =>
       sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
@@ -879,7 +936,51 @@ export function EventManagementPage() {
     [activeEvent?.id, liveSessionId, sessionsList]
   );
   const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
+  const actualStartAt = activeAttendanceSession?.attendanceWindowStartAt;
+  const startedLateMinutes = actualStartAt && activeAttendanceSession
+    ? Math.max(0, Math.floor((new Date(actualStartAt).getTime() - new Date(activeAttendanceSession.startsAt).getTime()) / 60_000))
+    : 0;
+  const isEndingAfterScheduledTime = Boolean(
+    activeAttendanceSession?.endsAt && new Date().getTime() > new Date(activeAttendanceSession.endsAt).getTime()
+  );
   const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
+
+  // A record may have been created before the organizer reopened this live
+  // screen, or have just synchronized from the local desktop database. Restore
+  // those server records into the same table instead of showing an empty grid
+  // and reporting the next scan as a duplicate.
+  useEffect(() => {
+    if (!activeEvent?.id || !resolvedLiveSessionId) return;
+    const serverRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === resolvedLiveSessionId);
+    if (!serverRecords.length) return;
+
+    setActiveRows((rows) => {
+      const restoredStudentIds = new Set(serverRecords.map((record) => record.studentId));
+      const otherRows = rows.filter((row) => !restoredStudentIds.has(row.studentId));
+      const restoredRows: DraftAttendanceRow[] = serverRecords.map((record) => {
+        const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
+        const method: AttendanceMethod = record.verificationMethod === "facial"
+          ? "Facial Recognition"
+          : record.verificationMethod === "manual"
+            ? "Manual"
+            : "QR Code";
+        const checkInAt = record.timeIn ?? record.recordedAt;
+        return {
+          id: `server-${record.id}`,
+          studentId: record.studentId,
+          studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
+          eventCode: activeEvent.code,
+          attendanceMethod: method,
+          checkInAt,
+          checkInTime: formatLocalTime(checkInAt),
+          ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
+          attendanceStatus: record.status === "late" ? "late" : "present",
+          ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
+        };
+      });
+      return [...otherRows, ...restoredRows];
+    });
+  }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
   // Scanner phones write to the laptop's local database.  Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
@@ -1076,10 +1177,21 @@ export function EventManagementPage() {
   if (desktopApi()) {
     try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
   }
-  toast.success(`${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`);
+  const startedAt = new Date(startedSession.attendanceWindowStartAt ?? Date.now()).getTime();
+  const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
+  const delayedMinutes = Math.max(0, Math.floor((startedAt - scheduledAt) / 60_000));
+  toast.success(
+    delayedMinutes > 0
+      ? `${eventToStart.code} started ${delayedMinutes} minutes later than scheduled. Late attendance is calculated from the actual start.`
+      : `${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`
+  );
 }
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
+  if (isEndingAfterScheduledTime && endSessionReason.trim().length < 5) {
+    toast.error("Provide a short reason for ending after the scheduled time.");
+    return;
+  }
   let attendanceFinalized = false;
   try {
     const sessionId = liveSessionId;
@@ -1094,10 +1206,14 @@ export function EventManagementPage() {
             ? "facial"
             : "manual",
       timeIn: row.checkInAt,
-      ...(row.checkOutAt ? { timeOut: row.checkOutAt } : {}),
+      ...(row.checkOutAt && canRecordTimeOut(row.checkInAt, row.checkOutAt) ? { timeOut: row.checkOutAt } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    await endSessionMutation.mutateAsync({ sessionId, reason: "Organizer ended session", attendanceRecords });
+    await endSessionMutation.mutateAsync({
+      sessionId,
+      reason: endSessionReason.trim() || "Organizer ended session",
+      attendanceRecords
+    });
     attendanceFinalized = true;
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
@@ -1123,6 +1239,7 @@ export function EventManagementPage() {
     });
     setLiveSessionId(null);
     setEndSessionConfirmOpen(false);
+    setEndSessionReason("");
   } catch (error) {
     // The session mutation already displays its own database error. Only surface
     // errors from later work, such as completing the event, here.
@@ -1130,7 +1247,7 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeRows, auditLogMutations.logActionMutation, endSessionMutation, completeEventMutation, liveSessionId]);
+}, [activeEvent, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -1147,6 +1264,115 @@ export function EventManagementPage() {
 
   function focusQrInput() {
     window.requestAnimationFrame(() => qrInputRef.current?.focus());
+  }
+
+  function openLiveFacialVerification() {
+    if (!resolvedLiveSessionId) {
+      toast.error("No active attendance session is available for facial verification.");
+      return;
+    }
+    setFacialStatus("");
+    setFacialCameraOpen(true);
+  }
+
+  async function verifyFacialAttendance() {
+    const sessionId = resolvedLiveSessionId;
+    const video = facialVideoRef.current;
+    if (!sessionId || !activeEvent || !video) {
+      setFacialStatus("Start the camera and keep one enrolled student centered.");
+      return;
+    }
+    if (facialVerifying) return;
+
+    setFacialVerifying(true);
+    setFacialStatus("Identifying one live face among this event's enrolled participants…");
+    try {
+      const result = await identifyLiveFace(
+        sessionId,
+        attendancePhase === "time_out" ? "check_out" : "check_in",
+        [await captureVideoFrame(video)]
+      );
+      const occurredAt = result.recorded_at ?? new Date().toISOString();
+      const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
+
+      if (result.action !== "already_recorded") {
+        setActiveRows((current) => {
+          const existing = current.find((row) => row.studentId === result.student_id);
+          if (result.action === "checked_out") {
+            if (!existing) return current;
+            return current.map((row) => row.studentId === result.student_id
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition" }
+              : row);
+          }
+          if (existing) {
+            return current.map((row) => row.studentId === result.student_id
+              ? { ...row, attendanceMethod: "Facial Recognition", attendanceStatus: result.attendance_status }
+              : row);
+          }
+          return [...current, {
+            id: `facial-${result.student_id}`,
+            studentId: result.student_id,
+            studentName: result.display_name,
+            eventCode: activeEvent.code,
+            attendanceMethod: "Facial Recognition",
+            checkInAt: occurredAt,
+            checkInTime: formatLocalTime(occurredAt),
+            attendanceStatus: result.attendance_status
+          }];
+        });
+      }
+
+      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. You can scan the next enrolled participant.`);
+      toast.success(`${result.display_name}: ${actionLabel}`);
+    } catch (error) {
+      const onlineError = error instanceof Error ? error : new Error("Face verification could not be completed. Use QR or manual attendance instead.");
+      if (desktopApi() && activeEvent.id) {
+        try {
+          const student = await identifyOfflineStudent(activeEvent.id, "facial", video);
+          if (!student) throw onlineError;
+          const occurredAt = new Date().toISOString();
+          const local = await recordOfflineAttendance({
+            eventId: activeEvent.id,
+            sessionId,
+            studentId: student.studentId,
+            identificationMethod: "facial",
+            attendanceTimestamp: occurredAt
+          });
+          const actionLabel = local.action === "checked_in" ? "checked in" : local.action === "checked_out" ? "checked out" : "already recorded";
+          // An "already recorded" result still includes the local record. This
+          // happens after a refresh/reopen, when the record exists in SQLite but
+          // the in-memory grid is empty. Always hydrate from that canonical local
+          // record so the organizer immediately sees the saved attendance.
+          setActiveRows((current) => {
+            const existing = current.find((row) => row.studentId === student.studentId);
+            const localRow: DraftAttendanceRow = {
+              id: `offline-facial-${local.record.localAttendanceUuid}`,
+              studentId: student.studentId,
+              studentName: student.displayName,
+              eventCode: activeEvent.code,
+              attendanceMethod: "Facial Recognition",
+              checkInAt: local.record.timeIn,
+              checkInTime: formatLocalTime(local.record.timeIn),
+              attendanceStatus: local.record.attendanceStatus,
+              ...(local.record.timeOut
+                ? { checkOutAt: local.record.timeOut, checkOutTime: formatLocalTime(local.record.timeOut) }
+                : {})
+            };
+            if (!existing) return [...current, localRow];
+            return current.map((row) => row.studentId === student.studentId ? { ...row, ...localRow, id: row.id } : row);
+          });
+          setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${actionLabel} offline. This record will sync when connectivity returns.`);
+          toast.success(`${student.displayName}: ${actionLabel} offline`);
+          return;
+        } catch {
+          // Preserve the trusted online failure below when the local package or
+          // local DeepFace service cannot confirm the same face.
+        }
+      }
+      setFacialStatus(onlineError.message);
+    } finally {
+      setFacialVerifying(false);
+    }
   }
 
   async function submitQrAttendance() {
@@ -1669,10 +1895,11 @@ export function EventManagementPage() {
                 <StatusBadge label={attendancePhase === "time_out" ? "Recording Time Out" : "Recording Time In"} tone={attendancePhase === "time_out" ? "warning" : "success"} />
               </div>
               <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Late after {formatLocalTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
+              {actualStartAt ? <p className="mt-1 text-xs text-muted-foreground">Actual start: {formatLocalTime(actualStartAt)}{startedLateMinutes > 0 ? ` — started ${startedLateMinutes} minute${startedLateMinutes === 1 ? "" : "s"} later than scheduled.` : ""}</p> : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
-              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => setEndSessionConfirmOpen(true)}>
+              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
                 <Square className="h-4 w-4" aria-hidden="true" />
                 {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
               </Button>
@@ -1768,26 +1995,37 @@ export function EventManagementPage() {
 
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
-                    <div className="text-center">
+                    <div className="mx-auto max-w-2xl text-center">
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
                         <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">Facial verification</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Open the live camera and let enrolled participants face it one at a time.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("No active attendance session is available for facial verification.");
-                            return;
-                          }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
-                        }}
-                      >
-                        Open live verification
-                      </Button>
+                      <p id="live-facial-instructions" className="mt-2 text-sm text-muted-foreground">Use this supervised fallback only when QR cannot be read. Keep one enrolled participant centered in the camera.</p>
+
+                      {facialCameraOpen ? (
+                        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-black">
+                          <video
+                            ref={facialVideoRef}
+                            aria-label="Live facial verification camera preview"
+                            aria-describedby="live-facial-instructions"
+                            autoPlay
+                            muted
+                            playsInline
+                            className="aspect-video w-full object-cover"
+                          />
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => facialCameraOpen ? setFacialCameraOpen(false) : openLiveFacialVerification()}>
+                          <Camera className="h-4 w-4" aria-hidden="true" />
+                          {facialCameraOpen ? "Stop camera" : "Open live verification"}
+                        </Button>
+                        <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>
+                          {facialVerifying ? "Identifying…" : attendancePhase === "time_out" ? "Verify Time Out" : "Verify attendance"}
+                        </Button>
+                      </div>
+                      {facialStatus ? <p className="mt-4 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
                     </div>
                   ) : captureMode === "Manual" ? (
                     <div className="space-y-4">
@@ -2148,18 +2386,22 @@ export function EventManagementPage() {
               </div>
               <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">Read only</span>
             </div>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-3">
+            <dl className="mt-4 grid gap-4 sm:grid-cols-4">
               <div>
                 <dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt>
                 <dd className="mt-1 font-medium text-foreground">{sessionForm.venue}</dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Date</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.date}</dd>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled start</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.startTime}</dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Planned time</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.startTime} - {startEvent.endTime}</dd>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled end</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.endTime}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Actual start</dt>
+                <dd className="mt-1 font-medium text-foreground">Recorded when Start Session is clicked</dd>
               </div>
             </dl>
           </section>
@@ -2175,7 +2417,7 @@ export function EventManagementPage() {
             </label>
           </div>
           <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Actual time:</span> Starts when you click Start Session and ends when you end the session.
+            <span className="font-medium text-foreground">Actual session time:</span> Start is recorded when you click Start Session; end is recorded when you end it. The session can continue past its scheduled end.
           </div>
           {credentialStatusesQuery.isLoading ? (
             <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -2219,8 +2461,9 @@ export function EventManagementPage() {
       ) : null}
 
       <ConfirmModal open={timeOutConfirmOpen} title="Open Time Out" description="The live session stays open. Connected phone scanners will immediately record Time Out only." confirmLabel="Open Time Out" onCancel={() => setTimeOutConfirmOpen(false)} onConfirm={() => { setTimeOutConfirmOpen(false); void openTimeOut(); }} />
-      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. You may end the session; their Time Out will remain blank.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => setEndSessionConfirmOpen(false)} onConfirm={() => void endSession()}>
+      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={isEndingAfterScheduledTime ? "This session continued past its scheduled end. Provide a short reason before saving the actual end time." : missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. You may end the session; their Time Out will remain blank.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => { setEndSessionConfirmOpen(false); setEndSessionReason(""); }} onConfirm={() => void endSession()}>
         {missingTimeOutRows.length ? <p className="text-sm text-muted-foreground">Missing Time Out: {missingTimeOutRows.slice(0, 8).map((row) => row.studentName).join(", ")}{missingTimeOutRows.length > 8 ? "…" : ""}</p> : null}
+        {isEndingAfterScheduledTime ? <label className="mt-4 grid gap-2 text-sm font-medium text-foreground">Reason for ending late<textarea className="min-h-20 rounded-lg border bg-background px-3 py-2 text-sm font-normal" value={endSessionReason} onChange={(event) => setEndSessionReason(event.target.value)} placeholder="For example: The program started late due to venue setup." /></label> : null}
       </ConfirmModal>
 
       {summaryOpen ? (
