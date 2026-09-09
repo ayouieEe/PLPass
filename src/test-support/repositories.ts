@@ -1354,7 +1354,11 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
       if (!student || input.studentId !== student.id) {
         throw new RepositoryError("Students can only submit correction requests for themselves.", "PERMISSION_DENIED");
       }
-      const record = getOrThrow(attendanceRecordFixtures, input.attendanceRecordId, "Attendance record");
+      const record = attendanceRecordState.find((entry) => entry.id === input.attendanceRecordId)
+        ?? attendanceRecordFixtures.find((entry) => entry.id === input.attendanceRecordId);
+      if (!record) {
+        throw new RepositoryError("Attendance record was not found.", "NOT_FOUND");
+      }
       if (record.studentId !== student.id) {
         throw new RepositoryError("Selected attendance record does not belong to this student.", "PERMISSION_DENIED");
       }

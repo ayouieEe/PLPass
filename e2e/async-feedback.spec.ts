@@ -35,7 +35,7 @@ test("organizer participant failure is announced without relying on a toast", as
 
 test("student correction success remains available as an inline status", async ({ page }) => {
   await seedSession(page, "student");
-  await page.route("**/rest/v1/correction_requests*", async (route) => {
+  await page.route("**/*requests*", async (route) => {
     if (route.request().method() === "POST") {
       await route.fulfill({ status: 201, json: [{ id: "mock-id", status: "pending" }] });
     } else {
