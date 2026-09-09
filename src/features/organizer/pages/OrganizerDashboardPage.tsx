@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { CalendarCheck, Clock3, LayoutDashboard, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
