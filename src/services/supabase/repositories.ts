@@ -413,6 +413,22 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     throwIfSupabaseError(fetchError);
     return mapStudent(studentRow as Row);
   },
+  async updateStudent(input) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "update-student", student: input }
+    });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+
+    const { data: studentRow, error: fetchError } = await client
+      .from("students")
+      .select(studentReadSelect)
+      .eq("id", input.id)
+      .single();
+    throwIfSupabaseError(fetchError);
+    return mapStudent(studentRow as Row);
+  },
   async bulkCreateStudents(inputs) {
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", {

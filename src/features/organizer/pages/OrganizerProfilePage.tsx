@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Camera, Key, LogOut, Mail, ShieldAlert, User } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Camera, Key, Mail, ShieldAlert, User } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -8,7 +7,6 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
-import { APP_ROUTES } from "@/lib/constants/routes";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { Department } from "@/types/domain";
 
@@ -37,9 +35,8 @@ function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
 }
 
 export function OrganizerProfilePage() {
-  const { session, logout } = useDevelopmentSession();
+  const { session } = useDevelopmentSession();
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const userQuery = useUser(session?.userId, context);
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
@@ -99,15 +96,7 @@ export function OrganizerProfilePage() {
   const organizerUserId = session.userId;
   const organizerEmail = user.email;
 
-  async function handleLogout() {
-    try {
-      await logout();
-      navigate(APP_ROUTES.login, { replace: true });
-    } catch {
-      toast.error("The local session was cleared, but Supabase could not confirm sign-out.");
-      navigate(APP_ROUTES.login, { replace: true });
-    }
-  }
+
 
   async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -235,27 +224,12 @@ export function OrganizerProfilePage() {
 
 
   return (
-    <div className="space-y-4 p-1">
-      <h1 className="sr-only">Organizer Profile</h1>
-      <div className="rounded-lg border bg-surface p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <User className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Account</p>
-              <h2 className="text-sm font-bold text-foreground">Profile</h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2 h-8">
-              <LogOut className="h-3.5 w-3.5" />
-              <span>Logout</span>
-            </Button>
-          </div>
-        </div>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Profile</h1>
+        <p className="text-sm text-muted-foreground">Manage your organizer account settings and view profile information.</p>
       </div>
+
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col items-center space-y-4 rounded-2xl border border-border bg-card/40 p-6 text-center shadow-sm">

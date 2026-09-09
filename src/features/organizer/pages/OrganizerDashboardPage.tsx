@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { CalendarCheck, Clock3, LayoutDashboard, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -90,19 +90,13 @@ export function OrganizerDashboardPage() {
   const averageRate = Math.round(trend.reduce((total, row) => total + row.attendanceRate, 0) / Math.max(trend.length, 1));
 
   return (
-    <div className="space-y-4 lg:space-y-5">
-      <h1 className="sr-only">Organizer Dashboard</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">Overview of events, live sessions, and attendance metrics.</p>
+      </div>
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <LayoutDashboard className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Overview</p>
-              <h2 className="text-sm font-bold text-foreground">Dashboard</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             <Button asChild size="sm" variant="outline">
               <NavLink to={APP_ROUTES.organizerEvents}>View Events</NavLink>

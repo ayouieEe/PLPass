@@ -572,17 +572,14 @@ export function EventAttendancePage() {
   }
   return (
     <OrganizerFrame>
-      <h1 className="sr-only">Event Attendance</h1>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Attendance</h1>
+        <p className="text-sm text-muted-foreground">Monitor live check-ins, record manual attendance, and view session statistics.</p>
+      </div>
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <ClipboardList className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Attendance</p>
-              <h2 className="text-sm font-bold text-foreground">{event?.title ?? session.title}</h2>
-            </div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-foreground">{event?.title ?? session.title}</h2>
           </div>
           <div className="flex items-center gap-2">
             <Button type="button" variant="destructive" size="sm" className="h-8" onClick={() => setEndOpen(true)}>
