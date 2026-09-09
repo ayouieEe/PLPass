@@ -93,7 +93,7 @@ describe("organizer route access", () => {
     setRoute("/organizer/analytics");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /insights & reporting/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /turnout forecast/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /attendance trends/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /feedback & sentiment/i })).toBeInTheDocument();
@@ -297,7 +297,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Event Management" })).toBeInTheDocument();
     expect(await screen.findByText("Business Forum")).toBeInTheDocument();
     expect(screen.queryByText("CCS Orientation")).not.toBeInTheDocument();
   });

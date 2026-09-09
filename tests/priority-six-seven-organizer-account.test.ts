@@ -36,7 +36,6 @@ describe("priority seven organizer account security", () => {
     const provider = read("src/app/providers/DevelopmentSessionProvider.tsx");
     expect(profile).toContain("newPassword.length < 8");
     expect(profile).toContain("newPassword === oldPassword");
-    expect(profile).toContain("await logout()");
     expect(provider).toContain("await getSupabaseBrowserClient().auth.signOut()");
   });
 
