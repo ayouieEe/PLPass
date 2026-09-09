@@ -39,9 +39,13 @@ describe("Supabase event-scoped attendance queries", () => {
           ]
         : [];
 
+      const filters: Record<string, unknown> = {};
       const builder = {
         select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockImplementation((field: string, value: unknown) => {
+          filters[field] = value;
+          return builder;
+        }),
         order: vi.fn().mockReturnThis(),
         range: vi.fn().mockImplementation(async () => {
           // Hardcode return to avoid flakiness in CI with mock filters
