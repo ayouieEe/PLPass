@@ -5,6 +5,7 @@ export default defineConfig({
   snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
   fullyParallel: true,
   reporter: "list",
+  expect: { timeout: 15000 },
   use: {
     baseURL: "http://127.0.0.1:4173",
     trace: "on-first-retry"

@@ -73,7 +73,7 @@ test.describe("automated WCAG 2.1 AA smoke", () => {
   });
 
   test("organizer event management", async ({ page }) => {
-    await openWorkspace(page, "organizer", "/organizer/events", /^Events$/i);
+    await openWorkspace(page, "organizer", "/organizer/events", /^Event Management$/i);
     await expect(page.getByText("CCS Orientation").first()).toBeVisible();
     await expectNoWcagViolations(page);
   });
