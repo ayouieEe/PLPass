@@ -48,6 +48,19 @@ export type CreateStudentInput = {
   yearLevel: number;
 };
 
+export type UpdateStudentInput = {
+  id: string;
+  profileId: string;
+  email: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  programId: string;
+  departmentId: string;
+  sectionId: string;
+  yearLevel: number;
+};
+
 export type CreateCorrectionRequestInput = Pick<
   CorrectionRequest,
   "studentId" | "attendanceRecordId" | "classId" | "eventId" | "requestedStatus" | "reason"
@@ -268,6 +281,7 @@ export interface UserManagementRepository {
   getUserById(userId: string, context?: RepositoryContext): Promise<User>;
   listStudents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Student>>;
   createStudent(input: CreateStudentInput, context?: RepositoryContext): Promise<Student>;
+  updateStudent(input: UpdateStudentInput, context?: RepositoryContext): Promise<Student>;
   bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<{ success: number; failed: number }>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;

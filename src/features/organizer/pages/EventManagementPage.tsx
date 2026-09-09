@@ -1634,18 +1634,14 @@ export function EventManagementPage() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-5">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Management</h1>
+        <p className="text-sm text-muted-foreground">Manage ongoing and upcoming events, track real-time attendance, and handle offline setups.</p>
+      </div>
+
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <CalendarClock className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Management</p>
-              <h2 className="text-sm font-bold text-foreground">Events</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />

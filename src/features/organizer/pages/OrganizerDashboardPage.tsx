@@ -100,6 +100,7 @@ export function OrganizerDashboardPage() {
     <div className="space-y-4 lg:space-y-5">
       <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button>} />
 
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={APP_ROUTES.organizerEvents} />
         <DashboardMetricCard title="Active Today" value={liveEvents.length.toLocaleString()} detail={liveEvent ? `${liveEvent.code}: ${liveEvent.title}` : "No live session right now."} icon={Clock3} tone="success" to={`${APP_ROUTES.organizerEvents}?tab=today`} />

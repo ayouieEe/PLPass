@@ -786,22 +786,16 @@ export function OrganizerAnalyticsPage() {
 
   return (
     <div className="space-y-6 pb-12">
-      <h1 className="sr-only">Analytics Insights</h1>
-      <h2 className="sr-only">Event Attendance Prediction</h2>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Analytics Insights</h1>
+        <p className="text-sm text-muted-foreground">Monitor attendance trends, turnout forecasts, and feedback sentiment across events.</p>
+      </div>
+      
       {/* Header with Export Action */}
       
 
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <BarChart3 className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Analytics</p>
-              <h2 className="text-sm font-bold text-foreground">Insights & Reporting</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             <Button
               type="button"

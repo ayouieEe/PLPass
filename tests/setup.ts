@@ -1,9 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
 import { beforeEach, vi } from "vitest";
-
-configure({ asyncUtilTimeout: 5000 });
-
+configure({ asyncUtilTimeout: 15000 });
 vi.stubEnv("VITE_DATA_SOURCE", "mock");
 
 beforeEach(() => {

@@ -10,6 +10,7 @@ import type {
   CreateEventInput,
   CreateEventSessionInput,
   CreateStudentInput,
+  UpdateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
   EnrollFacialProfileInput,
@@ -103,6 +104,13 @@ export function useStudentMutations(context?: RepositoryContext) {
   return {
     createStudentMutation: useMutation({
       mutationFn: (input: CreateStudentInput) => repositories.userManagement.createStudent(input, context),
+      onSuccess: invalidateStudents,
+      onError: (error: unknown) => {
+        toast.error(getErrorMessage(error));
+      }
+    }),
+    updateStudentMutation: useMutation({
+      mutationFn: (input: UpdateStudentInput) => repositories.userManagement.updateStudent(input, context),
       onSuccess: invalidateStudents,
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));

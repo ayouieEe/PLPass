@@ -9,6 +9,7 @@ type StudentSelectFieldProps<TFieldValues extends FieldValues> = {
   options: { label: string; value: string }[];
   placeholder?: string;
   disabled?: boolean;
+  onChange?: (value: string) => void;
 };
 
 export function StudentSelectField<TFieldValues extends FieldValues>({
@@ -17,7 +18,8 @@ export function StudentSelectField<TFieldValues extends FieldValues>({
   label,
   options,
   placeholder,
-  disabled
+  disabled,
+  onChange: customOnChange
 }: StudentSelectFieldProps<TFieldValues>) {
   const fieldId = `student-select-field-${useId().replace(/:/g, "")}`;
   const errorId = `${fieldId}-error`;
@@ -31,7 +33,10 @@ export function StudentSelectField<TFieldValues extends FieldValues>({
           <StudentSelect
             id={fieldId}
             value={field.value}
-            onChange={field.onChange}
+            onChange={(val) => {
+              field.onChange(val);
+              customOnChange?.(val);
+            }}
             options={options}
             placeholder={placeholder}
             disabled={disabled}

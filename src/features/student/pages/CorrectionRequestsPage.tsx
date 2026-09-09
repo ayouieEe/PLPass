@@ -283,6 +283,15 @@ export function CorrectionRequestsPage() {
               label="Related Attendance Record"
               options={attendanceRecordOptions}
               placeholder="Select attendance record..."
+              onChange={(val) => {
+                const record = studentEventRecords.find((r) => r.id === val);
+                if (record) {
+                  const nextType = getCorrectionRequestTypes(record.status)[0];
+                  setValue("code", record.eventCode, { shouldValidate: true });
+                  setValue("name", record.eventName, { shouldValidate: true });
+                  if (nextType) setValue("requestType", nextType, { shouldValidate: true });
+                }
+              }}
             />
 
             <StudentSelectField
@@ -334,8 +343,8 @@ export function CorrectionRequestsPage() {
             </SubmitButton>
             {submissionStatus ? (
               <p
-                role={submissionStatus.kind === "error" ? "alert" : "status"}
-                aria-live={submissionStatus.kind === "error" ? "assertive" : "polite"}
+                role="status"
+                aria-live="assertive"
                 className={submissionStatus.kind === "error" ? "text-sm font-medium text-danger" : "text-sm font-medium text-success"}
               >
                 {submissionStatus.message}

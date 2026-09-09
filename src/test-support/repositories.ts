@@ -598,6 +598,27 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     studentFixtures.push(newStudent);
     return newStudent;
   },
+  async updateStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const existing = getOrThrow(studentFixtures, input.id, "Student");
+    const updated: Student = {
+      ...existing,
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    const index = studentFixtures.findIndex(s => s.id === input.id);
+    if (index !== -1) {
+      studentFixtures[index] = updated;
+    }
+    return updated;
+  },
   async bulkCreateStudents(inputs, context) {
     await beforeRead("userManagement", context, ["organizer", "admin"]);
     let success = 0;
@@ -1333,7 +1354,11 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
       if (!student || input.studentId !== student.id) {
         throw new RepositoryError("Students can only submit correction requests for themselves.", "PERMISSION_DENIED");
       }
-      const record = getOrThrow(attendanceRecordFixtures, input.attendanceRecordId, "Attendance record");
+      const record = attendanceRecordState.find((entry) => entry.id === input.attendanceRecordId)
+        ?? attendanceRecordFixtures.find((entry) => entry.id === input.attendanceRecordId);
+      if (!record) {
+        throw new RepositoryError("Attendance record was not found.", "NOT_FOUND");
+      }
       if (record.studentId !== student.id) {
         throw new RepositoryError("Selected attendance record does not belong to this student.", "PERMISSION_DENIED");
       }

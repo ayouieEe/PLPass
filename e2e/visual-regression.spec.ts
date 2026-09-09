@@ -35,7 +35,7 @@ test.describe("high-risk visual regression", () => {
   test("organizer event management desktop", async ({ page }) => {
     await seedSession(page, sessions.organizer);
     await page.goto("/organizer/events");
-    await expect(page.getByRole("heading", { name: "Events", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Event Management", exact: true }).first()).toBeVisible();
     await expect(page.getByText("CCS Orientation").first()).toBeVisible();
     await expectStableScreenshot(page, "organizer-events-desktop.png");
   });

@@ -741,21 +741,14 @@ export function AuthenticationMethodsPage() {
   ], [handleApproveFacialRequest, credentialRequestsQuery.reviewMutation.isPending]);
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">Authentication Methods</h1>
-      
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Authentication Methods</h1>
+        <p className="text-sm text-muted-foreground">Manage QR codes and facial recognition credentials for all students.</p>
+      </div>
 
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <QrCode className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Authentication</p>
-              <h2 className="text-sm font-bold text-foreground">Methods & Requests</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             {activeTab === "qr" ? (
               <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleQuickViewQr}>

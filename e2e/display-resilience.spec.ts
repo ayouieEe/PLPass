@@ -49,7 +49,7 @@ test.describe("400 percent reflow equivalent", () => {
 test.describe("WCAG text spacing overrides", () => {
   for (const [role, path, heading] of [
     ["student", "/student/dashboard", /Welcome back/i],
-    ["organizer", "/organizer/events", /^Events$/i]
+    ["organizer", "/organizer/events", /^Event Management$/i]
   ] as const) {
     test(`${role} workspace tolerates increased text spacing`, async ({ page }) => {
       await openWorkspace(page, role, path, heading);

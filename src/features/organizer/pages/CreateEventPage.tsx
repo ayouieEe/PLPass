@@ -822,6 +822,7 @@ export function CreateEventPage() {
       <form className="space-y-5 lg:space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-6 rounded-xl border bg-surface p-5 shadow-sm">
+
             <CreateEventSectionHeader
               eyebrow="Step 1 of 3"
               title="Event Details"
