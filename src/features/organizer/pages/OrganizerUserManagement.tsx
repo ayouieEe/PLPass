@@ -478,8 +478,8 @@ function ReportExportModal({
     const matchSec = exportSection === "all" || s.section === exportSection;
     const matchStat = exportStatus === "all" || s.status === exportStatus;
     let matchAtt = true;
-    if (exportAttendance === "low") matchAtt = s.attendanceRate < 75;
-    else if (exportAttendance === "high") matchAtt = s.attendanceRate >= 75;
+    if (exportAttendance === "low") matchAtt = (s.attendanceRate ?? 0) < 75;
+    else if (exportAttendance === "high") matchAtt = (s.attendanceRate ?? 0) >= 75;
 
     return matchProg && matchSec && matchStat && matchAtt;
   });
@@ -515,7 +515,7 @@ function ReportExportModal({
         yearLevel: s.yearLevel,
         section: s.section,
         status: s.status,
-        attendanceRate: s.attendanceRate,
+        attendanceRate: s.attendanceRate ?? 0,
         eventsJoined: s.eventsJoined,
         qrStatus: s.qrStatus,
         facialStatus: s.facialStatus,
@@ -536,7 +536,7 @@ function ReportExportModal({
         program: s.program,
         yearLevel: s.yearLevel,
         section: s.section,
-        attendanceRate: s.attendanceRate,
+        attendanceRate: s.attendanceRate ?? 0,
         eventsJoined: s.eventsJoined,
         correctionRequests: s.correctionRequests.length
       }));
@@ -970,7 +970,7 @@ function EditStudentModal({
         lastName: student.lastName || "",
         programId: student.programId || "",
         departmentId: student.departmentId || "",
-        sectionId: student.section || student.sectionId || "",
+        sectionId: student.section || "",
         yearLevel: student.yearLevel || 1
       });
     }

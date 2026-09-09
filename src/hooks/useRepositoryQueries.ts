@@ -8,7 +8,6 @@ import type {
   CreateClassSessionInput,
   CreateCorrectionRequestInput,
   CreateEventInput,
-  CreateEventInput,
   CreateEventSessionInput,
   CreateStudentInput,
   UpdateStudentInput,

@@ -595,6 +595,27 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     studentFixtures.push(newStudent);
     return newStudent;
   },
+  async updateStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const existing = getOrThrow(studentFixtures, input.id, "Student");
+    const updated: Student = {
+      ...existing,
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    const index = studentFixtures.findIndex(s => s.id === input.id);
+    if (index !== -1) {
+      studentFixtures[index] = updated;
+    }
+    return updated;
+  },
   async bulkCreateStudents(inputs, context) {
     await beforeRead("userManagement", context, ["organizer", "admin"]);
     let success = 0;
