@@ -72,11 +72,13 @@ import type {
   CorrectionRequest,
   CredentialRequest,
   Event,
+  EventFeedbackTask,
   EventParticipant,
   EventResource,
   Notification,
   Report,
   Student,
+  StudentDashboardTask,
   User
 } from "@/types/domain";
 import type { AttendanceStatus, EventStatus, VerificationMethod } from "@/types/enums";
@@ -572,6 +574,52 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
+  },
+  async createStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const newStudent: Student = {
+      id: `student-simulated-${Date.now()}`,
+      userId: `user-simulated-${Date.now()}`,
+      studentNumber: input.studentNumber,
+      status: "enrolled",
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      createdAt: new Date().toISOString(),
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    studentFixtures.push(newStudent);
+    return newStudent;
+  },
+  async bulkCreateStudents(inputs, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    let success = 0;
+    for (const input of inputs) {
+      const newStudent: Student = {
+        id: `student-simulated-${Date.now()}-${success}`,
+        userId: `user-simulated-${Date.now()}-${success}`,
+        studentNumber: input.studentNumber,
+        status: "enrolled",
+        programId: input.programId,
+        departmentId: input.departmentId,
+        yearLevel: input.yearLevel,
+        section: input.sectionId,
+        createdAt: new Date().toISOString(),
+        email: input.email,
+        firstName: input.firstName,
+        middleName: input.middleName,
+        lastName: input.lastName,
+        fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+      };
+      studentFixtures.push(newStudent);
+      success++;
+    }
+    return { success, failed: 0 };
   },
   async listFacultyProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin", "faculty", "student"]);
@@ -1145,9 +1193,94 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     if (record.studentId !== student?.id || record.status !== "late") {
       throw new RepositoryError("Students can only submit late reasons for their own late records.", "PERMISSION_DENIED");
     }
-    const updated = { ...record, lateReasonCategory: input.reason, note: record.note ?? `Late reason: ${input.reason}` };
+    const option = (await this.listLateReasonOptions()).find((entry) => entry.id === input.reasonOptionId);
+    if (!option) throw new RepositoryError("Invalid late reason option.", "VALIDATION_ERROR");
+    const updated = { ...record, lateReasonCategory: option.label, note: record.note ?? `Late reason: ${option.label}` };
     attendanceRecordState[index] = updated;
     return updated;
+  },
+  async listFinalizedEventYears(context) {
+    await beforeRead("attendanceRecords", context, ["student"]);
+    const student = getStudentForContext(contextOrDefault(context));
+    return Array.from(new Set(
+      attendanceRecordState
+        .filter((record) => record.studentId === student?.id && ["present", "late", "absent", "excused"].includes(record.status))
+        .map((record) => new Date(record.recordedAt).getFullYear())
+        .filter((year) => Number.isInteger(year))
+    )).sort((left, right) => right - left);
+  },
+  async getStudentDashboardSummary(context) {
+    await beforeRead("attendanceRecords", context, ["student"]);
+    const student = getStudentForContext(contextOrDefault(context));
+    const records = attendanceRecordState.filter((record) => record.studentId === student?.id);
+    const tasks = records.flatMap((record): StudentDashboardTask[] => {
+      const session = attendanceSessionState.find((entry) => entry.id === record.sessionId);
+      const event = eventState.find((entry) => entry.id === session?.eventId);
+      if (!session?.eventId || !event) return [];
+
+      const lateReason = record.lateReasonCategory
+        ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined);
+      if (record.status === "late" && !lateReason) {
+        return [{
+          id: `late-reason-${record.id}`,
+          kind: "late_reason" as const,
+          eventId: session.eventId,
+          attendanceRecordId: record.id,
+          title: event.title,
+          code: event.code,
+          category: event.category,
+          status: record.status,
+          startsAt: session.startsAt,
+          dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }];
+      }
+
+      const feedbackTaskId = `feedback-task-${record.id}`;
+      const feedbackComplete = completedFeedbackTaskIds.has(feedbackTaskId) || Boolean(record.note?.includes("Feedback submitted"));
+      if (["present", "late"].includes(record.status) && !feedbackComplete) {
+        return [{
+          id: feedbackTaskId,
+          kind: "feedback" as const,
+          eventId: session.eventId,
+          attendanceRecordId: record.id,
+          title: event.title,
+          code: event.code,
+          category: event.category,
+          status: record.status,
+          startsAt: session.startsAt,
+          dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+        }];
+      }
+      return [];
+    });
+    const rejectedCorrections = correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected");
+    const count = (status: string) => records.filter((record) => record.status === status).length;
+    const presentCount = count("present");
+    const lateCount = count("late");
+    const totalCount = records.length;
+    return {
+      totalCount,
+      presentCount,
+      lateCount,
+      absentCount: count("absent"),
+      excusedCount: count("excused"),
+      attendedCount: presentCount + lateCount,
+      attendanceRate: totalCount ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 0,
+      lateReasonTaskCount: tasks.filter((task) => task.kind === "late_reason").length,
+      feedbackTaskCount: tasks.filter((task) => task.kind === "feedback").length,
+      rejectedCorrectionCount: rejectedCorrections.length,
+      pendingTaskCount: tasks.length + rejectedCorrections.length,
+      tasks
+    };
+  },
+  async listLateReasonOptions() {
+    return [
+      { id: "traffic_commute", code: "traffic_commute", defaultLabel: "Traffic / Commute", label: "Traffic / Commute", locale: "en", sortOrder: 10, isActive: true },
+      { id: "class_academic_conflict", code: "class_academic_conflict", defaultLabel: "Class or Academic Conflict", label: "Class or Academic Conflict", locale: "en", sortOrder: 20, isActive: true },
+      { id: "personal_health", code: "personal_health", defaultLabel: "Personal / Health", label: "Personal / Health", locale: "en", sortOrder: 30, isActive: true },
+      { id: "weather_force_majeure", code: "weather_force_majeure", defaultLabel: "Weather / Force Majeure", label: "Weather / Force Majeure", locale: "en", sortOrder: 40, isActive: true },
+      { id: "other", code: "other", defaultLabel: "Other", label: "Other", locale: "en", sortOrder: 50, isActive: true }
+    ];
   }
 };
 
@@ -1391,7 +1524,27 @@ export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
   async listStudentFeedback() {
     return [];
   },
+  async listStudentFeedbackTasks(studentId) {
+    return attendanceRecordState.flatMap((record): EventFeedbackTask[] => {
+      const session = attendanceSessionState.find((entry) => entry.id === record.sessionId);
+      if (record.studentId !== studentId || !session?.eventId || !["present", "late"].includes(record.status)) return [];
+      const id = `feedback-task-${record.id}`;
+      const status = completedFeedbackTaskIds.has(id) || Boolean(record.note?.includes("Feedback submitted")) ? "completed" : "pending";
+      const completedAt = record.checkedOutAt ?? session.endsAt ?? record.recordedAt;
+      return [{
+        id,
+        attendanceRecordId: record.id,
+        eventId: session.eventId,
+        studentId: record.studentId,
+        status,
+        dueAt: status === "pending" ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : new Date(new Date(completedAt).getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        completedAt: status === "completed" ? completedAt : undefined,
+        objectives: eventObjectiveState.filter((objective) => objective.eventId === session.eventId).map((objective) => ({ ...objective }))
+      }];
+    });
+  },
   async submitEventFeedback(input) {
+    completedFeedbackTaskIds.add(input.taskId);
     return {
       id: `feedback-${input.eventId}-${input.studentId}`,
       eventId: input.eventId,

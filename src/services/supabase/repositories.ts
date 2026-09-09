@@ -1,5 +1,4 @@
 import type {
-  AddRosterStudentInput,
   AcademicManagementRepository,
   AnalyticsMlRepository,
   AttendanceRecordRepository,
@@ -38,9 +37,11 @@ import {
   mapCredentialRequest,
   mapEvent,
   mapEventFeedback,
+  mapEventFeedbackTask,
   mapEventObjective,
   mapEventParticipant,
   mapEventSummarySnapshot,
+  mapLateReasonOption,
   mapFacialProfile,
   mapNotification,
   mapOrganizer,
@@ -54,14 +55,18 @@ import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import type {
   AdminProfile,
+  Class,
+  ClassRoster,
   Department,
+  FacultyProfile,
   MlPrediction,
   Program,
   Semester,
-  Student,
   StudentCredentialStatus,
+  StudentDashboardSummary,
   SystemSettings
 } from "@/types/domain";
+import type { FacultyEmploymentStatus } from "@/types/enums";
 import type { AttendanceStatus, EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
@@ -202,7 +207,7 @@ async function selectRowsFiltered(
 
 async function selectSingleRow(table: TableName, id: string): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).select("*").eq("id", id).maybeSingle();
+  const { data, error } = await client.from(table).select("*").eq("id" as never, id).maybeSingle();
   throwIfSupabaseError(error);
   if (!data) {
     throw new RepositoryError(`${table} row was not found.`, "NOT_FOUND");
@@ -212,7 +217,7 @@ async function selectSingleRow(table: TableName, id: string): Promise<Row> {
 
 async function selectSingleRowWithColumns(table: TableName, id: string, columns: string): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).select(columns).eq("id", id).maybeSingle();
+  const { data, error } = await client.from(table).select(columns).eq("id" as never, id).maybeSingle();
   throwIfSupabaseError(error);
   if (!data) {
     throw new RepositoryError(`${table} row was not found.`, "NOT_FOUND");
@@ -229,7 +234,7 @@ async function insertRow(table: TableName, values: Row): Promise<Row> {
 
 async function updateRow(table: TableName, id: string, values: Row): Promise<Row> {
   const client = getSupabaseBrowserClient();
-  const { data, error } = await client.from(table).update(values as never).eq("id", id).select("*").single();
+  const { data, error } = await client.from(table).update(values as never).eq("id" as never, id).select("*").single();
   throwIfSupabaseError(error);
   return data as unknown as Row;
 }
@@ -314,7 +319,7 @@ async function insertVerificationAttempt(
   options: Partial<{ studentId: string; qrCredentialId: string; facialProfileId: string }> = {}
 ): Promise<Row> {
   return insertRow("verification_attempts", {
-    event_session_id: sessionId,
+    session_id: sessionId,
     student_id: options.studentId || null,
     verification_method: method,
     accepted,
@@ -390,25 +395,68 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
         : await selectRows("students", query, studentReadSelect);
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
+  async createStudent(input) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "create-student", students: [input] }
+    });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    if (data?.failed > 0) throw new RepositoryError(data.errors?.[0]?.error || "Failed to create student", "VALIDATION_ERROR");
+
+    // Fetch the newly created student to return it
+    const { data: studentRow, error: fetchError } = await client
+      .from("students")
+      .select(studentReadSelect)
+      .eq("student_id", input.studentNumber)
+      .single();
+    throwIfSupabaseError(fetchError);
+    return mapStudent(studentRow as Row);
+  },
+  async bulkCreateStudents(inputs) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "bulk-create-students", students: inputs }
+    });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    
+    return { success: data?.success || 0, failed: data?.failed || 0 };
+  },
   async listFacultyProfiles(query) {
-    return emptyPage(query);
+    const rows = await selectRowsFiltered("faculty_profiles", query, "*, profiles(*)", {});
+    return pageResult(
+      rows.items.map((row: Row): FacultyProfile => {
+        const profiles = row.profiles as Record<string, unknown> | undefined;
+        return {
+          id: String(row.id ?? ""),
+          userId: String(row.profile_id ?? ""),
+          employeeNumber: String(row.employee_number ?? ""),
+          departmentId: String(row.department_id ?? ""),
+          employmentStatus: row.employment_status as FacultyEmploymentStatus,
+          title: String(row.title ?? ""),
+          displayName: `${profiles?.first_name || ""} ${profiles?.last_name || ""}`.trim()
+        };
+      }),
+      rows.total,
+      query
+    );
   },
   async listOrganizerProfiles(query) {
     const rows = await selectRows("organizers", query);
     return pageResult(rows.items.map(mapOrganizer), rows.total, query);
   },
   async listAdminProfiles(query) {
-    const rows = await selectRows("profiles", query);
-    const adminRows = rows.items.filter((row) => row.role === "admin");
+    const rows = await selectRowsFiltered("admin_profiles", query, "*, profiles(*)", {});
     return pageResult(
-      adminRows.map((row): AdminProfile => ({
+      rows.items.map((row: Row): AdminProfile => ({
         id: String(row.id ?? ""),
-        userId: String(row.id ?? ""),
-        employeeNumber: String(row.employee_id ?? row.id ?? ""),
+        userId: String(row.profile_id ?? ""),
+        employeeNumber: String(row.employee_number ?? ""),
         departmentId: String(row.department_id ?? ""),
-        officeName: "Admin profile"
+        officeName: String(row.office_name ?? "")
       })),
-      adminRows.length,
+      rows.total,
       query
     );
   }
@@ -439,30 +487,103 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
   );
 },
   async listClasses(query) {
-    return emptyPage(query);
+    const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)", {});
+    return pageResult(
+      rows.items.map((row: Row): Class => {
+        const section = row.section as Record<string, unknown> | undefined;
+        return {
+          id: String(row.id ?? ""),
+          facultyId: String(row.faculty_id ?? ""),
+          programId: String(row.program_id ?? ""),
+          departmentId: String(row.department_id ?? ""),
+          semesterId: String(row.semester_id ?? ""),
+          subjectCode: String(row.subject_code ?? ""),
+          subjectTitle: String(row.subject_title ?? ""),
+          room: String(row.room ?? ""),
+          section: String(section?.section_name ?? ""),
+          yearLevel: Number(row.year_level ?? 0),
+          scheduleLabel: String(row.schedule_label ?? ""),
+          status: row.status as "active" | "archived",
+          rosterId: String(row.id ?? "")
+        };
+      }),
+      rows.total,
+      query
+    );
   },
   async getClassById(classId) {
-    void classId;
-    throw new RepositoryError("Class attendance is not part of the event-only PLPass schema.", "NOT_FOUND");
+    const row = await selectSingleRowWithColumns("classes", classId, "*, section:sections(section_name)");
+    if (!row) {
+      throw new RepositoryError("Class not found", "NOT_FOUND");
+    }
+    return {
+      id: String(row.id ?? ""),
+      facultyId: String(row.faculty_id ?? ""),
+      programId: String(row.program_id ?? ""),
+      departmentId: String(row.department_id ?? ""),
+      semesterId: String(row.semester_id ?? ""),
+      subjectCode: String(row.subject_code ?? ""),
+      subjectTitle: String(row.subject_title ?? ""),
+      room: String(row.room ?? ""),
+      section: String((row.section as Record<string, unknown> | undefined)?.section_name ?? ""),
+      yearLevel: Number(row.year_level ?? 0),
+      scheduleLabel: String(row.schedule_label ?? ""),
+      status: row.status as "active" | "archived",
+      rosterId: String(row.id ?? "")
+    };
   }
 };
 
 export const supabaseClassRosterRepository: ClassRosterRepository = {
   async listClassRosters(query) {
-    return emptyPage(query);
+    const rows = await selectRowsFiltered("class_rosters", query, "*", {});
+    return pageResult(
+      rows.items.map((row: Row): ClassRoster => ({
+        id: String(row.id ?? ""),
+        classId: String(row.class_id ?? ""),
+        studentId: String(row.student_id ?? ""),
+        enrolledAt: String(row.enrolled_at ?? "")
+      })),
+      rows.total,
+      query
+    );
   },
   async listStudentsForClass(classId, query) {
-    void classId;
-    return emptyPage<Student>(query);
+    const client = getSupabaseBrowserClient();
+    let builder = client.from("class_rosters").select("*, student:students(*, profiles(*))", { count: "exact" }).eq("class_id", classId);
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    builder = builder.range(from, to);
+    
+    const { data, count, error } = await builder;
+    throwIfSupabaseError(error);
+    
+    return pageResult(
+      (data || []).map((row: Record<string, unknown>) => mapStudent(row.student as Row)),
+      count ?? 0,
+      query
+    );
   },
-  async addStudentToClass(input: AddRosterStudentInput) {
-    void input;
-    throw new RepositoryError("Class rosters are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
+  async addStudentToClass(input) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.from("class_rosters").insert({
+      class_id: input.classId,
+      student_id: input.studentId
+    }).select("*").single();
+    throwIfSupabaseError(error);
+    const row = data as Record<string, unknown>;
+    return {
+      id: String(row.id ?? ""),
+      classId: String(row.class_id ?? ""),
+      studentId: String(row.student_id ?? ""),
+      enrolledAt: String(row.enrolled_at ?? "")
+    };
   },
   async removeStudentFromClass(classId, studentId) {
-    void classId;
-    void studentId;
-    throw new RepositoryError("Class rosters are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
+    const client = getSupabaseBrowserClient();
+    const { error } = await client.from("class_rosters").delete().eq("class_id", classId).eq("student_id", studentId);
+    throwIfSupabaseError(error);
   }
 };
 
@@ -480,6 +601,10 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
       if (listQuery.sortBy) {
         builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+      }
+      if (listQuery.search) {
+        const term = listQuery.search.trim().replace(/[,%()]/g, " ").replace(/\s+/g, " ");
+        if (term) builder = builder.or(`event_code.ilike.*${term}*,title.ilike.*${term}*,category.ilike.*${term}*,venue.ilike.*${term}*`);
       }
 
       const { data, error, count } = await builder.range(from, to);
@@ -540,7 +665,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const trimmedObjectives = (input.objectives ?? [])
       .map((objective) => objective.trim())
       .filter((objective) => objective.length > 0);
-    const { data: eventRow, error: eventError } = await client.rpc("create_organizer_event", {
+    const { data: eventRow, error: eventError } = await client.rpc("create_organizer_event_with_metadata", {
       p_event_code: input.code,
       p_category_id: category.id,
       p_title: input.title,
@@ -656,14 +781,7 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_reason: reason
     });
     throwIfSupabaseError(error);
-    const updatedEvent = mapEvent(data as Row);
-    const { error: emailProcessingError } = await client.functions.invoke("send-event-emails", {
-      body: { eventId: updatedEvent.id }
-    });
-    if (emailProcessingError) {
-      console.warn("Event rescheduled, but participant email processing was not completed:", emailProcessingError);
-    }
-    return updatedEvent;
+    return mapEvent(data as Row);
   }
 };
 
@@ -671,14 +789,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const rows = await selectRowsFiltered("event_sessions", query, "*", {
+    const rows = await selectRowsFiltered("attendance_sessions", query, "*", {
       event_id: query?.eventId
     });
     return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
   },
 
   async getAttendanceSessionById(sessionId) {
-    return mapAttendanceSession(await selectSingleRow("event_sessions", sessionId), "event");
+    return mapAttendanceSession(await selectSingleRow("attendance_sessions", sessionId), "event");
   },
   async createClassSession(input) {
     void input;
@@ -698,7 +816,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
   });
   if (error && (error.code === "23505" || /already has an active attendance session/i.test(error.message))) {
     const { data: activeSession, error: activeSessionError } = await client
-      .from("event_sessions")
+      .from("attendance_sessions")
       .select("*")
       .eq("event_id", input.eventId)
       .eq("session_status", "ongoing")
@@ -752,7 +870,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
     if (eventId) {
       const { data: sessionRows, error: sessionError } = await client
-        .from("event_sessions")
+        .from("attendance_sessions")
         .select("id")
         .eq("event_id", eventId);
       throwIfSupabaseError(sessionError);
@@ -760,14 +878,28 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       if (sessionIds.length === 0) {
         return emptyPage(listQuery);
       }
+      builder = builder.in("session_id", sessionIds);
+    }
+
+    if (listQuery.dateFrom || listQuery.dateTo) {
+      let sessionsForDate = client.from("event_sessions").select("id");
+      if (listQuery.dateFrom) sessionsForDate = sessionsForDate.gte("scheduled_start", listQuery.dateFrom);
+      if (listQuery.dateTo) sessionsForDate = sessionsForDate.lt("scheduled_start", listQuery.dateTo);
+      const { data: sessionRows, error: sessionError } = await sessionsForDate;
+      throwIfSupabaseError(sessionError);
+      const sessionIds = (sessionRows ?? []).map((row) => String((row as Row).id ?? "")).filter(Boolean);
+      if (sessionIds.length === 0) return emptyPage(listQuery);
       builder = builder.in("event_session_id", sessionIds);
     }
 
     if (sessionId) {
-      builder = builder.eq("event_session_id", sessionId);
+      builder = builder.eq("session_id", sessionId);
     }
     if (studentId) {
       builder = builder.eq("student_id", studentId);
+    }
+    if (listQuery.attendanceStatus) {
+      builder = builder.eq("attendance_status", listQuery.attendanceStatus);
     }
     if (listQuery.sortBy) {
       builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
@@ -778,6 +910,53 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const { data, error, count } = await builder.range(from, to);
     throwIfSupabaseError(error);
     return pageResult((data ?? []).map(mapAttendanceRecord), count ?? data?.length ?? 0, listQuery);
+  },
+  async listFinalizedEventYears(context) {
+    if (context?.actorRole !== "student") return [];
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("list_student_finalized_event_years");
+    throwIfSupabaseError(error);
+    return (data ?? [])
+      .map((row) => Number((row as Row).event_year))
+      .filter((year) => Number.isInteger(year) && year > 0);
+  },
+  async getStudentDashboardSummary(context) {
+    if (context?.actorRole !== "student") {
+      throw new RepositoryError("A student profile is required to load the dashboard summary.", "PERMISSION_DENIED");
+    }
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("get_student_dashboard_summary");
+    throwIfSupabaseError(error);
+    const summary = (data ?? {}) as Row;
+    const tasks = Array.isArray(summary.tasks) ? summary.tasks : [];
+    return {
+      totalCount: Number(summary.totalCount ?? 0),
+      presentCount: Number(summary.presentCount ?? 0),
+      lateCount: Number(summary.lateCount ?? 0),
+      absentCount: Number(summary.absentCount ?? 0),
+      excusedCount: Number(summary.excusedCount ?? 0),
+      attendedCount: Number(summary.attendedCount ?? 0),
+      attendanceRate: Number(summary.attendanceRate ?? 0),
+      lateReasonTaskCount: Number(summary.lateReasonTaskCount ?? 0),
+      feedbackTaskCount: Number(summary.feedbackTaskCount ?? 0),
+      rejectedCorrectionCount: Number(summary.rejectedCorrectionCount ?? 0),
+      pendingTaskCount: Number(summary.pendingTaskCount ?? 0),
+      tasks: tasks.map((task) => {
+        const row = task as Row;
+        return {
+          id: String(row.id ?? ""),
+          kind: String(row.kind ?? "feedback") as StudentDashboardSummary["tasks"][number]["kind"],
+          attendanceRecordId: typeof row.attendanceRecordId === "string" ? row.attendanceRecordId : undefined,
+          eventId: typeof row.eventId === "string" ? row.eventId : undefined,
+          title: String(row.title ?? "Required attendance task"),
+          code: typeof row.code === "string" ? row.code : undefined,
+          category: typeof row.category === "string" ? row.category : undefined,
+          status: String(row.status ?? "pending"),
+          startsAt: typeof row.startsAt === "string" ? row.startsAt : undefined,
+          dueAt: typeof row.dueAt === "string" ? row.dueAt : undefined
+        };
+      })
+    } satisfies StudentDashboardSummary;
   },
   async getAttendanceRecordById(recordId, context) {
     const row = await selectSingleRow("attendance_records", recordId);
@@ -846,7 +1025,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       const { data: existingRows, error: existingError } = await client
         .from("attendance_records")
         .select("*")
-        .eq("event_session_id", input.sessionId)
+        .eq("session_id", input.sessionId)
         .eq("student_id", studentId)
         .limit(1);
       throwIfSupabaseError(existingError);
@@ -878,7 +1057,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
       const attempt = await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-in.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
       const recordRow = await insertRow("attendance_records", {
-        event_session_id: input.sessionId,
+        session_id: input.sessionId,
         student_id: studentId,
         verification_attempt_id: String(attempt.id ?? ""),
         attendance_status: "present",
@@ -965,7 +1144,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const { data: existingRows, error: existingError } = await client
       .from("attendance_records")
       .select("*")
-      .eq("event_session_id", input.sessionId)
+      .eq("session_id", input.sessionId)
       .eq("student_id", studentId)
       .limit(1);
     throwIfSupabaseError(existingError);
@@ -1022,7 +1201,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     });
     const profile = await currentProfile();
     const recordRow = await insertRow("attendance_records", {
-      event_session_id: input.sessionId,
+      session_id: input.sessionId,
       student_id: studentId,
       verification_attempt_id: String(attempt.id ?? ""),
       attendance_status: "present",
@@ -1077,7 +1256,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     /* Legacy client-side implementation retained below only for reference during
        migration rollout; execution returns from the secured RPC above. */
     /*
-    const { data: existing, error: existingError } = await client.from("attendance_records").select("*").eq("event_session_id", input.sessionId).eq("student_id", input.studentId).maybeSingle();
+    const { data: existing, error: existingError } = await client.from("attendance_records").select("*").eq("session_id", input.sessionId).eq("student_id", input.studentId).maybeSingle();
     throwIfSupabaseError(existingError);
     
     const sessionStart = new Date(session.startsAt).getTime();
@@ -1139,7 +1318,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     // During check-in, determine status based on time and allow status override
     const status = input.statusOverride ?? (new Date(recordedAt).getTime() <= lateCutoff ? "present" : "late");
     const row = await insertRow("attendance_records", {
-      event_session_id: input.sessionId,
+      session_id: input.sessionId,
       student_id: input.studentId,
       attendance_status: status,
       verification_method: "manual",
@@ -1176,11 +1355,31 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
     const { data, error } = await client.rpc("submit_late_reason", {
       p_attendance_record_id: input.attendanceRecordId,
-      p_late_reason_category: input.reason,
+      p_late_reason_option_id: input.reasonOptionId,
       p_late_reason: input.customReason
     });
     throwIfSupabaseError(error);
     return mapAttendanceRecord(data as Row);
+  },
+  async listLateReasonOptions(locale = "en", context) {
+    void context;
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("attendance_late_reason_options")
+      .select("id, code, default_label, sort_order, is_active, attendance_late_reason_option_translations(label, locale)")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true });
+    throwIfSupabaseError(error);
+    return (data ?? [] as unknown as Array<Record<string, unknown>>).map((row) => {
+      const translations = Array.isArray((row as Record<string, unknown>).attendance_late_reason_option_translations)
+        ? ((row as Record<string, unknown>).attendance_late_reason_option_translations as Array<Record<string, unknown>>)
+        : [];
+      const translation = translations.find((item) => item.locale === locale) ?? translations.find((item) => item.locale === "en");
+      return mapLateReasonOption(
+        { ...(row as Record<string, unknown>), translation_label: typeof translation?.label === "string" ? translation.label : undefined },
+        typeof translation?.locale === "string" ? translation.locale : "en"
+      );
+    });
   }
 };
 
@@ -1190,7 +1389,7 @@ export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = 
     return pageResult(
       rows.items.map((row) => ({
         id: String(row.id ?? ""),
-        sessionId: String(row.event_session_id ?? ""),
+        sessionId: String(row.session_id ?? ""),
         studentId: typeof row.student_id === "string" ? row.student_id : undefined,
         accepted: Boolean(row.accepted),
         attemptedAt: String(row.attempted_at ?? new Date().toISOString()),
@@ -1562,6 +1761,21 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     return ((data ?? []) as Row[]).map(mapEventFeedback);
   },
 
+  async listStudentFeedbackTasks(studentId, context) {
+    const client = getSupabaseBrowserClient();
+    const scopedStudentId = context?.actorRole === "student"
+      ? await currentStudentIdForProfile(context.actorUserId)
+      : studentId;
+    if (!scopedStudentId) return [];
+    const { data, error } = await client
+      .from("event_feedback_tasks" as never)
+      .select("*, event_feedback_task_objectives(*)")
+      .eq("student_id", scopedStudentId)
+      .order("due_at", { ascending: true });
+    throwIfSupabaseError(error);
+    return ((data ?? []) as Row[]).map(mapEventFeedbackTask);
+  },
+
   async submitEventFeedback(input: SubmitEventFeedbackInput, context) {
     const client = getSupabaseBrowserClient();
     const studentId = context?.actorRole === "student"
@@ -1570,20 +1784,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     if (!studentId) {
       throw new RepositoryError("A student profile is required to submit event feedback.", "VALIDATION_ERROR");
     }
-    if (context?.actorRole === "student") {
-      await supabaseEventManagementRepository.getEventById(input.eventId, context);
-      const { data: record, error: recordError } = await client
-        .from("attendance_records")
-        .select("id, student_id, event_session_id, event_sessions(event_id)")
-        .eq("id", input.attendanceRecordId)
-        .maybeSingle();
-      throwIfSupabaseError(recordError);
-      const session = Array.isArray(record?.event_sessions) ? record?.event_sessions[0] : record?.event_sessions;
-      const recordEventId = typeof session?.event_id === "string" ? session.event_id : "";
-      if (!record || String(record.student_id) !== studentId || recordEventId !== input.eventId) {
-        throw new RepositoryError("Students can only submit feedback for their own attendance records.", "PERMISSION_DENIED");
-      }
-    }
+    void studentId;
     if (input.ratings.length > 0) {
       const objectiveIds = input.ratings.map((rating) => rating.objectiveId);
       if (
@@ -1607,6 +1808,7 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     const comment = input.comment?.trim() || null;
     const { data: edgeResult, error: edgeError } = await client.functions.invoke("analyze-feedback", {
       body: {
+        taskId: input.taskId,
         eventId: input.eventId,
         attendanceRecordId: input.attendanceRecordId,
         comment,

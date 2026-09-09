@@ -9,9 +9,11 @@ import type {
   Event,
   EventFeedback,
   EventFeedbackRating,
+  EventFeedbackTask,
   EventObjective,
   EventParticipant,
   EventSummarySnapshot,
+  LateReasonOption,
   FacialProfile,
   FacultyProfile,
   Notification,
@@ -24,6 +26,18 @@ import type {
 import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, PriorityLevel, UserRole, VerificationMethod } from "@/types/enums";
 
 type Row = Record<string, unknown>;
+
+export function mapLateReasonOption(row: Row, locale = "en"): LateReasonOption {
+  return {
+    id: stringValue(row, ["id"]),
+    code: stringValue(row, ["code"]),
+    defaultLabel: stringValue(row, ["default_label"]),
+    label: stringValue(row, ["translation_label", "default_label"]),
+    locale,
+    sortOrder: numberValue(row, ["sort_order"]),
+    isActive: Boolean(row.is_active)
+  };
+}
 
 function nestedRow(row: Row, key: string): Row | undefined {
   const value = row[key];
@@ -330,7 +344,8 @@ export function mapEventObjective(row: Row): EventObjective {
     eventId: stringValue(row, ["event_id"]),
     order: numberValue(row, ["objective_order"]),
     text: stringValue(row, ["objective_text"]),
-    averageRating: nullableNumberValue(row, ["average_rating"])
+    averageRating: nullableNumberValue(row, ["average_rating"]),
+    ratingCount: numberValue(row, ["rating_count"])
   };
 }
 
@@ -355,6 +370,28 @@ export function mapEventFeedback(row: Row): EventFeedback {
     sentimentScore: nullableNumberValue(row, ["sentiment_score"]),
     submittedAt: stringValue(row, ["submitted_at"], new Date().toISOString()),
     ratings: Array.isArray(ratings) ? ratings.map((rating) => mapEventFeedbackRating(rating as Row)) : undefined
+  };
+}
+
+export function mapEventFeedbackTask(row: Row): EventFeedbackTask {
+  const objectives = row["event_feedback_task_objectives"];
+  return {
+    id: stringValue(row, ["id"]),
+    attendanceRecordId: stringValue(row, ["attendance_record_id"]),
+    eventId: stringValue(row, ["event_id"]),
+    studentId: stringValue(row, ["student_id"]),
+    status: stringValue(row, ["task_status"]) as EventFeedbackTask["status"],
+    dueAt: stringValue(row, ["due_at"]),
+    completedAt: optionalString(row, ["completed_at"]),
+    expiredAt: optionalString(row, ["expired_at"]),
+    objectives: Array.isArray(objectives)
+      ? objectives.map((objective) => ({
+          id: stringValue(objective as Row, ["objective_id"]),
+          eventId: stringValue(row, ["event_id"]),
+          order: numberValue(objective as Row, ["objective_order"]),
+          text: stringValue(objective as Row, ["objective_text"])
+        }))
+      : []
   };
 }
 
@@ -399,6 +436,7 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     recordedByUserId: optionalString(row, ["recorded_by", "created_by"]),
     note: optionalString(row, ["remarks", "note"]),
     lateReasonCategory: optionalString(row, ["late_reason_category"]),
+    lateReasonOptionId: optionalString(row, ["late_reason_option_id"]),
     timeIn: optionalString(row, ["time_in"]),
     checkedOutAt: optionalString(row, ["time_out"]),
     lateReason: optionalString(row, ["late_reason"])

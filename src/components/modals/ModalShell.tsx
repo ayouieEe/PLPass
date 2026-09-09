@@ -80,7 +80,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
       <section
         ref={dialogRef}
         className={cn(
-          "plpass-modal-surface relative max-h-[90vh] w-full overflow-hidden rounded-2xl border shadow-2xl",
+          "plpass-modal-surface relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border shadow-2xl",
           sizeClass[size]
         )}
         role="dialog"
@@ -91,7 +91,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
         onKeyDownCapture={handleDialogKeyDown}
       >
         <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent" />
-        <div className="flex items-start justify-between gap-4 border-b p-5">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b p-5">
           <div className="min-w-0">
             <h2 id={titleId} className="text-xl font-semibold tracking-tight">{title}</h2>
             {description ? <p id={descriptionId} className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p> : null}
@@ -110,9 +110,9 @@ export function ModalShell({ open, title, description, children, footer, size = 
           ) : null}
         </div>
         {children != null ? (
-          <div className="plpass-modern-scrollbar max-h-[calc(90vh-9rem)] overflow-y-auto p-5">{children}</div>
+          <div className="plpass-modern-scrollbar flex-1 min-h-0 overflow-y-auto p-5">{children}</div>
         ) : null}
-        {footer ? <div className="flex flex-wrap justify-end gap-2 border-t bg-surface-muted/40 p-5">{footer}</div> : null}
+        {footer ? <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t bg-surface-muted/40 p-5">{footer}</div> : null}
       </section>
     </div>
   );

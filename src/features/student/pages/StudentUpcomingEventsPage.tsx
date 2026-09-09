@@ -11,8 +11,7 @@ import {
   Layers,
   MapPin,
   Radio,
-  Search,
-  TriangleAlert
+  Search
 } from "lucide-react";
 import { NavLink, useSearchParams } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -21,17 +20,15 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentEventFeedback } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentFeedbackTasks } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   buildStudentEventWorkflow,
   countdownLabel,
   eventResourceLabel,
-  getEventConflictLabel,
   getEventResource,
   getStudentEventRecords,
-  getStudentEventConflictMap,
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
@@ -88,13 +85,13 @@ function formatEventTimeRange(event: Event) {
 
 export function StudentUpcomingEventsPage() {
   const scope = useStudentScope();
-  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
-  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
-  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
+  const eventsQuery = useEvents({ pageSize: 100, search: search || undefined }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 25 }, scope.context);
+  const recordsQuery = useAttendanceRecords({ pageSize: 25 }, scope.context);
+  const correctionsQuery = useCorrectionRequests({ pageSize: 25 }, scope.context);
+  const feedbackTasksQuery = useStudentFeedbackTasks(scope.student?.id, scope.context);
   const [activeTab, setActiveTab] = useState<EventListTab>(() =>
     searchParams.get("tab") === "upcoming" || searchParams.get("view") === "calendar" ? "upcoming" : "ongoing"
   );
@@ -127,14 +124,13 @@ export function StudentUpcomingEventsPage() {
 
   const student = scope.student;
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
-  const conflictMap = getStudentEventConflictMap(events);
   const eventRecords = getStudentEventRecords({
     studentId: student.id,
     records: recordsQuery.data?.items ?? [],
     sessions: sessionsQuery.data?.items ?? [],
     events: eventsQuery.data?.items ?? []
   });
-  const submittedFeedbackEventIds = new Set((feedbackQuery.data ?? []).map((feedback) => feedback.eventId));
+  const feedbackTasks = feedbackTasksQuery.data ?? [];
 
   const allWorkflows = events.map((event) => {
     const record = eventRecords.find((entry) => entry.eventId === event.id);
@@ -146,7 +142,7 @@ export function StudentUpcomingEventsPage() {
         event,
         session,
         record,
-        feedbackSubmitted: Boolean(record?.feedbackSubmitted || submittedFeedbackEventIds.has(event.id)),
+        feedbackSubmitted: feedbackTasks.some((task) => task.attendanceRecordId === record?.id && task.status === "completed"),
         correctionStatus: correction?.status
       })
     };
@@ -312,7 +308,6 @@ export function StudentUpcomingEventsPage() {
               </div>
             ) : null}
             {workflows.map(({ event, workflow }) => {
-              const conflict = conflictMap.get(event.id);
               const eventResource = getEventResource(event);
               return (
               <article
@@ -381,16 +376,6 @@ export function StudentUpcomingEventsPage() {
                         </p>
                       </div>
                     </div>
-
-                    {conflict ? (
-                      <div className="mt-3 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4">
-                        <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
-                        <div>
-                          <p className="text-sm font-semibold text-warning">Schedule conflict detected</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{getEventConflictLabel(conflict)}</p>
-                        </div>
-                      </div>
-                    ) : null}
 
                     <div className="mt-5 grid gap-4 sm:grid-cols-2">
                       <div className="rounded-xl border bg-background p-4 transition hover:border-primary/30">
@@ -531,16 +516,15 @@ export function StudentUpcomingEventsPage() {
                     <div className="flex flex-1 flex-col gap-1 overflow-hidden">
                       {visibleEvents.map(({ event }) => {
                         const isActive = isOngoingEvent(event);
-                        const hasConflict = conflictMap.has(event.id);
                         return (
                           <span
                             key={event.id}
                             className={`flex items-center gap-1 truncate rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${
-                              hasConflict ? "bg-warning/15 text-warning" : isActive ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
+                              isActive ? "bg-warning/15 text-warning" : "bg-primary/10 text-primary"
                             }`}
                           >
                             <span
-                              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${hasConflict || isActive ? "bg-warning" : "bg-primary"}`}
+                              className={`h-1.5 w-1.5 flex-shrink-0 rounded-full ${isActive ? "bg-warning" : "bg-primary"}`}
                             />
                             <span className="truncate">{event.title}</span>
                           </span>
@@ -603,7 +587,6 @@ export function StudentUpcomingEventsPage() {
                 .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime())
                 .map(({ event }) => {
                   const isActive = isOngoingEvent(event);
-                  const conflict = conflictMap.get(event.id);
                   return (
                     <NavLink
                       key={event.id}
@@ -631,14 +614,6 @@ export function StudentUpcomingEventsPage() {
                           {event.venue}
                         </p>
                       </div>
-                      <div className="mt-3 border-t pt-2.5">
-                        {conflict ? (
-                          <p className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-                            <TriangleAlert className="h-3.5 w-3.5 flex-shrink-0" />
-                            {getEventConflictLabel(conflict)}
-                          </p>
-                        ) : null}
-                      </div>
                     </NavLink>
                   );
                 })}
@@ -649,7 +624,6 @@ export function StudentUpcomingEventsPage() {
         <section className="grid gap-4 lg:grid-cols-2">
           {workflows.map(({ event }) => {
             const timingBadge = eventTimingBadge(event);
-            const conflict = conflictMap.get(event.id);
             return (
               <article
                 key={event.id}
@@ -689,16 +663,6 @@ export function StudentUpcomingEventsPage() {
                   <div className="mt-4 rounded-xl border bg-background p-4">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Organizer notes</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{event.description}</p>
-                  </div>
-                ) : null}
-
-                {conflict ? (
-                  <div className="mt-4 flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-3">
-                    <TriangleAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-warning" />
-                    <div>
-                      <p className="text-sm font-semibold text-warning">Schedule conflict</p>
-                      <p className="mt-0.5 text-sm text-muted-foreground">{getEventConflictLabel(conflict)}</p>
-                    </div>
                   </div>
                 ) : null}
 

@@ -51,7 +51,7 @@ test("organizer student-account grid provides keyboard and screen-reader context
   });
   await seedSession(page, "organizer");
   await page.goto("/organizer/users");
-  await expect(page.getByRole("heading", { name: "Student Accounts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Student Accounts", exact: true })).toBeVisible();
   await expectAccessibleGrid(page, "Student accounts", browserName);
   expect(gridErrors).toEqual([]);
 });
