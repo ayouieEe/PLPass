@@ -319,7 +319,7 @@ async function insertVerificationAttempt(
   options: Partial<{ studentId: string; qrCredentialId: string; facialProfileId: string }> = {}
 ): Promise<Row> {
   return insertRow("verification_attempts", {
-    session_id: sessionId,
+    event_session_id: sessionId,
     student_id: options.studentId || null,
     verification_method: method,
     accepted,
@@ -754,14 +754,14 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const rows = await selectRowsFiltered("attendance_sessions", query, "*", {
+    const rows = await selectRowsFiltered("event_sessions", query, "*", {
       event_id: query?.eventId
     });
     return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
   },
 
   async getAttendanceSessionById(sessionId) {
-    return mapAttendanceSession(await selectSingleRow("attendance_sessions", sessionId), "event");
+    return mapAttendanceSession(await selectSingleRow("event_sessions", sessionId), "event");
   },
   async createClassSession(input) {
     void input;
@@ -781,7 +781,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
   });
   if (error && (error.code === "23505" || /already has an active attendance session/i.test(error.message))) {
     const { data: activeSession, error: activeSessionError } = await client
-      .from("attendance_sessions")
+      .from("event_sessions")
       .select("*")
       .eq("event_id", input.eventId)
       .eq("session_status", "ongoing")
@@ -835,7 +835,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
     if (eventId) {
       const { data: sessionRows, error: sessionError } = await client
-        .from("attendance_sessions")
+        .from("event_sessions")
         .select("id")
         .eq("event_id", eventId);
       throwIfSupabaseError(sessionError);
@@ -843,7 +843,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       if (sessionIds.length === 0) {
         return emptyPage(listQuery);
       }
-      builder = builder.in("session_id", sessionIds);
+      builder = builder.in("event_session_id", sessionIds);
     }
 
     if (listQuery.dateFrom || listQuery.dateTo) {
@@ -858,7 +858,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     }
 
     if (sessionId) {
-      builder = builder.eq("session_id", sessionId);
+      builder = builder.eq("event_session_id", sessionId);
     }
     if (studentId) {
       builder = builder.eq("student_id", studentId);
@@ -990,7 +990,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       const { data: existingRows, error: existingError } = await client
         .from("attendance_records")
         .select("*")
-        .eq("session_id", input.sessionId)
+        .eq("event_session_id", input.sessionId)
         .eq("student_id", studentId)
         .limit(1);
       throwIfSupabaseError(existingError);
@@ -1022,7 +1022,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
 
       const attempt = await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-in.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
       const recordRow = await insertRow("attendance_records", {
-        session_id: input.sessionId,
+        event_session_id: input.sessionId,
         student_id: studentId,
         verification_attempt_id: String(attempt.id ?? ""),
         attendance_status: "present",
@@ -1109,7 +1109,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const { data: existingRows, error: existingError } = await client
       .from("attendance_records")
       .select("*")
-      .eq("session_id", input.sessionId)
+      .eq("event_session_id", input.sessionId)
       .eq("student_id", studentId)
       .limit(1);
     throwIfSupabaseError(existingError);
@@ -1166,7 +1166,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     });
     const profile = await currentProfile();
     const recordRow = await insertRow("attendance_records", {
-      session_id: input.sessionId,
+      event_session_id: input.sessionId,
       student_id: studentId,
       verification_attempt_id: String(attempt.id ?? ""),
       attendance_status: "present",
@@ -1354,7 +1354,7 @@ export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = 
     return pageResult(
       rows.items.map((row) => ({
         id: String(row.id ?? ""),
-        sessionId: String(row.session_id ?? ""),
+        sessionId: String(row.event_session_id ?? row.session_id ?? ""),
         studentId: typeof row.student_id === "string" ? row.student_id : undefined,
         accepted: Boolean(row.accepted),
         attemptedAt: String(row.attempted_at ?? new Date().toISOString()),

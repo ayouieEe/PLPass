@@ -29,7 +29,7 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
   const eventIds = events.map((event) => event.id);
   const eventById = new Map(events.map((event) => [event.id, event]));
   const { data: sessions, error: sessionsError } = await client
-    .from("attendance_sessions")
+    .from("event_sessions")
     .select("id, event_id")
     .in("event_id", eventIds)
     .eq("session_status", "completed");
@@ -52,8 +52,8 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
 
   const { data: records, error: recordsError } = await client
     .from("attendance_records")
-    .select("session_id, attendance_status, recorded_at, late_reason_category")
-    .in("session_id", sessionIds)
+    .select("event_session_id, attendance_status, recorded_at, late_reason_category")
+    .in("event_session_id", sessionIds)
     .order("recorded_at", { ascending: true });
   if (recordsError) throw recordsError;
 
@@ -62,7 +62,7 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
   const lateByMonth = new Map<string, { label: string; count: number }>();
   (records ?? []).forEach((record) => {
     const date = new Date(record.recorded_at);
-    const eventId = eventIdBySessionId.get(record.session_id);
+    const eventId = eventIdBySessionId.get(record.event_session_id);
     const event = eventId ? eventById.get(eventId) : undefined;
     if (!event) return;
     const row = trendByEvent.get(event.id) ?? { label: event.code, date: dateKey(event.startsAt), present: 0, late: 0, absent: 0, attendanceRate: 0 };
@@ -99,7 +99,7 @@ export function useOrganizerLiveEventSessions() {
     queryFn: async (): Promise<LiveEventSession[]> => {
       const client = getSupabaseBrowserClient();
       const { data, error } = await client
-        .from("attendance_sessions")
+        .from("event_sessions")
         .select("event_id, actual_start")
         .eq("session_status", "ongoing");
       if (error) throw error;
