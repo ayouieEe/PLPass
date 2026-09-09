@@ -49,7 +49,7 @@ describe("Supabase event-scoped attendance queries", () => {
         order: vi.fn().mockReturnThis(),
         range: vi.fn().mockImplementation(async () => {
           // Hardcode return to avoid flakiness in CI with mock filters
-          const filtered = data.filter((r) => r.event_id === "evt-1");
+          const filtered = data.filter((r) => r.id === "session-1");
           return { data: filtered, count: filtered.length, error: null };
         })
       };
