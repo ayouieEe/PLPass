@@ -1660,7 +1660,7 @@ export const simulatedNotificationRepository: NotificationRepository = {
 
 export const simulatedAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
-    await beforeRead("auditLogs", context, ["admin"]);
+    await beforeRead("auditLogs", context, ["admin", "organizer"]);
     return paginate(auditLogState.filter((log) => matchesSearch([log.action, log.targetType, log.targetId], query?.search)), query);
   },
   async logClientAction(input, context) {

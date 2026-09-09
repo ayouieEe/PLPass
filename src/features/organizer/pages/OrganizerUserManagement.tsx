@@ -29,6 +29,7 @@ import {
   Edit
 } from "lucide-react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -847,7 +848,7 @@ function AddStudentModal({
       toast.success("Student added successfully");
       onClose();
     } catch (error) {
-      toast.error("Failed to add student");
+      toast.error(getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -987,7 +988,7 @@ function EditStudentModal({
       onSuccess("Updated Student Details", "student", { studentId: student?.studentNumber });
       onClose();
     } catch (error) {
-      toast.error("Failed to update student");
+      toast.error(getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -1118,7 +1119,7 @@ function BulkAddStudentModal({
           toast.success(`Successfully imported ${inputs.length} students`);
           onClose();
         } catch (error) {
-          setFileError(error instanceof Error ? error.message : "Failed to process the CSV file.");
+          setFileError(getErrorMessage(error));
         } finally {
           setIsLoading(false);
         }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Camera, Key, Mail, ShieldAlert, User } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
@@ -150,7 +151,7 @@ export function OrganizerProfilePage() {
         // The profile update is already committed; audit feedback is handled separately.
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to update the profile picture.");
+      toast.error(getErrorMessage(error));
     } finally {
       setIsUploadingAvatar(false);
       input.value = "";
@@ -216,7 +217,7 @@ export function OrganizerProfilePage() {
         // own error and must not incorrectly tell the organizer that it failed.
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to change the password.");
+      toast.error(getErrorMessage(error));
     } finally {
       setIsChangingPassword(false);
     }

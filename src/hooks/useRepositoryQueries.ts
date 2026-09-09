@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTimeout";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { repositories } from "@/services/repositories";
 import type {
   AddRosterStudentInput,
@@ -42,13 +43,6 @@ function boundedDashboardRequest<T>(operation: Promise<T>, label: string) {
 
 function retryUnlessTimedOut(failureCount: number, error: Error) {
   return !(error instanceof RequestTimeoutError) && failureCount < 1;
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "An unexpected error occurred. Please try again.";
 }
 
 function queryWithDefaults(query?: Partial<ListQuery>): ListQuery {
