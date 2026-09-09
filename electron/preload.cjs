@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   getPreparedEventBySession: (id) => ipcRenderer.invoke("offline:getPreparedEventBySession", id),
   identifyQr: (eventId, qr) => ipcRenderer.invoke("offline:identifyQr", eventId, qr),
   identifyManual: (eventId, value) => ipcRenderer.invoke("offline:identifyManual", eventId, value),
-  listFaceCandidates: (eventId) => ipcRenderer.invoke("offline:faceCandidates", eventId),
+  identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture),
   recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   listPending: (eventId) => ipcRenderer.invoke("offline:listPending", eventId),
   beginSync: (limit) => ipcRenderer.invoke("offline:beginSync", limit),

@@ -9,6 +9,10 @@ import {
 import { dateKey } from "@/lib/utils/date";
 
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
+const attendanceStartMigration = readFileSync(
+  "supabase/migrations/20260909113720_allow_owned_events_to_start_attendance_without_approval.sql",
+  "utf8"
+);
 
 describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
@@ -46,8 +50,18 @@ describe("event page validation helpers", () => {
     expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
   });
 
-  it("opens facial verification on the active session camera route", () => {
-    expect(eventManagementPage).toContain("navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId))");
+  it("runs facial verification in the active event workspace", () => {
+    expect(eventManagementPage).toContain("identifyLiveFace(");
+    expect(eventManagementPage).toContain("Live facial verification camera preview");
+    expect(eventManagementPage).not.toContain("navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId))");
     expect(eventManagementPage).toContain("No active attendance session is available for facial verification.");
+  });
+
+  it("allows an organizer to start an owned active event without approval", () => {
+    expect(eventManagementPage).not.toContain("awaiting approval and cannot start attendance");
+    expect(attendanceStartMigration).not.toContain("approval_status = 'approved'");
+    expect(attendanceStartMigration).not.toContain("approval_status <> 'approved'");
+    expect(attendanceStartMigration).toContain("v_event.organizer_id <> private.current_organizer_id()");
+    expect(attendanceStartMigration).toContain("v_event.event_status in ('completed', 'cancelled')");
   });
 });

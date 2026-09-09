@@ -11,6 +11,8 @@ export type PreparedEventParticipant = {
   faceEmbeddings: number[][];
 };
 
+export type OfflineFaceMatch = Omit<PreparedEventParticipant, "faceEmbeddings">;
+
 export type PreparedEventSession = {
   id: string;
   eventId: string;
@@ -100,7 +102,7 @@ export interface PLPassDesktopApi {
   getPreparedEventBySession(sessionId: string): Promise<PreparedEventPackage | null>;
   identifyQr(eventId: string, qrIdentifier: string): Promise<PreparedEventParticipant | null>;
   identifyManual(eventId: string, studentIdentifier: string): Promise<PreparedEventParticipant | null>;
-  listFaceCandidates(eventId: string): Promise<PreparedEventParticipant[]>;
+  identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   listPending(eventId?: string): Promise<PendingAttendanceRecord[]>;
   beginSync(limit: number): Promise<PendingAttendanceRecord[]>;

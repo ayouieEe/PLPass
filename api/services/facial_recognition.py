@@ -41,9 +41,18 @@ class FaceEmbedding:
 
 
 def warm_model() -> None:
-    """Load ArcFace once at API startup; DeepFace subsequently uses its cache."""
+    """Load each live-verification model before organizers can start a scan.
+
+    A first live scan used to download and initialize the detector and liveness
+    model, then detect the same face a second time for ArcFace. Preloading
+    moves that one-time work to service startup so the camera interaction stays
+    responsive once the API reports itself ready.
+    """
     from deepface import DeepFace
+
     DeepFace.build_model(MODEL_NAME)
+    DeepFace.build_model(DETECTOR_BACKEND, task="face_detector")
+    DeepFace.build_model("Fasnet", task="spoofing")
 
 
 def _supabase_settings() -> tuple[str, str]:
@@ -60,12 +69,17 @@ def _authorized_headers(access_token: str) -> dict[str, str]:
 
 
 def _service_headers() -> dict[str, str]:
-    """The service-role key is server-only; never put it in a VITE variable."""
-    url, _ = _supabase_settings()
+    """Return the server-only key in the format expected by current Supabase keys.
+
+    New ``sb_secret_`` keys are API keys rather than JWTs.  Sending one as a
+    bearer token causes PostgREST to evaluate the request under a regular role
+    instead of the intended server role, so private biometric templates would
+    be denied by RLS.  It is deliberately sent *only* as ``apikey`` here.
+    """
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
     if not key:
         raise FacialRecognitionError("FACE_SERVICE_ERROR", "The server biometric key is not configured.", 503)
-    return {"apikey": key, "Authorization": f"Bearer {key}"}
+    return {"apikey": key}
 
 
 def _rpc_error(response: httpx.Response, code: str, fallback: str) -> FacialRecognitionError:
@@ -118,7 +132,16 @@ def _detect_and_embed(image: np.ndarray[Any, Any]) -> FaceEmbedding:
     if min(int(area.get("w", 0)), int(area.get("h", 0))) < MIN_FACE_PIXELS:
         raise FacialRecognitionError("FACE_TOO_SMALL", "Move closer to the camera and try again.")
     try:
-        representations = DeepFace.represent(img_path=image, model_name=MODEL_NAME, detector_backend=DETECTOR_BACKEND, enforce_detection=True, align=True)
+        # ``extract_faces`` above already performed RetinaFace detection,
+        # alignment, quality checks, and liveness. Reusing that aligned crop
+        # avoids a second full detector pass for every attendance scan.
+        representations = DeepFace.represent(
+            img_path=face["face"],
+            model_name=MODEL_NAME,
+            detector_backend="skip",
+            enforce_detection=False,
+            align=False,
+        )
     except Exception as error:
         raise FacialRecognitionError("FACE_SERVICE_ERROR", "Face processing is temporarily unavailable. Use QR or manual attendance.", 503) from error
     if len(representations) != 1:
@@ -137,6 +160,36 @@ def _cosine_distance(first: np.ndarray[Any, Any], second: np.ndarray[Any, Any]) 
 async def create_embedding(capture_bytes: bytes) -> list[float]:
     embedding = await asyncio.to_thread(_detect_and_embed, _decode_image(capture_bytes))
     return [float(value) for value in embedding.vector]
+
+
+async def identify_offline_capture(*, capture_bytes: bytes, candidates: list[dict[str, Any]]) -> str:
+    """Match one local capture against the event package's ArcFace templates.
+
+    This is intentionally free of Supabase access: the Electron main process
+    supplies only the already-prepared event participants, then stores the
+    resulting attendance record in its encrypted local workflow.  The browser
+    renderer receives only the matched student ID, never an embedding.
+    """
+    if not candidates:
+        raise FacialRecognitionError("NO_FACE_ENROLLMENT", "No enrolled facial profiles are available in this offline event package.")
+
+    live = np.asarray(await create_embedding(capture_bytes), dtype=np.float32)
+    distances: list[tuple[float, str]] = []
+    for candidate in candidates:
+        student_id = candidate.get("student_id")
+        embeddings = candidate.get("embeddings")
+        if not isinstance(student_id, str) or not isinstance(embeddings, list):
+            continue
+        scores = [_cosine_distance(live, np.asarray(template, dtype=np.float32)) for template in embeddings if isinstance(template, list)]
+        if scores:
+            distances.append((min(scores), student_id))
+
+    distances.sort(key=lambda item: item[0])
+    if not distances or distances[0][0] > COSINE_DISTANCE_THRESHOLD:
+        raise FacialRecognitionError("FACE_NOT_MATCHED", "Face was not recognized with enough confidence. Use QR or manual attendance.")
+    if len(distances) > 1 and distances[1][0] - distances[0][0] < MINIMUM_MATCH_MARGIN:
+        raise FacialRecognitionError("AMBIGUOUS_MATCH", "The face match is too close to another participant. Use QR or manual attendance.")
+    return distances[0][1]
 
 
 async def enroll_pose(*, access_token: str, pose: str, capture_bytes: bytes) -> dict[str, Any]:

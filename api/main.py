@@ -33,7 +33,7 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 from ml.feature_assembly import assemble_student_features
 from api.services.supabase_client import get_event_features, get_batch_student_history
 from api.services.prediction_insights import get_risk_level, get_pattern_insights
-from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, enroll_pose, identify_and_record, warm_model
+from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, enroll_pose, identify_and_record, identify_offline_capture, warm_model
 
 # Global dictionary to store ML artifacts
 ml_artifacts = {}
@@ -219,5 +219,31 @@ async def enroll_facial_pose(
             access_token=authorization.split(" ", 1)[1].strip(), pose=pose,
             capture_bytes=await capture.read(),
         )
+    except FacialRecognitionError as error:
+        raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error
+
+
+@app.post("/facial/offline-identify")
+async def identify_offline_face(
+    capture: UploadFile = File(...),
+    candidates: str = Form(...),
+):
+    """Desktop-only local matcher for a prepared offline event package.
+
+    No Supabase request or organizer token is used here. Electron calls this
+    loopback endpoint from its main process while offline and keeps both the
+    event templates and the resulting attendance record on the local machine.
+    """
+    if capture.content_type not in {"image/jpeg", "image/png", "image/webp"}:
+        raise HTTPException(status_code=415, detail={"code": "LOW_QUALITY_IMAGE", "message": "Capture must be a JPEG, PNG, or WebP image."})
+    try:
+        decoded_candidates = json.loads(candidates)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_OFFLINE_PACKAGE", "message": "The offline facial package is invalid."}) from error
+    if not isinstance(decoded_candidates, list):
+        raise HTTPException(status_code=422, detail={"code": "INVALID_OFFLINE_PACKAGE", "message": "The offline facial package is invalid."})
+    try:
+        student_id = await identify_offline_capture(capture_bytes=await capture.read(), candidates=decoded_candidates)
+        return {"student_id": student_id}
     except FacialRecognitionError as error:
         raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error

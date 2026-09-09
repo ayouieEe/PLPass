@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, net, protocol, safeStorage } from "electro
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
@@ -9,6 +11,83 @@ import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCerti
 const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
+let facialService: ChildProcess | undefined;
+
+const workspaceRoot = path.resolve(directory, "..", "..");
+const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
+
+async function facialServiceReady() {
+  try {
+    const response = await fetch(`${facialApiBaseUrl}/openapi.json`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function localPythonPath() {
+  const configured = process.env.PLPASS_PYTHON_PATH;
+  if (configured && existsSync(configured)) return configured;
+  const developmentPython = path.join(workspaceRoot, ".venv", "Scripts", "python.exe");
+  return existsSync(developmentPython) ? developmentPython : undefined;
+}
+
+async function ensureLocalFacialService() {
+  if (await facialServiceReady()) return;
+  const python = localPythonPath();
+  if (!python) {
+    throw new Error("Offline facial recognition needs the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
+  }
+  if (!facialService || facialService.exitCode !== null) {
+    facialService = spawn(python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+      cwd: workspaceRoot,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    facialService.unref();
+  }
+  // The first ArcFace/RetinaFace initialization can take about a minute on a
+  // fresh desktop, while later launches use the cached models.
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (await facialServiceReady()) return;
+  }
+  throw new Error("The local facial recognition service did not start. Use QR or manual attendance.");
+}
+
+async function identifyOfflineFace(eventId: string, capture: number[]) {
+  await ensureLocalFacialService();
+  const cachedCandidates = store.listFaceCandidates(eventId);
+  const candidates = cachedCandidates.map((candidate) => ({
+    student_id: candidate.studentId,
+    embeddings: candidate.faceEmbeddings
+  }));
+  if (!candidates.length) return null;
+
+  const body = new FormData();
+  body.append("capture", new Blob([new Uint8Array(capture)], { type: "image/jpeg" }), "offline-face.jpg");
+  body.append("candidates", JSON.stringify(candidates));
+  const response = await fetch(`${facialApiBaseUrl}/facial/offline-identify`, { method: "POST", body });
+  const payload = await response.json().catch(() => null) as { student_id?: unknown; detail?: { message?: unknown } } | null;
+  if (!response.ok) {
+    const message = payload?.detail && typeof payload.detail.message === "string"
+      ? payload.detail.message
+      : "Offline face verification could not be completed.";
+    throw new Error(message);
+  }
+  const studentId = typeof payload?.student_id === "string" ? payload.student_id : null;
+  const match = studentId ? cachedCandidates.find((candidate) => candidate.studentId === studentId) : undefined;
+  return match
+    ? {
+        studentId: match.studentId,
+        studentNumber: match.studentNumber,
+        displayName: match.displayName,
+        participantStatus: match.participantStatus,
+        qrIdentifier: match.qrIdentifier
+      }
+    : null;
+}
 
 function scannerCertificateStore(userDataPath: string): ScannerCertificateStore {
   const file = path.join(userDataPath, "scanner-root-certificate.json");
@@ -51,7 +130,7 @@ function registerHandlers() {
   const handlers: Record<string, (...args: never[]) => unknown> = {
     "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
-    "offline:faceCandidates": (eventId) => store.listFaceCandidates(eventId), "offline:record": (input) => store.recordAttendance(input),
+    "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
     "offline:listPending": (eventId) => store.listPending(eventId), "offline:beginSync": (limit) => store.beginSync(limit),
     "offline:confirmSync": (uuid, serverId) => store.confirmSync(uuid, serverId), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
     "offline:recover": () => store.recoverInterruptedSync(), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
@@ -94,5 +173,5 @@ app.whenReady().then(() => {
   if (url) void win.loadURL(url); else void win.loadURL("plpass://app/");
 });
 
-app.on("before-quit", () => { void scannerCoordinator?.stop(); });
+app.on("before-quit", () => { void scannerCoordinator?.stop(); facialService?.kill(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
