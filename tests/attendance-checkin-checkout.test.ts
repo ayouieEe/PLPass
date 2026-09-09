@@ -30,7 +30,6 @@ describe("Supabase event-scoped attendance queries", () => {
   };
 
   it("filters event sessions by eventId", async () => {
-    type EventSessionRow = { id: string; event_id: string; session_status: string; scheduled_start: string };
     let lastBuilder: { eq: ReturnType<typeof vi.fn> } | undefined;
     mockSupabaseClient.from.mockImplementation((table: string) => {
       const data = table === "attendance_sessions"
@@ -40,7 +39,6 @@ describe("Supabase event-scoped attendance queries", () => {
           ]
         : [];
 
-      const filters: Record<string, unknown> = {};
       const builder = {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
