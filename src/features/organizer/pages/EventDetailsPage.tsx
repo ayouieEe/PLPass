@@ -529,7 +529,7 @@ export function EventDetailsPage() {
       });
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
-      navigate(`${APP_ROUTES.organizerEvents}?session=${session.id}`);
+      navigate(`${APP_ROUTES.organizerEvents}?session=${encodeURIComponent(session.id)}`);
     } catch {
       // The mutation displays the repository error in a toast.
     }
@@ -1136,7 +1136,7 @@ export function EventDetailsPage() {
         description={existingSessionForDialog ? "Continue this event's attendance, or discard it if it was started by mistake." : "Attendance starts now. The planned schedule stays unchanged."}
         size="sm"
         onClose={() => !mutations.createEventSessionMutation.isPending && setIsStartSessionOpen(false)}
-        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={`${APP_ROUTES.organizerEvents}?session=${existingSessionForDialog.id}`}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
+        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={`${APP_ROUTES.organizerEvents}?session=${encodeURIComponent(existingSessionForDialog.id)}`}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
       >
         <div className="space-y-4">
           <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">

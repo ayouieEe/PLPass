@@ -1103,7 +1103,7 @@ export function EventManagementPage() {
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
       .from("attendance_records")
       .select("attendance_status, late_reason_category")
-      .eq("session_id", sessionId);
+      .eq("event_session_id", sessionId);
     if (finalizedRecordsError) throw finalizedRecordsError;
     setFinalizedSummary(
       summarizeFinalizedSession(
