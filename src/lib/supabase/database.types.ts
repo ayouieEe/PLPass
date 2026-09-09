@@ -113,7 +113,7 @@ export type Database = {
           recorded_at: string
           recorded_by: string | null
           remarks: string | null
-          session_id: string
+          event_session_id: string
           student_id: string
           time_in: string | null
           time_out: string | null
@@ -134,7 +134,7 @@ export type Database = {
           recorded_at?: string
           recorded_by?: string | null
           remarks?: string | null
-          session_id: string
+          event_session_id: string
           student_id: string
           time_in?: string | null
           time_out?: string | null
@@ -155,7 +155,7 @@ export type Database = {
           recorded_at?: string
           recorded_by?: string | null
           remarks?: string | null
-          session_id?: string
+          event_session_id?: string
           student_id?: string
           time_in?: string | null
           time_out?: string | null
@@ -166,9 +166,9 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "attendance_records_event_session_id_fkey"
-            columns: ["session_id"]
+            columns: ["event_session_id"]
             isOneToOne: false
-            referencedRelation: "attendance_sessions"
+            referencedRelation: "event_sessions"
             referencedColumns: ["id"]
           },
           {

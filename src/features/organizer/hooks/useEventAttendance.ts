@@ -26,7 +26,7 @@ type EventParticipantRow = {
 
 type AttendanceSummaryRow = {
   id: string;
-  session_id: string | null;
+  event_session_id: string | null;
   student_id: string | null;
   attendance_status: string | null;
   verification_method: string | null;
@@ -109,7 +109,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
 
   // 1. Sessions belonging to these events
   const { data: sessions, error: sessionsError } = await client
-    .from("attendance_sessions")
+    .from("event_sessions")
     .select("id, event_id")
     .in("event_id", eventIds);
   if (sessionsError) throw sessionsError;
@@ -136,9 +136,9 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
-      .in("session_id", sessionIds);
+      .in("event_session_id", sessionIds);
     if (error) throw error;
     records = (data ?? []) as AttendanceSummaryRow[];
   }
@@ -157,8 +157,8 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   });
 
   records.forEach((row) => {
-    if (!row.session_id) return;
-    const eventId = sessionToEvent.get(row.session_id);
+    if (!row.event_session_id) return;
+    const eventId = sessionToEvent.get(row.event_session_id);
     if (!eventId || !summaries[eventId]) return;
     const status = (row.attendance_status ?? "present") as OrgAttendanceStatus;
 

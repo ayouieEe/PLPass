@@ -90,7 +90,15 @@ export function RequestHistoryPage() {
   }
 
   const student = scope.student;
-  const hasPartialDataIssue = classesQuery.isError || eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError || credentialRequestsQuery.isError;
+  const unavailableLinkedDetails = [
+    classesQuery.isError ? "class details" : undefined,
+    eventsQuery.isError ? "event details" : undefined,
+    sessionsQuery.isError ? "attendance sessions" : undefined,
+    recordsQuery.isError ? "attendance records" : undefined,
+    correctionsQuery.isError ? "correction requests" : undefined,
+    credentialRequestsQuery.isError ? "support requests" : undefined
+  ].filter((value): value is string => Boolean(value));
+  const hasPartialDataIssue = unavailableLinkedDetails.length > 0;
   const classes = classesQuery.data?.items ?? [];
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sessions = sessionsQuery.data?.items ?? [];
@@ -182,6 +190,9 @@ export function RequestHistoryPage() {
           <p className="font-semibold text-warning">Some linked details are temporarily unavailable.</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Your submitted requests are still shown. Missing class or event names may appear as record references.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Unavailable right now: {unavailableLinkedDetails.join(", ")}.
           </p>
         </section>
       ) : null}
