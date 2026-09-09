@@ -938,7 +938,7 @@ function BulkAddStudentModal({
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: async (results) => {
+      complete: async (results: Papa.ParseResult<Record<string, string>>) => {
         try {
           const parsedData = results.data as Record<string, string>[];
           const inputs: CreateStudentInput[] = parsedData.map(row => {

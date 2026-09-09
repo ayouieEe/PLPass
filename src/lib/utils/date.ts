@@ -44,6 +44,12 @@ export function formatDisplayTime(value: DateInput, fallback = "Not set") {
   return date ? new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" }).format(date) : fallback;
 }
 
+/** Use the organizer computer's clock for timestamps captured during a live session. */
+export function formatLocalTime(value: DateInput, fallback = "Not set") {
+  const date = toValidDate(value);
+  return date ? new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" }).format(date) : fallback;
+}
+
 export function getPhilippineNowIso() {
   const now = new Date();
   const formatter = new Intl.DateTimeFormat("sv-SE", {
