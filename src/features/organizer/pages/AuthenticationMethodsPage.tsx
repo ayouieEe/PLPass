@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState, useCallback } from "react";
+import { type ReactNode, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Camera, CheckCircle2, Download, FileSpreadsheet, FileText, Filter, QrCode, RefreshCw, ScanLine, UserRound, X } from "lucide-react";
+import { Camera, CheckCircle2, ChevronDown, Download, FileSpreadsheet, FileText, Filter, QrCode, RefreshCw, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
@@ -14,8 +14,8 @@ import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 
-type FacialStatus = "Activated" | "Damaged" | "Inactive";
-type QRStatus = "Active" | "Expired" | "Disabled";
+type FacialStatus = "Activated" | "Damaged" | "Inactive" | "Missing";
+type QRStatus = "Active" | "Expired" | "Disabled" | "Missing";
 type ActiveTab = "facial" | "qr";
 
 type QrRow = {
@@ -101,6 +101,9 @@ function facialTone(status: FacialStatus) {
   if (status === "Inactive") {
     return "warning" as const;
   }
+  if (status === "Missing") {
+    return "muted" as const;
+  }
   return "danger" as const;
 }
 
@@ -111,7 +114,158 @@ function qrTone(status: QRStatus) {
   if (status === "Disabled") {
     return "danger" as const;
   }
+  if (status === "Missing") {
+    return "muted" as const;
+  }
   return "warning" as const;
+}
+
+function FacialActionsRenderer({
+  data,
+  onViewFacial,
+  onReEnrollFacial,
+  onToggleFacialStatus
+}: {
+  data: FacialRow;
+  onViewFacial: (studentName: string) => void;
+  onReEnrollFacial: (studentName: string) => void;
+  onToggleFacialStatus: (studentName: string, currentStatus: FacialStatus) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const toggleMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: rect.right - 192
+      });
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (buttonRef.current && buttonRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setIsOpen(false);
+    }
+    function handleScrollOrResize() {
+      if (isOpen && buttonRef.current) {
+        const rect = buttonRef.current.getBoundingClientRect();
+        setMenuPos({
+          top: rect.bottom + 4,
+          left: rect.right - 192
+        });
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleKeyDown);
+      window.addEventListener("scroll", handleScrollOrResize, true);
+      window.addEventListener("resize", handleScrollOrResize);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", handleScrollOrResize, true);
+      window.removeEventListener("resize", handleScrollOrResize);
+    };
+  }, [isOpen]);
+
+  if (!data) return null;
+
+  const isFacialActive = data.status === "Activated";
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 border-border bg-background shadow-xs"
+        onClick={() => onViewFacial(data.studentName)}
+      >
+        <UserRound className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+        View
+      </Button>
+
+      <Button
+        ref={buttonRef}
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="h-8 shadow-xs"
+        onClick={toggleMenu}
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+      >
+        Manage
+        <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+      </Button>
+
+      {isOpen && menuPos && createPortal(
+        <div
+          role="menu"
+          style={{
+            position: "fixed",
+            top: `${menuPos.top}px`,
+            left: `${menuPos.left}px`,
+            zIndex: 99999
+          }}
+          className="w-48 rounded-md border border-border bg-popover p-1 shadow-lg animate-in fade-in-50 zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              onReEnrollFacial(data.studentName);
+            }}
+            className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs font-medium text-popover-foreground hover:bg-accent hover:text-accent-foreground"
+          >
+            <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
+            Re-enroll Facial
+          </button>
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setIsOpen(false);
+              onToggleFacialStatus(data.studentName, data.status);
+            }}
+            className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs font-medium text-popover-foreground hover:bg-accent hover:text-accent-foreground"
+          >
+            {isFacialActive ? (
+              <>
+                <X className="h-3.5 w-3.5 text-destructive" />
+                Deactivate Facial
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                Activate Facial
+              </>
+            )}
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
 }
 
 function ReportExportModal({
@@ -440,6 +594,9 @@ export function AuthenticationMethodsPage() {
   }, [rawStudents]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("qr");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Inactive" | "Missing">("All");
+
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [activeModal, setActiveModal] = useState<null | {
     type: "qr" | "facial" | "request";
@@ -449,6 +606,7 @@ export function AuthenticationMethodsPage() {
     cancelLabel?: string;
     tone?: "default" | "danger";
     studentName?: string;
+    reason?: string;
     requestId?: string;
   }>(null);
 
@@ -456,6 +614,7 @@ export function AuthenticationMethodsPage() {
     () => new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status])),
     [credentialStatusesQuery.data]
   );
+
   const qrRows = useMemo<QrRow[]>(() => rawStudents.map((student) => {
     const credential = credentialMap.get(student.id)?.qrCredential;
     const expired = Boolean(credential?.expiresAt && new Date(credential.expiresAt).getTime() <= Date.now());
@@ -464,11 +623,12 @@ export function AuthenticationMethodsPage() {
       studentName: student.formattedName || student.fullName || student.studentNumber,
       studentNumber: student.studentNumber,
       credentialId: credential?.id ?? "",
-      status: !credential || credential.revokedAt || credential.status !== "activated" ? "Disabled" : expired ? "Expired" : "Active",
+      status: !credential ? "Missing" : credential.revokedAt || credential.status !== "activated" ? "Disabled" : expired ? "Expired" : "Active",
       dateGenerated: credential?.issuedAt?.slice(0, 10) ?? "-",
       lastUsed: credential?.lastSuccessfulCheckInAt?.slice(0, 10) ?? "-"
     };
   }), [credentialMap, rawStudents]);
+
   const facialRows = useMemo<FacialRow[]>(() => rawStudents.map((student) => {
     const profile = credentialMap.get(student.id)?.facialProfile;
     return {
@@ -476,10 +636,50 @@ export function AuthenticationMethodsPage() {
       studentName: student.formattedName || student.fullName || student.studentNumber,
       studentNumber: student.studentNumber,
       enrollmentDate: profile?.enrolledAt?.slice(0, 10) ?? "-",
-      status: !profile || profile.status === "inactive" ? "Inactive" : profile.status === "activated" ? "Activated" : "Damaged",
+      status: !profile ? "Missing" : profile.status === "inactive" ? "Inactive" : profile.status === "activated" ? "Activated" : "Damaged",
       lastScan: profile?.lastVerifiedAt?.slice(0, 10) ?? "-"
     };
   }), [credentialMap, rawStudents]);
+
+  const filteredQrRows = useMemo(() => {
+    return qrRows.filter((r) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        r.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.studentNumber.toLowerCase().includes(searchQuery.toLowerCase());
+
+      let matchesStatus = true;
+      if (statusFilter === "Active") {
+        matchesStatus = r.status === "Active";
+      } else if (statusFilter === "Inactive") {
+        matchesStatus = r.status === "Disabled" || r.status === "Expired";
+      } else if (statusFilter === "Missing") {
+        matchesStatus = r.status === "Missing";
+      }
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [qrRows, searchQuery, statusFilter]);
+
+  const filteredFacialRows = useMemo(() => {
+    return facialRows.filter((r) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        r.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.studentNumber.toLowerCase().includes(searchQuery.toLowerCase());
+
+      let matchesStatus = true;
+      if (statusFilter === "Active") {
+        matchesStatus = r.status === "Activated";
+      } else if (statusFilter === "Inactive") {
+        matchesStatus = r.status === "Inactive" || r.status === "Damaged";
+      } else if (statusFilter === "Missing") {
+        matchesStatus = r.status === "Missing";
+      }
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [facialRows, searchQuery, statusFilter]);
 
   const { facialRequestsState } = useMemo(() => {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -504,7 +704,7 @@ export function AuthenticationMethodsPage() {
   const handleDisableQr = useCallback((studentName: string) => {
     setActiveModal({
       type: "qr",
-      title: "Are you sure?",
+      title: "Disable QR credential",
       description: `Temporarily disable the QR credential for ${studentName}? This action can be reversed later.`,
       confirmLabel: "Disable credential",
       cancelLabel: "Cancel",
@@ -512,6 +712,37 @@ export function AuthenticationMethodsPage() {
       studentName
     });
   }, []);
+
+  const handleActivateQr = useCallback((studentName: string) => {
+    setActiveModal({
+      type: "qr",
+      title: "Enable QR credential",
+      description: `Activate the QR credential for ${studentName}?`,
+      confirmLabel: "Enable credential",
+      cancelLabel: "Cancel",
+      tone: "default",
+      studentName
+    });
+  }, []);
+
+  const handleRegenerateQr = useCallback((studentName: string) => {
+    setActiveModal({
+      type: "qr",
+      title: "Regenerate QR credential",
+      description: `A fresh QR code will be generated and assigned to ${studentName}.`,
+      confirmLabel: "Regenerate QR",
+      cancelLabel: "Cancel",
+      studentName
+    });
+  }, []);
+
+  const handleToggleQrStatus = useCallback((studentName: string, currentStatus: QRStatus) => {
+    if (currentStatus === "Active") {
+      handleDisableQr(studentName);
+    } else {
+      handleActivateQr(studentName);
+    }
+  }, [handleDisableQr, handleActivateQr]);
 
   const handleViewQr = useCallback((studentName: string) => {
     setActiveModal({
@@ -524,32 +755,23 @@ export function AuthenticationMethodsPage() {
   }, []);
 
   const handleQuickViewQr = useCallback(() => {
-    if (!qrRows.length) {
+    if (!filteredQrRows.length) {
       toast.warning("No QR credentials available to preview.");
       return;
     }
-    handleViewQr(qrRows[0].studentName);
-  }, [handleViewQr, qrRows]);
+    handleViewQr(filteredQrRows[0].studentName);
+  }, [handleViewQr, filteredQrRows]);
 
-  const handleApproveRequest = useCallback((requestId: string) => {
+  const handleApproveFacialRequest = useCallback((request: FacialEnrollmentRequest) => {
     setActiveModal({
       type: "request",
-      title: "Are you sure?",
-      description: `Approve the pending request ${requestId}? This flow updates the request status.`,
+      title: "Approve Facial Enrollment Request",
+      description: `Approve the facial enrollment request for ${request.studentName}?`,
       confirmLabel: "Approve request",
       cancelLabel: "Cancel",
-      requestId
-    });
-  }, []);
-
-  const handleApproveFacialRequest = useCallback((requestId: string) => {
-    setActiveModal({
-      type: "request",
-      title: "Are you sure?",
-      description: `Approve the facial enrollment request ${requestId}?`,
-      confirmLabel: "Approve request",
-      cancelLabel: "Cancel",
-      requestId
+      studentName: request.studentName,
+      reason: request.issue,
+      requestId: request.rawId
     });
   }, []);
 
@@ -577,7 +799,7 @@ export function AuthenticationMethodsPage() {
   const handleDeactivateFacial = useCallback((studentName: string) => {
     setActiveModal({
       type: "facial",
-      title: "Are you sure?",
+      title: "Deactivate facial credential",
       description: `Deactivate the facial recognition credential for ${studentName}? This will block future facial check-ins.`,
       confirmLabel: "Deactivate",
       cancelLabel: "Cancel",
@@ -585,6 +807,26 @@ export function AuthenticationMethodsPage() {
       studentName
     });
   }, []);
+
+  const handleActivateFacial = useCallback((studentName: string) => {
+    setActiveModal({
+      type: "facial",
+      title: "Activate facial credential",
+      description: `Activate the facial recognition credential for ${studentName}?`,
+      confirmLabel: "Activate",
+      cancelLabel: "Cancel",
+      tone: "default",
+      studentName
+    });
+  }, []);
+
+  const handleToggleFacialStatus = useCallback((studentName: string, currentStatus: FacialStatus) => {
+    if (currentStatus === "Activated") {
+      handleDeactivateFacial(studentName);
+    } else {
+      handleActivateFacial(studentName);
+    }
+  }, [handleDeactivateFacial, handleActivateFacial]);
 
   async function confirmModalAction() {
     if (!activeModal) return;
@@ -603,6 +845,13 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
+      } else if (activeModal.title.includes("Enable") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate")) {
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "qr",
+          status: "activated"
+        });
+        toast.success(`QR credential updated for ${activeModal.studentName}.`);
       }
     }
 
@@ -622,6 +871,13 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
+      } else if (activeModal.title.includes("Activate")) {
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "facial",
+          status: "activated"
+        });
+        toast.success(`Facial enrollment activated for ${activeModal.studentName}.`);
       } else {
         toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
       }
@@ -633,6 +889,7 @@ export function AuthenticationMethodsPage() {
         status: "approved",
         remarks: "Approved by organizer"
       });
+      toast.success(`Facial request approved for ${activeModal.studentName || "student"}.`);
     }
 
     setActiveModal(null);
@@ -664,23 +921,47 @@ export function AuthenticationMethodsPage() {
     {
       headerName: "Actions",
       colId: "actions",
-      minWidth: 240,
+      minWidth: 220,
       pinned: "right",
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: ICellRendererParams<QrRow>) =>
         data ? (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewQr(data.studentName)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 border-border bg-background shadow-xs"
+              onClick={() => handleViewQr(data.studentName)}
+            >
               View QR
             </Button>
-            <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDisableQr(data.studentName)}>
-              Disable
-            </Button>
+            {data.status === "Active" ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="h-8 shadow-xs"
+                onClick={() => handleDisableQr(data.studentName)}
+              >
+                Disable
+              </Button>
+            ) : data.status === "Disabled" || data.status === "Expired" ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-8 shadow-xs"
+                onClick={() => handleActivateQr(data.studentName)}
+              >
+                Enable
+              </Button>
+            ) : null}
           </div>
         ) : null
     }
-  ], [handleDisableQr, handleViewQr]);
+  ], [handleDisableQr, handleActivateQr, handleViewQr]);
 
   const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
     { headerName: "School ID", field: "studentNumber", minWidth: 120 },
@@ -698,20 +979,25 @@ export function AuthenticationMethodsPage() {
     {
       headerName: "Actions",
       colId: "actions",
-      minWidth: 280,
+      minWidth: 180,
       pinned: "right",
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: ICellRendererParams<FacialRow>) =>
         data ? (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" className="border-border bg-background shadow-sm" onClick={() => handleViewFacial(data.studentName)}><UserRound className="mr-2 h-4 w-4" />View</Button>
-            <Button type="button" variant="secondary" size="sm" className="shadow-sm" onClick={() => handleReEnrollFacial(data.studentName)}><RefreshCw className="mr-2 h-4 w-4" />Re-enroll</Button>
-            <Button type="button" variant="destructive" size="sm" className="shadow-sm" onClick={() => handleDeactivateFacial(data.studentName)}>Disable</Button>
-          </div>
+          <FacialActionsRenderer
+            data={data}
+            onViewFacial={handleViewFacial}
+            onReEnrollFacial={handleReEnrollFacial}
+            onToggleFacialStatus={handleToggleFacialStatus}
+          />
         ) : null
     }
-  ], [handleViewFacial, handleReEnrollFacial, handleDeactivateFacial]);
+  ], [
+    handleViewFacial,
+    handleReEnrollFacial,
+    handleToggleFacialStatus
+  ]);
 
   const facialRequestColumns = useMemo<ColDef<FacialEnrollmentRequest>[]>(() => [
     { headerName: "Request ID", field: "id", minWidth: 120 },
@@ -735,7 +1021,14 @@ export function AuthenticationMethodsPage() {
       filter: false,
       cellRenderer: ({ data }: ICellRendererParams<FacialEnrollmentRequest>) =>
         data ? (
-          <Button type="button" size="sm" onClick={() => handleApproveFacialRequest(data.rawId)} disabled={data.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}>Approve</Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => handleApproveFacialRequest(data)}
+            disabled={data.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}
+          >
+            Approve
+          </Button>
         ) : null
     }
   ], [handleApproveFacialRequest, credentialRequestsQuery.reviewMutation.isPending]);
@@ -747,27 +1040,71 @@ export function AuthenticationMethodsPage() {
         <p className="text-sm text-muted-foreground">Manage QR codes and facial recognition credentials for all students.</p>
       </div>
 
-      <div className="rounded-lg border bg-surface p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Search and Filters Bar */}
+      <div className="rounded-lg border bg-surface p-4 shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[240px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by student name or Student ID..."
+              className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-xs shadow-xs transition focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {/* Status Filters */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+            <span className="text-xs font-semibold text-muted-foreground mr-1">Status:</span>
+            {(["All", "Active", "Inactive", "Missing"] as const).map((status) => (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setStatusFilter(status)}
+                className={`h-8 rounded-md px-3 text-xs font-semibold transition ${
+                  statusFilter === status
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between border-t border-border/50 pt-3">
           <div className="flex items-center gap-2">
             {activeTab === "qr" ? (
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={handleQuickViewQr}>
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={handleQuickViewQr}>
                 View QR
               </Button>
             ) : null}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />
-              {activeTab === "qr" ? qrRows.length : facialRows.length} results
+              {activeTab === "qr" ? filteredQrRows.length : filteredFacialRows.length} results
             </span>
-            <button
-              type="button"
-              onClick={() => setIsExportModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Export
-            </button>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setIsExportModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            Export
+          </button>
         </div>
       </div>
 
@@ -775,7 +1112,7 @@ export function AuthenticationMethodsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("qr")}
-          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-sm ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
+          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
         >
           <QrCode className="h-4 w-4" />
           QR Code
@@ -783,7 +1120,7 @@ export function AuthenticationMethodsPage() {
         <button
           type="button"
           onClick={() => setActiveTab("facial")}
-          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-sm ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
+          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
         >
           <Camera className="h-4 w-4" />
           Facial Recognition
@@ -844,16 +1181,25 @@ export function AuthenticationMethodsPage() {
         ) : null}
 
         {activeModal?.type === "request" ? (
-          <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Request review</p>
-            <p className="mt-1">The request will be approved and reflected in the organizer review queue.</p>
+          <div className="space-y-3 rounded-lg border bg-muted/40 p-4 text-sm">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Student Name</p>
+              <p className="font-semibold text-foreground">{activeModal.studentName || "N/A"}</p>
+            </div>
+            <div className="space-y-1 border-t border-border/60 pt-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Reason for Request</p>
+              <p className="text-foreground">{activeModal.reason || "N/A"}</p>
+            </div>
+            <div className="border-t border-border/60 pt-2 text-muted-foreground">
+              <p>The request will be marked as approved. Student can re-enroll after approval.</p>
+            </div>
           </div>
         ) : null}
       </ConfirmModal>
 
       {activeTab === "qr" ? (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="rounded-lg border bg-surface p-4">
               <p className="text-sm text-muted-foreground">Total QR Credentials</p>
               <p className="mt-2 text-2xl font-semibold">{qrRows.length}</p>
@@ -866,21 +1212,25 @@ export function AuthenticationMethodsPage() {
               <p className="text-sm text-muted-foreground">Disabled QR Credentials</p>
               <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Disabled").length}</p>
             </div>
+            <div className="rounded-lg border bg-surface p-4">
+              <p className="text-sm text-muted-foreground">Missing QR Credentials</p>
+              <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Missing").length}</p>
+            </div>
           </div>
 
           <PLPassDataGrid
             label="Student QR Credentials"
-            data={qrRows}
+            data={filteredQrRows}
             columns={qrColumns}
             isLoading={studentsQuery.isLoading}
             emptyTitle="No QR credentials found"
-            emptyDescription="There are no student QR credentials to display."
+            emptyDescription="There are no student QR credentials matching your criteria."
             enableQuickFilter
           />
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div className="rounded-lg border bg-surface p-4">
               <p className="text-sm text-muted-foreground">Total Enrolled</p>
               <p className="mt-2 text-2xl font-semibold">{facialRows.length}</p>
@@ -897,15 +1247,19 @@ export function AuthenticationMethodsPage() {
               <p className="text-sm text-muted-foreground">Inactive</p>
               <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Inactive").length}</p>
             </div>
+            <div className="rounded-lg border bg-surface p-4">
+              <p className="text-sm text-muted-foreground">Missing</p>
+              <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Missing").length}</p>
+            </div>
           </div>
 
           <PLPassDataGrid
             label="Facial Enrollment Records"
-            data={facialRows}
+            data={filteredFacialRows}
             columns={facialColumns}
             isLoading={studentsQuery.isLoading}
             emptyTitle="No facial enrollment records found"
-            emptyDescription="There are no facial enrollment records to display."
+            emptyDescription="There are no facial enrollment records matching your criteria."
             enableQuickFilter
           />
 

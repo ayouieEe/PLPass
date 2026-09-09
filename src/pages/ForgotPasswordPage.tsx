@@ -4,6 +4,7 @@ import { AuthLayout } from "@/app/layouts/AuthLayout";
 import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getErrorMessage } from "@/lib/utils/errors";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email("Enter a valid email address.")
@@ -32,10 +33,10 @@ export function ForgotPasswordPage() {
         const { error: resetError } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
         if (resetError) throw resetError;
       }
-      setMessage("If that email exists in PLPass, Supabase has sent password reset instructions.");
+      setMessage("If that email exists in PLPass, password reset instructions have been sent.");
     } catch (caught) {
       setMessage(null);
-      setError(caught instanceof Error ? caught.message : "Password recovery is unavailable.");
+      setError(getErrorMessage(caught));
     } finally {
       setSubmitting(false);
     }

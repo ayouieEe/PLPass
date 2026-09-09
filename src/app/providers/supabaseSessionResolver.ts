@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DevelopmentSession } from "@/app/providers/developmentSessionContext";
 import type { Database } from "@/lib/supabase/database.types";
 import { mapProfileToUser } from "@/lib/supabase/mappers";
+import { formatUserErrorMessage } from "@/lib/utils/errors";
 import type { UserRole } from "@/types/roles";
 
 export type SupabaseAuthFailureCode =
@@ -125,12 +126,32 @@ function databaseQueryError(error: unknown): SupabaseAuthResolutionError {
 
 export function toSafeAuthErrorMessage(error: unknown) {
   if (error instanceof SupabaseAuthResolutionError) {
-    return `${error.message} [${error.code}]`;
+    switch (error.code) {
+      case "AUTH_FAILED":
+        return "Incorrect email address or password. Please check your credentials and try again.";
+      case "AUTH_TIMEOUT":
+        return "Sign-in took longer than expected. Please check your internet connection and try again.";
+      case "AUTH_SESSION_MISSING":
+        return "Unable to complete sign-in. Please try signing in again.";
+      case "PROFILE_MISSING":
+        return "Your account profile could not be found. Please contact support.";
+      case "ACCOUNT_INACTIVE":
+        return formatUserErrorMessage(error.message);
+      case "STUDENT_RECORD_MISSING":
+        return "This account is not registered with a student profile. Please contact an administrator.";
+      case "ORGANIZER_RECORD_MISSING":
+        return "This account is not registered with an organizer profile. Please contact an administrator.";
+      case "UNSUPPORTED_ROLE":
+        return "This system supports Student and Organizer accounts. Please sign in with an authorized account.";
+      case "RLS_PERMISSION_DENIED":
+      case "DATABASE_QUERY_FAILED":
+      case "ROLE_RECORD_MULTIPLE":
+        return "Unable to access your account profile. Please contact support if this issue continues.";
+      default:
+        return formatUserErrorMessage(error.message);
+    }
   }
-  if (error instanceof Error) {
-    return `${error.message} [UNEXPECTED_RESOLVER_ERROR]`;
-  }
-  return "Unexpected resolver error. [UNEXPECTED_RESOLVER_ERROR]";
+  return formatUserErrorMessage(error);
 }
 
 export function shouldSignOutAfterAuthFailure(error: unknown) {

@@ -18,6 +18,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -217,8 +218,8 @@ export function AttendanceMethodsPage() {
       issueForm.reset();
       resetIssueProofFile();
       setShowIssueReport(false);
-    } catch {
-      toast.error("Unable to submit attendance issue. Check if you already have a pending request.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -361,7 +362,7 @@ export function AttendanceMethodsPage() {
         toast.success(`${faceEnrollmentPose === "front" ? "Front" : faceEnrollmentPose === "left" ? "Slight left" : "Slight right"} capture saved. Capture ${nextPose === "left" ? "a slight left turn" : nextPose === "right" ? "a slight right turn" : "the front"} next.`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to enroll face.";
+      const message = getErrorMessage(error);
       setFaceEnrollmentError(message);
       toast.error(message);
     } finally {
@@ -380,8 +381,8 @@ export function AttendanceMethodsPage() {
       toast.success("Facial review request sent.");
       changeRequestForm.reset();
       setShowChangeRequest(false);
-    } catch {
-      toast.error("Unable to send facial review request. Check if you already have a pending request.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 

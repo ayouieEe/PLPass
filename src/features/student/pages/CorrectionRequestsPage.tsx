@@ -28,6 +28,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { getErrorMessage } from "@/lib/utils/errors";
 import {
   correctionRequestTypeLabels,
   getCorrectionRequestTypes,
@@ -211,9 +212,10 @@ export function CorrectionRequestsPage() {
         reason: "",
         recordId: ""
       });
-    } catch {
-      toast.error("Failed to submit request. You may have a pending request already.");
-      setSubmissionStatus({ kind: "error", message: "Failed to submit request. You may already have a pending request." });
+    } catch (error) {
+      const friendlyMessage = getErrorMessage(error);
+      toast.error(friendlyMessage);
+      setSubmissionStatus({ kind: "error", message: friendlyMessage });
     }
   }
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getAuthorizedHomePath, isPathAllowedForRole } from "@/lib/utils/auth";
+import { formatUserErrorMessage } from "@/lib/utils/errors";
 import type { UserRole } from "@/types/roles";
 
 type LocationState = {
@@ -22,6 +23,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
   const locationState = location.state as LocationState | null;
 
   function redirectAfterSignIn(role: UserRole) {
@@ -33,16 +35,33 @@ export function LoginPage() {
   }
 
   async function handleSignIn() {
-    if (!email || !password || isSubmitting) {
+    setInputError(null);
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setInputError("Please enter your email address.");
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setInputError("Please enter a valid email address (e.g. user@plpasig.edu.ph).");
+      return;
+    }
+    if (!password) {
+      setInputError("Please enter your password.");
+      return;
+    }
+    if (isSubmitting) {
+      return;
+    }
+
     setIsSubmitting(true);
-    const nextSession = await signInWithPassword(email, password);
+    const nextSession = await signInWithPassword(trimmedEmail, password);
     setIsSubmitting(false);
     if (nextSession) {
       redirectAfterSignIn(nextSession.role);
     }
   }
+
+  const displayError = inputError || (authError ? formatUserErrorMessage(authError) : null);
 
   return (
     <AuthLayout title="Sign in to PLPass" description="Use your PLPass account to open your assigned workspace.">
@@ -55,7 +74,7 @@ export function LoginPage() {
           </div>
         </div>
       ) : null}
-      {authError ? <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">{authError}</div> : null}
+      {displayError ? <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">{displayError}</div> : null}
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSignIn(); }}>
         <div className="block text-sm font-medium">
           <label htmlFor="plpass-login-email">Email</label>

@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { PaginationControls } from "@/components/shared/PaginationControls";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useFinalizedEventYears, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { cn } from "@/lib/utils/cn";
 import { optimizeImageForUpload } from "@/lib/utils/imageCompression";
 import {
@@ -295,8 +296,8 @@ export function MyAttendancePage() {
       setSelectedLateReasonCategory("");
       setCustomLateReason("");
       toast.success("Late reason submitted.");
-    } catch {
-      toast.error("Unable to submit late reason. Please try again.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -380,7 +381,7 @@ export function MyAttendancePage() {
     } catch (error) {
       if (selectionId !== correctionProofSelectionId.current) return;
       setCorrectionProofFile(null);
-      setCorrectionProofError(error instanceof Error ? error.message : "Unable to optimize this image. Please choose another file.");
+      setCorrectionProofError(getErrorMessage(error));
       setCorrectionProofInputKey((key) => key + 1);
     } finally {
       if (selectionId === correctionProofSelectionId.current) setIsCompressingCorrectionProof(false);
@@ -413,8 +414,8 @@ export function MyAttendancePage() {
       setFeedbackComment("");
       setFeedbackStep(0);
       toast.success("Event feedback submitted. Attendance is now complete.");
-    } catch {
-      toast.error("Unable to submit feedback. Please try again.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -451,8 +452,8 @@ export function MyAttendancePage() {
       setExplanation("");
       resetCorrectionProofFile();
       setCorrectionFormOpen(false);
-    } catch {
-      toast.error("Unable to submit correction request.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 

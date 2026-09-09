@@ -6,6 +6,7 @@ import { AlertTriangle, BarChart3, CalendarCheck, ChevronDown, ClipboardList, Do
 import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { z } from "zod";
 import { useHeader } from "@/app/providers/HeaderContext";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
@@ -619,7 +620,7 @@ export function EventDetailsPage() {
       toast.success("Resource removed.");
       setResourcePendingRemoval(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to remove the resource.");
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -627,7 +628,7 @@ export function EventDetailsPage() {
     try {
       window.open(await getEventResourceDownloadUrl(resource), "_blank", "noopener,noreferrer");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to open this resource.");
+      toast.error(getErrorMessage(error));
     }
   }
 
