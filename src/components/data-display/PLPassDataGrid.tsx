@@ -5,7 +5,8 @@ import {
   type GridApi,
   type GridReadyEvent,
   type ICellRendererParams,
-  type ModelUpdatedEvent
+  type ModelUpdatedEvent,
+  type RowClickedEvent
 } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ChevronLeft, ChevronRight, Columns3, Search } from "lucide-react";
@@ -114,6 +115,7 @@ export function PLPassDataGrid<TData extends object>({
   checkboxSelection = false,
   suppressRowClickSelection = false,
   onSelectionChange,
+  onRowClick,
   height,
   rowHeight,
   headerHeight,
@@ -145,6 +147,10 @@ export function PLPassDataGrid<TData extends object>({
       return {
         ...column,
         colId: columnId,
+        tooltipValueGetter: column.tooltipValueGetter ?? ((params) => {
+          const value = params.valueFormatted ?? params.value;
+          return value === null || value === undefined ? "" : String(value);
+        }),
         hide: hiddenColumnIds.includes(columnId)
       };
     });
@@ -211,6 +217,15 @@ export function PLPassDataGrid<TData extends object>({
       onSelectionChange?.(event.api.getSelectedRows());
     },
     [onSelectionChange]
+  );
+
+  const handleRowClicked = useCallback(
+    (event: RowClickedEvent<TData>) => {
+      const target = event.event?.target;
+      if (target instanceof Element && target.closest("button, a, input, select, textarea, [data-stop-row-click]")) return;
+      if (event.data) onRowClick?.(event.data);
+    },
+    [onRowClick]
   );
 
   const goToPage = useCallback((page: number) => {
@@ -310,7 +325,7 @@ export function PLPassDataGrid<TData extends object>({
       ) : null}
       <div
         ref={gridShellRef}
-        className={cn(plpassDataGridClassName, "w-full overflow-x-auto", !hasRows && "plpass-data-grid-empty")}
+        className={cn(plpassDataGridClassName, "w-full overflow-x-auto", !hasRows && "plpass-data-grid-empty", onRowClick && "[&_.ag-row]:cursor-pointer")}
         style={{ height: height ?? "auto" }}
       >
         <AgGridReact<TData>
@@ -335,10 +350,12 @@ export function PLPassDataGrid<TData extends object>({
           suppressColumnMoveAnimation
           ensureDomOrder
           animateRows={false}
+          tooltipShowDelay={250}
           onGridReady={handleGridReady}
           onModelUpdated={handleModelUpdated}
           onPaginationChanged={handlePaginationChanged}
           onSelectionChanged={handleSelectionChanged}
+          onRowClicked={handleRowClicked}
         />
       </div>
       {shouldShowPagination && hasRows ? (

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
@@ -25,9 +25,11 @@ import {
   X,
   UserPlus,
   UploadCloud,
-  FileDown
+  FileDown,
+  Edit
 } from "lucide-react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
@@ -43,7 +45,8 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import Papa from "papaparse";
 import { downloadStudentCsvTemplate } from "@/features/organizer/utils/csvTemplate";
-import type { CreateStudentInput } from "@/services/contracts";
+import type { CreateStudentInput, UpdateStudentInput } from "@/services/contracts";
+import type { Student } from "@/types/domain";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -88,7 +91,7 @@ type StudentAccount = {
   yearLevel: number | string;
   section: string;
   status: StudentStatus;
-  attendanceRate: number;
+  attendanceRate: number | null;
   eventsJoined: number;
   qrStatus: CredentialStatus;
   facialStatus: CredentialStatus;
@@ -215,7 +218,8 @@ function StudentDetailModal({
   onRegenerateQr,
   onMarkFacialReady,
   onApproveCorrection,
-  onRejectCorrection
+  onRejectCorrection,
+  onEdit
 }: {
   student: StudentAccount | undefined;
   onClose: () => void;
@@ -223,6 +227,7 @@ function StudentDetailModal({
   onMarkFacialReady: (studentId: string) => void;
   onApproveCorrection: (requestId: string) => void;
   onRejectCorrection: (requestId: string) => void;
+  onEdit?: (studentId: string) => void;
 }) {
   if (!student) {
     return null;
@@ -248,18 +253,32 @@ function StudentDetailModal({
               <h2 id="student-detail-title" className="mt-1 text-2xl font-semibold text-foreground">
                 {student.name}
               </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Student ID: {student.studentId} • {student.program} {student.yearLevel}-{student.section}
-              </p>
+              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="font-mono text-xs">{student.studentId}</span>
+                <span>•</span>
+                <span>{student.program} {student.yearLevel}-{student.section}</span>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="grid h-9 w-9 place-items-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
-              aria-label="Close student details"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </button>
+            <div className="flex items-center gap-2">
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={() => onEdit(student.id)}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted"
+                >
+                  <Edit className="h-4 w-4" aria-hidden="true" />
+                  Edit Information
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid h-9 w-9 place-items-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                aria-label="Close student details"
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -289,7 +308,7 @@ function StudentDetailModal({
                 </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <ProfileCardTile label="Full Name" colSpan="sm:col-span-2 lg:col-span-4">{student.name}</ProfileCardTile>
+                  <ProfileCardTile label="Student Name" colSpan="sm:col-span-2 lg:col-span-4">{student.name}</ProfileCardTile>
                   <ProfileCardTile label="Student ID">{student.studentId}</ProfileCardTile>
                   <ProfileCardTile label="Program">{student.program}</ProfileCardTile>
                   <ProfileCardTile label="Year Level">{`Year ${student.yearLevel}`}</ProfileCardTile>
@@ -363,7 +382,7 @@ function StudentDetailModal({
                       onClick={() => onMarkFacialReady(student.id)}
                       className="mt-3 h-8 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-muted"
                     >
-                      Mark Ready
+                      Activate Facial Credential
                     </button>
                   </div>
                 </div>
@@ -460,8 +479,8 @@ function ReportExportModal({
     const matchSec = exportSection === "all" || s.section === exportSection;
     const matchStat = exportStatus === "all" || s.status === exportStatus;
     let matchAtt = true;
-    if (exportAttendance === "low") matchAtt = s.attendanceRate < 75;
-    else if (exportAttendance === "high") matchAtt = s.attendanceRate >= 75;
+    if (exportAttendance === "low") matchAtt = (s.attendanceRate ?? 0) < 75;
+    else if (exportAttendance === "high") matchAtt = (s.attendanceRate ?? 0) >= 75;
 
     return matchProg && matchSec && matchStat && matchAtt;
   });
@@ -497,7 +516,7 @@ function ReportExportModal({
         yearLevel: s.yearLevel,
         section: s.section,
         status: s.status,
-        attendanceRate: s.attendanceRate,
+        attendanceRate: s.attendanceRate ?? 0,
         eventsJoined: s.eventsJoined,
         qrStatus: s.qrStatus,
         facialStatus: s.facialStatus,
@@ -518,7 +537,7 @@ function ReportExportModal({
         program: s.program,
         yearLevel: s.yearLevel,
         section: s.section,
-        attendanceRate: s.attendanceRate,
+        attendanceRate: s.attendanceRate ?? 0,
         eventsJoined: s.eventsJoined,
         correctionRequests: s.correctionRequests.length
       }));
@@ -829,7 +848,7 @@ function AddStudentModal({
       toast.success("Student added successfully");
       onClose();
     } catch (error) {
-      toast.error("Failed to add student");
+      toast.error(getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -910,6 +929,142 @@ function AddStudentModal({
   );
 }
 
+function EditStudentModal({
+  isOpen,
+  onClose,
+  mutations,
+  programs,
+  departments,
+  student,
+  onSuccess
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  mutations: ReturnType<typeof useStudentMutations>;
+  programs: { id: string; code: string; departmentId: string }[];
+  departments: { id: string; code: string }[];
+  student: Student | undefined;
+  onSuccess: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
+}) {
+  const [formData, setFormData] = useState<UpdateStudentInput>({
+    id: "",
+    profileId: "",
+    email: "",
+    firstName: "",
+    middleName: "",
+    lastName: "",
+    programId: "",
+    departmentId: "",
+    sectionId: "",
+    yearLevel: 1
+  });
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (student) {
+      setFormData({
+        id: student.id,
+        profileId: student.userId,
+        email: student.email || "",
+        firstName: student.firstName || "",
+        middleName: student.middleName || "",
+        lastName: student.lastName || "",
+        programId: student.programId || "",
+        departmentId: student.departmentId || "",
+        sectionId: student.section || "",
+        yearLevel: student.yearLevel || 1
+      });
+    }
+  }, [student]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+    try {
+      await mutations.updateStudentMutation.mutateAsync(formData);
+      toast.success("Student updated successfully");
+      onSuccess("Updated Student Details", "student", { studentId: student?.studentNumber });
+      onClose();
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <h2 className="text-lg font-bold text-foreground">Edit Student Information</h2>
+          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name (Optional)</label>
+            <input type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+            <input required type="email" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "" })}>
+                <option value="">Select Department</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.code}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Program</label>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value })}>
+                <option value="">Select Program</option>
+                {programs.filter(p => !formData.departmentId || p.departmentId === formData.departmentId).map((p) => (
+                  <option key={p.id} value={p.id}>{p.code}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Year Level</label>
+              <input required type="number" min="1" max="5" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel || ""} onChange={(e) => { const v = parseInt(e.target.value, 10); setFormData({ ...formData, yearLevel: isNaN(v) ? 0 : v }); }} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Section</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })} />
+            </div>
+          </div>
+          <div className="pt-4 flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
+              {isLoading ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function BulkAddStudentModal({
   isOpen,
   onClose,
@@ -938,7 +1093,7 @@ function BulkAddStudentModal({
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: async (results) => {
+      complete: async (results: Papa.ParseResult<Record<string, string>>) => {
         try {
           const parsedData = results.data as Record<string, string>[];
           const inputs: CreateStudentInput[] = parsedData.map(row => {
@@ -964,7 +1119,7 @@ function BulkAddStudentModal({
           toast.success(`Successfully imported ${inputs.length} students`);
           onClose();
         } catch (error) {
-          setFileError(error instanceof Error ? error.message : "Failed to process the CSV file.");
+          setFileError(getErrorMessage(error));
         } finally {
           setIsLoading(false);
         }
@@ -1036,6 +1191,7 @@ export function OrganizerUserManagementPage() {
 
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const studentAccounts = useMemo<StudentAccount[]>(() => {
     const rawStudents = studentsQuery.data?.items ?? [];
@@ -1045,7 +1201,7 @@ export function OrganizerUserManagementPage() {
     const dbAccounts = rawStudents.map((student) => {
       const studentRecords = (attendanceRecordsQuery.data?.items ?? []).filter((r) => r.studentId === student.id);
       const attendedCount = studentRecords.filter((r) => r.status === "present" || r.status === "late").length;
-      const rate = studentRecords.length ? Math.round((attendedCount / studentRecords.length) * 100) : 100;
+      const rate = studentRecords.length > 0 ? Math.round((attendedCount / studentRecords.length) * 100) : null;
 
       const studentCorrections = (correctionRequestsQuery.data?.items ?? [])
         .filter((r) => r.studentId === student.id)
@@ -1107,9 +1263,11 @@ export function OrganizerUserManagementPage() {
   }, [query, programFilter, sectionFilter, statusFilter, studentAccounts]);
 
   const selectedStudent = studentAccounts.find((student) => student.id === selectedStudentId) ?? filteredStudents[0] ?? studentAccounts[0];
+  const rawStudent = studentsQuery.data?.items?.find((s) => s.id === selectedStudentId);
   const programs = useMemo(() => Array.from(new Set(studentAccounts.map((student) => student.program))), [studentAccounts]);
   const sections = useMemo(() => Array.from(new Set(studentAccounts.map((student) => student.section))), [studentAccounts]);
-  const averageAttendance = studentAccounts.length ? Math.round(studentAccounts.reduce((sum, student) => sum + student.attendanceRate, 0) / studentAccounts.length) : 0;
+  const studentsWithRate = studentAccounts.filter((s) => s.attendanceRate !== null);
+  const averageAttendance = studentsWithRate.length ? Math.round(studentsWithRate.reduce((sum, student) => sum + (student.attendanceRate ?? 0), 0) / studentsWithRate.length) : 0;
   const totalCorrectionRequests = studentAccounts.reduce((sum, student) => sum + student.correctionRequests.length, 0);
 
   async function regenerateQrCredential(studentId: string) {
@@ -1151,6 +1309,7 @@ export function OrganizerUserManagementPage() {
         headerName: "Student",
         field: "name",
         minWidth: 200,
+        pinned: "left",
         flex: 1.2,
         cellRenderer: ({ data }: ICellRendererParams<StudentAccount>) =>
           data ? (
@@ -1195,14 +1354,24 @@ export function OrganizerUserManagementPage() {
         headerName: "Attendance",
         field: "attendanceRate",
         minWidth: 170,
-        cellRenderer: ({ value }: ICellRendererParams<StudentAccount, number>) => {
-          const rate = value ?? 0;
+        cellRenderer: ({ value }: ICellRendererParams<StudentAccount, number | null>) => {
+          if (value === null || value === undefined) {
+            return (
+              <div className="flex h-full items-center">
+                <span className="font-medium text-muted-foreground text-sm">N/A</span>
+              </div>
+            );
+          }
+          
+          const rate = value;
+          const colorClass = rate >= 75 ? "bg-emerald-500" : rate >= 50 ? "bg-amber-500" : "bg-red-500";
+          const textClass = rate >= 75 ? "text-emerald-700" : rate >= 50 ? "text-amber-700" : "text-red-700";
 
           return (
             <div className="flex h-full items-center gap-3">
-              <span className="w-10 font-medium text-foreground">{rate}%</span>
+              <span className={`w-10 font-bold ${textClass}`}>{rate}%</span>
               <div className="h-2 w-24 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${rate}%` }} />
+                <div className={`h-full rounded-full ${colorClass}`} style={{ width: `${rate}%` }} />
               </div>
             </div>
           );
@@ -1264,19 +1433,14 @@ export function OrganizerUserManagementPage() {
   );
 
   return (
-    <div className="space-y-4">
-      <h1 className="sr-only">User Management</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">User Management</h1>
+        <p className="text-sm text-muted-foreground">Manage student accounts, track participation, and handle requests.</p>
+      </div>
+
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <GraduationCap className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">User Management</p>
-              <h2 className="text-sm font-bold text-foreground">Student Accounts</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />
@@ -1367,15 +1531,39 @@ export function OrganizerUserManagementPage() {
       </section>
 
       <section className="space-y-4">
-        <PLPassDataGrid
-          label="Student accounts"
-          data={filteredStudents}
-          columns={studentColumns}
-          emptyTitle="No student accounts"
-          emptyDescription="No student accounts match the current search and filters."
-          enableColumnVisibility
-          hideHeader
-        />
+        {filteredStudents.length === 0 ? (
+          <div className="flex min-h-[400px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface p-8 text-center animate-in fade-in-50">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 mb-4">
+              <Search className="h-8 w-8 text-primary/60" aria-hidden="true" />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground">No students found</h3>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+              We couldn't find any student accounts matching your current search and filters. Try adjusting your criteria.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setProgramFilter("all");
+                setSectionFilter("all");
+                setStatusFilter("all");
+              }}
+              className="mt-6 inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              Clear all filters
+            </button>
+          </div>
+        ) : (
+          <PLPassDataGrid
+            label="Student accounts"
+            data={filteredStudents}
+            columns={studentColumns}
+            emptyTitle="No student accounts"
+            emptyDescription="No student accounts match the current search and filters."
+            enableColumnVisibility
+            hideHeader
+          />
+        )}
       </section>
       <StudentDetailModal
         student={isStudentModalOpen ? selectedStudent : undefined}
@@ -1384,6 +1572,10 @@ export function OrganizerUserManagementPage() {
         onMarkFacialReady={markFacialReady}
         onApproveCorrection={approveCorrection}
         onRejectCorrection={rejectCorrection}
+        onEdit={(id) => {
+          setSelectedStudentId(id);
+          setIsEditModalOpen(true);
+        }}
       />
       <ReportExportModal
         isOpen={isExportModalOpen}
@@ -1415,6 +1607,21 @@ export function OrganizerUserManagementPage() {
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
+      />
+      <EditStudentModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        mutations={studentMutations}
+        programs={academicCatalog.programs.data?.items ?? []}
+        departments={academicCatalog.departments.data?.items ?? []}
+        student={rawStudent}
+        onSuccess={(action, targetType, metadata) => {
+          void auditLogMutations.logActionMutation.mutateAsync({
+            action,
+            targetType,
+            metadata
+          });
+        }}
       />
     </div>
   );

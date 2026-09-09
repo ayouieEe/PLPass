@@ -204,9 +204,14 @@ export const notificationFixtures: Notification[] = [
 ];
 
 export const auditLogFixtures: AuditLog[] = [
-  { id: "audit-1", actorUserId: "user-admin-1", action: "user.invited", targetType: "user", targetId: "user-faculty-1", timestamp: now, metadata: { role: "faculty" } },
-  { id: "audit-2", actorUserId: "user-faculty-1", action: "session.completed", targetType: "attendance_session", targetId: "session-1", timestamp: now, metadata: { records: 4 } },
-  { id: "audit-3", actorUserId: "user-organizer-1", action: "event.approved", targetType: "event", targetId: "event-1", timestamp: now, metadata: { venue: "Main Hall" } }
+  { id: "audit-1", actorUserId: "user-admin-1", action: "user.invited", targetType: "user", targetId: "user-faculty-1", timestamp: "2026-06-26T08:00:00.000Z", metadata: { role: "faculty", userName: "Faculty One" } },
+  { id: "audit-2", actorUserId: "user-faculty-1", action: "session.completed", targetType: "attendance_session", targetId: "session-1", timestamp: "2026-06-25T10:30:00.000Z", metadata: { records: 4, sessionTitle: "IT 204 Week 1" } },
+  { id: "audit-3", actorUserId: "user-organizer-1", action: "event.approved", targetType: "event", targetId: "event-1", timestamp: "2026-06-24T14:15:00.000Z", metadata: { venue: "PLP Pasig Gymnasium", eventTitle: "CCS Orientation" } },
+  { id: "audit-4", actorUserId: "user-organizer-1", action: "Credential.qr Issued", targetType: "qr_credential", targetId: "student-1", timestamp: "2026-06-24T11:00:00.000Z", metadata: { studentName: "Student 01", studentNumber: "2026-0001", method: "qr" } },
+  { id: "audit-5", actorUserId: "user-organizer-1", action: "credential.facial.enrolled", targetType: "facial_profile", targetId: "student-6", timestamp: "2026-06-23T16:45:00.000Z", metadata: { studentName: "Student 06", studentNumber: "2026-0006" } },
+  { id: "audit-6", actorUserId: "user-organizer-2", action: "event.created", targetType: "event", targetId: "event-2", timestamp: "2026-06-22T09:20:00.000Z", metadata: { eventTitle: "Business Forum", category: "Skills Training" } },
+  { id: "audit-7", actorUserId: "user-organizer-1", action: "correction_request.approved", targetType: "correction_request", targetId: "correction-3", timestamp: "2026-06-21T13:10:00.000Z", metadata: { studentName: "Student 07", eventTitle: "PLP Student General Assembly", requestedStatus: "late" } },
+  { id: "audit-8", actorUserId: "user-faculty-1", action: "qr_attendance.recorded", targetType: "attendance_record", targetId: "record-1", timestamp: "2026-06-20T08:01:00.000Z", metadata: { studentName: "Student 01", status: "present" } }
 ];
 
 export const mlPredictionFixtures: MlPrediction[] = [

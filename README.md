@@ -24,12 +24,16 @@ PLPass is a capstone-ready event attendance information system with dedicated or
 QR remains the primary attendance method. The organizer can open the supervised live facial station as a fallback; DeepFace then performs anti-spoofing and identifies one student at a time only from the active event's enrolled participants.
 
 1. Create a Python 3.11 virtual environment and install `api/requirements.txt`.
-2. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` to the server environment. Never use a service-role key for this flow.
-3. Apply the latest Supabase migrations.
+2. Add `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` to the **server environment**. The service-role key is required only by the FastAPI service to retrieve the active event's private face embeddings; never expose it in `VITE_` or `NEXT_PUBLIC_` variables.
+3. Apply the latest Supabase migrations, including the live facial candidate and embedding migrations.
 4. Start the service with `uvicorn api.main:app --reload --port 8000`.
-5. Start the web app and open an active event attendance session.
+5. Start the web app and open an active event attendance session. The Facial Recognition tab now opens the camera directly in Event Management instead of sending the organizer to the legacy session page.
 
-The first DeepFace request downloads its selected model and can take longer than later scans. The default model is SFace, the default detector is OpenCV, and `VITE_API_BASE_URL` controls the browser-facing service URL.
+The first DeepFace request downloads its selected model and can take longer than later scans. The default model is ArcFace, the default detector is RetinaFace, and `VITE_API_BASE_URL` controls the browser-facing service URL.
+
+### Desktop offline facial verification
+
+Prepare the event while connected before taking the desktop offline. The desktop stores only that event's ArcFace templates in its local package, sends a camera frame through its privileged Electron process to the loopback DeepFace service, and records the matched attendance locally for later sync. In development it starts the service from `.venv\\Scripts\\python.exe` when needed; set `PLPASS_PYTHON_PATH` when the Python runtime is installed elsewhere. A distributable desktop installer must bundle that same Python/DeepFace runtime.
 
 ## Quality commands
 

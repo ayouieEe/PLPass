@@ -56,6 +56,84 @@ Deno.serve(async (request) => {
   const action = typeof requestBody.action === "string" ? requestBody.action : "";
   const students = Array.isArray(requestBody.students) ? requestBody.students : [];
 
+  if (action === "update-student") {
+    const student = requestBody.student;
+    if (!student) return json({ error: "No student provided." }, 400);
+    try {
+      const { id, profileId, email, firstName, middleName, lastName, programId, departmentId, sectionId, yearLevel } = student;
+      
+      if (email) {
+        const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, {
+          email: email,
+          user_metadata: {
+            first_name: firstName,
+            middle_name: middleName,
+            last_name: lastName
+          }
+        });
+        if (updateAuthError) throw new Error(`Auth update failed: ${updateAuthError.message}`);
+      }
+      
+      const { error: profileUpdateError } = await supabase.from("profiles").update({
+        email: email,
+        first_name: firstName,
+        middle_name: middleName,
+        last_name: lastName
+      }).eq("id", profileId);
+      
+      if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
+      
+      let actualSectionId = sectionId;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
+      
+      if (!isUuid) {
+        const { data: sectionData } = await supabase
+          .from("sections")
+          .select("id")
+          .eq("section_name", sectionId)
+          .eq("program_id", programId)
+          .eq("year_level", yearLevel)
+          .limit(1)
+          .maybeSingle();
+
+        if (sectionData) {
+          actualSectionId = sectionData.id;
+        } else {
+          const { data: settings } = await supabase.from("system_settings").select("current_school_year, current_semester_id").limit(1).maybeSingle();
+          const { data: newSection, error: newSectionError } = await supabase
+            .from("sections")
+            .insert({
+              section_name: sectionId,
+              program_id: programId,
+              year_level: yearLevel,
+              academic_year: settings?.current_school_year || "2026-2027",
+              semester: settings?.current_semester_id || "1st Semester"
+            })
+            .select("id")
+            .single();
+
+          if (newSectionError) {
+            throw new Error(`Failed to create section '${sectionId}': ${newSectionError.message}`);
+          }
+          actualSectionId = newSection.id;
+        }
+      }
+
+      const { error: studentUpdateError } = await supabase.from("students").update({
+        program_id: programId,
+        department_id: departmentId,
+        section_id: actualSectionId,
+        year_level: yearLevel
+      }).eq("id", id);
+      
+      if (studentUpdateError) throw new Error(`Student update failed: ${studentUpdateError.message}`);
+      
+      return json({ success: true });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  }
+
   if (action !== "bulk-create-students" && action !== "create-student") {
     return json({ error: "Invalid action." }, 400);
   }

@@ -413,6 +413,22 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     throwIfSupabaseError(fetchError);
     return mapStudent(studentRow as Row);
   },
+  async updateStudent(input) {
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "update-student", student: input }
+    });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+
+    const { data: studentRow, error: fetchError } = await client
+      .from("students")
+      .select(studentReadSelect)
+      .eq("id", input.id)
+      .single();
+    throwIfSupabaseError(fetchError);
+    return mapStudent(studentRow as Row);
+  },
   async bulkCreateStudents(inputs) {
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", {
@@ -678,9 +694,12 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_visibility: input.visibility ?? "assigned",
       p_participant_ids: input.participantStudentIds,
       p_objectives: trimmedObjectives,
-      ...(input.resourceTitle?.trim() ? { p_resource_title: input.resourceTitle.trim() } : {}),
-      ...(input.resourceUrl?.trim() ? { p_resource_url: input.resourceUrl.trim() } : {}),
-      p_publish_reason: input.publishReason ?? "Published by event organizer",
+      p_publish_reason: input.publishReason ?? "Published by event organizer"
+    });
+    throwIfSupabaseError(eventError);
+    const createdEvent = eventRow as Row;
+    const { data: metadataRow, error: metadataError } = await client.rpc("update_organizer_event_metadata", {
+      p_event_id: String(createdEvent.id ?? ""),
       p_requested_by: input.requestedBy?.trim() || undefined,
       p_college_office: input.collegeOffice?.trim() || undefined,
       p_number_of_pax: input.numberOfPax ?? input.participantStudentIds.length,
@@ -692,8 +711,9 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       p_priority_tier: input.priorityTier ?? "Low",
       p_fixed_priority: input.fixedPriority ?? false
     });
-    throwIfSupabaseError(eventError);
-    return mapEvent(eventRow as Row);
+    throwIfSupabaseError(metadataError);
+    const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);
+    return savedEvent;
   },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
@@ -705,6 +725,37 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       storageBucket: typeof row.storage_bucket === "string" ? row.storage_bucket : undefined,
       storageObjectPath: typeof row.storage_object_path === "string" ? row.storage_object_path : undefined
     })), rows.total, query);
+  },
+  async addEventResource(input) {
+    const client = getSupabaseBrowserClient();
+    const { data: authData, error: authError } = await client.auth.getUser();
+    throwIfSupabaseError(authError);
+    if (!authData.user) throw new RepositoryError("You must be signed in to manage event resources.", "PERMISSION_DENIED");
+    const { data, error } = await client
+      .from("event_resources")
+      .insert({
+        event_id: input.eventId,
+        resource_title: input.title,
+        external_url: input.externalUrl ?? null,
+        storage_bucket: input.storageBucket ?? null,
+        storage_object_path: input.storageObjectPath ?? null,
+        created_by: authData.user.id
+      })
+      .select("*")
+      .single();
+    throwIfSupabaseError(error);
+    return {
+      id: String(data.id ?? ""),
+      eventId: String(data.event_id ?? ""),
+      title: String(data.resource_title ?? "Event resource"),
+      externalUrl: typeof data.external_url === "string" ? data.external_url : undefined,
+      storageBucket: typeof data.storage_bucket === "string" ? data.storage_bucket : undefined,
+      storageObjectPath: typeof data.storage_object_path === "string" ? data.storage_object_path : undefined
+    };
+  },
+  async removeEventResource(resourceId) {
+    const { error } = await getSupabaseBrowserClient().from("event_resources").delete().eq("id", resourceId);
+    throwIfSupabaseError(error);
   },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason) {
     const approvalStatus = status === "approved" ? "approved" : "declined";

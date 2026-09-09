@@ -125,15 +125,30 @@ function databaseQueryError(error: unknown): SupabaseAuthResolutionError {
 
 export function toSafeAuthErrorMessage(error: unknown) {
   if (error instanceof SupabaseAuthResolutionError) {
-    if (error.code === "AUTH_FAILED") return "We couldn't sign you in with those details. Check your email and password, then try again.";
-    if (error.code === "AUTH_TIMEOUT") return "Sign-in is taking longer than expected. Check your internet connection and try again.";
-    if (error.code === "ACCOUNT_INACTIVE") return error.message;
-    if (error.code === "UNSUPPORTED_ROLE") return "This account role is not available in PLPass yet. Contact PLPass support for help.";
-    if (error.code === "PROFILE_MISSING" || error.code === "STUDENT_RECORD_MISSING" || error.code === "ORGANIZER_RECORD_MISSING") return "Your PLPass account is not fully set up. Contact PLPass support for help.";
-    return "PLPass sign-in is temporarily unavailable. Please try again later.";
+    switch (error.code) {
+      case "AUTH_FAILED":
+        return "We couldn't sign you in with those details. Check your email and password, then try again.";
+      case "AUTH_TIMEOUT":
+        return "Sign-in is taking longer than expected. Check your internet connection and try again.";
+      case "AUTH_SESSION_MISSING":
+      case "PROFILE_MISSING":
+      case "STUDENT_RECORD_MISSING":
+      case "ORGANIZER_RECORD_MISSING":
+        return "Your PLPass account is not fully set up. Contact PLPass support for help.";
+      case "ACCOUNT_INACTIVE":
+        return error.message;
+      case "UNSUPPORTED_ROLE":
+        return "This account role is not available in PLPass yet. Contact PLPass support for help.";
+      case "RLS_PERMISSION_DENIED":
+      case "DATABASE_QUERY_FAILED":
+      case "ROLE_RECORD_MULTIPLE":
+        return "PLPass sign-in is temporarily unavailable. Please try again later.";
+      default:
+        return "PLPass sign-in is temporarily unavailable. Please try again later.";
+    }
   }
-  if (error instanceof Error) {
-    if (error.message.toLowerCase().includes("configuration")) return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
+  if (error instanceof Error && error.message.toLowerCase().includes("configuration")) {
+    return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
   }
   return "PLPass sign-in is temporarily unavailable. Please try again later.";
 }

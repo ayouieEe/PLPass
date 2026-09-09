@@ -30,10 +30,11 @@ describe("Supabase event-scoped attendance queries", () => {
   };
 
   it("filters event sessions by eventId", async () => {
-    type EventSessionRow = { id: string; event_id: string; session_status: string; scheduled_start: string };
     let lastBuilder: { eq: ReturnType<typeof vi.fn> } | undefined;
     mockSupabaseClient.from.mockImplementation((table: string) => {
-      const data = table === "attendance_sessions"
+      // The linked Supabase schema uses `event_sessions`; retain the legacy
+      // table name here while older local fixtures are still in circulation.
+      const data = ["event_sessions", "attendance_sessions"].includes(table)
         ? [
             { id: "session-1", event_id: "evt-1", session_status: "ongoing", scheduled_start: "2026-08-17T09:00:00.000Z" },
             { id: "session-2", event_id: "evt-2", session_status: "completed", scheduled_start: "2026-08-17T10:00:00.000Z" }
@@ -49,12 +50,7 @@ describe("Supabase event-scoped attendance queries", () => {
         }),
         order: vi.fn().mockReturnThis(),
         range: vi.fn().mockImplementation(async () => {
-          const filtered = data.filter((row: EventSessionRow) => {
-            if (filters.event_id !== undefined && String(row.event_id) !== String(filters.event_id)) {
-              return false;
-            }
-            return true;
-          });
+          const filtered = data.filter((r) => !filters.event_id || r.event_id === filters.event_id);
           return { data: filtered, count: filtered.length, error: null };
         })
       };

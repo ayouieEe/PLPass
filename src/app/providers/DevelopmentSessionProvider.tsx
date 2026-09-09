@@ -19,6 +19,43 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
 
 const supabaseAuthDeadlineMs = 12_000;
+const desktopOfflineSessionKey = "plpass-desktop-offline-session";
+const desktopOfflineSessionMaxAgeMs = 24 * 60 * 60_000;
+
+type CachedDesktopOfflineSession = {
+  session: DevelopmentSession;
+  savedAt: number;
+};
+
+function isDesktopOffline() {
+  return Boolean(window.plpassDesktop) && !navigator.onLine;
+}
+
+function cacheDesktopOfflineSession(session: DevelopmentSession) {
+  if (!window.plpassDesktop || session.role !== "organizer") return;
+  const value: CachedDesktopOfflineSession = { session, savedAt: Date.now() };
+  window.localStorage.setItem(desktopOfflineSessionKey, JSON.stringify(value));
+}
+
+function readDesktopOfflineSession(userId: string | undefined) {
+  try {
+    const stored = window.localStorage.getItem(desktopOfflineSessionKey);
+    if (!stored) return null;
+    const value = JSON.parse(stored) as CachedDesktopOfflineSession;
+    if (
+      !value.session?.isAuthenticated ||
+      value.session.role !== "organizer" ||
+      value.session.userId !== userId ||
+      !Number.isFinite(value.savedAt) ||
+      Date.now() - value.savedAt > desktopOfflineSessionMaxAgeMs
+    ) {
+      return null;
+    }
+    return value.session;
+  } catch {
+    return null;
+  }
+}
 
 export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<DevelopmentSession | null>(null);
@@ -58,6 +95,28 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
       try {
         supabase = getSupabaseBrowserClient();
+        // Supabase's getUser() verifies the token over the network. The desktop
+        // must not make that call while offline: a matching, recently cached
+        // organizer identity plus the persisted Supabase session is sufficient
+        // to open the already-prepared local attendance package. Syncing still
+        // requires a valid online Supabase session later.
+        if (isDesktopOffline()) {
+          const { data } = await supabase.auth.getSession();
+          const offlineSession = readDesktopOfflineSession(data.session?.user.id);
+          if (offlineSession) {
+            if (isMounted) {
+              setSession(offlineSession);
+              setIsSessionRestored(true);
+            }
+            return;
+          }
+          if (isMounted) {
+            setAuthError("Offline access requires this organizer to sign in on this desktop while connected within the last 24 hours.");
+            setSession(null);
+            setIsSessionRestored(true);
+          }
+          return;
+        }
         const nextSession = await withRequestTimeout(
           (async () => {
             const { data, error } = await supabase.auth.getUser();
@@ -72,6 +131,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         );
         if (isMounted) {
           setSession(nextSession);
+          if (nextSession) cacheDesktopOfflineSession(nextSession);
           setIsSessionRestored(true);
         }
       } catch (error) {
@@ -153,6 +213,22 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       setSession(nextSession);
       return nextSession;
     }
+    if (isDesktopOffline()) {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { data } = await supabase.auth.getSession();
+        const offlineSession = readDesktopOfflineSession(data.session?.user.id);
+        if (offlineSession) {
+          setSession(offlineSession);
+          return offlineSession;
+        }
+      } catch {
+        // Fall through to the same safe, explicit offline-access message.
+      }
+      setAuthError("Offline access requires this organizer to sign in on this desktop while connected within the last 24 hours.");
+      setSession(null);
+      return null;
+    }
     let supabase: ReturnType<typeof getSupabaseBrowserClient> | null = null;
     try {
       supabase = getSupabaseBrowserClient();
@@ -170,6 +246,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         "Sign-in took too long. Check your connection and try again."
       );
       setSession(nextSession);
+      cacheDesktopOfflineSession(nextSession);
       return nextSession;
     } catch (error) {
       const resolvedError = error instanceof RequestTimeoutError ? authTimeoutFailure() : error;
@@ -187,6 +264,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const logout = useCallback(async () => {
     queryClient.clear();
     window.localStorage.removeItem("plpass-development-session");
+    window.localStorage.removeItem(desktopOfflineSessionKey);
     setSession(null);
     if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
     const { error } = await getSupabaseBrowserClient().auth.signOut();

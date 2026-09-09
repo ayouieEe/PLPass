@@ -14,14 +14,16 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { PageHeader } from "@/components/shared/PageHeader";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
-import { dateKey, formatDisplayTime } from "@/lib/utils/date";
+import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
+import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -47,7 +49,7 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, prepareEventForOffline } from "@/features/offline/offlineService";
+import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, OfflineStatus } from "@/features/offline/types";
 
 // Event Records is organized around three lifecycle tabs: Today, Incoming,
@@ -297,6 +299,22 @@ function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
 }
 
+async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    throw new Error("Camera is still preparing. Keep one face centered and try again.");
+  }
+
+  const maximumWidth = 720;
+  const scale = Math.min(1, maximumWidth / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(video.videoWidth * scale);
+  canvas.height = Math.round(video.videoHeight * scale);
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  if (!blob) throw new Error("The camera frame could not be captured.");
+  return blob;
+}
+
 function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>): FinalizedSessionSummary {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
   const late = rows.filter((row) => row.attendanceStatus === "late").length;
@@ -497,12 +515,15 @@ export function EventManagementPage() {
     if (tab === "incoming") return "incoming" as const;
     return "today" as const;
   }, [location.search]);
+  const sessionIdFromQuery = useMemo(
+    () => new URLSearchParams(location.search).get("session"),
+    [location.search]
+  );
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
-  const [eventModal, setEventModal] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
@@ -519,10 +540,14 @@ export function EventManagementPage() {
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
+  const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
+  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
+  const [facialVerifying, setFacialVerifying] = useState(false);
+  const [facialStatus, setFacialStatus] = useState("");
   const [manualInput, setManualInput] = useState("");
   const [manualStatus, setManualStatus] = useState<ManualAttendanceStatus>("present");
   const [sessionForm, setSessionForm] = useState({
@@ -534,7 +559,11 @@ export function EventManagementPage() {
     lateCutoffMinutes: 15
   });
   const qrInputRef = useRef<HTMLInputElement>(null);
+  const facialVideoRef = useRef<HTMLVideoElement>(null);
+  const facialStreamRef = useRef<MediaStream | null>(null);
   const previousManualStudentIdRef = useRef<string | null>(null);
+  const hydratedSessionIdRef = useRef<string | null>(null);
+  const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -543,6 +572,7 @@ export function EventManagementPage() {
   );
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
@@ -556,8 +586,10 @@ export function EventManagementPage() {
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
   const resolvedLiveSessionId = useMemo(
-    () => sessionsList.find((attendanceSession) => attendanceSession.eventId === activeEvent?.id && attendanceSession.status === "active")?.id,
-    [activeEvent?.id, sessionsList]
+    () =>
+      sessionsList.find((attendanceSession) => attendanceSession.id === liveSessionId && attendanceSession.status === "active")?.id
+      ?? sessionsList.find((attendanceSession) => attendanceSession.eventId === activeEvent?.id && attendanceSession.status === "active")?.id,
+    [activeEvent?.id, liveSessionId, sessionsList]
   );
   const manualLateLock = useMemo(
     () =>
@@ -577,6 +609,33 @@ export function EventManagementPage() {
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
+
+  useEffect(() => {
+    if (captureMode !== "Facial Recognition" || !facialCameraOpen) {
+      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
+      facialStreamRef.current = null;
+      if (facialVideoRef.current) facialVideoRef.current.srcObject = null;
+      return;
+    }
+
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        facialStreamRef.current = stream;
+        if (facialVideoRef.current) facialVideoRef.current.srcObject = stream;
+      })
+      .catch(() => setFacialStatus("Camera access was not granted. Use QR or manual attendance instead."));
+
+    return () => {
+      cancelled = true;
+      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
+      facialStreamRef.current = null;
+    };
+  }, [captureMode, facialCameraOpen]);
 
   useEffect(() => {
     if (manualLateLock.isLateLocked) {
@@ -712,6 +771,37 @@ export function EventManagementPage() {
     () => repositoryEvents,
     [repositoryEvents]
   );
+
+  useEffect(() => {
+    if (!sessionIdFromQuery) {
+      setHandledSessionRouteId(null);
+      return;
+    }
+
+    const requestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
+    const requestedEvent = requestedSession
+      ? repositoryEvents.find((event) => event.id === requestedSession.eventId)
+      : undefined;
+
+    if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
+      if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
+        setHandledSessionRouteId(sessionIdFromQuery);
+      }
+      return;
+    }
+
+    setActiveEvent(requestedEvent);
+    setLiveSessionId(requestedSession.id);
+    setHandledSessionRouteId(sessionIdFromQuery);
+    if (hydratedSessionIdRef.current !== requestedSession.id) {
+      hydratedSessionIdRef.current = requestedSession.id;
+      setActiveRows([]);
+      setCaptureMode(defaultAttendanceMethod);
+      setAttendancePhase("time_in");
+      setManualInput("");
+      setQrInput("");
+    }
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, repositoryEvents, sessionIdFromQuery, sessionsList]);
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
     const now = Date.now();
@@ -777,7 +867,6 @@ export function EventManagementPage() {
     [completedExtras, search, storeCompletedEvents]
   );
   const completedCodes = useMemo(() => new Set(completedEvents.map((event) => event.code)), [completedEvents]);
-  const eventModalStatus = eventModal ? getEventLifecycleStatus(eventModal, activeEvent?.code, completedCodes, cancelledCodes) : "";
 
   // Today and incoming events are published events that haven't been cancelled,
   // haven't been completed, and aren't currently live. New events appear here automatically.
@@ -833,13 +922,65 @@ export function EventManagementPage() {
   }, [todayEvents, incomingEvents]);
 
   const activeCounts = countRows(activeRows);
-  const missingTimeOutRows = useMemo(() => activeRows.filter((row) => !row.checkOutAt), [activeRows]);
+  // A Time Out must be at least a minute after Time In. This is enforced at
+  // capture time; the extra check is only a recovery safeguard for an old,
+  // already-saved invalid value so End Session can still complete safely.
+  const missingTimeOutRows = useMemo(
+    () => activeRows.filter((row) => !row.checkOutAt || !canRecordTimeOut(row.checkInAt, row.checkOutAt)),
+    [activeRows]
+  );
   const activeAttendanceSession = useMemo(
-    () => sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
-    [activeEvent?.id, sessionsList]
+    () =>
+      sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
+      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
+    [activeEvent?.id, liveSessionId, sessionsList]
   );
   const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
+  const actualStartAt = activeAttendanceSession?.attendanceWindowStartAt;
+  const startedLateMinutes = actualStartAt && activeAttendanceSession
+    ? Math.max(0, Math.floor((new Date(actualStartAt).getTime() - new Date(activeAttendanceSession.startsAt).getTime()) / 60_000))
+    : 0;
+  const isEndingAfterScheduledTime = Boolean(
+    activeAttendanceSession?.endsAt && new Date().getTime() > new Date(activeAttendanceSession.endsAt).getTime()
+  );
   const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
+
+  // A record may have been created before the organizer reopened this live
+  // screen, or have just synchronized from the local desktop database. Restore
+  // those server records into the same table instead of showing an empty grid
+  // and reporting the next scan as a duplicate.
+  useEffect(() => {
+    if (!activeEvent?.id || !resolvedLiveSessionId) return;
+    const serverRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === resolvedLiveSessionId);
+    if (!serverRecords.length) return;
+
+    setActiveRows((rows) => {
+      const restoredStudentIds = new Set(serverRecords.map((record) => record.studentId));
+      const otherRows = rows.filter((row) => !restoredStudentIds.has(row.studentId));
+      const restoredRows: DraftAttendanceRow[] = serverRecords.map((record) => {
+        const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
+        const method: AttendanceMethod = record.verificationMethod === "facial"
+          ? "Facial Recognition"
+          : record.verificationMethod === "manual"
+            ? "Manual"
+            : "QR Code";
+        const checkInAt = record.timeIn ?? record.recordedAt;
+        return {
+          id: `server-${record.id}`,
+          studentId: record.studentId,
+          studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
+          eventCode: activeEvent.code,
+          attendanceMethod: method,
+          checkInAt,
+          checkInTime: formatLocalTime(checkInAt),
+          ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
+          attendanceStatus: record.status === "late" ? "late" : "present",
+          ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
+        };
+      });
+      return [...otherRows, ...restoredRows];
+    });
+  }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
   // Scanner phones write to the laptop's local database.  Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
@@ -868,8 +1009,8 @@ export function EventManagementPage() {
               eventCode: activeEvent.code,
               attendanceMethod: record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code",
               checkInAt: record.timeIn,
-              checkInTime: formatDisplayTime(record.timeIn),
-              ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatDisplayTime(record.timeOut) } : {}),
+              checkInTime: formatLocalTime(record.timeIn),
+              ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
               attendanceStatus: record.attendanceStatus,
               ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
             };
@@ -980,7 +1121,6 @@ export function EventManagementPage() {
     await cancelEventMutation.mutateAsync({ eventId: event.id, reason: cancelReason.trim() });
     setCancelledCodes((current) => (current.includes(event.code) ? current : [...current, event.code]));
     setConfirmCancelEvent(null);
-    setEventModal(null);
     setCancelReason("");
     toast.warning(`${event.code} has been cancelled.`);
   }
@@ -1037,10 +1177,21 @@ export function EventManagementPage() {
   if (desktopApi()) {
     try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
   }
-  toast.success(`${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`);
+  const startedAt = new Date(startedSession.attendanceWindowStartAt ?? Date.now()).getTime();
+  const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
+  const delayedMinutes = Math.max(0, Math.floor((startedAt - scheduledAt) / 60_000));
+  toast.success(
+    delayedMinutes > 0
+      ? `${eventToStart.code} started ${delayedMinutes} minutes later than scheduled. Late attendance is calculated from the actual start.`
+      : `${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`
+  );
 }
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
+  if (isEndingAfterScheduledTime && endSessionReason.trim().length < 5) {
+    toast.error("Provide a short reason for ending after the scheduled time.");
+    return;
+  }
   let attendanceFinalized = false;
   try {
     const sessionId = liveSessionId;
@@ -1055,10 +1206,14 @@ export function EventManagementPage() {
             ? "facial"
             : "manual",
       timeIn: row.checkInAt,
-      ...(row.checkOutAt ? { timeOut: row.checkOutAt } : {}),
+      ...(row.checkOutAt && canRecordTimeOut(row.checkInAt, row.checkOutAt) ? { timeOut: row.checkOutAt } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    await endSessionMutation.mutateAsync({ sessionId, reason: "Organizer ended session", attendanceRecords });
+    await endSessionMutation.mutateAsync({
+      sessionId,
+      reason: endSessionReason.trim() || "Organizer ended session",
+      attendanceRecords
+    });
     attendanceFinalized = true;
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
@@ -1084,6 +1239,7 @@ export function EventManagementPage() {
     });
     setLiveSessionId(null);
     setEndSessionConfirmOpen(false);
+    setEndSessionReason("");
   } catch (error) {
     // The session mutation already displays its own database error. Only surface
     // errors from later work, such as completing the event, here.
@@ -1091,7 +1247,7 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeRows, auditLogMutations.logActionMutation, endSessionMutation, completeEventMutation, liveSessionId]);
+}, [activeEvent, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -1108,6 +1264,115 @@ export function EventManagementPage() {
 
   function focusQrInput() {
     window.requestAnimationFrame(() => qrInputRef.current?.focus());
+  }
+
+  function openLiveFacialVerification() {
+    if (!resolvedLiveSessionId) {
+      toast.error("No active attendance session is available for facial verification.");
+      return;
+    }
+    setFacialStatus("");
+    setFacialCameraOpen(true);
+  }
+
+  async function verifyFacialAttendance() {
+    const sessionId = resolvedLiveSessionId;
+    const video = facialVideoRef.current;
+    if (!sessionId || !activeEvent || !video) {
+      setFacialStatus("Start the camera and keep one enrolled student centered.");
+      return;
+    }
+    if (facialVerifying) return;
+
+    setFacialVerifying(true);
+    setFacialStatus("Identifying one live face among this event's enrolled participants…");
+    try {
+      const result = await identifyLiveFace(
+        sessionId,
+        attendancePhase === "time_out" ? "check_out" : "check_in",
+        [await captureVideoFrame(video)]
+      );
+      const occurredAt = result.recorded_at ?? new Date().toISOString();
+      const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
+
+      if (result.action !== "already_recorded") {
+        setActiveRows((current) => {
+          const existing = current.find((row) => row.studentId === result.student_id);
+          if (result.action === "checked_out") {
+            if (!existing) return current;
+            return current.map((row) => row.studentId === result.student_id
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition" }
+              : row);
+          }
+          if (existing) {
+            return current.map((row) => row.studentId === result.student_id
+              ? { ...row, attendanceMethod: "Facial Recognition", attendanceStatus: result.attendance_status }
+              : row);
+          }
+          return [...current, {
+            id: `facial-${result.student_id}`,
+            studentId: result.student_id,
+            studentName: result.display_name,
+            eventCode: activeEvent.code,
+            attendanceMethod: "Facial Recognition",
+            checkInAt: occurredAt,
+            checkInTime: formatLocalTime(occurredAt),
+            attendanceStatus: result.attendance_status
+          }];
+        });
+      }
+
+      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. You can scan the next enrolled participant.`);
+      toast.success(`${result.display_name}: ${actionLabel}`);
+    } catch (error) {
+      const onlineError = error instanceof Error ? error : new Error("Face verification could not be completed. Use QR or manual attendance instead.");
+      if (desktopApi() && activeEvent.id) {
+        try {
+          const student = await identifyOfflineStudent(activeEvent.id, "facial", video);
+          if (!student) throw onlineError;
+          const occurredAt = new Date().toISOString();
+          const local = await recordOfflineAttendance({
+            eventId: activeEvent.id,
+            sessionId,
+            studentId: student.studentId,
+            identificationMethod: "facial",
+            attendanceTimestamp: occurredAt
+          });
+          const actionLabel = local.action === "checked_in" ? "checked in" : local.action === "checked_out" ? "checked out" : "already recorded";
+          // An "already recorded" result still includes the local record. This
+          // happens after a refresh/reopen, when the record exists in SQLite but
+          // the in-memory grid is empty. Always hydrate from that canonical local
+          // record so the organizer immediately sees the saved attendance.
+          setActiveRows((current) => {
+            const existing = current.find((row) => row.studentId === student.studentId);
+            const localRow: DraftAttendanceRow = {
+              id: `offline-facial-${local.record.localAttendanceUuid}`,
+              studentId: student.studentId,
+              studentName: student.displayName,
+              eventCode: activeEvent.code,
+              attendanceMethod: "Facial Recognition",
+              checkInAt: local.record.timeIn,
+              checkInTime: formatLocalTime(local.record.timeIn),
+              attendanceStatus: local.record.attendanceStatus,
+              ...(local.record.timeOut
+                ? { checkOutAt: local.record.timeOut, checkOutTime: formatLocalTime(local.record.timeOut) }
+                : {})
+            };
+            if (!existing) return [...current, localRow];
+            return current.map((row) => row.studentId === student.studentId ? { ...row, ...localRow, id: row.id } : row);
+          });
+          setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${actionLabel} offline. This record will sync when connectivity returns.`);
+          toast.success(`${student.displayName}: ${actionLabel} offline`);
+          return;
+        } catch {
+          // Preserve the trusted online failure below when the local package or
+          // local DeepFace service cannot confirm the same face.
+        }
+      }
+      setFacialStatus(onlineError.message);
+    } finally {
+      setFacialVerifying(false);
+    }
   }
 
   async function submitQrAttendance() {
@@ -1170,7 +1435,7 @@ export function EventManagementPage() {
         if (currentRow) {
           return current.map((row) =>
             row.studentId === studentId
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
               : row
           );
         }
@@ -1184,7 +1449,7 @@ export function EventManagementPage() {
             eventCode: activeEvent.code,
             attendanceMethod: "QR Code",
             checkInAt: occurredAt,
-            checkInTime: formatDisplayTime(occurredAt),
+            checkInTime: formatLocalTime(occurredAt),
               attendanceStatus: activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt) ? "late" : "present"
           }
         ];
@@ -1251,7 +1516,7 @@ export function EventManagementPage() {
       if (existing) {
         return current.map((row) =>
           row.studentId === resolvedStudentId
-            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatDisplayTime(occurredAt) }
+            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
             : row
         );
       }
@@ -1265,7 +1530,7 @@ export function EventManagementPage() {
           eventCode: activeEvent?.code ?? "LIVE",
           attendanceMethod: "Manual",
           checkInAt: occurredAt,
-          checkInTime: formatDisplayTime(occurredAt),
+          checkInTime: formatLocalTime(occurredAt),
           attendanceStatus: resolvedStatus
         }
       ];
@@ -1328,28 +1593,7 @@ export function EventManagementPage() {
     });
   }
 
-  const startSessionToolbar = (
-    <Button
-      type="button"
-      size="sm"
-      className="h-9 rounded-lg px-3"
-      title="Start Session"
-      aria-label="Start selected session"
-      onClick={() => {
-        if (!selectedEventForSession) {
-          toast.warning("Select an event first to start a session.");
-          return;
-        }
-        openStartSession(selectedEventForSession);
-      }}
-      disabled={!selectedEventForSession}
-    >
-      <Play className="h-4 w-4" aria-hidden="true" />
-      Start Session
-    </Button>
-  );
-
-  const incomingColumns: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
+  const incomingColumnsWithActions: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
     {
       id: "actions",
       headerName: "Actions",
@@ -1358,7 +1602,8 @@ export function EventManagementPage() {
       lockPosition: true,
       lockPinned: true,
       suppressMovable: true,
-      width: 390,
+      width: 270,
+      resizable: false,
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: { data: EventRecord }) => {
@@ -1373,8 +1618,7 @@ export function EventManagementPage() {
               : "Prepare for Offline Use";
 
         return (
-          <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 340 }}>
-      <h1 className="sr-only">Event Management</h1>
+          <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 220 }}>
               <Button
                 type="button"
                 variant={ready ? "outline" : "default"}
@@ -1385,7 +1629,7 @@ export function EventManagementPage() {
                 disabled={preparation?.preparing || !data.id}
                 onClick={() => void prepareOfflinePackage(data)}
               >
-                {label}
+                {preparation?.preparing ? "Preparing…" : ready ? "Refresh offline" : preparation?.error ? "Retry offline setup" : "Prepare offline"}
               </Button>
               <Button
                 type="button"
@@ -1394,7 +1638,9 @@ export function EventManagementPage() {
                 className="h-9 rounded-lg px-3"
                 title="View More"
                 aria-label={`View ${data.code}`}
-                onClick={() => setEventModal(data)}
+                onClick={() => {
+                  if (data.id) navigate(APP_ROUTES.organizerEvent(data.id));
+                }}
               >
                 <Eye className="h-4 w-4" aria-hidden="true" />
                 View More
@@ -1417,8 +1663,10 @@ export function EventManagementPage() {
           return <span className="text-xs text-muted-foreground">—</span>;
         }
         return (
-          <div
-            className="cursor-pointer hover:opacity-75 transition-opacity"
+          <button
+            type="button"
+            className="block max-w-full text-left transition-opacity hover:opacity-75"
+            title={objectives.join("\n")}
             onClick={() => objectives.length > 1 && setSelectedObjectivesEvent(row.original)}
           >
             <p className="text-sm text-foreground truncate">
@@ -1429,7 +1677,7 @@ export function EventManagementPage() {
                 +{objectives.length - 1} more
               </p>
             )}
-          </div>
+          </button>
         );
       }
     },
@@ -1468,7 +1716,7 @@ export function EventManagementPage() {
     },
     {
       id: "conflict",
-      header: "Conflict",
+      header: "Schedule",
       cell: ({ row }) => {
         const conflicts = conflictsByCode.get(row.original.code);
         if (!conflicts || conflicts.length === 0) {
@@ -1479,12 +1727,14 @@ export function EventManagementPage() {
           <button
             type="button"
             className="flex items-center gap-1.5 text-left text-sm font-medium text-danger underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            title={`Overlaps with ${conflictCodes} at the same venue and time`}
-            aria-label={`View schedule conflict for ${row.original.code}`}
-            onClick={() => setEventModal(row.original)}
+            title={`Another event uses the same venue at the same time: ${conflictCodes}`}
+            aria-label={`View schedule warning for ${row.original.code}`}
+            onClick={() => {
+              if (row.original.id) navigate(APP_ROUTES.organizerEvent(row.original.id));
+            }}
           >
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            {conflicts.length === 1 ? `Conflicts with ${conflictCodes}` : `${conflicts.length} conflicts`}
+            {conflicts.length === 1 ? `Same venue and time as ${conflictCodes}` : `${conflicts.length} events share this schedule`}
           </button>
         );
       }
@@ -1502,6 +1752,8 @@ export function EventManagementPage() {
       }
     }
   ];
+
+  const incomingColumns = incomingColumnsWithActions.slice(1);
 
   const liveColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
@@ -1584,6 +1836,17 @@ export function EventManagementPage() {
     );
   }
 
+  const isOpeningLiveSession = Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
+
+  if (isOpeningLiveSession) {
+    return (
+      <div className="space-y-4 lg:space-y-5">
+        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+        <LoadingState label="Opening live attendance..." />
+      </div>
+    );
+  }
+
   if (eventsQuery.isError) {
     return (
       <div className="space-y-4 lg:space-y-5">
@@ -1597,18 +1860,14 @@ export function EventManagementPage() {
   }
 
   return (
-    <div className="space-y-4 lg:space-y-5">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Management</h1>
+        <p className="text-sm text-muted-foreground">Manage ongoing and upcoming events, track real-time attendance, and handle offline setups.</p>
+      </div>
+
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 border-l-2 border-primary pl-3">
-            <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-              <CalendarClock className="h-4 w-4" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Management</p>
-              <h2 className="text-sm font-bold text-foreground">Events</h2>
-            </div>
-          </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />
@@ -1631,11 +1890,12 @@ export function EventManagementPage() {
                 <StatusBadge label="Live" tone="success" />
                 <StatusBadge label={attendancePhase === "time_out" ? "Recording Time Out" : "Recording Time In"} tone={attendancePhase === "time_out" ? "warning" : "success"} />
               </div>
-              <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Time In cutoff {formatDisplayTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Late after {formatLocalTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
+              {actualStartAt ? <p className="mt-1 text-xs text-muted-foreground">Actual start: {formatLocalTime(actualStartAt)}{startedLateMinutes > 0 ? ` — started ${startedLateMinutes} minute${startedLateMinutes === 1 ? "" : "s"} later than scheduled.` : ""}</p> : null}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
-              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => setEndSessionConfirmOpen(true)}>
+              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
                 <Square className="h-4 w-4" aria-hidden="true" />
                 {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
               </Button>
@@ -1654,7 +1914,7 @@ export function EventManagementPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h3 id="attendance-capture-heading" className="text-base font-semibold">Attendance capture</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{attendancePhase === "time_out" ? "Scan students who have already checked in." : "Record arrivals until the Time In cutoff."}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{attendancePhase === "time_out" ? "Scan students who have already checked in." : "Students who check in after the late time are marked Late."}</p>
               </div>
               <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-background p-1">
                 <Button
@@ -1731,26 +1991,37 @@ export function EventManagementPage() {
 
                     </div>
                   ) : captureMode === "Facial Recognition" ? (
-                    <div className="text-center">
+                    <div className="mx-auto max-w-2xl text-center">
                       <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
                         <Camera className="h-6 w-6" aria-hidden="true" />
                       </div>
                       <p className="mt-4 text-sm font-semibold text-foreground">Facial verification</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Open the live camera and let enrolled participants face it one at a time.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          if (!resolvedLiveSessionId) {
-                            toast.error("No active attendance session is available for facial verification.");
-                            return;
-                          }
-                          navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId));
-                        }}
-                      >
-                        Open live verification
-                      </Button>
+                      <p id="live-facial-instructions" className="mt-2 text-sm text-muted-foreground">Use this supervised fallback only when QR cannot be read. Keep one enrolled participant centered in the camera.</p>
+
+                      {facialCameraOpen ? (
+                        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-black">
+                          <video
+                            ref={facialVideoRef}
+                            aria-label="Live facial verification camera preview"
+                            aria-describedby="live-facial-instructions"
+                            autoPlay
+                            muted
+                            playsInline
+                            className="aspect-video w-full object-cover"
+                          />
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <Button type="button" variant="outline" size="sm" onClick={() => facialCameraOpen ? setFacialCameraOpen(false) : openLiveFacialVerification()}>
+                          <Camera className="h-4 w-4" aria-hidden="true" />
+                          {facialCameraOpen ? "Stop camera" : "Open live verification"}
+                        </Button>
+                        <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>
+                          {facialVerifying ? "Identifying…" : attendancePhase === "time_out" ? "Verify Time Out" : "Verify attendance"}
+                        </Button>
+                      </div>
+                      {facialStatus ? <p className="mt-4 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
                     </div>
                   ) : captureMode === "Manual" ? (
                     <div className="space-y-4">
@@ -1792,7 +2063,7 @@ export function EventManagementPage() {
 
                       <div className="grid gap-3">
                         <label className="space-y-2 text-sm font-medium">
-                          Student lookup
+                          Find student
                           <input
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
@@ -1848,26 +2119,29 @@ export function EventManagementPage() {
         </>
       ) : (
         <>
-          <section className="rounded-xl border bg-surface p-4 shadow-sm lg:p-5" aria-label="Event schedule overview">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <span className="h-8 w-1 rounded-full bg-primary" aria-hidden="true" />
-                  <div>
-                    <h2 className="text-lg font-semibold leading-6 text-foreground">Schedule</h2>
-                    <p className="mt-0.5 text-sm text-muted-foreground">Select an event to start attendance.</p>
-                  </div>
+          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Event schedule overview">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3 border-l-2 border-primary pl-3">
+                <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Event schedule</p>
+                  <h2 className="text-sm font-bold text-foreground">Schedule</h2>
                 </div>
               </div>
-              <div className="w-full lg:max-w-md">
-                <label className="text-xs font-medium text-muted-foreground" htmlFor="event-record-search">Search events</label>
-                <div className="mt-1 flex h-10 items-center gap-2 rounded-lg border bg-background px-3">
-                  <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-                  <input id="event-record-search" className="w-full bg-transparent text-sm outline-none" placeholder="Code, name, venue, or category" value={search} onChange={(event) => setSearch(event.target.value)} />
-                </div>
-              </div>
+              <span className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
+                {conflictsByCode.size ? `${conflictsByCode.size} events need scheduling` : "No schedule conflicts"}
+              </span>
             </div>
-            <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-3">
+              <label className="relative block w-full" htmlFor="event-record-search">
+                <span className="sr-only">Search events</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input id="event-record-search" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by code, name, venue, or category..." value={search} onChange={(event) => setSearch(event.target.value)} />
+              </label>
+            </div>
+            <div className="mt-3 flex items-center">
               <div className="inline-flex w-fit items-center rounded-lg border bg-background p-1" role="tablist" aria-label="Event schedule">
               <button
                 type="button"
@@ -1904,52 +2178,45 @@ export function EventManagementPage() {
                 </span>
               </button>
               </div>
-              <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
-                {conflictsByCode.size ? `${conflictsByCode.size} schedule ${conflictsByCode.size === 1 ? "conflict" : "conflicts"}` : "No schedule conflicts"}
-              </span>
             </div>
           </section>
 
-          <section className="rounded-lg border bg-surface p-4 shadow-sm" aria-label="Refine event list">
+          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Refine event list">
             <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Filter events</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">Use Today or Incoming above to filter by status.</p>
-              </div>
-              <Button
+              <h2 className="text-sm font-semibold text-foreground">Filters</h2>
+              {hasEventFilters ? <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 onClick={() => setEventFilters({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" })}
-                disabled={!hasEventFilters}
               >
                 Clear filters
-              </Button>
+              </Button> : null}
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <div className="space-y-1 xl:col-span-2">
-                <p className="text-xs font-medium text-muted-foreground">Schedule date</p>
-                <div className="flex items-center gap-2">
-                  <label className="sr-only" htmlFor="event-date-from">From date</label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:col-span-2">
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>From date</span>
                   <input
                     id="event-date-from"
                     type="date"
-                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
                     value={eventFilters.dateFrom}
                     max={eventFilters.dateTo || undefined}
                     onChange={(event) => setEventFilters((current) => ({ ...current, dateFrom: event.target.value }))}
                   />
-                  <span className="shrink-0 text-xs text-muted-foreground">to</span>
-                  <label className="sr-only" htmlFor="event-date-to">To date</label>
+                </label>
+                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                  <span>To date</span>
                   <input
                     id="event-date-to"
                     type="date"
-                    className="plpass-field h-10 min-w-0 flex-1 rounded-md border px-3 text-sm text-foreground"
+                    className="plpass-field h-10 w-full rounded-md border px-3 text-sm text-foreground"
                     value={eventFilters.dateTo}
                     min={eventFilters.dateFrom || undefined}
                     onChange={(event) => setEventFilters((current) => ({ ...current, dateTo: event.target.value }))}
                   />
-                </div>
+                </label>
               </div>
               <label className="space-y-1 text-xs font-medium text-muted-foreground">
                 <span>Venue</span>
@@ -1994,12 +2261,11 @@ export function EventManagementPage() {
               columns={incomingColumns}
               emptyTitle={activeTab === "today" ? "No events today" : "No incoming events"}
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : "Future published events will appear here."}
-              rowSelection="single"
-              onSelectionChange={(rows) => setSelectedEventForSession((rows[0] as EventRecord | undefined) ?? null)}
-              toolbarActions={startSessionToolbar}
+              onRowClick={(event) => {
+                if (event.id) navigate(`${APP_ROUTES.organizerEvents}/${event.id}`);
+              }}
               rowHeight={44}
               headerHeight={40}
-              enableColumnVisibility
             />
           </section>
         </>
@@ -2008,7 +2274,7 @@ export function EventManagementPage() {
       {readinessEvent && readinessModalSummary ? (
         <ModalFrame onClose={() => setReadinessEvent(null)} width="max-w-3xl">
           <div className="border-b pb-4">
-            <h2 className="text-xl font-semibold">Attendance readiness</h2>
+            <h2 className="text-xl font-semibold">Attendance Readiness</h2>
             <p className="mt-1 text-sm text-muted-foreground">{readinessEvent.code} · {readinessEvent.name}</p>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
@@ -2075,22 +2341,6 @@ export function EventManagementPage() {
         </ModalFrame>
       ) : null}
 
-      {eventModal ? (
-        <ModalFrame onClose={() => setEventModal(null)}>
-          <EventDetails
-            event={eventModal}
-            status={eventModalStatus}
-            conflicts={conflictsByCode.get(eventModal.code) ?? []}
-            onCancel={() => setConfirmCancelEvent(eventModal)}
-            onViewConflict={(event) => setEventModal(event)}
-            onEdit={(event) => {
-              setEditEvent(event);
-              setEventModal(null);
-            }}
-          />
-        </ModalFrame>
-      ) : null}
-
       {confirmCancelEvent ? (
         <ModalFrame onClose={() => setConfirmCancelEvent(null)} width="max-w-md">
           <h2 className="text-lg font-semibold">Confirm Cancel</h2>
@@ -2123,59 +2373,47 @@ export function EventManagementPage() {
 
       {startEvent ? (
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Live Attendance</h2>
+          <h2 className="text-xl font-semibold">Start Attendance</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Venue <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.venue}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Schedule Date <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="date"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.date}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Start Time <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="time"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.startTime}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>End Time <span className="text-destructive" aria-hidden="true">*</span></span>
-              <input
-                type="time"
-                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={sessionForm.endTime}
-                readOnly
-                aria-readonly="true"
-                required
-              />
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              <span>Late cutoff (minutes after Time In starts)</span>
-              <input type="number" min={0} max={240} className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm font-medium shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
+          <section className="mt-5 rounded-xl border bg-muted/20 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-semibold text-foreground">Planned Schedule</h3>
+              </div>
+              <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">Read only</span>
+            </div>
+            <dl className="mt-4 grid gap-4 sm:grid-cols-4">
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt>
+                <dd className="mt-1 font-medium text-foreground">{sessionForm.venue}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled start</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.startTime}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled end</dt>
+                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.endTime}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase text-muted-foreground">Actual start</dt>
+                <dd className="mt-1 font-medium text-foreground">Recorded when Start Session is clicked</dd>
+              </div>
+            </dl>
+          </section>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">Late attendance</p>
+              <p className="text-xs text-muted-foreground">Counted from the actual start time.</p>
+            </div>
+            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <span>Late after</span>
+              <input type="number" min={0} max={240} className="h-9 w-16 rounded-lg border border-border bg-surface px-2 text-center text-sm font-semibold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
+              <span>min</span>
             </label>
           </div>
-          <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            Attendance will use <span className="font-medium text-foreground">QR Code</span> and <span className="font-medium text-foreground">Facial Recognition</span>. Nothing is saved until you end the session.
+          <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">Actual session time:</span> Start is recorded when you click Start Session; end is recorded when you end it. The session can continue past its scheduled end.
           </div>
           {credentialStatusesQuery.isLoading ? (
             <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -2219,8 +2457,9 @@ export function EventManagementPage() {
       ) : null}
 
       <ConfirmModal open={timeOutConfirmOpen} title="Open Time Out" description="The live session stays open. Connected phone scanners will immediately record Time Out only." confirmLabel="Open Time Out" onCancel={() => setTimeOutConfirmOpen(false)} onConfirm={() => { setTimeOutConfirmOpen(false); void openTimeOut(); }} />
-      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. You may end the session; their Time Out will remain blank.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => setEndSessionConfirmOpen(false)} onConfirm={() => void endSession()}>
+      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={isEndingAfterScheduledTime ? "This session continued past its scheduled end. Provide a short reason before saving the actual end time." : missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. You may end the session; their Time Out will remain blank.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => { setEndSessionConfirmOpen(false); setEndSessionReason(""); }} onConfirm={() => void endSession()}>
         {missingTimeOutRows.length ? <p className="text-sm text-muted-foreground">Missing Time Out: {missingTimeOutRows.slice(0, 8).map((row) => row.studentName).join(", ")}{missingTimeOutRows.length > 8 ? "…" : ""}</p> : null}
+        {isEndingAfterScheduledTime ? <label className="mt-4 grid gap-2 text-sm font-medium text-foreground">Reason for ending late<textarea className="min-h-20 rounded-lg border bg-background px-3 py-2 text-sm font-normal" value={endSessionReason} onChange={(event) => setEndSessionReason(event.target.value)} placeholder="For example: The program started late due to venue setup." /></label> : null}
       </ConfirmModal>
 
       {summaryOpen ? (
@@ -2300,7 +2539,7 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, conflicts = [], onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
+function EventDetails({ event, status, conflicts = [], onStart, onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onStart?: (event: EventRecord) => void; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between">
@@ -2368,6 +2607,12 @@ function EventDetails({ event, status, conflicts = [], onCancel, onEdit, onViewC
       </section>
       <div className="mt-6 border-t pt-4">
         <div className="flex justify-end gap-2">
+          {onStart ? (
+            <Button type="button" size="sm" onClick={() => onStart(event)}>
+              <Play className="h-4 w-4" aria-hidden="true" />
+              Start attendance
+            </Button>
+          ) : null}
           {onEdit ? (
             <Button type="button" variant="outline" size="sm" onClick={() => onEdit(event)}>
               Reschedule Event

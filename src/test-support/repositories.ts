@@ -74,6 +74,7 @@ import type {
   Event,
   EventFeedbackTask,
   EventParticipant,
+  EventResource,
   Notification,
   Report,
   Student,
@@ -271,6 +272,7 @@ let credentialRequestState: CredentialRequest[] = [];
 let auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
 let eventState = eventFixtures.map((entry) => ({ ...entry }));
 let eventObjectiveState: Array<{ id: string; eventId: string; order: number; text: string }> = [];
+let eventResourceState: EventResource[] = [];
 let completedFeedbackTaskIds = new Set<string>();
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
@@ -293,6 +295,7 @@ export function resetSimulatedRepositoryState() {
   auditLogState = auditLogFixtures.map((entry) => ({ ...entry }));
   eventState = eventFixtures.map((entry) => ({ ...entry }));
   eventObjectiveState = [];
+  eventResourceState = [];
   completedFeedbackTaskIds = new Set<string>();
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
@@ -595,6 +598,27 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     studentFixtures.push(newStudent);
     return newStudent;
   },
+  async updateStudent(input, context) {
+    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    const existing = getOrThrow(studentFixtures, input.id, "Student");
+    const updated: Student = {
+      ...existing,
+      email: input.email,
+      firstName: input.firstName,
+      middleName: input.middleName,
+      lastName: input.lastName,
+      programId: input.programId,
+      departmentId: input.departmentId,
+      yearLevel: input.yearLevel,
+      section: input.sectionId,
+      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+    };
+    const index = studentFixtures.findIndex(s => s.id === input.id);
+    if (index !== -1) {
+      studentFixtures[index] = updated;
+    }
+    return updated;
+  },
   async bulkCreateStudents(inputs, context) {
     await beforeRead("userManagement", context, ["organizer", "admin"]);
     let success = 0;
@@ -820,9 +844,42 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
-  async listEventResources(_eventId, query, context) {
-    await beforeRead("eventManagement", context);
-    return paginate([], query);
+  async listEventResources(eventId, query, context) {
+    await beforeRead("eventManagement", context, ["organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext) || !isEventInStudentScope(event, currentContext)) {
+      throw new RepositoryError("You do not have access to this event's resources.", "PERMISSION_DENIED");
+    }
+    return paginate(eventResourceState.filter((resource) => resource.eventId === eventId), query);
+  },
+  async addEventResource(input, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, input.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only manage resources for their own events.", "PERMISSION_DENIED");
+    }
+    const resource: EventResource = {
+      id: `resource-${Date.now()}-${eventResourceState.length + 1}`,
+      eventId: input.eventId,
+      title: input.title,
+      externalUrl: input.externalUrl,
+      storageBucket: input.storageBucket,
+      storageObjectPath: input.storageObjectPath
+    };
+    eventResourceState = [...eventResourceState, resource];
+    return resource;
+  },
+  async removeEventResource(resourceId, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    const currentContext = contextOrDefault(context);
+    const resource = getOrThrow(eventResourceState, resourceId, "Event resource");
+    const event = getOrThrow(eventState, resource.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only manage resources for their own events.", "PERMISSION_DENIED");
+    }
+    eventResourceState = eventResourceState.filter((entry) => entry.id !== resourceId);
   },
   async generateNextEventCode(context) {
     await beforeRead("eventManagement", context, ["organizer"]);
@@ -1297,7 +1354,11 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
       if (!student || input.studentId !== student.id) {
         throw new RepositoryError("Students can only submit correction requests for themselves.", "PERMISSION_DENIED");
       }
-      const record = getOrThrow(attendanceRecordFixtures, input.attendanceRecordId, "Attendance record");
+      const record = attendanceRecordState.find((entry) => entry.id === input.attendanceRecordId)
+        ?? attendanceRecordFixtures.find((entry) => entry.id === input.attendanceRecordId);
+      if (!record) {
+        throw new RepositoryError("Attendance record was not found.", "NOT_FOUND");
+      }
       if (record.studentId !== student.id) {
         throw new RepositoryError("Selected attendance record does not belong to this student.", "PERMISSION_DENIED");
       }
@@ -1599,7 +1660,7 @@ export const simulatedNotificationRepository: NotificationRepository = {
 
 export const simulatedAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
-    await beforeRead("auditLogs", context, ["admin"]);
+    await beforeRead("auditLogs", context, ["admin", "organizer"]);
     return paginate(auditLogState.filter((log) => matchesSearch([log.action, log.targetType, log.targetId], query?.search)), query);
   },
   async logClientAction(input, context) {

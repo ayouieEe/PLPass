@@ -93,11 +93,35 @@ describe("organizer route access", () => {
     setRoute("/organizer/analytics");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /insights & reporting/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /turnout forecast/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /attendance trends/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /feedback & sentiment/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /late arrival patterns/i })).toBeInTheDocument();
+  });
+
+  it("filters analytics data by date range preset and shows empty states when no data matches", async () => {
+    storeSession(organizerSession);
+    setRoute("/organizer/analytics");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /analytics insights/i })).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    const dateRangeSelect = screen.getByRole("combobox", { name: /date range filter/i });
+    expect(dateRangeSelect).toBeInTheDocument();
+
+    await user.selectOptions(dateRangeSelect, "custom");
+    const startDateInput = screen.getByLabelText(/start date filter/i);
+    const endDateInput = screen.getByLabelText(/end date filter/i);
+
+    await user.type(startDateInput, "2020-01-01");
+    await user.type(endDateInput, "2020-01-30");
+
+    const feedbackTab = screen.getByRole("button", { name: /feedback & sentiment/i });
+    await user.click(feedbackTab);
+
+    expect((await screen.findAllByText(/no feedback data yet/i)).length).toBeGreaterThan(0);
   });
 
   it("denies organizer routes to a student user", async () => {
@@ -286,10 +310,9 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     const user = userEvent.setup();
-    await user.click((await screen.findAllByRole("button", { name: /^disable$/i }))[0]);
+    await user.click((await screen.findAllByRole("button", { name: /^view qr$/i }))[0]);
 
-    expect(await screen.findByRole("dialog", { name: /are you sure\?/i })).toBeInTheDocument();
-    expect(screen.getByText(/qr credential preview/i)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {
@@ -297,7 +320,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Event Management" })).toBeInTheDocument();
     expect(await screen.findByText("Business Forum")).toBeInTheDocument();
     expect(screen.queryByText("CCS Orientation")).not.toBeInTheDocument();
   });

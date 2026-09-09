@@ -80,11 +80,11 @@ test.describe("organizer critical journeys", () => {
     await expect(page.getByRole("navigation", { name: "organizer navigation" })).toBeVisible();
 
     await page.goto("/organizer/events");
-    await expect(page.getByRole("heading", { name: "Events", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Event Management", exact: true }).first()).toBeVisible();
     await expect(page.getByText("CCS Orientation").first()).toBeVisible();
 
     await page.goto("/organizer/analytics");
-    await expect(page.getByRole("heading", { name: "Event Attendance Prediction" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Analytics Insights" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Attendance Trends/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Feedback & Sentiment/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Late Arrival Patterns/i })).toBeVisible();
@@ -104,7 +104,7 @@ test.describe("organizer critical journeys", () => {
 
   test("loads correction controls", async ({ page }) => {
     await page.goto("/organizer/corrections");
-    await expect(page.getByRole("heading", { name: "Request Directory" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Correction Requests" })).toBeVisible();
     for (const name of [/^all$/i, /pending/i, /approved/i, /rejected/i]) {
       await expect(page.getByRole("button", { name })).toBeVisible();
     }
