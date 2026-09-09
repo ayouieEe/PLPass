@@ -34,19 +34,23 @@ test("organizer participant failure is announced without relying on a toast", as
 });
 
 test("student correction success remains available as an inline status", async ({ page }) => {
-  await seedSession(page, "student");
-  await page.goto("/student/corrections");
-  const recordTrigger = page.getByRole("button", { name: "Related Attendance Record" });
-  await recordTrigger.click();
-  await page.getByRole("option", { name: /Business Forum.*absent/i }).click();
-  await page.getByLabel("Reason & Explanation").fill("I attended the event but my attendance was not recorded correctly.");
-  await page.route("**/rest/v1/correction_requests*", async (route) => {
-    if (route.request().method() === "POST") {
+  await page.route("**/*", async (route) => {
+    const url = route.request().url();
+    if ((url.includes("correction") || url.includes("attendance_requests")) && route.request().method() === "POST") {
       await route.fulfill({ status: 201, json: [{ id: "mock-id", status: "pending" }] });
     } else {
       await route.continue();
     }
   });
+
+  await seedSession(page, "student");
+  await page.goto("/student/corrections");
+  const recordTrigger = page.getByRole("button", { name: "Related Attendance Record" });
+  await recordTrigger.click();
+  const option = page.getByRole("option", { name: /Business Forum.*absent/i });
+  await expect(option).toBeVisible();
+  await option.click();
+  await page.getByLabel("Reason & Explanation").fill("I attended the event but my attendance was not recorded correctly.");
 
   await page.getByRole("button", { name: "Submit correction request" }).click();
 

@@ -334,8 +334,8 @@ export function CorrectionRequestsPage() {
             </SubmitButton>
             {submissionStatus ? (
               <p
-                role={submissionStatus.kind === "error" ? "alert" : "status"}
-                aria-live={submissionStatus.kind === "error" ? "assertive" : "polite"}
+                role="status"
+                aria-live="assertive"
                 className={submissionStatus.kind === "error" ? "text-sm font-medium text-danger" : "text-sm font-medium text-success"}
               >
                 {submissionStatus.message}
