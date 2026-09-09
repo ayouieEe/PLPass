@@ -14,7 +14,6 @@ import {
   MapPin,
   MessageSquareText,
   Sparkles,
-  Star
 } from "lucide-react";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -22,45 +21,25 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useStudentEventFeedback, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { getEventResourceDownloadUrl } from "@/features/organizer/lib/eventResources";
 import {
   buildStudentEventWorkflow,
-  getStudentFeedbackDeadlineStatus,
-  lateReasonOptions,
   recordsForStudentEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
 import type { EventObjective, EventResource } from "@/types/domain";
 
 type RatingState = Record<string, number>;
-function StarRating({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  const [hovered, setHovered] = useState(0);
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex gap-1" aria-label="Objective rating" onMouseLeave={() => setHovered(0)}>
-        {[1, 2, 3, 4, 5].map((rating) => {
-          const active = rating <= (hovered || value);
-          return (
-            <button
-              key={rating}
-              type="button"
-              onClick={() => onChange(rating)}
-              onMouseEnter={() => setHovered(rating)}
-              aria-label={`${rating} star${rating === 1 ? "" : "s"}`}
-              className="transition-transform hover:scale-110"
-            >
-              <Star className={`h-6 w-6 transition-colors ${active ? "fill-warning text-warning" : "text-muted-foreground/25"}`} />
-            </button>
-          );
-        })}
-      </div>
-      {value > 0 && <span className="text-xs font-medium text-muted-foreground">{value}/5</span>}
-    </div>
-  );
-}
+const emojiRatings = [
+  { value: 1, emoji: "😞", label: "Needs improvement" },
+  { value: 2, emoji: "🙁", label: "Below expectations" },
+  { value: 3, emoji: "😐", label: "Okay" },
+  { value: 4, emoji: "🙂", label: "Good" },
+  { value: 5, emoji: "🤩", label: "Excellent" }
+];
 
 function FeedbackModal({
   open,
@@ -71,7 +50,9 @@ function FeedbackModal({
   comment,
   onCommentChange,
   onSubmit,
-  canSubmit
+  canSubmit,
+  step,
+  onBack
 }: {
   open: boolean;
   onClose: () => void;
@@ -82,46 +63,40 @@ function FeedbackModal({
   onCommentChange: (value: string) => void;
   onSubmit: () => void;
   canSubmit: boolean;
+  step: number;
+  onBack: () => void;
 }) {
   if (!open) return null;
 
-  const ratedCount = objectives.filter((objective) => ratings[objective.id] > 0).length;
-  const isCommentOnly = objectives.length === 0;
+  const isReview = step >= objectives.length;
+  const objective = objectives[step];
 
   return (
     <ModalShell
       open={open}
       title="Share your feedback"
-      description={isCommentOnly ? "Overall feedback" : `${ratedCount} of ${objectives.length} objectives rated`}
+      description={isReview ? "Review your answers before submitting." : `Objective ${step + 1} of ${objectives.length}`}
       size="sm"
       onClose={onClose}
     >
         <div className="space-y-5">
-          {isCommentOnly ? (
-            <p className="rounded-xl border border-primary/20 bg-primary/10 p-4 text-sm text-muted-foreground">
-              Objective ratings are not configured for this event yet. You can still submit your overall feedback below.
-            </p>
-          ) : (
-          <div className="space-y-3">
-            {objectives.map((objective, index) => (
-              <div key={objective.id} className="rounded-xl border bg-background p-4">
-                <div className="flex items-start gap-2.5">
-                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
-                    {index + 1}
-                  </span>
-                  <p className="text-sm leading-snug text-foreground/90">{objective.text}</p>
-                </div>
-                <div className="mt-3 pl-7">
-                  <StarRating value={ratings[objective.id] ?? 0} onChange={(value) => onRate(objective.id, value)} />
-                </div>
+          {!isReview && objective ? (
+            <div className="rounded-xl border bg-background p-5">
+              <p className="text-base font-semibold leading-snug">{objective.text}</p>
+              <div className="mt-5 grid grid-cols-5 gap-2" aria-label="Choose a rating">
+                {emojiRatings.map((choice) => (
+                  <button key={choice.value} type="button" onClick={() => onRate(objective.id, choice.value)} aria-label={`${choice.value}: ${choice.label}`} className={`rounded-xl border p-2 text-center transition hover:border-primary ${ratings[objective.id] === choice.value ? "border-primary bg-primary/10" : "bg-surface"}`}>
+                    <span className="block text-2xl">{choice.emoji}</span><span className="mt-1 block text-[10px] leading-tight text-muted-foreground">{choice.label}</span>
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-background p-4 text-sm"><p className="font-semibold">Your ratings</p><div className="mt-3 space-y-2">{objectives.map((item, index) => <p key={item.id}>{index + 1}. {item.text} <span className="font-medium">— {ratings[item.id]}/5</span></p>)}</div></div>
           )}
-
-          <div>
+          {isReview && <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Additional comments
+              Additional comments (optional)
             </label>
             <textarea
               value={comment}
@@ -129,17 +104,8 @@ function FeedbackModal({
               className="plpass-field min-h-24 w-full rounded-xl border p-3 text-sm outline-none transition focus:border-primary"
               placeholder="What stood out about this event?"
             />
-          </div>
-
-          <Button className="w-full" size="lg" onClick={onSubmit} disabled={!canSubmit}>
-            <MessageSquareText className="mr-2 h-4 w-4" />
-            Submit Feedback
-          </Button>
-          {!canSubmit && (
-            <p className="text-center text-xs text-muted-foreground">
-              {isCommentOnly ? "Write a short comment to submit." : "Rate every objective to submit."}
-            </p>
-          )}
+          </div>}
+          <div className="flex justify-between gap-3"><Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>{isReview ? <Button onClick={onSubmit} disabled={!canSubmit}><MessageSquareText className="mr-2 h-4 w-4" />Submit Feedback</Button> : <p className="self-center text-xs text-muted-foreground">Choose a rating to continue</p>}</div>
         </div>
     </ModalShell>
   );
@@ -198,12 +164,16 @@ export function StudentEventDetailsPage() {
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const submitLateReasonMutation = useSubmitLateReasonMutation(scope.context);
+  const lateReasonOptionsQuery = useLateReasonOptions(undefined, scope.context);
+  const lateReasonOptions = lateReasonOptionsQuery.data ?? [];
   const objectivesQuery = useEventObjectives(eventId, scope.context);
   const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
   const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
+  const feedbackTasksQuery = useStudentFeedbackTasks(scope.student?.id, scope.context);
   const [ratings, setRatings] = useState<RatingState>({});
   const [comment, setComment] = useState("");
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackStep, setFeedbackStep] = useState(0);
   const [selectedLateReasonCategory, setSelectedLateReasonCategory] = useState<string>("");
   const [customLateReason, setCustomLateReason] = useState<string>("");
 
@@ -219,7 +189,6 @@ export function StudentEventDetailsPage() {
     return <ErrorState title="Event unavailable" message="This event is not published for students." />;
   }
   const feedbackObjectives = objectivesQuery.data ?? [];
-  const hasConfiguredObjectives = feedbackObjectives.length > 0;
   const displayObjectives = feedbackObjectives;
   const currentEventId = event.id;
   const repositoryRecords = recordsForStudentEvents({
@@ -230,7 +199,8 @@ export function StudentEventDetailsPage() {
   });
   const currentRecord = repositoryRecords.find((record) => record.eventId === event.id);
   const correction = (correctionsQuery.data?.items ?? []).find((request) => request.eventId === event.id);
-  const feedbackSubmitted = Boolean(currentRecord?.feedbackSubmitted || (feedbackQuery.data ?? []).some((feedback) => feedback.eventId === currentEventId));
+  const feedbackTask = (feedbackTasksQuery.data ?? []).find((task) => task.attendanceRecordId === currentRecord?.id);
+  const feedbackSubmitted = feedbackTask?.status === "completed";
   const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
   const workflow = buildStudentEventWorkflow({
     event,
@@ -239,12 +209,11 @@ export function StudentEventDetailsPage() {
     feedbackSubmitted,
     correctionStatus: correction?.status
   });
-  const allObjectivesRated = hasConfiguredObjectives
-    ? feedbackObjectives.every((objective) => ratings[objective.id] > 0)
-    : comment.trim().length >= 5;
-  const feedbackReady = workflow.canSubmitFeedback;
-  const feedbackDeadline = currentRecord ? getStudentFeedbackDeadlineStatus(currentRecord) : null;
-  const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason);
+  const taskObjectives = feedbackTask?.objectives ?? [];
+  const allObjectivesRated = taskObjectives.length > 0 && taskObjectives.every((objective) => ratings[objective.id] > 0);
+  const feedbackTaskIsActionable = feedbackTask?.status === "pending" && new Date(feedbackTask.dueAt).getTime() > Date.now();
+  const feedbackReady = feedbackTaskIsActionable && !workflow.requiresLateReason;
+  const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason && feedbackTaskIsActionable);
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
   const eventResources = resourcesQuery.data?.items ?? [];
 
@@ -259,14 +228,16 @@ export function StudentEventDetailsPage() {
 
   async function submitLateReason() {
     if (!currentRecord || !selectedLateReasonCategory) return;
-    if (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5) {
+    const selectedOption = lateReasonOptions.find((option) => option.id === selectedLateReasonCategory);
+    if (!selectedOption) return;
+    if (selectedOption.code === "other" && customLateReason.trim().length < 5) {
       toast.error("Please provide a more detailed reason.");
       return;
     }
     try {
       await submitLateReasonMutation.mutateAsync({
         attendanceRecordId: currentRecord.id,
-        reason: selectedLateReasonCategory,
+        reasonOptionId: selectedOption.id,
         customReason: customLateReason.trim() || undefined
       });
       toast.success("Late reason submitted. Event feedback is now available.");
@@ -276,32 +247,28 @@ export function StudentEventDetailsPage() {
   }
 
   async function submitFeedback() {
-    if (hasConfiguredObjectives && !allObjectivesRated) {
+    if (!allObjectivesRated) {
       toast.error("Please rate each event objective.");
       return;
     }
-    if (!hasConfiguredObjectives && comment.trim().length < 5) {
-      toast.error("Please write a short overall feedback comment.");
-      return;
-    }
-    if (!currentRecord) {
+    if (!currentRecord || !feedbackTask) {
       toast.error("Attendance record is required before feedback can be submitted.");
       return;
     }
     try {
       await feedbackQuery.submitMutation.mutateAsync({
+        taskId: feedbackTask.id,
         eventId: currentEventId,
         studentId: student.id,
         attendanceRecordId: currentRecord.id,
         comment,
-        ratings: hasConfiguredObjectives
-          ? feedbackObjectives.map((objective) => ({
-              objectiveId: objective.id,
-              rating: ratings[objective.id]
-            }))
-          : []
+        ratings: taskObjectives.map((objective) => ({
+          objectiveId: objective.id,
+          rating: ratings[objective.id]
+        }))
       });
       setComment("");
+      setFeedbackStep(0);
       setFeedbackModalOpen(false);
       toast.success("Feedback submitted. Attendance is now complete.");
     } catch {
@@ -355,11 +322,11 @@ export function StudentEventDetailsPage() {
             <div>
               <p className="text-sm font-semibold">Feedback is ready</p>
               <p className="text-sm text-muted-foreground">
-                Answer the required event feedback to complete attendance. {feedbackDeadline?.label}.
+                Complete all required objectives by {formatDisplayDate(feedbackTask.dueAt)} {formatDisplayTime(feedbackTask.dueAt)} or this attendance will be changed to absent.
               </p>
             </div>
           </div>
-          <Button onClick={() => setFeedbackModalOpen(true)}>
+          <Button onClick={() => { setFeedbackStep(0); setFeedbackModalOpen(true); }}>
             <MessageSquareText className="mr-2 h-4 w-4" />
             Answer Feedback
           </Button>
@@ -371,22 +338,24 @@ export function StudentEventDetailsPage() {
           <p className="font-semibold text-warning">Late reason required before feedback</p>
           <p className="mt-1 text-sm text-muted-foreground">Choose your reason once. It will be locked after submission.</p>
           <div className="mt-4 flex flex-col gap-4">
+            {lateReasonOptionsQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading available reasons…</p> : null}
+            {lateReasonOptionsQuery.isError ? <p className="text-sm text-destructive">Late reasons are temporarily unavailable. Please try again.</p> : null}
             <div className="flex flex-wrap gap-2">
-              {lateReasonOptions.map((reason) => (
+                {lateReasonOptions.map((reason) => (
                 <Button 
-                  key={reason} 
+                  key={reason.id} 
                   type="button" 
-                  variant={selectedLateReasonCategory === reason ? "default" : "outline"} 
-                  onClick={() => setSelectedLateReasonCategory(reason)}
+                  variant={selectedLateReasonCategory === reason.id ? "default" : "outline"} 
+                  onClick={() => setSelectedLateReasonCategory(reason.id)}
                 >
-                  {reason}
+                  {reason.label}
                 </Button>
               ))}
             </div>
             {selectedLateReasonCategory && (
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium">
-                  Additional Details {selectedLateReasonCategory === "Other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
+                    Additional Details {lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
                 </label>
                 <textarea
                   className="w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px]"
@@ -400,7 +369,7 @@ export function StudentEventDetailsPage() {
               <div className="flex justify-end">
                 <Button 
                   onClick={submitLateReason} 
-                  disabled={submitLateReasonMutation.isPending || (selectedLateReasonCategory === "Other" && customLateReason.trim().length < 5)}
+                  disabled={lateReasonOptionsQuery.isLoading || lateReasonOptionsQuery.isError || submitLateReasonMutation.isPending || (lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" && customLateReason.trim().length < 5)}
                 >
                   {submitLateReasonMutation.isPending ? "Submitting..." : "Submit Reason"}
                 </Button>
@@ -414,6 +383,13 @@ export function StudentEventDetailsPage() {
         <div className="flex items-center gap-3 rounded-2xl border bg-surface px-5 py-3.5">
           <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-primary" />
           <p className="text-sm font-medium">Late reason recorded: {currentRecord?.lateReason}. This reason is locked.</p>
+        </div>
+      )}
+
+      {currentRecord?.status === "absent" && feedbackTask?.status === "expired" && (
+        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-3.5">
+          <p className="font-semibold text-destructive">Required task deadline missed</p>
+          <p className="mt-1 text-sm text-muted-foreground">Your recorded check-in and check-out remain available for review, but the final attendance result is absent.</p>
         </div>
       )}
 
@@ -481,13 +457,15 @@ export function StudentEventDetailsPage() {
       <FeedbackModal
         open={feedbackModalOpen}
         onClose={() => setFeedbackModalOpen(false)}
-        objectives={feedbackObjectives}
+        objectives={taskObjectives}
         ratings={ratings}
-        onRate={(objectiveId, value) => setRatings((current) => ({ ...current, [objectiveId]: value }))}
+        onRate={(objectiveId, value) => { setRatings((current) => ({ ...current, [objectiveId]: value })); setFeedbackStep((current) => Math.min(current + 1, taskObjectives.length)); }}
         comment={comment}
         onCommentChange={setComment}
         onSubmit={submitFeedback}
         canSubmit={allObjectivesRated && !feedbackQuery.submitMutation.isPending}
+        step={feedbackStep}
+        onBack={() => setFeedbackStep((current) => Math.max(0, current - 1))}
       />
     </div>
   );

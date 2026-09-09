@@ -32,3 +32,7 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/analyze-feedback/deno.json"
 entrypoint = "./functions/analyze-feedback/index.ts"
+
+[functions.send-event-emails]
+enabled = true
+verify_jwt = true

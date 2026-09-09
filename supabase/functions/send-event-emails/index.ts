@@ -22,15 +22,11 @@ const corsHeaders = {
 
 type EventEmailRow = {
   id: string;
-  recipient_profile_id: string;
   recipient_email: string;
   subject: string;
   body: string;
   html_body?: string | null;
-  delivery_status: "pending" | "sent" | "failed" | "skipped";
-  error_message?: string | null;
-  sent_at?: string | null;
-  created_at: string;
+  processing_token: string;
 };
 
 function json(body: unknown, status = 200) {
@@ -40,29 +36,87 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function dispatchQueuedEmails() {
+  const { data, error } = await supabase.rpc("claim_event_email_outbox_batch", { p_limit: 25 });
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as EventEmailRow[];
+  let sent = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+          "api-key": brevoApiKey ?? "",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          sender: { email: brevoFromEmail, name: brevoFromName },
+          replyTo: { email: brevoFromEmail, name: brevoFromName },
+          to: [{ email: row.recipient_email }],
+          subject: row.subject,
+          textContent: row.body,
+          htmlContent: row.html_body || undefined
+        })
+      });
+
+      if (response.ok) {
+        const responseBody = await response.json().catch(() => ({}));
+        const { error: completeError } = await supabase.rpc("complete_event_email_outbox_delivery", {
+          p_outbox_id: row.id,
+          p_processing_token: row.processing_token,
+          p_provider_message_id: typeof responseBody.messageId === "string" ? responseBody.messageId : undefined
+        });
+        if (completeError) throw new Error(completeError.message);
+        sent += 1;
+      } else {
+        const errorMessage = (await response.text()).slice(0, 1000);
+        await supabase.rpc("fail_event_email_outbox_delivery", {
+          p_outbox_id: row.id,
+          p_processing_token: row.processing_token,
+          p_error_message: errorMessage || `Email provider returned ${response.status}.`
+        });
+        failed += 1;
+      }
+    } catch (error) {
+      await supabase.rpc("fail_event_email_outbox_delivery", {
+        p_outbox_id: row.id,
+        p_processing_token: row.processing_token,
+        p_error_message: error instanceof Error ? error.message : "Email delivery failed."
+      });
+      failed += 1;
+    }
+  }
+
+  return { processed: rows.length, sent, failed };
+}
+
 Deno.serve(async (request) => {
-  if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (request.method !== "POST") return json({ error: "Only POST requests are supported." }, 405);
 
-  if (request.method !== "POST") {
-    return json({ error: "Only POST requests are supported." }, 405);
-  }
-
-  if (!brevoApiKey || !brevoFromEmail) {
-    return json({ error: "BREVO_API_KEY and BREVO_FROM_EMAIL are required." }, 500);
-  }
-
+  const requestBody = await request.json().catch(() => ({}));
+  const action = typeof requestBody.action === "string" ? requestBody.action : "";
   const authorization = request.headers.get("Authorization");
+  const isWorker = authorization === `Bearer ${serviceRoleKey}`;
+
+  if (action === "dispatch") {
+    if (!isWorker) return json({ error: "Worker authorization is required." }, 403);
+    if (!brevoApiKey || !brevoFromEmail) return json({ error: "Email provider credentials are not configured." }, 500);
+    try {
+      return json(await dispatchQueuedEmails());
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "Email dispatch failed." }, 500);
+    }
+  }
+
   const accessToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!accessToken) return json({ error: "Authorization is required." }, 401);
-
   const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
   if (authError || !authData.user) return json({ error: "The signed-in user could not be verified." }, 401);
 
-  const requestBody = await request.json().catch(() => ({}));
   const eventId = typeof requestBody.eventId === "string" ? requestBody.eventId.trim() : "";
-  const action = typeof requestBody.action === "string" ? requestBody.action : "send";
   const retryOutboxId = typeof requestBody.outboxId === "string" ? requestBody.outboxId.trim() : "";
   if (!eventId) return json({ error: "eventId is required." }, 400);
 
@@ -101,78 +155,24 @@ Deno.serve(async (request) => {
     return json({ statuses: [...latestStatuses.values()] });
   }
 
-  if (action === "retry") {
-    if (!retryOutboxId) return json({ error: "outboxId is required to retry an email." }, 400);
-    const { data: retryRow, error: retryError } = await supabase
-      .from("event_email_outbox")
-      .update({ delivery_status: "pending", error_message: null })
-      .eq("id", retryOutboxId)
-      .eq("event_id", eventId)
-      .in("notification_type", ["published", "rescheduled", "participant_added"])
-      .eq("delivery_status", "failed")
-      .select("id")
-      .maybeSingle();
-    if (retryError) return json({ error: retryError.message }, 500);
-    if (!retryRow) return json({ error: "That invitation is no longer available to retry." }, 404);
-  } else if (action !== "send") {
-    return json({ error: "Unsupported email action." }, 400);
-  }
-
-  let pendingEmailsQuery = supabase
+  if (action !== "retry" || !retryOutboxId) return json({ error: "Unsupported email action." }, 400);
+  const { data: retryRow, error: retryError } = await supabase
     .from("event_email_outbox")
-    .select("id, recipient_profile_id, recipient_email, subject, body, html_body, delivery_status, error_message, sent_at, created_at")
-    .eq("delivery_status", "pending")
-    .eq("event_id", eventId);
-  if (action === "retry") pendingEmailsQuery = pendingEmailsQuery.eq("id", retryOutboxId);
-  const { data: rows, error: fetchError } = await pendingEmailsQuery
-    .order("created_at", { ascending: true })
-    .limit(100);
-
-  if (fetchError) return json({ error: fetchError.message }, 500);
-
-  let sent = 0;
-  let failed = 0;
-  for (const row of (rows ?? []) as EventEmailRow[]) {
-    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "api-key": brevoApiKey ?? "",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        sender: { email: brevoFromEmail, name: brevoFromName },
-        replyTo: { email: brevoFromEmail, name: brevoFromName },
-        to: [{ email: row.recipient_email }],
-        subject: row.subject,
-        textContent: row.body,
-        htmlContent: row.html_body || undefined
-      })
-    });
-
-    if (response.ok) {
-      const responseBody = await response.json().catch(() => ({}));
-      const { error } = await supabase
-        .from("event_email_outbox")
-        .update({
-          delivery_status: "sent",
-          sent_at: new Date().toISOString(),
-          provider_message_id: typeof responseBody.messageId === "string" ? responseBody.messageId : null,
-          error_message: null
-        })
-        .eq("id", row.id)
-        .eq("delivery_status", "pending");
-      if (error) failed += 1;
-      else sent += 1;
-    } else {
-      const errorMessage = (await response.text()).slice(0, 1000);
-      await supabase
-        .from("event_email_outbox")
-        .update({ delivery_status: "failed", error_message: errorMessage })
-        .eq("id", row.id)
-        .eq("delivery_status", "pending");
-      failed += 1;
-    }
-  }
-
-  return json({ processed: (rows ?? []).length, sent, failed });
+    .update({
+      delivery_status: "pending",
+      error_message: null,
+      attempt_count: 0,
+      next_attempt_at: new Date().toISOString(),
+      processing_started_at: null,
+      processing_token: null
+    })
+    .eq("id", retryOutboxId)
+    .eq("event_id", eventId)
+    .in("notification_type", ["published", "rescheduled", "participant_added"])
+    .eq("delivery_status", "failed")
+    .select("id")
+    .maybeSingle();
+  if (retryError) return json({ error: retryError.message }, 500);
+  if (!retryRow) return json({ error: "That invitation is no longer available to retry." }, 404);
+  return json({ queued: true });
 });
