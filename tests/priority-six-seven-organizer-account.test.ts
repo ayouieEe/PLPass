@@ -33,9 +33,13 @@ describe("priority seven organizer account security", () => {
 
   it("requires a stronger, changed password and confirmed sign-out", () => {
     const profile = read("src/features/organizer/pages/OrganizerProfilePage.tsx");
+    const changePasswordForm = read("src/components/auth/ChangePasswordForm.tsx");
+    const passwords = read("src/lib/auth/passwords.ts");
     const provider = read("src/app/providers/DevelopmentSessionProvider.tsx");
-    expect(profile).toContain("newPassword.length < 8");
-    expect(profile).toContain("newPassword === oldPassword");
+    expect(profile).toContain("ChangePasswordForm email={organizerEmail}");
+    expect(changePasswordForm).toContain("passwordSchema.safeParse");
+    expect(passwords).toContain(".min(8, passwordRequirementsMessage)");
+    expect(passwords).toContain("value.password === value.currentPassword");
     expect(provider).toContain("await getSupabaseBrowserClient().auth.signOut()");
   });
 

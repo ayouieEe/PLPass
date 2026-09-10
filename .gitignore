@@ -1,5 +1,6 @@
 node_modules
 .venv/
+.venv-broken/
 __pycache__/
 *.pyc
 supabase/.temp/
