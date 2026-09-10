@@ -94,8 +94,10 @@ export type ScannerStation = { id: string; name: string; joinedAt: string; lastS
 export type AttendanceCapturePhase = "time_in" | "time_out";
 export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sessionId?: string; port?: number; addresses: string[]; joinUrl?: string; stations: ScannerStation[]; capturePhase?: AttendanceCapturePhase; certificateFingerprint?: string; certificateExpiresAt?: string };
 export type ScannerCertificateStatus = { configured: boolean; fingerprint?: string; expiresAt?: string };
+export type OfflineRuntimeConfig = { autoSyncEnabled: boolean };
 
 export interface PLPassDesktopApi {
+  getOfflineRuntimeConfig(): Promise<OfflineRuntimeConfig>;
   prepareEvent(input: PreparedEventPackage): Promise<OfflineStatus>;
   getStatus(eventId: string): Promise<OfflineStatus>;
   getPreparedEvent(eventId: string): Promise<PreparedEventPackage | null>;

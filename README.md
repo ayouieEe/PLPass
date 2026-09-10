@@ -35,6 +35,10 @@ The first DeepFace request downloads its selected model and can take longer than
 
 Prepare the event while connected before taking the desktop offline. The desktop stores only that event's ArcFace templates in its local package, sends a camera frame through its privileged Electron process to the loopback DeepFace service, and records the matched attendance locally for later sync. In development it starts the service from `.venv\\Scripts\\python.exe` when needed; set `PLPASS_PYTHON_PATH` when the Python runtime is installed elsewhere. A distributable desktop installer must bundle that same Python/DeepFace runtime.
 
+### Emergency offline-sync containment
+
+Set `PLPASS_AUTO_SYNC_ENABLED=false` before starting the Electron app to pause only its 15-second background synchronization timer. Local attendance continues to be stored in SQLite, pending records are retained, and the organizer can still use the guarded **Retry Sync** action deliberately. Restart the app after changing the variable. This switch is intended for incident containment, not as a replacement for durable sync coordination and retry control.
+
 ## Quality commands
 
 - `npm run lint` — source quality checks

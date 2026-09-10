@@ -1,8 +1,14 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
-import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
+import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineRuntimeConfig, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
 
 export function desktopApi() { return window.plpassDesktop; }
+
+export async function getOfflineRuntimeConfig(): Promise<OfflineRuntimeConfig> {
+  const api = desktopApi();
+  if (!api) return { autoSyncEnabled: false };
+  return api.getOfflineRuntimeConfig();
+}
 
 export async function confirmSupabaseConnectivity(): Promise<boolean> {
   try {

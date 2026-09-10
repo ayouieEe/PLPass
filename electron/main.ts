@@ -7,6 +7,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
+import { isAutoSyncEnabled } from "../src/features/offline/autoSyncConfig.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
@@ -15,6 +16,11 @@ let facialService: ChildProcess | undefined;
 
 const workspaceRoot = path.resolve(directory, "..", "..");
 const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
+// Phase 0 containment switch. Set PLPASS_AUTO_SYNC_ENABLED=false before
+// starting the desktop app to pause only timer-driven synchronization.
+// Local attendance recording and an organizer's deliberate Retry Sync action
+// remain available, and pending SQLite rows are never deleted by this flag.
+const autoSyncEnabled = isAutoSyncEnabled(process.env.PLPASS_AUTO_SYNC_ENABLED);
 
 async function facialServiceReady() {
   try {
@@ -128,6 +134,7 @@ protocol.registerSchemesAsPrivileged([
 
 function registerHandlers() {
   const handlers: Record<string, (...args: never[]) => unknown> = {
+    "offline:runtimeConfig": () => ({ autoSyncEnabled }),
     "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),

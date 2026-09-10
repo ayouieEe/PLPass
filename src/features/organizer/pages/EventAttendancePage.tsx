@@ -589,7 +589,7 @@ export function EventAttendancePage() {
         </div>
       </div>
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
-      <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync().then(()=>toast.success("Synchronization attempt completed."))} />
+      <OfflineStatusPanel status={offline.status} busy={offline.busy} autoSyncPaused={offline.autoSyncPaused} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync().then(()=>toast.success("Synchronization attempt completed."))} />
       <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
         <div className="min-w-0 space-y-4">
           <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">

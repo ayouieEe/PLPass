@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 // This is deliberately a small, named IPC surface. The renderer receives no
 // Node, SQL, filesystem, or unrestricted Electron access.
 contextBridge.exposeInMainWorld("plpassDesktop", {
+  getOfflineRuntimeConfig: () => ipcRenderer.invoke("offline:runtimeConfig"),
   prepareEvent: (input) => ipcRenderer.invoke("offline:prepare", input),
   getStatus: (id) => ipcRenderer.invoke("offline:status", id),
   getPreparedEvent: (id) => ipcRenderer.invoke("offline:getPreparedEvent", id),
