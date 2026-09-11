@@ -1,0 +1,84 @@
+{
+  "formatVersion": 1,
+  "status": "scaffold_only_not_an_executable_baseline",
+  "purpose": "Approved canonical catalog requirements for a future empty-database baseline. Values are structural metadata only; row data, credentials, URLs, project references, identifiers, biometric values, and secrets are prohibited.",
+  "compatibility": {
+    "supabaseCli": "Future approved repository-local CLI version; discover command flags before use.",
+    "postgres": "Supabase-managed PostgreSQL version verified during the future baseline implementation.",
+    "freshInstallProjectRoot": "schema-reconciliation/clean-install-baseline (inactive until explicitly approved)",
+    "futureMigrationDirectory": "schema-reconciliation/clean-install-baseline/migrations (reserved; absent in this scaffold)",
+    "archivedHistoricalLocation": "supabase/migrations during scaffold; future archive location schema-reconciliation/historical-audit after separate approval",
+    "productionForwardDirectory": "schema-reconciliation/production-forward (inactive until explicitly approved)"
+  },
+  "canonicalSchemaModel": {
+    "requiredObjects": [
+      "public.event_sessions",
+      "public.attendance_records.event_session_id",
+      "public.verification_attempts.event_session_id"
+    ],
+    "forbiddenObjects": [
+      "public.attendance_sessions",
+      "public.attendance_records.session_id",
+      "public.verification_attempts.session_id"
+    ],
+    "sourceEvidence": [
+      "Read-only production catalog inspection, 2026-09-11.",
+      "docs/PLPASS_MIGRATION_RECONCILIATION_DESIGN.md",
+      "tests/supabase-schema-consistency.test.ts",
+      "src/services/supabase/repositories.ts",
+      "src/features/offline/offlineService.ts",
+      "api/services/facial_recognition.py"
+    ]
+  },
+  "catalogInclusionRequirements": {
+    "extensions": { "required": true, "source": "Reviewed canonical baseline and verified catalog metadata." },
+    "schemas": ["auth", "extensions", "private", "public", "storage"],
+    "tables": {
+      "requiredInventory": [
+        "admin_profiles", "attendance_late_reason_options", "attendance_late_reason_option_translations", "attendance_records", "attendance_request_attachments", "attendance_requests", "audit_logs", "class_rosters", "classes", "credential_request_attachments", "credential_requests", "departments", "event_categories", "event_email_outbox", "event_feedback", "event_feedback_ratings", "event_objectives", "event_participants", "event_resources", "event_sessions", "event_summary_snapshots", "events", "facial_enrollment_history", "facial_profiles", "faculty_profiles", "generated_reports", "ml_predictions", "notifications", "organizers", "profiles", "programs", "qr_credentials", "request_email_outbox", "sections", "semesters", "student_face_embeddings", "students", "verification_attempts"
+      ],
+      "requiredPerTableMetadata": ["columns", "types", "nullability", "defaults", "primaryKeys", "foreignKeys", "uniqueConstraints", "checkConstraints", "indexes", "rlsEnabled", "policies", "grants", "triggers"],
+      "source": "Verified catalog where available; otherwise reviewed repository definitions followed by disposable local validation."
+    },
+    "verifiedCriticalColumns": [
+      { "table": "event_sessions", "columns": ["id", "event_id", "session_name", "venue", "mode", "session_status", "scheduled_start", "scheduled_end", "actual_start", "actual_end", "late_cutoff_at", "attendance_window_start_at", "attendance_window_end_at", "created_by", "session_archive_status", "superseded_by"], "source": "Read-only production catalog" },
+      { "table": "attendance_records", "columns": ["id", "event_session_id", "student_id", "verification_attempt_id", "attendance_status", "verification_method", "time_in", "time_out", "recorded_at", "recorded_by", "local_attendance_uuid"], "source": "Read-only production catalog" },
+      { "table": "verification_attempts", "columns": ["id", "event_session_id", "student_id", "qr_credential_id", "facial_profile_id", "verification_method", "accepted", "attempted_at"], "source": "Read-only production catalog" }
+    ],
+    "requiredRelationshipMetadata": [
+      { "name": "attendance_records_event_session_id_fkey", "definition": "attendance_records(event_session_id) references event_sessions(id) on delete cascade", "source": "Read-only production catalog" },
+      { "name": "verification_attempts_event_session_id_fkey", "definition": "verification_attempts(event_session_id) references event_sessions(id) on delete cascade", "source": "Read-only production catalog" },
+      { "name": "attendance_records_event_student_unique_idx", "definition": "unique partial index on (event_session_id, student_id)", "source": "Read-only production catalog" },
+      { "name": "attendance_records_local_uuid_unique_idx", "definition": "unique partial index on local_attendance_uuid", "source": "Read-only production catalog" }
+    ],
+    "views": { "requiredMetadata": ["name", "definition", "security mode", "grants"], "source": "Verified catalog; no session-dependent public views were found during initial inspection." },
+    "functionsAndRpcs": {
+      "requiredMetadata": ["identityArguments", "returnType", "definition", "owner", "securityMode", "searchPath", "grants"],
+      "requiredSignatures": [
+        "sync_offline_event_attendance(uuid,uuid,uuid,text,text,timestamptz,timestamptz,text,text,text)",
+        "prepare_offline_event_package(uuid)",
+        "start_event_attendance_session(uuid,text,timestamptz,timestamptz,text,integer)",
+        "record_live_facial_attendance(uuid,uuid,double precision,text,timestamptz)",
+        "get_live_facial_candidate_ids(uuid)",
+        "get_live_facial_candidates(uuid)",
+        "list_student_finalized_event_years()",
+        "get_student_dashboard_summary()"
+      ],
+      "source": "Read-only production catalog and active callers."
+    },
+    "triggers": { "requiredMetadata": ["table", "name", "definition", "function"], "source": "Verified catalog and reviewed baseline definitions." },
+    "rls": { "required": true, "requiredMetadata": ["table", "enabled", "forceEnabled", "policyName", "command", "roles", "using", "withCheck"], "source": "Read-only production catalog." },
+    "grants": { "roles": ["anon", "authenticated", "service_role", "PUBLIC"], "requiredMetadata": ["object", "objectType", "grantee", "privilege"], "source": "Read-only production catalog." },
+    "storage": { "requiredMetadata": ["bucket", "publicFlag", "fileSizeLimit", "allowedMimeTypes", "policies"], "source": "Reviewed repository definitions and safe catalog metadata; never storage objects or row data." }
+  },
+  "generatedTypes": {
+    "expectedFile": "src/lib/supabase/database.types.ts",
+    "requiredCanonicalAssertions": ["event_sessions present", "attendance_records.event_session_id present", "verification_attempts.event_session_id present", "attendance_sessions absent", "attendance_records.session_id absent", "verification_attempts.session_id absent"],
+    "source": "Generated only after successful reconciled local replay."
+  },
+  "validation": {
+    "repositoryOnlyChecks": ["JSON parse", "required sections", "canonical/forbidden object assertions", "all eight ledger classifications", "historical migration hash comparison", "active supabase/config.toml hash comparison"],
+    "futureDatabaseChecks": ["empty local replay", "catalog fingerprint comparison", "RPC signature check", "RLS/grant role matrix", "generated-types compile", "synthetic staging validation"],
+    "prohibitedInputs": ["table rows", "student identities", "attendance values", "emails", "tokens", "biometric descriptors", "embeddings", "credentials", "URLs", "project references", "secrets"]
+  }
+}

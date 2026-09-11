@@ -1,0 +1,55 @@
+{
+  "formatVersion": 1,
+  "purpose": "Read-only classification of repository migration versions absent from the verified production ledger. This file does not alter migration history.",
+  "verifiedProductionHead": "20260907140000",
+  "versions": [
+    {
+      "version": "20260907070704",
+      "classification": "effect_present_fingerprint_pending",
+      "evidence": ["Production catalog: public.discard_empty_event_session exists."],
+      "futureAction": "Do not replay. Compare the full definition before any additive replacement."
+    },
+    {
+      "version": "20260907074339",
+      "classification": "intentionally_abandoned_never_apply",
+      "evidence": ["Production has public.event_sessions and event_session_id.", "Production has neither public.attendance_sessions nor attendance_records.session_id."],
+      "futureAction": "Exclude from baseline and production-forward execution permanently."
+    },
+    {
+      "version": "20260907080418",
+      "classification": "effect_present_partial_fingerprint_pending",
+      "evidence": ["Production catalog: event resource limit function, trigger, and scoped policies exist."],
+      "futureAction": "Do not replay. Fingerprint function, trigger, storage policies, and grants."
+    },
+    {
+      "version": "20260909041227",
+      "classification": "effect_present_structurally_equivalent",
+      "evidence": ["Production catalog: authenticated has EXECUTE on start_event_attendance_session."],
+      "futureAction": "Record in baseline evidence; no production change."
+    },
+    {
+      "version": "20260909113720",
+      "classification": "effect_present_structurally_equivalent",
+      "evidence": ["Production catalog: prepare_offline_event_package and start_event_attendance_session use the verified event-session contract."],
+      "futureAction": "Record verified definitions in the baseline; do not replay."
+    },
+    {
+      "version": "20260909171500",
+      "classification": "effect_present_structurally_equivalent",
+      "evidence": ["Production catalog: service_role has SELECT on student_face_embeddings."],
+      "futureAction": "Record grant in baseline security review; no production change."
+    },
+    {
+      "version": "20260909173000",
+      "classification": "effect_present_superseded_definition",
+      "evidence": ["Production facial RPC includes the later checkout interval guard."],
+      "futureAction": "Never replay the intermediate definition; baseline uses the final approved definition."
+    },
+    {
+      "version": "20260909190000",
+      "classification": "effect_present_structurally_equivalent",
+      "evidence": ["Production facial RPC has the one-minute checkout guard and authenticated EXECUTE grant."],
+      "futureAction": "Record final definition in baseline; no production change."
+    }
+  ]
+}
