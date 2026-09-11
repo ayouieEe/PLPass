@@ -57,6 +57,15 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("No active attendance session is available for facial verification.");
   });
 
+  it("promotes an already-active routed session in SQLite before enabling local attendance", () => {
+    expect(eventManagementPage).toContain("const restoreLiveSession = async () =>");
+    expect(eventManagementPage).toContain("await api.activatePreparedSession({");
+    expect(eventManagementPage).toContain("sessionId: requestedSession.id");
+    expect(eventManagementPage.indexOf("await api.activatePreparedSession({")).toBeLessThan(
+      eventManagementPage.indexOf("setLiveSessionId(requestedSession.id)")
+    );
+  });
+
   it("allows an organizer to start an owned active event without approval", () => {
     expect(eventManagementPage).not.toContain("awaiting approval and cannot start attendance");
     expect(attendanceStartMigration).not.toContain("approval_status = 'approved'");

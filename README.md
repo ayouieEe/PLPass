@@ -39,6 +39,8 @@ Prepare the event while connected before taking the desktop offline. The desktop
 
 Set `PLPASS_AUTO_SYNC_ENABLED=false` before starting the Electron app to pause only its 15-second background synchronization timer. Local attendance continues to be stored in SQLite, pending records are retained, and the organizer can still use the guarded **Retry Sync** action deliberately. Restart the app after changing the variable. This switch is intended for incident containment, not as a replacement for durable sync coordination and retry control.
 
+For a controlled desktop-only offline-recording test, set `PLPASS_FORCE_LOCAL_ATTENDANCE=true` as well. This deliberately writes prepared attendance to SQLite before any remote attendance write. It is separate from the sync-pause switch and must not be used to silently change normal online attendance behavior.
+
 ## Quality commands
 
 - `npm run lint` — source quality checks

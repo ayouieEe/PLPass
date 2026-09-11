@@ -49,8 +49,8 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
-import type { AttendanceCapturePhase, OfflineStatus } from "@/features/offline/types";
+import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance, shouldRecordAttendanceLocally } from "@/features/offline/offlineService";
+import type { AttendanceCapturePhase, OfflineStatus, PendingAttendanceRecord } from "@/features/offline/types";
 
 // Event Records is organized around three lifecycle tabs: Today, Incoming,
 // and Completed. A live session is a full-page state entered after Start Session.
@@ -790,17 +790,51 @@ export function EventManagementPage() {
       return;
     }
 
-    setActiveEvent(requestedEvent);
-    setLiveSessionId(requestedSession.id);
-    setHandledSessionRouteId(sessionIdFromQuery);
-    if (hydratedSessionIdRef.current !== requestedSession.id) {
-      hydratedSessionIdRef.current = requestedSession.id;
-      setActiveRows([]);
-      setCaptureMode(defaultAttendanceMethod);
-      setAttendancePhase("time_in");
-      setManualInput("");
-      setQrInput("");
-    }
+    // A live-session link can be opened after the server start completed in a
+    // different screen. Promote its already-prepared local session before this
+    // page enables local recording; otherwise the SQLite outbox correctly
+    // rejects the still-scheduled cache row as inactive.
+    let cancelled = false;
+    const restoreLiveSession = async () => {
+      const api = desktopApi();
+      if (api) {
+        try {
+          await api.activatePreparedSession({
+            eventId: requestedEvent.id!,
+            sessionId: requestedSession.id,
+            venue: requestedEvent.venue,
+            startsAt: requestedSession.startsAt,
+            endsAt: requestedSession.endsAt,
+            lateCutoffAt: requestedSession.lateCutoffAt,
+            attendanceWindowStartAt: requestedSession.attendanceWindowStartAt ?? requestedSession.startsAt,
+            attendanceWindowEndAt: requestedSession.attendanceWindowEndAt
+          });
+        } catch (error) {
+          if (!cancelled) {
+            toast.error(error instanceof Error ? error.message : "The active session could not be restored in the local offline cache.");
+            setHandledSessionRouteId(sessionIdFromQuery);
+          }
+          return;
+        }
+      }
+
+      if (cancelled) return;
+      setActiveEvent(requestedEvent);
+      setLiveSessionId(requestedSession.id);
+      setHandledSessionRouteId(sessionIdFromQuery);
+      if (hydratedSessionIdRef.current !== requestedSession.id) {
+        hydratedSessionIdRef.current = requestedSession.id;
+        setActiveRows([]);
+        setCaptureMode(defaultAttendanceMethod);
+        setAttendancePhase("time_in");
+        setManualInput("");
+        setQrInput("");
+      }
+    };
+    void restoreLiveSession();
+    return () => {
+      cancelled = true;
+    };
   }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, repositoryEvents, sessionIdFromQuery, sessionsList]);
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
@@ -987,14 +1021,14 @@ export function EventManagementPage() {
   // organizer immediately, including while the laptop is offline.
   useEffect(() => {
     const api = desktopApi();
-    if (!api || !activeEvent?.id || !activeScannerSessionId) return;
+    if (!api || !activeEvent?.id || !resolvedLiveSessionId) return;
 
     const current = true;
     const refreshPhoneAttendance = async () => {
       try {
         const pending = await api.listPending(activeEvent.id);
         if (!current) return;
-        const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
+        const records = pending.filter((record) => record.sessionId === resolvedLiveSessionId);
         if (!records.length) return;
 
         setActiveRows((rows) => {
@@ -1025,7 +1059,7 @@ export function EventManagementPage() {
 
     void refreshPhoneAttendance();
     return api.onScannerStatus(() => { void refreshPhoneAttendance(); });
-  }, [activeEvent, activeScannerSessionId, studentsQuery.data?.items]);
+  }, [activeEvent, resolvedLiveSessionId, studentsQuery.data?.items]);
 
   const filterableEvents = useMemo(() => [...todayEvents, ...incomingEvents], [incomingEvents, todayEvents]);
   const filterOptions = useMemo(
@@ -1166,6 +1200,28 @@ export function EventManagementPage() {
     return;
   }
 
+  // Today's automatic preparation creates a stable scheduled session locally.
+  // The server start RPC promotes that same ID; mirror its authoritative active
+  // window before allowing the organizer to enter local attendance mode.
+  const api = desktopApi();
+  if (api) {
+    try {
+      await api.activatePreparedSession({
+        eventId: eventToStart.id,
+        sessionId: startedSession.id,
+        venue: sessionForm.venue,
+        startsAt: startedSession.startsAt,
+        endsAt: startedSession.endsAt,
+        lateCutoffAt: startedSession.lateCutoffAt,
+        attendanceWindowStartAt: startedSession.attendanceWindowStartAt ?? startedSession.startsAt,
+        attendanceWindowEndAt: startedSession.attendanceWindowEndAt
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The session started online, but the local offline cache was not updated.");
+      return;
+    }
+  }
+
   setActiveRows([]);
   setFinalizedSummary(null);
   setCaptureMode(defaultAttendanceMethod);
@@ -1174,9 +1230,6 @@ export function EventManagementPage() {
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
   setSelectedEventForSession(null);
-  if (desktopApi()) {
-    try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
-  }
   const startedAt = new Date(startedSession.attendanceWindowStartAt ?? Date.now()).getTime();
   const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
   const delayedMinutes = Math.max(0, Math.floor((startedAt - scheduledAt) / 60_000));
@@ -1266,6 +1319,26 @@ export function EventManagementPage() {
     window.requestAnimationFrame(() => qrInputRef.current?.focus());
   }
 
+  function showDurableLocalAttendance(record: PendingAttendanceRecord, displayName: string) {
+    if (!activeEvent) return;
+    setActiveRows((current) => {
+      const row: DraftAttendanceRow = {
+        id: `offline-${record.localAttendanceUuid}`,
+        studentId: record.studentId,
+        studentName: displayName,
+        eventCode: activeEvent.code,
+        attendanceMethod: record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code",
+        checkInAt: record.timeIn,
+        checkInTime: formatLocalTime(record.timeIn),
+        attendanceStatus: record.attendanceStatus,
+        ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
+        ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
+      };
+      const existing = current.find((item) => item.studentId === record.studentId);
+      return existing ? current.map((item) => item.studentId === record.studentId ? row : item) : [...current, row];
+    });
+  }
+
   function openLiveFacialVerification() {
     if (!resolvedLiveSessionId) {
       toast.error("No active attendance session is available for facial verification.");
@@ -1278,7 +1351,8 @@ export function EventManagementPage() {
   async function verifyFacialAttendance() {
     const sessionId = resolvedLiveSessionId;
     const video = facialVideoRef.current;
-    if (!sessionId || !activeEvent || !video) {
+    const eventId = activeEvent?.id;
+    if (!sessionId || !activeEvent || !eventId || !video) {
       setFacialStatus("Start the camera and keep one enrolled student centered.");
       return;
     }
@@ -1287,6 +1361,15 @@ export function EventManagementPage() {
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face among this event's enrolled participants…");
     try {
+      if (await shouldRecordAttendanceLocally()) {
+        const student = await identifyOfflineStudent(eventId, "facial", video);
+        if (!student) throw new Error("No eligible face matched the prepared local event package.");
+        const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "facial", attendanceTimestamp: new Date().toISOString() });
+        showDurableLocalAttendance(local.record, student.displayName);
+        setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${local.safeMessage}`);
+        toast.success("Attendance recorded locally", { description: local.safeMessage });
+        return;
+      }
       const result = await identifyLiveFace(
         sessionId,
         attendancePhase === "time_out" ? "check_out" : "check_in",
@@ -1382,7 +1465,17 @@ export function EventManagementPage() {
 
     setIsQrProcessing(true);
     try {
+      const sessionId = resolvedLiveSessionId;
+      if (!sessionId) throw new Error("No active persisted session is available for local attendance.");
       const credentialId = extractQrCredentialId(qrInput);
+      if (await shouldRecordAttendanceLocally()) {
+        const student = await identifyOfflineStudent(activeEvent.id, "qr", credentialId);
+        if (!student) throw new Error("No eligible participant matched the prepared local event package.");
+        const local = await recordOfflineAttendance({ eventId: activeEvent.id, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString() });
+        showDurableLocalAttendance(local.record, student.displayName);
+        toast.success("Attendance recorded locally", { description: local.safeMessage });
+        return;
+      }
       const client = getSupabaseBrowserClient();
       const { data: credential, error: credentialError } = await client
         .from("qr_credentials")
@@ -1487,6 +1580,26 @@ export function EventManagementPage() {
   async function submitManualAttendance() {
     if (!manualInput || !activeEvent?.id) {
       toast.warning("Please select a student.");
+      return;
+    }
+
+    const sessionId = resolvedLiveSessionId;
+    if (!sessionId) {
+      toast.error("No active persisted session is available for local attendance.");
+      return;
+    }
+    if (await shouldRecordAttendanceLocally()) {
+      try {
+        const student = await identifyOfflineStudent(activeEvent.id, "manual", manualInput);
+        if (!student) throw new Error("No eligible participant matched the prepared local event package.");
+        const local = await recordOfflineAttendance({ eventId: activeEvent.id, sessionId, studentId: student.studentId, identificationMethod: "manual", attendanceTimestamp: new Date().toISOString(), attendanceStatus: attendancePhase === "time_in" ? manualStatus : undefined });
+        showDurableLocalAttendance(local.record, student.displayName);
+        toast.success("Attendance recorded locally", { description: local.safeMessage });
+        setManualInput("");
+        setManualStatus("present");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Attendance was not saved locally.");
+      }
       return;
     }
 

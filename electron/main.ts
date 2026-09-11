@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
-import { isAutoSyncEnabled } from "../src/features/offline/autoSyncConfig.js";
+import { isAutoSyncEnabled, isForceLocalAttendanceEnabled } from "../src/features/offline/autoSyncConfig.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
@@ -21,6 +21,7 @@ const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:
 // Local attendance recording and an organizer's deliberate Retry Sync action
 // remain available, and pending SQLite rows are never deleted by this flag.
 const autoSyncEnabled = isAutoSyncEnabled(process.env.PLPASS_AUTO_SYNC_ENABLED);
+const forceLocalAttendance = isForceLocalAttendanceEnabled(process.env.PLPASS_FORCE_LOCAL_ATTENDANCE);
 
 async function facialServiceReady() {
   try {
@@ -134,8 +135,8 @@ protocol.registerSchemesAsPrivileged([
 
 function registerHandlers() {
   const handlers: Record<string, (...args: never[]) => unknown> = {
-    "offline:runtimeConfig": () => ({ autoSyncEnabled }),
-    "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
+    "offline:runtimeConfig": () => ({ autoSyncEnabled, forceLocalAttendance }),
+    "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:activateSession": (input) => store.activatePreparedSession(input), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
     "offline:listPending": (eventId) => store.listPending(eventId), "offline:beginSync": (limit) => store.beginSync(limit),

@@ -1,74 +1,69 @@
 # Phase 0 containment report
 
-**Date:** 2026-09-10
+**Date:** 2026-09-11
 **Branch:** `codex/phase-0-containment`
-**Scope:** incident evidence capture and local emergency containment only
+**Scope:** local desktop containment and persistence validation only
 **Production database changes:** none
 
-## Current incident status
+## Operational containment status
 
-The incident remains active. During a read-only Supabase Unified Logs check, the latest moving 60-minute window reported approximately **292,500 PostgreSQL events**, all categorized as **5xx errors** except 26 successful events. The visible newest rows at `2026-09-10 22:51:09` contained at least 50 simultaneous SQLSTATE `40001` errors.
+Phase 0's controlled Electron test was completed by the project owner. The application was launched with:
 
-The known exact error is `The central attendance record conflicts with the offline record.` The repository's sole occurrence is the explicit `40001` branch in `public.sync_offline_event_attendance` at [20260905083415_add_offline_attendance_idempotency.sql:82-87](../supabase/migrations/20260905083415_add_offline_attendance_idempotency.sql#L82). This confirms the database error emitter, but the dashboard inspection did not expose sufficient caller metadata to identify a specific Electron process, app version, or client address. The active caller is therefore narrowed to a client invoking that RPC, but not yet uniquely identified.
+```powershell
+$env:PLPASS_AUTO_SYNC_ENABLED = "false"
+$env:PLPASS_FORCE_LOCAL_ATTENDANCE = "true"
+npm run desktop
+```
 
-## Evidence preserved
+`PLPASS_AUTO_SYNC_ENABLED=false` pauses the 15-second automatic synchronization timer. It does **not** by itself route attendance into SQLite. `PLPASS_FORCE_LOCAL_ATTENDANCE=true` is a separate, deliberate desktop test switch that deterministically selects the prepared local attendance path before an initial remote attendance write.
 
-| Item | Result |
-| --- | --- |
-| Project | `ouwyhaozkqvhjalqdsvc` |
-| Repository commit before Phase 0 | `65d4227325907d91abe9557e8c4f70e09493287d` — 2026-09-10 20:27:07 +0800 |
-| Application version | `0.0.0` from `package.json` |
-| Linked project reference | `ouwyhaozkqvhjalqdsvc` |
-| Generated types | `src/lib/supabase/database.types.ts` retained unchanged |
-| Local database state | Not opened or queried, so no attendance/biometric data was accessed |
-| Production schema/migration state | Not modified. Linked migration history was read through the Supabase CLI; five local migration versions are absent remotely: `20260907070704`, `20260907074339`, `20260907080418`, `20260909041227`, and `20260909113720`. |
-| Current error-window evidence | About 292.5k Postgres errors in the moving 60-minute window; visible error code `40001` |
-| Live routine verification | The live `public.sync_offline_event_attendance(uuid, uuid, uuid, text, text, timestamptz, timestamptz, text, text, text)` definition contains both the observed conflict message and `40001`. |
-| Connection attribution | Aggregated activity showed PostgREST 14.5 connections (3 active, 4 aborted-idle, 4 idle/idle-in-transaction) plus platform services. It does not identify a desktop device, version, or source IP. |
-| Remaining attribution gap | Need log-detail request metadata, a safe deployed-client inventory, or a time-bounded application version rollout record to uniquely identify the surviving caller. |
+The owner observed the following in the running Electron application:
 
-## Phase 0 implementation
+- The UI showed automatic synchronization as paused.
+- A Today's event was automatically prepared for offline use.
+- After an online-confirmed **Start Session**, the matching SQLite session became active with the same authoritative event and session IDs.
+- Forced-local attendance was recorded successfully and remained visible after leaving and reopening the session.
+- In the latest 60-minute Supabase Unified Logs view, Postgres showed `0` events; no continuing SQLSTATE `40001` conflict storm was visible.
+- Ordinary visible API requests returned HTTP `200`.
 
-The following local-only containment behavior was added:
+These are user-observed operational results, not independent Codex measurements. The Supabase resource-exhaustion warning remained visible and may need time to clear after the request storm.
 
-1. Electron reads `PLPASS_AUTO_SYNC_ENABLED` at launch. It defaults to enabled; setting it exactly to `false` disables only the timer-driven background sync.
-2. The renderer receives the setting through a narrowly scoped IPC method. No Node APIs, credentials, SQLite access, or unrestricted configuration are exposed.
-3. The offline status panel states that automatic synchronization is paused and that queued records are retained locally.
-4. A per-hook in-flight promise guard prevents repeated manual Retry Sync clicks and timer/manual overlap within one rendered screen.
-5. Browser pages without the Electron offline bridge no longer start the 15-second sync timer.
+## Working containment behavior
 
-This is deliberately **not** a Phase 1 process-wide coordinator. It does not provide cross-window locking, durable leases, retry backoff, maximum attempts, or SQLite schema changes.
+1. Attendance selected for forced-local or unavailable-network operation is committed to SQLite's `pending_attendance` before success is shown. It has a stable local UUID and starts as `PENDING_SYNC`.
+2. The local read model rebuilds visible attendance from durable pending rows as well as cached server attendance. Pending rows survive navigation and offline-package refresh, and merge by session and student identity without duplicates.
+3. The retained-record count is derived from the SQLite-backed pending-record state rather than temporary React state.
+4. An authorized online Start Session promotes the already-prepared scheduled SQLite session to `ongoing` using its authoritative IDs and server-returned attendance-window and late-cutoff timestamps. It does not immediately replace the package afterward.
+5. Reopening an already-active session through its live-session route performs the same local promotion before enabling local recording.
+6. `PLPASS_AUTO_SYNC_ENABLED=false` leaves automatic synchronization paused. It does not enable forced-local behavior by implication.
+
+## Local queue observation
+
+A read-only local SQLite count after the controlled verification found **0** non-confirmed pending attendance records. No record contents, student data, biometric data, credentials, or local file paths were collected for this report. This count is time-sensitive and is not evidence that no attendance was recorded during the earlier controlled test.
 
 ## Validation completed
 
-- `npm test -- tests/phase-zero-auto-sync.test.ts tests/offline-sync-service.test.ts tests/offline-local-database.test.ts` passed: 3 files, 18 tests.
-- `npx tsc -b --pretty false` passed.
-- `npm run build:desktop` passed. The existing bundle-size warning remains; it is unrelated to the containment switch.
-- Linked migration history is **not aligned** with the checkout. This includes `20260907074339_align_schema.sql`, the migration that introduces the competing `attendance_sessions` contract. Phase 0 makes no attempt to repair history or apply missing migrations.
-- The only production SQL executed was two bounded metadata checks: live routine fingerprinting and aggregated `pg_stat_activity` application/state counts. Neither queried attendance, biometric, or user rows.
+- Focused regression tests passed: 5 files, 34 tests.
+- Type check passed: `npx tsc -b --pretty false`.
+- Desktop build passed: `npm run build:desktop`.
+- The existing bundle-size warning remains unrelated to Phase 0.
 
-## Safe containment procedure for the currently deployed client
+Covered regressions include forced-local SQLite persistence, initial `PENDING_SYNC` status, no initial remote attendance write in forced-local mode, visible records after navigation/restart/package refresh, duplicate-free local/server merging, session isolation, explicit auto-sync versus forced-local switches, scheduled-session promotion using the existing session ID, and removal only after confirmed synchronization.
 
-1. Identify the active PLPass device/process using log-detail metadata or the bounded read-only activity query in the audit report.
-2. Preserve the log window, app version, approximate process count, and local queue counts. Do not copy attendance or biometric payloads.
-3. Stop only the confirmed responsible PLPass application instance, or start the repaired desktop build with `PLPASS_AUTO_SYNC_ENABLED=false`.
-4. Confirm automatic `40001` events drop toward zero while local attendance recording remains available.
-5. Do not delete queued SQLite rows, truncate logs/WAL, restart Supabase, or alter attendance records.
+## Intentional limits and operator guidance
 
-## Files changed
+- **Do not use Retry Sync** until Phase 1 synchronization safety is complete.
+- The organizer must currently log in, prepare the event, and start the session online.
+- Offline Start, End, and Extend are intentionally not implemented in Phase 0. A durable session-operation outbox is required before that work can proceed; `pending_attendance` must not be repurposed for session commands.
+- Phase 0 does not provide durable process-wide single-flight coordination, leases, exponential backoff with jitter, maximum attempts, automatic conflict resolution, or safe retry orchestration.
+- The project owner should continue to monitor the resource warning and only treat it as cleared when the platform reports recovery.
 
-- `electron/main.ts` — launch-time containment flag and read-only renderer IPC response.
-- `electron/preload.ts`, `electron/preload.cjs`, `src/features/offline/types.ts` — narrow typed configuration bridge.
-- `src/features/offline/useOfflineEvent.ts` — timer gating and per-screen manual-sync guard.
-- `src/features/offline/OfflineStatusPanel.tsx` and organizer pages — visible paused state.
-- `.env.example`, `README.md` — operator instructions.
-- `docs/PLPASS_DATABASE_AUDIT.md` — prior audit retained.
-- This report.
+## Safety and rollback
 
-## Rollback
+No Supabase data, migrations, policies, migration history, or production configuration was changed. No local pending attendance records were deleted, and no Retry Sync operation was invoked.
 
-Remove `PLPASS_AUTO_SYNC_ENABLED=false` and restart the desktop application. No pending attendance records, central records, migrations, policies, or production resources are modified by this Phase 0 switch.
+To leave controlled local-recording mode, remove `PLPASS_FORCE_LOCAL_ATTENDANCE=true` and restart the desktop application. To resume timer-driven synchronization later, remove `PLPASS_AUTO_SYNC_ENABLED=false` only after Phase 1 review and approval. Neither setting performs cleanup or deletes pending SQLite records.
 
-## Approval gate
+## Phase 1 deferred work
 
-Phase 0 is complete in the repository and validated by focused tests, type checking, and a desktop build. It is **not deployed**, so it cannot stop traffic from an already-running older client. Production caller identity is narrowed to the PostgREST/RPC path but remains unproven at the individual desktop-process level. Do not start Phase 1 before the owner decides how to distribute or operate the Phase 0 containment build and reviews this report.
+Phase 1 remains approval-gated: durable single-flight/lease ownership, bounded retry backoff and attempt limits, terminal conflict handling, a session-lifecycle operation outbox, safe reconciliation, and a controlled synchronization rollout. No Phase 1 work is included in this change.

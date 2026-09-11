@@ -403,7 +403,10 @@ export function EventAttendancePage() {
   const cachedEvent=preparedEvent?.event;
   const event = eventsQuery.data?.items.find((item) => item.id === session.eventId) ?? (cachedEvent ? ({id:cachedEvent.id,code:cachedEvent.code,title:cachedEvent.title,status:"approved",startsAt:cachedEvent.startsAt,endsAt:cachedEvent.endsAt,venue:cachedSession?.venue??"Event venue",organizerId:"offline-cache",category:"Event",priorityLevel:"Flexible",impactScore:null,predictedTurnout:null} as Event) : undefined);
   const cachedRecords: AttendanceRecord[]=(preparedEvent?.attendance??[]).filter((item)=>item.sessionId===session.id).map((item)=>({id:`cached-${item.sessionId}-${item.studentId}`,sessionId:item.sessionId,studentId:item.studentId,status:item.attendanceStatus as AttendanceRecord["status"],verificationMethod:"manual",recordedAt:item.timeIn??preparedEvent?.preparedAt??new Date().toISOString(),timeIn:item.timeIn,checkedOutAt:item.timeOut}));
-  const records = recordsQuery.data?.items ? recordsQuery.data.items.filter((record) => record.sessionId === session.id) : cachedRecords;
+  const localRecords: AttendanceRecord[]=offline.pendingRecords.filter((item)=>item.sessionId===session.id).map((item)=>({id:`offline-${item.localAttendanceUuid}`,sessionId:item.sessionId,studentId:item.studentId,status:item.attendanceStatus,verificationMethod:item.identificationMethod,recordedAt:item.attendanceTimestamp,timeIn:item.timeIn,checkedOutAt:item.timeOut,lateReason:item.lateReason}));
+  const recordsByIdentity=new Map<string,AttendanceRecord>();
+  [...cachedRecords,...(recordsQuery.data?.items??[]).filter((record)=>record.sessionId===session.id),...localRecords].forEach((record)=>recordsByIdentity.set(`${record.sessionId}:${record.studentId}`,record));
+  const records=[...recordsByIdentity.values()];
   const cachedStudents: Student[]=(preparedEvent?.participants??[]).map((item)=>({id:item.studentId,userId:"offline-cache",studentNumber:item.studentNumber,status:"enrolled",programId:"offline-cache",departmentId:"offline-cache",yearLevel:1,section:"",fullName:item.displayName,formattedName:item.displayName,createdAt:preparedEvent?.preparedAt??new Date().toISOString()}));
   const students = studentsQuery.data?.items ?? cachedStudents;
   const participants = participantQuery.data?.items ?? (preparedEvent?.participants??[]).map((item)=>({id:`cached-${item.studentId}`,eventId:preparedEvent?.event.id??"",studentId:item.studentId,registeredAt:preparedEvent?.preparedAt??new Date().toISOString()}));
@@ -462,7 +465,10 @@ export function EventAttendancePage() {
   }
   async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
     try {
-      if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
+      if (offline.forceLocalAttendance && !canUsePreparedCache) {
+        throw new Error("Prepare this event for offline use before recording in forced-local mode.");
+      }
+      if ((offline.status.connectivity === "offline" || offline.forceLocalAttendance) && canUsePreparedCache && event) {
         const student=await identifyOfflineStudent(event.id,method,code);
         if(!student) throw new Error("No eligible participant matched the local event package.");
         const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:simulatedTime(outcome)??new Date().toISOString()});
@@ -489,10 +495,14 @@ export function EventAttendancePage() {
       return;
     }
     if (facialVerifying || attendanceMutations.credentialScanMutation.isPending) return;
+    if (offline.forceLocalAttendance && !canUsePreparedCache) {
+      setFacialStatus("Prepare this event for offline use before recording in forced-local mode.");
+      return;
+    }
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
-      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){const student=await identifyOfflineStudent(event.id,"facial",video);if(!student)throw new Error("No unambiguous eligible face match was found in the local event package.");const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}
+      if((offline.status.connectivity==="offline"||offline.forceLocalAttendance)&&canUsePreparedCache&&event){const student=await identifyOfflineStudent(event.id,"facial",video);if(!student)throw new Error("No unambiguous eligible face match was found in the local event package.");const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}
       const result = await identifyLiveFace(activeSession.id, facialActionMode, [await captureVideoFrame(video)]);
       const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
       setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. Face distance: ${result.distance.toFixed(3)}. Returning to QR for the next student.`);
@@ -508,6 +518,9 @@ export function EventAttendancePage() {
   }
   async function submitManualAttendance() {
     try {
+      if (offline.forceLocalAttendance && !canUsePreparedCache) {
+        throw new Error("Prepare this event for offline use before recording in forced-local mode.");
+      }
       const lookup = manualStudentId.trim().toLowerCase();
       const selectedStudent = participantStudents.find((student) =>
         student.id === manualStudentId || student.studentNumber.toLowerCase() === lookup || studentName(student).toLowerCase() === lookup
@@ -520,7 +533,7 @@ export function EventAttendancePage() {
         toast.error("Provide a manual attendance reason of at least 5 characters.");
         return;
       }
-      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){
+      if((offline.status.connectivity==="offline"||offline.forceLocalAttendance)&&canUsePreparedCache&&event){
         const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.id,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),attendanceStatus:manualStatus,remarks:[manualReason,manualRemarks].filter(Boolean).join(": "),lateReason:manualLateReason||undefined});
         setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:studentName(selectedStudent),studentNumber:selectedStudent.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:"manual",recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}});
         setManualStudentId("");setManualReason("");setManualRemarks("");setManualStatus("present");setManualLateReason("");toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;

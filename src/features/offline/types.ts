@@ -55,6 +55,17 @@ export type LocalAttendanceInput = {
   lateReason?: string;
 };
 
+export type PreparedSessionActivationInput = {
+  eventId: string;
+  sessionId: string;
+  venue: string;
+  startsAt: string;
+  endsAt?: string;
+  lateCutoffAt?: string;
+  attendanceWindowStartAt: string;
+  attendanceWindowEndAt?: string;
+};
+
 export type PendingAttendanceRecord = LocalAttendanceInput & {
   localAttendanceUuid: string;
   attendanceStatus: "present" | "late";
@@ -94,11 +105,12 @@ export type ScannerStation = { id: string; name: string; joinedAt: string; lastS
 export type AttendanceCapturePhase = "time_in" | "time_out";
 export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sessionId?: string; port?: number; addresses: string[]; joinUrl?: string; stations: ScannerStation[]; capturePhase?: AttendanceCapturePhase; certificateFingerprint?: string; certificateExpiresAt?: string };
 export type ScannerCertificateStatus = { configured: boolean; fingerprint?: string; expiresAt?: string };
-export type OfflineRuntimeConfig = { autoSyncEnabled: boolean };
+export type OfflineRuntimeConfig = { autoSyncEnabled: boolean; forceLocalAttendance: boolean };
 
 export interface PLPassDesktopApi {
   getOfflineRuntimeConfig(): Promise<OfflineRuntimeConfig>;
   prepareEvent(input: PreparedEventPackage): Promise<OfflineStatus>;
+  activatePreparedSession(input: PreparedSessionActivationInput): Promise<OfflineStatus>;
   getStatus(eventId: string): Promise<OfflineStatus>;
   getPreparedEvent(eventId: string): Promise<PreparedEventPackage | null>;
   getPreparedEventBySession(sessionId: string): Promise<PreparedEventPackage | null>;

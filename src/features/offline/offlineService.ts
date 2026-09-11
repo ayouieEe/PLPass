@@ -6,8 +6,18 @@ export function desktopApi() { return window.plpassDesktop; }
 
 export async function getOfflineRuntimeConfig(): Promise<OfflineRuntimeConfig> {
   const api = desktopApi();
-  if (!api) return { autoSyncEnabled: false };
+  if (!api) return { autoSyncEnabled: false, forceLocalAttendance: false };
   return api.getOfflineRuntimeConfig();
+}
+
+/**
+ * Choose SQLite before any attendance write only when connectivity is absent or
+ * a deliberate operator test mode is active. A paused sync timer alone never
+ * changes the normal online attendance path.
+ */
+export async function shouldRecordAttendanceLocally(): Promise<boolean> {
+  const runtime = await getOfflineRuntimeConfig();
+  return runtime.forceLocalAttendance || !(await confirmSupabaseConnectivity());
 }
 
 export async function confirmSupabaseConnectivity(): Promise<boolean> {

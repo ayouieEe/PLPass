@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { localMigrations } from "./migrations.js";
-import type { CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflineStatus, PendingAttendanceRecord, PreparedEventPackage, PreparedEventParticipant } from "../src/features/offline/types.js";
+import type { CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflineStatus, PendingAttendanceRecord, PreparedEventPackage, PreparedEventParticipant, PreparedSessionActivationInput } from "../src/features/offline/types.js";
 
 type SqlRow = Record<string, unknown>;
 
@@ -42,6 +42,18 @@ export class LocalAttendanceDatabase {
     return this.getStatus(pkg.event.id);
   }
 
+  activatePreparedSession(input: PreparedSessionActivationInput): OfflineStatus {
+    this.transaction(() => {
+      const session = this.db.prepare("SELECT session_status FROM cached_sessions WHERE session_id=? AND event_id=?").get(input.sessionId, input.eventId) as SqlRow | undefined;
+      if (!session || !["scheduled", "ongoing"].includes(String(session.session_status))) throw new Error("The prepared session is unavailable or cannot be activated locally.");
+      this.db.prepare(`UPDATE cached_sessions
+        SET venue=?, session_status='ongoing', starts_at=?, ends_at=coalesce(?, ends_at), late_cutoff_at=?, attendance_window_start_at=?, attendance_window_end_at=?
+        WHERE session_id=? AND event_id=?`).run(input.venue,input.startsAt,input.endsAt ?? null,input.lateCutoffAt ?? null,input.attendanceWindowStartAt,input.attendanceWindowEndAt ?? null,input.sessionId,input.eventId);
+      this.db.prepare("UPDATE prepared_events SET event_status='ongoing' WHERE event_id=?").run(input.eventId);
+    });
+    return this.getStatus(input.eventId);
+  }
+
   getStatus(eventId: string): OfflineStatus {
     const event = this.db.prepare("SELECT preparation_status, prepared_at, last_successful_sync_at FROM prepared_events WHERE event_id=?").get(eventId) as SqlRow | undefined;
     const counts = this.db.prepare(`SELECT COUNT(*) total, SUM(sync_status='RETRY') retries, SUM(sync_status='CONFLICT') conflicts, SUM(sync_status='SYNCING') syncing FROM pending_attendance WHERE event_id=?`).get(eventId) as SqlRow;
@@ -51,7 +63,12 @@ export class LocalAttendanceDatabase {
     const e=this.db.prepare("SELECT * FROM prepared_events WHERE event_id=? AND preparation_status='READY'").get(eventId) as SqlRow|undefined; if(!e)return null;
     const sessions=(this.db.prepare("SELECT * FROM cached_sessions WHERE event_id=?").all(eventId) as SqlRow[]).map(s=>({id:String(s.session_id),eventId:String(s.event_id),title:String(s.title),venue:String(s.venue),status:String(s.session_status),startsAt:String(s.starts_at),endsAt:String(s.ends_at),lateCutoffAt:value(s,"late_cutoff_at"),attendanceWindowStartAt:value(s,"attendance_window_start_at"),attendanceWindowEndAt:value(s,"attendance_window_end_at")}));
     const participants=(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=?").all(eventId) as SqlRow[]).map(p=>this.participant(p)).filter((p):p is PreparedEventParticipant=>p!==null);
-    const attendance=(this.db.prepare("SELECT * FROM cached_attendance_state WHERE session_id IN (SELECT session_id FROM cached_sessions WHERE event_id=?)").all(eventId) as SqlRow[]).map(a=>({sessionId:String(a.session_id),studentId:String(a.student_id),attendanceStatus:String(a.attendance_status),timeIn:value(a,"time_in"),timeOut:value(a,"time_out")}));
+    const attendanceByIdentity=new Map<string,{sessionId:string;studentId:string;attendanceStatus:string;timeIn?:string;timeOut?:string}>();
+    (this.db.prepare("SELECT * FROM cached_attendance_state WHERE session_id IN (SELECT session_id FROM cached_sessions WHERE event_id=?)").all(eventId) as SqlRow[]).forEach(a=>{const state={sessionId:String(a.session_id),studentId:String(a.student_id),attendanceStatus:String(a.attendance_status),timeIn:value(a,"time_in"),timeOut:value(a,"time_out")};attendanceByIdentity.set(`${state.sessionId}:${state.studentId}`,state);});
+    // pending_attendance is durable and has no foreign key to the replaceable
+    // package cache. Rehydrate it into the read model after package refreshes.
+    (this.db.prepare("SELECT * FROM pending_attendance WHERE event_id=? AND sync_status<>'CONFIRMED'").all(eventId) as SqlRow[]).forEach(row=>{const pending=this.mapPending(row);const state={sessionId:pending.sessionId,studentId:pending.studentId,attendanceStatus:pending.attendanceStatus,timeIn:pending.timeIn,timeOut:pending.timeOut};attendanceByIdentity.set(`${state.sessionId}:${state.studentId}`,state);});
+    const attendance=[...attendanceByIdentity.values()];
     return {cacheVersion:Number(e.cache_version),preparedAt:String(e.prepared_at),event:{id:String(e.event_id),code:String(e.event_code),title:String(e.title),status:String(e.event_status),startsAt:String(e.starts_at),endsAt:String(e.ends_at)},sessions,participants,attendance};
   }
   getPreparedEventBySession(sessionId:string){ const row=this.db.prepare("SELECT event_id FROM cached_sessions WHERE session_id=?").get(sessionId) as SqlRow|undefined; return row?this.getPreparedEvent(String(row.event_id)):null; }

@@ -444,7 +444,9 @@ export function EventDetailsPage() {
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const participants = participantsQuery.data?.items ?? [];
   const sessions = sessionsQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
+  const recordsByIdentity=new Map<string,AttendanceRecord>();
+  [...(recordsQuery.data?.items ?? []),...offline.pendingRecords.map((record)=>({id:`offline-${record.localAttendanceUuid}`,sessionId:record.sessionId,studentId:record.studentId,status:record.attendanceStatus,verificationMethod:record.identificationMethod,recordedAt:record.attendanceTimestamp,timeIn:record.timeIn,checkedOutAt:record.timeOut,lateReason:record.lateReason} as AttendanceRecord))].forEach((record)=>recordsByIdentity.set(`${record.sessionId}:${record.studentId}`,record));
+  const records = [...recordsByIdentity.values()];
   const students = studentsQuery.data?.items ?? [];
   const objectives = objectivesQuery.data ?? [];
   const resources = resourcesQuery.data?.items ?? [];
