@@ -1,5 +1,10 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getSupabaseBrowserClient, getSupabaseConfig } from "@/lib/supabase/client";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
+import { configureStagingLostResponseSync, injectStagingLostResponseOnceAfterSuccess, reportStagingLostResponseUuidRecovery } from "@/test-support/stagingLostResponseFault";
+import { claimOneLeaseAndExit, currentLeaseExpiryPhase, reportStagingLeaseRecovery, stagingLeaseExpiryConfigUrl, stagingLeaseExpiryEnabled, validateStagingLeaseExpiryPhase } from "@/test-support/stagingLeaseExpiryFault";
+import { coordinateConcurrentWindowSync, stagingConcurrentWindowConfigUrl, stagingConcurrentWindowEnabled, validateStagingConcurrentWindowTest } from "@/test-support/stagingConcurrentWindowFault";
+import { configureStagingBoundedRetrySync, injectStagingBoundedRetryBeforeRpc, stagingBoundedRetryEnabled } from "@/test-support/stagingBoundedRetryFault";
+import { configureStagingTerminalConflictSync, reportStagingTerminalConflict, stagingTerminalConflictEnabled } from "@/test-support/stagingTerminalConflictFault";
 import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineRuntimeConfig, OfflineStatus, PreparedEventPackage, PreparedEventParticipant, SyncFailureDisposition } from "./types";
 
 export function desktopApi() { return window.plpassDesktop; }
@@ -78,14 +83,70 @@ export function classifySyncError(error: unknown): { disposition: SyncFailureDis
 
 export async function synchronizePendingAttendance(batchSize=20): Promise<{confirmed:number;failed:number}> {
   const api=desktopApi(); if(!api || !(await confirmSupabaseConnectivity())) return {confirmed:0,failed:0};
+  let effectiveBatchSize = batchSize;
+  const leaseExpiryEnabled = stagingLeaseExpiryEnabled();
+  const stagingFaultEnabled = import.meta.env.MODE === "staging-fault" && import.meta.env.VITE_PLPASS_STAGING_FAULT_LOST_RESPONSE_ONCE === "true";
+  const concurrentEnabled = stagingConcurrentWindowEnabled();
+  const boundedRetryEnabled = stagingBoundedRetryEnabled();
+  const terminalConflictEnabled = stagingTerminalConflictEnabled();
+  const runtime = leaseExpiryEnabled || stagingFaultEnabled || concurrentEnabled || boundedRetryEnabled || terminalConflictEnabled
+    ? await getOfflineRuntimeConfig()
+    : { autoSyncEnabled: false, forceLocalAttendance: false };
+  const leaseExpiryPhase = leaseExpiryEnabled
+    ? validateStagingLeaseExpiryPhase({
+      mode: import.meta.env.MODE,
+      enabled: true,
+      phase: currentLeaseExpiryPhase(),
+      url: stagingLeaseExpiryConfigUrl(),
+      autoSyncEnabled: runtime.autoSyncEnabled
+    })
+    : null;
+  if (leaseExpiryPhase === "claim") {
+    const claimed = await claimOneLeaseAndExit();
+    if (!claimed) return { confirmed: 0, failed: 0 };
+    return await new Promise<never>(() => undefined);
+  }
+  const concurrentWindow = concurrentEnabled && validateStagingConcurrentWindowTest({ mode: import.meta.env.MODE, enabled: true, url: stagingConcurrentWindowConfigUrl(), autoSyncEnabled: runtime.autoSyncEnabled });
+  if (concurrentWindow && !(await coordinateConcurrentWindowSync())) return { confirmed: 0, failed: 0 };
+  if (concurrentWindow) effectiveBatchSize = 1;
+  if (stagingFaultEnabled) {
+    effectiveBatchSize = configureStagingLostResponseSync({
+      mode: import.meta.env.MODE,
+      enabled: true,
+      url: getSupabaseConfig().url,
+      autoSyncEnabled: runtime.autoSyncEnabled,
+      requestedBatchSize: batchSize
+    });
+  }
+  if (boundedRetryEnabled) {
+    effectiveBatchSize = configureStagingBoundedRetrySync({
+      mode: import.meta.env.MODE,
+      enabled: true,
+      url: getSupabaseConfig().url,
+      autoSyncEnabled: runtime.autoSyncEnabled,
+      requestedBatchSize: effectiveBatchSize
+    });
+  }
+  if (terminalConflictEnabled) {
+    effectiveBatchSize = configureStagingTerminalConflictSync({
+      mode: import.meta.env.MODE,
+      enabled: true,
+      url: getSupabaseConfig().url,
+      autoSyncEnabled: runtime.autoSyncEnabled,
+      requestedBatchSize: effectiveBatchSize
+    });
+  }
   await api.recoverInterruptedSync();
-  const claim=await api.beginSync(batchSize); if(!claim) return {confirmed:0,failed:0};
+  if (leaseExpiryPhase === "recover") reportStagingLeaseRecovery(runtime.recoveredExpiredLeasesAtStartup ?? 0);
+  const claim=await api.beginSync(effectiveBatchSize); if(!claim) return {confirmed:0,failed:0};
   const { owner, records }=claim; let confirmed=0,failed=0;
   try { for(const record of records){
     try {
       const client=getSupabaseBrowserClient();
+      injectStagingBoundedRetryBeforeRpc();
       const {data,error}=await client.rpc("sync_offline_event_attendance",{p_local_attendance_uuid:record.localAttendanceUuid,p_session_id:record.sessionId,p_student_id:record.studentId,p_identification_method:record.identificationMethod,p_attendance_status:record.attendanceStatus,p_time_in:record.timeIn,...(record.timeOut?{p_time_out:record.timeOut}:{}),...(record.checkoutIdentificationMethod?{p_checkout_identification_method:record.checkoutIdentificationMethod}:{}),...(record.remarks?{p_remarks:record.remarks}:{}),...(record.lateReason?{p_late_reason:record.lateReason}:{})});
       if(error) throw error;
+      injectStagingLostResponseOnceAfterSuccess();
       const row=data as {id?:string;local_attendance_uuid?:string|null}|null;
       if(!row?.id || row.local_attendance_uuid!==record.localAttendanceUuid) throw new Error("Server confirmation did not match the local record.");
       await api.confirmSync(record.localAttendanceUuid,row.id,owner); confirmed+=1;
@@ -93,9 +154,10 @@ export async function synchronizePendingAttendance(batchSize=20): Promise<{confi
       // The request may have committed before its response was lost. Verify by UUID before retaining for retry.
       try {
         const {data}=await getSupabaseBrowserClient().from("attendance_records").select("id, local_attendance_uuid").eq("local_attendance_uuid",record.localAttendanceUuid).maybeSingle();
-        if(data?.id && data.local_attendance_uuid===record.localAttendanceUuid){ await api.confirmSync(record.localAttendanceUuid,data.id,owner); confirmed+=1; continue; }
+        if(data?.id && data.local_attendance_uuid===record.localAttendanceUuid){ reportStagingLostResponseUuidRecovery(); await api.confirmSync(record.localAttendanceUuid,data.id,owner); confirmed+=1; continue; }
       } catch { /* Retain locally below. */ }
       const failure=classifySyncError(error);
+      if (failure.disposition === "CONFLICT") reportStagingTerminalConflict();
       await api.failSync(record.localAttendanceUuid,failure.disposition,failure.message,owner); failed+=1;
     }
   }} finally { await api.finishSync(owner); }

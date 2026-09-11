@@ -112,7 +112,7 @@ export type ScannerStation = { id: string; name: string; joinedAt: string; lastS
 export type AttendanceCapturePhase = "time_in" | "time_out";
 export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sessionId?: string; port?: number; addresses: string[]; joinUrl?: string; stations: ScannerStation[]; capturePhase?: AttendanceCapturePhase; certificateFingerprint?: string; certificateExpiresAt?: string };
 export type ScannerCertificateStatus = { configured: boolean; fingerprint?: string; expiresAt?: string };
-export type OfflineRuntimeConfig = { autoSyncEnabled: boolean; forceLocalAttendance: boolean };
+export type OfflineRuntimeConfig = { autoSyncEnabled: boolean; forceLocalAttendance: boolean; recoveredExpiredLeasesAtStartup?: number };
 
 export interface PLPassDesktopApi {
   getOfflineRuntimeConfig(): Promise<OfflineRuntimeConfig>;
@@ -132,6 +132,9 @@ export interface PLPassDesktopApi {
   failSync(localAttendanceUuid: string, status: SyncFailureDisposition, safeError: string, owner: string): Promise<void>;
   recoverInterruptedSync(): Promise<number>;
   cleanupEvent(eventId: string, serverVerified: boolean, eventCompleted: boolean): Promise<CleanupResult>;
+  claimLeaseAndExitForStagingTest?(): Promise<boolean>;
+  openConcurrentWindowForStagingTest?(): Promise<boolean>;
+  joinConcurrentSyncBarrierForStagingTest?(): Promise<boolean>;
   startScannerStations(eventId: string, sessionId: string, capturePhase?: AttendanceCapturePhase): Promise<ScannerCoordinatorStatus>;
   stopScannerStations(): Promise<void>;
   getScannerStations(): Promise<ScannerCoordinatorStatus>;

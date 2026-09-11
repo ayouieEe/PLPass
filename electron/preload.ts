@@ -8,6 +8,7 @@ const api: PLPassDesktopApi = {
   identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture), recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   listPending: (eventId) => ipcRenderer.invoke("offline:listPending", eventId), beginSync: (limit) => ipcRenderer.invoke("offline:beginSync", limit), finishSync: (owner) => ipcRenderer.invoke("offline:finishSync", owner),
   confirmSync: (uuid, id, owner) => ipcRenderer.invoke("offline:confirmSync", uuid, id, owner), failSync: (uuid,status,error,owner) => ipcRenderer.invoke("offline:failSync", uuid,status,error,owner),
-  recoverInterruptedSync: () => ipcRenderer.invoke("offline:recover"), cleanupEvent: (eventId,verified,completed) => ipcRenderer.invoke("offline:cleanup", eventId,verified,completed)
+  recoverInterruptedSync: () => ipcRenderer.invoke("offline:recover"), cleanupEvent: (eventId,verified,completed) => ipcRenderer.invoke("offline:cleanup", eventId,verified,completed),
+  claimLeaseAndExitForStagingTest: () => ipcRenderer.invoke("offline:claimLeaseAndExitForStagingTest")
 };
 contextBridge.exposeInMainWorld("plpassDesktop", api);

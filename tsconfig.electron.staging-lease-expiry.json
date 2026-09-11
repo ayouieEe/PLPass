@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.electron.json",
+  "include": [
+    "electron/main.ts",
+    "electron/localDatabase.ts",
+    "electron/migrations.ts",
+    "electron/scannerCoordinator.ts",
+    "electron/stagingLeaseExpiryHarness.ts",
+    "electron/stagingLeaseExpiryTestMode.ts",
+    "electron/stagingLeaseExpiryMainExtension.ts",
+    "src/features/offline/types.ts"
+  ]
+}

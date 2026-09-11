@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.electron.json","include":["electron/main.ts","electron/localDatabase.ts","electron/migrations.ts","electron/scannerCoordinator.ts","electron/stagingTerminalConflictTestMode.ts","electron/stagingTerminalConflictMainExtension.ts","src/features/offline/types.ts"]}

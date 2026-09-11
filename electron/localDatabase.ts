@@ -5,12 +5,21 @@ import type { CleanupResult, LocalAttendanceInput, LocalAttendanceResult, Offlin
 
 type SqlRow = Record<string, unknown>;
 const MAX_SYNC_ATTEMPTS = 5;
-const LEASE_DURATION_MS = 5 * 60_000;
+const DEFAULT_LEASE_DURATION_MS = 5 * 60_000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function value(row: SqlRow, key: string) { return row[key] == null ? undefined : String(row[key]); }
 
 export class LocalAttendanceDatabase {
-  constructor(private readonly db: DatabaseSync) {
+  private readonly leaseDurationMs: number;
+  private readonly recoveredExpiredLeasesAtStartup: number;
+  private readonly localAttendanceUuid: (() => string);
+
+  constructor(private readonly db: DatabaseSync, options: { leaseDurationMs?: number; forcedLocalAttendanceUuid?: string } = {}) {
+    this.leaseDurationMs = options.leaseDurationMs ?? DEFAULT_LEASE_DURATION_MS;
+    if (!Number.isInteger(this.leaseDurationMs) || this.leaseDurationMs < 1_000) throw new Error("Invalid local synchronization lease duration.");
+    if (options.forcedLocalAttendanceUuid && !UUID_PATTERN.test(options.forcedLocalAttendanceUuid)) throw new Error("Invalid test-only local attendance UUID.");
+    this.localAttendanceUuid = options.forcedLocalAttendanceUuid ? () => options.forcedLocalAttendanceUuid as string : randomUUID;
     db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA secure_delete = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
     for (const migration of localMigrations) {
@@ -19,8 +28,10 @@ export class LocalAttendanceDatabase {
     }
     // Only expired work is recoverable. Active leases may belong to a renderer
     // which is still awaiting a server response.
-    this.recoverInterruptedSync();
+    this.recoveredExpiredLeasesAtStartup = Number(this.recoverInterruptedSync());
   }
+
+  getRecoveredExpiredLeasesAtStartup() { return this.recoveredExpiredLeasesAtStartup; }
 
   private transaction<T>(operation:()=>T):T { this.db.exec("BEGIN IMMEDIATE"); try { const result=operation(); this.db.exec("COMMIT"); return result; } catch(error) { this.db.exec("ROLLBACK"); throw error; } }
 
@@ -120,7 +131,7 @@ export class LocalAttendanceDatabase {
       if (requireExistingCheckIn) throw new Error("No Time In is recorded for this student.");
       if (existingServer?.time_in) throw new Error("This centrally recorded check-in cannot be updated offline. Reconnect before check-out.");
       const status = input.attendanceStatus ?? (now > String(session.late_cutoff_at ?? session.starts_at) ? "late" : "present");
-      const uuid = randomUUID();
+      const uuid = this.localAttendanceUuid();
       this.db.prepare(`INSERT INTO pending_attendance(local_attendance_uuid,event_id,session_id,student_id,identification_method,attendance_timestamp,attendance_status,time_in,device_id,remarks,late_reason,sync_status,created_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,?,?,'PENDING_SYNC',?,?)`).run(uuid,input.eventId,input.sessionId,input.studentId,input.identificationMethod,now,status,now,input.deviceId ?? null,input.remarks ?? null,input.lateReason ?? null,now,now);
       this.db.prepare("INSERT OR REPLACE INTO cached_attendance_state VALUES(?,?,?,?,NULL)").run(input.sessionId,input.studentId,status,now);
@@ -133,7 +144,7 @@ export class LocalAttendanceDatabase {
   private mapPending(row: SqlRow): PendingAttendanceRecord { return { localAttendanceUuid:String(row.local_attendance_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),studentId:String(row.student_id),identificationMethod:String(row.identification_method) as PendingAttendanceRecord["identificationMethod"],checkoutIdentificationMethod:value(row,"checkout_identification_method") as PendingAttendanceRecord["checkoutIdentificationMethod"],attendanceTimestamp:String(row.attendance_timestamp),attendanceStatus:String(row.attendance_status) as "present"|"late",timeIn:String(row.time_in),timeOut:value(row,"time_out"),deviceId:value(row,"device_id"),remarks:value(row,"remarks"),lateReason:value(row,"late_reason"),syncStatus:String(row.sync_status) as PendingAttendanceRecord["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncAttemptAt:value(row,"last_sync_attempt_at"),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),leaseExpiresAt:value(row,"lease_expires_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at),serverAttendanceId:value(row,"server_attendance_id"),serverConfirmedAt:value(row,"server_confirmed_at") }; }
   listPending(eventId?: string) { const rows = eventId ? this.db.prepare("SELECT * FROM pending_attendance WHERE event_id=? ORDER BY created_at").all(eventId) : this.db.prepare("SELECT * FROM pending_attendance ORDER BY created_at").all(); return (rows as SqlRow[]).map((row) => this.mapPending(row)); }
   beginSync(limit: number, owner = randomUUID(), now = new Date()): { owner: string; records: PendingAttendanceRecord[] } {
-    const nowIso = now.toISOString(); const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS).toISOString();
+    const nowIso = now.toISOString(); const leaseExpiresAt = new Date(now.getTime() + this.leaseDurationMs).toISOString();
     const ids = this.transaction(() => {
       this.recoverExpiredLeases(nowIso);
       this.db.prepare("UPDATE pending_attendance SET sync_status='FAILED',last_sync_error='Maximum synchronization attempts reached; operator review required.',next_attempt_at=NULL,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE sync_status IN ('PENDING_SYNC','RETRY') AND sync_attempts>=?").run(nowIso, MAX_SYNC_ATTEMPTS);

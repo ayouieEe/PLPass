@@ -1,0 +1,28 @@
+-- Staging-only fixture. Create confirmed Auth users first:
+-- plpass-terminal-conflict-organizer@staging.invalid and plpass-terminal-conflict-student@staging.invalid
+do $$ declare ou uuid; su uuid; d uuid; p uuid; sec uuid; cat uuid; org uuid; stu uuid; ev uuid; day timestamp;
+begin
+ select id into ou from auth.users where email='plpass-terminal-conflict-organizer@staging.invalid'; select id into su from auth.users where email='plpass-terminal-conflict-student@staging.invalid'; if ou is null or su is null then raise exception 'Create the two synthetic Auth users first.'; end if; day:=date_trunc('day',now() at time zone 'Asia/Manila');
+ select id into d from public.departments where lower(department_code)=lower('STG-TC');
+ if d is null then insert into public.departments(department_code,department_name) values('STG-TC','Staging Terminal Conflict') returning id into d; else update public.departments set department_name='Staging Terminal Conflict' where id=d; end if;
+ select id into p from public.programs where department_id=d and lower(program_code)=lower('STG-TC');
+ if p is null then insert into public.programs(department_id,program_code,program_name) values(d,'STG-TC','Staging Terminal Conflict') returning id into p; else update public.programs set program_name='Staging Terminal Conflict' where id=p; end if;
+ select id into sec from public.sections where program_id=p and lower(section_name)=lower('TC') and academic_year='2099-2100' and semester='Terminal Conflict';
+ if sec is null then insert into public.sections(program_id,section_name,year_level,academic_year,semester) values(p,'TC',1,'2099-2100','Terminal Conflict') returning id into sec; else update public.sections set year_level=1 where id=sec; end if;
+ if exists(select 1 from public.profiles where id=ou) then update public.profiles set email='plpass-terminal-conflict-organizer@staging.invalid',first_name='Synthetic',last_name='Conflict Organizer',role='organizer',account_status='active',department_id=d,employee_id='STG-TC-ORG',student_id=null where id=ou; else insert into public.profiles(id,email,first_name,last_name,role,account_status,department_id,employee_id,student_id) values(ou,'plpass-terminal-conflict-organizer@staging.invalid','Synthetic','Conflict Organizer','organizer','active',d,'STG-TC-ORG',null); end if;
+ select id into org from public.organizers where profile_id=ou;
+ if org is null then insert into public.organizers(profile_id,employee_id,department_id,organization_name,position,organizer_status) values(ou,'STG-TC-ORG',d,'PLPass Staging','Conflict Organizer','active') returning id into org; else update public.organizers set employee_id='STG-TC-ORG',department_id=d,organization_name='PLPass Staging',position='Conflict Organizer',organizer_status='active' where id=org; end if;
+ if exists(select 1 from public.profiles where id=su) then update public.profiles set email='plpass-terminal-conflict-student@staging.invalid',first_name='Synthetic',last_name='Conflict Student',role='student',account_status='active',department_id=d,employee_id=null,student_id='STG-TC-1' where id=su; else insert into public.profiles(id,email,first_name,last_name,role,account_status,department_id,employee_id,student_id) values(su,'plpass-terminal-conflict-student@staging.invalid','Synthetic','Conflict Student','student','active',d,null,'STG-TC-1'); end if;
+ select id into stu from public.students where profile_id=su;
+ if stu is null then insert into public.students(profile_id,student_id,program_id,department_id,section_id,year_level,student_status) values(su,'STG-TC-1',p,d,sec,1,'enrolled') returning id into stu; else update public.students set student_id='STG-TC-1',program_id=p,department_id=d,section_id=sec,year_level=1,student_status='enrolled' where id=stu; end if;
+ select id into cat from public.event_categories where lower(category_name)=lower('Staging Terminal Conflict');
+ if cat is null then insert into public.event_categories(category_name) values('Staging Terminal Conflict') returning id into cat; end if;
+ select id into ev from public.events where lower(event_code)=lower('STG-TERMINAL-CONFLICT');
+ if ev is null then insert into public.events(event_code,organizer_id,department_id,category_id,title,description,venue,starts_at,ends_at,event_status,approval_status) values('STG-TERMINAL-CONFLICT',org,d,cat,'Staging Terminal Conflict','Synthetic only','Staging Test Room',day at time zone 'Asia/Manila',(day+interval '23 hours 59 minutes') at time zone 'Asia/Manila','ongoing','approved') returning id into ev; else update public.events set organizer_id=org,department_id=d,category_id=cat,title='Staging Terminal Conflict',description='Synthetic only',venue='Staging Test Room',starts_at=day at time zone 'Asia/Manila',ends_at=(day+interval '23 hours 59 minutes') at time zone 'Asia/Manila',event_status='ongoing',approval_status='approved' where id=ev; end if;
+ delete from public.event_sessions where event_id=ev; insert into public.event_sessions(event_id,session_name,venue,mode,session_status,scheduled_start,scheduled_end,actual_start,attendance_window_start_at,attendance_window_end_at,created_by) values(ev,'Conflict Attendance','Staging Test Room','f2f','ongoing',day at time zone 'Asia/Manila',(day+interval '23 hours 59 minutes') at time zone 'Asia/Manila',now(),now(),(day+interval '23 hours 59 minutes') at time zone 'Asia/Manila',ou);
+ if exists (select 1 from public.event_participants where event_id=ev and student_id=stu) then
+   update public.event_participants set participant_status='confirmed' where event_id=ev and student_id=stu;
+ else
+   insert into public.event_participants(event_id,student_id,participant_status) values(ev,stu,'confirmed');
+ end if;
+end $$;

@@ -15,6 +15,26 @@ let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
 let facialService: ChildProcess | undefined;
 let activeSyncBatch: { owner: string; expiresAt: number } | undefined;
+let claimLeaseAndExitForStagingTest: (() => boolean) | undefined;
+let concurrentWindowTestEnabled = false;
+let joinConcurrentBarrier: (() => Promise<boolean>) | undefined;
+let concurrentWindow: BrowserWindow | undefined;
+
+type StagingTestConfig = { leaseDurationMs?: number; concurrentWindow?: boolean; forcedLocalAttendanceUuid?: string };
+type StagingTestExtension = {
+  resolveConfig: (environment: NodeJS.ProcessEnv, isPackaged: boolean) => StagingTestConfig | null;
+  claimOneLeaseAndScheduleExit?: (claimBatch: (limit: number) => ReturnType<typeof claimSyncBatch>, scheduleExit: () => void) => boolean;
+};
+
+async function loadStagingTestExtension(): Promise<StagingTestExtension | null> {
+  const scenario = process.env.PLPASS_STAGING_TEST_SCENARIO;
+  if (!scenario) return null;
+  const extensionName = scenario === "concurrent-window" ? "stagingConcurrentWindowMainExtension.js"
+    : scenario === "terminal-conflict" ? "stagingTerminalConflictMainExtension.js"
+    : "stagingLeaseExpiryMainExtension.js";
+  const extensionPath = pathToFileURL(path.join(directory, extensionName)).href;
+  return import(extensionPath) as Promise<StagingTestExtension>;
+}
 
 // One Electron process owns a SQLite outbox. A second process could otherwise
 // race the same pending records despite WAL's transactional protections.
@@ -153,7 +173,7 @@ protocol.registerSchemesAsPrivileged([
 
 function registerHandlers() {
   const handlers: Record<string, (...args: never[]) => unknown> = {
-    "offline:runtimeConfig": () => ({ autoSyncEnabled, forceLocalAttendance }),
+    "offline:runtimeConfig": () => ({ autoSyncEnabled, forceLocalAttendance, recoveredExpiredLeasesAtStartup: store.getRecoveredExpiredLeasesAtStartup() }),
     "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:activateSession": (input) => store.activatePreparedSession(input), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
@@ -161,6 +181,17 @@ function registerHandlers() {
     "offline:confirmSync": (uuid, serverId, owner) => store.confirmSync(uuid, serverId, owner), "offline:failSync": (uuid,status,error,owner) => store.failSync(uuid,status,error,owner),
     "offline:recover": () => store.recoverInterruptedSync(), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
   };
+  if (claimLeaseAndExitForStagingTest) handlers["offline:claimLeaseAndExitForStagingTest"] = claimLeaseAndExitForStagingTest;
+  if (concurrentWindowTestEnabled) {
+    handlers["offline:openConcurrentWindowForStagingTest"] = () => {
+      if (concurrentWindow && !concurrentWindow.isDestroyed()) return false;
+      concurrentWindow = new BrowserWindow({ width: 1200, height: 850, webPreferences: { preload: path.join(directory, "preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      concurrentWindow.on("closed", () => { concurrentWindow = undefined; });
+      void concurrentWindow.loadURL("plpass://app/");
+      return true;
+    };
+    handlers["offline:joinConcurrentSyncBarrierForStagingTest"] = () => joinConcurrentBarrier?.() ?? false;
+  }
   handlers["scanner:start"] = (eventId, sessionId, phase) => scannerCoordinator.start(eventId, sessionId, phase);
   handlers["scanner:stop"] = () => scannerCoordinator.stop();
   handlers["scanner:status"] = () => scannerCoordinator.getStatus();
@@ -171,7 +202,7 @@ function registerHandlers() {
   Object.entries(handlers).forEach(([channel, handler]) => ipcMain.handle(channel, (_event, ...args) => handler(...args as never[])));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const rendererDirectory = path.resolve(directory, "..", "..", "dist");
   protocol.handle("plpass", (request) => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
@@ -185,7 +216,19 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
-  store = new LocalAttendanceDatabase(new DatabaseSync(dbPath));
+  const stagingLeaseExpiryExtension = await loadStagingTestExtension();
+  const stagingLeaseExpiry = stagingLeaseExpiryExtension?.resolveConfig(process.env, app.isPackaged) ?? null;
+  if (stagingLeaseExpiry && stagingLeaseExpiryExtension && "leaseDurationMs" in stagingLeaseExpiry) {
+    claimLeaseAndExitForStagingTest = () => stagingLeaseExpiryExtension.claimOneLeaseAndScheduleExit!(
+      claimSyncBatch,
+      () => setTimeout(() => app.exit(0), 100)
+    );
+  }
+  if ((stagingLeaseExpiry as { concurrentWindow?: boolean } | null)?.concurrentWindow) {
+    concurrentWindowTestEnabled = true;
+    joinConcurrentBarrier = (stagingLeaseExpiryExtension as unknown as { createBarrier: () => () => Promise<boolean> }).createBarrier();
+  }
+  store = new LocalAttendanceDatabase(new DatabaseSync(dbPath), stagingLeaseExpiry ?? undefined);
   scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")));
   registerHandlers();
   const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: path.join(directory,"preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
