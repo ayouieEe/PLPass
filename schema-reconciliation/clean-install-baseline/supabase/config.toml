@@ -1,0 +1,28 @@
+project_id = "plpass-canonical-replay"
+
+[api]
+enabled = true
+port = 65441
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 17
+port = 65442
+
+[studio]
+enabled = true
+port = 65443
+
+[inbucket]
+enabled = true
+port = 65444
+
+[analytics]
+enabled = false
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/reset-password"]
