@@ -1,4 +1,4 @@
-export type SyncStatus = "PENDING_SYNC" | "SYNCING" | "CONFIRMED" | "CONFLICT" | "RETRY";
+export type SyncStatus = "PENDING_SYNC" | "SYNCING" | "CONFIRMED" | "CONFLICT" | "RETRY" | "FAILED";
 
 export type OfflineIdentificationMethod = "qr" | "facial" | "manual";
 
@@ -76,6 +76,8 @@ export type PendingAttendanceRecord = LocalAttendanceInput & {
   syncAttempts: number;
   lastSyncAttemptAt?: string;
   lastSyncError?: string;
+  nextAttemptAt?: string;
+  leaseExpiresAt?: string;
   createdAt: string;
   updatedAt: string;
   serverAttendanceId?: string;
@@ -90,7 +92,9 @@ export type OfflineStatus = {
   pendingCount: number;
   retryCount: number;
   conflictCount: number;
+  failedCount: number;
   syncingCount: number;
+  nextAttemptAt?: string;
   lastSuccessfulSyncAt?: string;
 };
 
@@ -99,6 +103,9 @@ export type LocalAttendanceResult = {
   action: "checked_in" | "checked_out" | "already_recorded";
   safeMessage: string;
 };
+
+export type SyncClaim = { owner: string; records: PendingAttendanceRecord[] };
+export type SyncFailureDisposition = "RETRY" | "CONFLICT" | "FAILED";
 
 export type CleanupResult = { cleaned: boolean; message: string };
 export type ScannerStation = { id: string; name: string; joinedAt: string; lastSeenAt: string; lastScanAt?: string };
@@ -119,9 +126,10 @@ export interface PLPassDesktopApi {
   identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   listPending(eventId?: string): Promise<PendingAttendanceRecord[]>;
-  beginSync(limit: number): Promise<PendingAttendanceRecord[]>;
-  confirmSync(localAttendanceUuid: string, serverAttendanceId: string): Promise<void>;
-  failSync(localAttendanceUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
+  beginSync(limit: number): Promise<SyncClaim | null>;
+  finishSync(owner: string): Promise<void>;
+  confirmSync(localAttendanceUuid: string, serverAttendanceId: string, owner: string): Promise<void>;
+  failSync(localAttendanceUuid: string, status: SyncFailureDisposition, safeError: string, owner: string): Promise<void>;
   recoverInterruptedSync(): Promise<number>;
   cleanupEvent(eventId: string, serverVerified: boolean, eventCompleted: boolean): Promise<CleanupResult>;
   startScannerStations(eventId: string, sessionId: string, capturePhase?: AttendanceCapturePhase): Promise<ScannerCoordinatorStatus>;

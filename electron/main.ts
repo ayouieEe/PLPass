@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
 import { isAutoSyncEnabled, isForceLocalAttendanceEnabled } from "../src/features/offline/autoSyncConfig.js";
@@ -13,6 +14,11 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
 let facialService: ChildProcess | undefined;
+let activeSyncBatch: { owner: string; expiresAt: number } | undefined;
+
+// One Electron process owns a SQLite outbox. A second process could otherwise
+// race the same pending records despite WAL's transactional protections.
+if (!app.requestSingleInstanceLock()) app.quit();
 
 const workspaceRoot = path.resolve(directory, "..", "..");
 const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
@@ -22,6 +28,18 @@ const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:
 // remain available, and pending SQLite rows are never deleted by this flag.
 const autoSyncEnabled = isAutoSyncEnabled(process.env.PLPASS_AUTO_SYNC_ENABLED);
 const forceLocalAttendance = isForceLocalAttendanceEnabled(process.env.PLPASS_FORCE_LOCAL_ATTENDANCE);
+
+function claimSyncBatch(limit: number) {
+  const now = Date.now();
+  if (activeSyncBatch && activeSyncBatch.expiresAt > now) return null;
+  const claim = store.beginSync(limit, randomUUID(), new Date(now));
+  activeSyncBatch = claim.records.length ? { owner: claim.owner, expiresAt: now + 5 * 60_000 } : undefined;
+  return claim;
+}
+
+function finishSyncBatch(owner: string) {
+  if (activeSyncBatch?.owner === owner) activeSyncBatch = undefined;
+}
 
 async function facialServiceReady() {
   try {
@@ -139,8 +157,8 @@ function registerHandlers() {
     "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:activateSession": (input) => store.activatePreparedSession(input), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
-    "offline:listPending": (eventId) => store.listPending(eventId), "offline:beginSync": (limit) => store.beginSync(limit),
-    "offline:confirmSync": (uuid, serverId) => store.confirmSync(uuid, serverId), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
+    "offline:listPending": (eventId) => store.listPending(eventId), "offline:beginSync": (limit) => claimSyncBatch(limit), "offline:finishSync": (owner) => finishSyncBatch(owner),
+    "offline:confirmSync": (uuid, serverId, owner) => store.confirmSync(uuid, serverId, owner), "offline:failSync": (uuid,status,error,owner) => store.failSync(uuid,status,error,owner),
     "offline:recover": () => store.recoverInterruptedSync(), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
   };
   handlers["scanner:start"] = (eventId, sessionId, phase) => scannerCoordinator.start(eventId, sessionId, phase);

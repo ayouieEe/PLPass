@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopApi, confirmSupabaseConnectivity, getOfflineRuntimeConfig, prepareEventForOffline, synchronizePendingAttendance } from "./offlineService";
 import type { OfflineStatus, PendingAttendanceRecord, PreparedEventPackage } from "./types";
 
-const unavailable: OfflineStatus={runtimeAvailable:false,connectivity:"checking",packageStatus:"NOT_PREPARED",pendingCount:0,retryCount:0,conflictCount:0,syncingCount:0};
+const unavailable: OfflineStatus={runtimeAvailable:false,connectivity:"checking",packageStatus:"NOT_PREPARED",pendingCount:0,retryCount:0,conflictCount:0,failedCount:0,syncingCount:0};
 
 export function useOfflineEvent(eventId?:string,sessionId?:string){
   const [status,setStatus]=useState<OfflineStatus>(unavailable); const [busy,setBusy]=useState(false);

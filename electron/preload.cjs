@@ -15,8 +15,9 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   listPending: (eventId) => ipcRenderer.invoke("offline:listPending", eventId),
   beginSync: (limit) => ipcRenderer.invoke("offline:beginSync", limit),
-  confirmSync: (uuid, id) => ipcRenderer.invoke("offline:confirmSync", uuid, id),
-  failSync: (uuid, status, error) => ipcRenderer.invoke("offline:failSync", uuid, status, error),
+  finishSync: (owner) => ipcRenderer.invoke("offline:finishSync", owner),
+  confirmSync: (uuid, id, owner) => ipcRenderer.invoke("offline:confirmSync", uuid, id, owner),
+  failSync: (uuid, status, error, owner) => ipcRenderer.invoke("offline:failSync", uuid, status, error, owner),
   recoverInterruptedSync: () => ipcRenderer.invoke("offline:recover"),
   cleanupEvent: (eventId, verified, completed) => ipcRenderer.invoke("offline:cleanup", eventId, verified, completed)
   ,startScannerStations: (eventId, sessionId, phase) => ipcRenderer.invoke("scanner:start", eventId, sessionId, phase)

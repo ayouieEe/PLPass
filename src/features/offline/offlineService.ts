@@ -1,6 +1,6 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
-import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineRuntimeConfig, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
+import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineRuntimeConfig, OfflineStatus, PreparedEventPackage, PreparedEventParticipant, SyncFailureDisposition } from "./types";
 
 export function desktopApi() { return window.plpassDesktop; }
 
@@ -69,30 +69,36 @@ export async function recordOfflineAttendance(input: LocalAttendanceInput): Prom
   return api.recordAttendance(input);
 }
 
-function safeSyncError(error: unknown) { return error && typeof error === "object" && "code" in error && String(error.code) === "40001" ? "The central record differs from the offline record." : "Synchronization could not be confirmed; the local record was retained."; }
+export function classifySyncError(error: unknown): { disposition: SyncFailureDisposition; message: string } {
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  if (code === "40001" || code === "23505") return { disposition: "CONFLICT", message: "The central record differs from the offline record and requires operator review." };
+  if (["42501", "28000", "PGRST301"].includes(code)) return { disposition: "FAILED", message: "Synchronization is not authorized and requires operator review." };
+  return { disposition: "RETRY", message: "Synchronization could not be confirmed; the local record was retained." };
+}
 
 export async function synchronizePendingAttendance(batchSize=20): Promise<{confirmed:number;failed:number}> {
   const api=desktopApi(); if(!api || !(await confirmSupabaseConnectivity())) return {confirmed:0,failed:0};
   await api.recoverInterruptedSync();
-  const records=await api.beginSync(batchSize); let confirmed=0,failed=0;
-  for(const record of records){
+  const claim=await api.beginSync(batchSize); if(!claim) return {confirmed:0,failed:0};
+  const { owner, records }=claim; let confirmed=0,failed=0;
+  try { for(const record of records){
     try {
       const client=getSupabaseBrowserClient();
       const {data,error}=await client.rpc("sync_offline_event_attendance",{p_local_attendance_uuid:record.localAttendanceUuid,p_session_id:record.sessionId,p_student_id:record.studentId,p_identification_method:record.identificationMethod,p_attendance_status:record.attendanceStatus,p_time_in:record.timeIn,...(record.timeOut?{p_time_out:record.timeOut}:{}),...(record.checkoutIdentificationMethod?{p_checkout_identification_method:record.checkoutIdentificationMethod}:{}),...(record.remarks?{p_remarks:record.remarks}:{}),...(record.lateReason?{p_late_reason:record.lateReason}:{})});
       if(error) throw error;
       const row=data as {id?:string;local_attendance_uuid?:string|null}|null;
       if(!row?.id || row.local_attendance_uuid!==record.localAttendanceUuid) throw new Error("Server confirmation did not match the local record.");
-      await api.confirmSync(record.localAttendanceUuid,row.id); confirmed+=1;
+      await api.confirmSync(record.localAttendanceUuid,row.id,owner); confirmed+=1;
     } catch(error) {
       // The request may have committed before its response was lost. Verify by UUID before retaining for retry.
       try {
         const {data}=await getSupabaseBrowserClient().from("attendance_records").select("id, local_attendance_uuid").eq("local_attendance_uuid",record.localAttendanceUuid).maybeSingle();
-        if(data?.id && data.local_attendance_uuid===record.localAttendanceUuid){ await api.confirmSync(record.localAttendanceUuid,data.id); confirmed+=1; continue; }
+        if(data?.id && data.local_attendance_uuid===record.localAttendanceUuid){ await api.confirmSync(record.localAttendanceUuid,data.id,owner); confirmed+=1; continue; }
       } catch { /* Retain locally below. */ }
-      const code=error && typeof error==="object" && "code" in error ? String(error.code) : "";
-      await api.failSync(record.localAttendanceUuid,code==="23505"||code==="40001"?"CONFLICT":"RETRY",safeSyncError(error)); failed+=1;
+      const failure=classifySyncError(error);
+      await api.failSync(record.localAttendanceUuid,failure.disposition,failure.message,owner); failed+=1;
     }
-  }
+  }} finally { await api.finishSync(owner); }
   return {confirmed,failed};
 }
 
