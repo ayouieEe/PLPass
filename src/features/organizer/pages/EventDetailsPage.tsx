@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, ChevronDown, ClipboardList, Download, FileText, FileUp, Link2, Play, Plus, Search, Users } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock3, Download, FileText, FileUp, Link2, MapPin, Play, Plus, Search, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -809,8 +809,8 @@ export function EventDetailsPage() {
   return (
     <OrganizerFrame>
       <PageHeader
-        title={eventLabel(event)}
-        description="Review event details, participants, and attendance sessions."
+        title={event.title}
+        description="Manage this event, prepare attendance, and review participation."
         actions={canChangeEvent ? (
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
@@ -835,22 +835,58 @@ export function EventDetailsPage() {
         ) : undefined}
       />
 
+      <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-5 shadow-sm md:p-6" aria-label="Event at a glance">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold tracking-wide text-primary">{event.code}</span>
+              <StatusBadge label={event.status} tone={statusTone(event.status)} />
+            </div>
+            <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground">Ready to manage your event</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Use the controls below to prepare attendees, share resources, and start attendance when the event begins.</p>
+          </div>
+          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 lg:min-w-[34rem]">
+            <div className="rounded-xl border border-primary/10 bg-surface/80 p-3">
+              <dt className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><CalendarDays className="h-4 w-4 text-primary" aria-hidden="true" />Date</dt>
+              <dd className="mt-2 font-semibold text-foreground">{formatDate(event.startsAt)}</dd>
+            </div>
+            <div className="rounded-xl border border-primary/10 bg-surface/80 p-3">
+              <dt className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Clock3 className="h-4 w-4 text-primary" aria-hidden="true" />Time</dt>
+              <dd className="mt-2 font-semibold text-foreground">{formatTime(event.startsAt)} – {formatTime(event.endsAt)}</dd>
+            </div>
+            <div className="rounded-xl border border-primary/10 bg-surface/80 p-3">
+              <dt className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><MapPin className="h-4 w-4 text-primary" aria-hidden="true" />Venue</dt>
+              <dd className="mt-2 truncate font-semibold text-foreground" title={event.venue}>{event.venue}</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
       <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
       {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
       
       {/* Event Overview Stats */}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Total participants" value={String(participants.length)} icon={Users} />
-        <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} />
-        <StatCard title="Average participation" value={hasCompletedSession ? `${attendanceRate(records)}%` : "N/A"} icon={BarChart3} />
-        <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} />
+      <section aria-labelledby="event-summary-heading">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <h2 id="event-summary-heading" className="text-base font-semibold text-foreground">Event summary</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">A quick view of attendance readiness and participation.</p>
+          </div>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <StatCard title="Total participants" value={String(participants.length)} icon={Users} className="rounded-xl" />
+          <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} className="rounded-xl" />
+          <StatCard title="Average participation" value={hasCompletedSession ? `${attendanceRate(records)}%` : "N/A"} icon={BarChart3} className="rounded-xl" />
+          <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} className="rounded-xl" />
+        </div>
       </section>
 
       {/* Event Details Card */}
-      <section className="rounded-lg border bg-surface p-5 shadow-sm">
+      <section className="rounded-xl border bg-surface p-5 shadow-sm md:p-6">
         <div className="grid gap-5 lg:grid-cols-2">
           <div>
-            <h3 className="font-semibold text-foreground">Event Information</h3>
+            <h3 className="text-base font-semibold text-foreground">Event information</h3>
+            <p className="mt-1 text-sm text-muted-foreground">The details participants will use to identify this event.</p>
             <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-medium text-muted-foreground uppercase">Event Code</dt>
@@ -871,7 +907,8 @@ export function EventDetailsPage() {
             </dl>
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Schedule</h3>
+            <h3 className="text-base font-semibold text-foreground">Schedule</h3>
+            <p className="mt-1 text-sm text-muted-foreground">The planned time and expected attendance size.</p>
             <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-medium text-muted-foreground uppercase">Date</dt>
