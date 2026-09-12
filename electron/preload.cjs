@@ -12,7 +12,7 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture),
   recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   listPending: (eventId) => ipcRenderer.invoke("offline:listPending", eventId),
-  beginSync: (limit) => ipcRenderer.invoke("offline:beginSync", limit),
+  beginSync: (limit, forceRetry) => ipcRenderer.invoke("offline:beginSync", limit, forceRetry),
   confirmSync: (uuid, id) => ipcRenderer.invoke("offline:confirmSync", uuid, id),
   failSync: (uuid, status, error) => ipcRenderer.invoke("offline:failSync", uuid, status, error),
   recoverInterruptedSync: () => ipcRenderer.invoke("offline:recover"),

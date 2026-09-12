@@ -65,6 +65,7 @@ export type PendingAttendanceRecord = LocalAttendanceInput & {
   syncAttempts: number;
   lastSyncAttemptAt?: string;
   lastSyncError?: string;
+  nextAttemptAt?: string;
   createdAt: string;
   updatedAt: string;
   serverAttendanceId?: string;
@@ -81,6 +82,7 @@ export type OfflineStatus = {
   conflictCount: number;
   syncingCount: number;
   lastSuccessfulSyncAt?: string;
+  nextAttemptAt?: string;
 };
 
 export type LocalAttendanceResult = {
@@ -105,7 +107,7 @@ export interface PLPassDesktopApi {
   identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   listPending(eventId?: string): Promise<PendingAttendanceRecord[]>;
-  beginSync(limit: number): Promise<PendingAttendanceRecord[]>;
+  beginSync(limit: number, forceRetry?: boolean): Promise<PendingAttendanceRecord[]>;
   confirmSync(localAttendanceUuid: string, serverAttendanceId: string): Promise<void>;
   failSync(localAttendanceUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   recoverInterruptedSync(): Promise<number>;

@@ -46,6 +46,13 @@ export const localMigrations = [
       CREATE INDEX pending_attendance_session_student_idx ON pending_attendance(session_id, student_id);
       CREATE INDEX pending_attendance_sync_idx ON pending_attendance(sync_status, updated_at);
     `
+  },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE pending_attendance ADD COLUMN next_attempt_at TEXT;
+      CREATE INDEX pending_attendance_due_sync_idx ON pending_attendance(sync_status, next_attempt_at, created_at);
+    `
   }
 ] as const;
 

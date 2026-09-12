@@ -53,13 +53,26 @@ export async function recordOfflineAttendance(input: LocalAttendanceInput): Prom
   return api.recordAttendance(input);
 }
 
-function safeSyncError(error: unknown) { return error && typeof error === "object" && "code" in error && String(error.code) === "40001" ? "The central record differs from the offline record." : "Synchronization could not be confirmed; the local record was retained."; }
+function errorCode(error: unknown) { return error && typeof error === "object" && "code" in error ? String(error.code) : ""; }
+function errorText(error: unknown) { return error && typeof error === "object" && "message" in error ? String(error.message) : String(error ?? ""); }
+function safeSyncError(error: unknown) { return errorCode(error) === "40001" && /central attendance record conflicts|central record differs/i.test(errorText(error)) ? "The central record differs from the offline record." : "Synchronization was temporarily unavailable; the local record was retained for retry."; }
+function syncFailureStatus(error: unknown): "RETRY" | "CONFLICT" { const code=errorCode(error); const text=errorText(error); const transientSerialization=code === "40001" && /could not serialize|serialization failure|deadlock|lock timeout/i.test(text); return code === "23505" || (code === "40001" && !transientSerialization) ? "CONFLICT" : "RETRY"; }
 
-export async function synchronizePendingAttendance(batchSize=20): Promise<{confirmed:number;failed:number}> {
+let activeSync: Promise<{confirmed:number;failed:number}> | null = null;
+
+export async function synchronizePendingAttendance(batchSize=20, forceRetry=false): Promise<{confirmed:number;failed:number}> {
+  if (activeSync) return activeSync;
+  activeSync = synchronizePendingAttendanceOnce(batchSize, forceRetry);
+  try { return await activeSync; } finally { activeSync = null; }
+}
+
+async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: boolean): Promise<{confirmed:number;failed:number}> {
   const api=desktopApi(); if(!api || !(await confirmSupabaseConnectivity())) return {confirmed:0,failed:0};
   await api.recoverInterruptedSync();
-  const records=await api.beginSync(batchSize); let confirmed=0,failed=0;
+  const records=await api.beginSync(batchSize, forceRetry); const inFlight=new Set<string>(); let confirmed=0,failed=0;
   for(const record of records){
+    if (inFlight.has(record.localAttendanceUuid)) continue;
+    inFlight.add(record.localAttendanceUuid);
     try {
       const client=getSupabaseBrowserClient();
       const {data,error}=await client.rpc("sync_offline_event_attendance",{p_local_attendance_uuid:record.localAttendanceUuid,p_session_id:record.sessionId,p_student_id:record.studentId,p_identification_method:record.identificationMethod,p_attendance_status:record.attendanceStatus,p_time_in:record.timeIn,...(record.timeOut?{p_time_out:record.timeOut}:{}),...(record.checkoutIdentificationMethod?{p_checkout_identification_method:record.checkoutIdentificationMethod}:{}),...(record.remarks?{p_remarks:record.remarks}:{}),...(record.lateReason?{p_late_reason:record.lateReason}:{})});
@@ -73,8 +86,7 @@ export async function synchronizePendingAttendance(batchSize=20): Promise<{confi
         const {data}=await getSupabaseBrowserClient().from("attendance_records").select("id, local_attendance_uuid").eq("local_attendance_uuid",record.localAttendanceUuid).maybeSingle();
         if(data?.id && data.local_attendance_uuid===record.localAttendanceUuid){ await api.confirmSync(record.localAttendanceUuid,data.id); confirmed+=1; continue; }
       } catch { /* Retain locally below. */ }
-      const code=error && typeof error==="object" && "code" in error ? String(error.code) : "";
-      await api.failSync(record.localAttendanceUuid,code==="23505"||code==="40001"?"CONFLICT":"RETRY",safeSyncError(error)); failed+=1;
+      await api.failSync(record.localAttendanceUuid,syncFailureStatus(error),safeSyncError(error)); failed+=1;
     }
   }
   return {confirmed,failed};
