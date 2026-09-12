@@ -2,8 +2,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarClock, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { AlertTriangle, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { useHeader } from "@/app/providers/HeaderContext";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
@@ -520,6 +521,7 @@ export function EventManagementPage() {
     [location.search]
   );
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
+  const { setHeaderOverride } = useHeader();
   const [uiState, setUiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
@@ -1094,6 +1096,13 @@ export function EventManagementPage() {
   }, [activeTab, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
   const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
   const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
+
+  useEffect(() => {
+    setHeaderOverride({
+      title: "Organizer Workspace",
+      description: undefined
+    });
+  }, [setHeaderOverride]);
 
   useEffect(() => {
     if (selectedEventForSession && !selectedEvents.some((event) => event.code === selectedEventForSession.code)) {
@@ -1861,21 +1870,47 @@ export function EventManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Management</h1>
-        <p className="text-sm text-muted-foreground">Manage ongoing and upcoming events, track real-time attendance, and handle offline setups.</p>
-      </div>
+      <PageHeader
+        title="Events"
+        description="Find an event, prepare attendance, or open a live session."
+        actions={
+          <Button asChild>
+            <NavLink to={APP_ROUTES.organizerCreateEvent}>
+              <span className="text-lg leading-none" aria-hidden="true">+</span>
+              Create event
+            </NavLink>
+          </Button>
+        }
+      />
 
-      <div className="rounded-lg border bg-surface p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-              <Filter className="h-3 w-3" aria-hidden="true" />
-              {activeEvent ? 1 : storeEvents.length} results
+      <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-widest text-primary">Your event workspace</p>
+            <p className="mt-1 text-sm text-muted-foreground">Plan and track scheduled events.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
+              {conflictsByCode.size ? `${conflictsByCode.size} events need scheduling` : "No schedule conflicts"}
+            </span>
+            <span className="flex shrink-0 items-center gap-2 rounded-xl border border-primary/10 bg-surface/80 px-4 py-2.5 text-sm">
+            <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
+            <span className="font-semibold text-foreground">{activeTab === "today" ? todayEvents.length : incomingEvents.length}</span>
+            <span className="text-muted-foreground">events</span>
             </span>
           </div>
         </div>
-      </div>
+        <div className="mt-4 grid w-full grid-cols-2 gap-1 rounded-xl border border-primary/10 bg-background p-1" role="tablist" aria-label="Event schedule">
+          <button type="button" role="tab" aria-selected={activeTab === "today"} onClick={() => { setActiveTab("today"); setSelectedEventForSession(null); }} className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === "today" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}>
+            <span className="font-semibold">Today</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "today" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{todayEvents.length}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === "incoming"} onClick={() => { setActiveTab("incoming"); setSelectedEventForSession(null); }} className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === "incoming" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}>
+            <span className="font-semibold">Incoming</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "incoming" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{incomingEvents.length}</span>
+          </button>
+        </div>
+      </section>
 
       {activeEvent ? (
         // The original Live Session workspace stays inside Event Management.
@@ -2119,71 +2154,9 @@ export function EventManagementPage() {
         </>
       ) : (
         <>
-          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Event schedule overview">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3 border-l-2 border-primary pl-3">
-                <div className="grid h-8 w-8 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
-                  <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-primary">Event schedule</p>
-                  <h2 className="text-sm font-bold text-foreground">Schedule</h2>
-                </div>
-              </div>
-              <span className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
-                {conflictsByCode.size ? `${conflictsByCode.size} events need scheduling` : "No schedule conflicts"}
-              </span>
-            </div>
-            <div className="mt-3">
-              <label className="relative block w-full" htmlFor="event-record-search">
-                <span className="sr-only">Search events</span>
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <input id="event-record-search" className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by code, name, venue, or category..." value={search} onChange={(event) => setSearch(event.target.value)} />
-              </label>
-            </div>
-            <div className="mt-3 flex items-center">
-              <div className="inline-flex w-fit items-center rounded-lg border bg-background p-1" role="tablist" aria-label="Event schedule">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "today"}
-                onClick={() => {
-                  setActiveTab("today");
-                  setSelectedEventForSession(null);
-                }}
-                className={`inline-flex items-center gap-2.5 rounded-md px-4 py-1.5 text-sm font-medium ${
-                  activeTab === "today" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
-                }`}
-              >
-                <span className="text-sm font-semibold">Today</span>
-                <span className={`rounded-full ${activeTab === "today" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"} px-2 py-0.5 text-xs font-semibold`}>
-                  {todayEvents.length}
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "incoming"}
-                onClick={() => {
-                  setActiveTab("incoming");
-                  setSelectedEventForSession(null);
-                }}
-                className={`inline-flex items-center gap-2.5 rounded-md px-4 py-1.5 text-sm font-medium ${
-                  activeTab === "incoming" ? "bg-emerald-700 text-white shadow" : "text-muted-foreground"
-                }`}
-              >
-                <span className="text-sm font-semibold">Incoming</span>
-                <span className={`rounded-full ${activeTab === "incoming" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"} px-2 py-0.5 text-xs font-semibold`}>
-                  {incomingEvents.length}
-                </span>
-              </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-lg border bg-surface p-3 shadow-sm" aria-label="Refine event list">
+          <section className="rounded-xl border bg-surface p-4 shadow-sm md:p-5" aria-label="Refine event list">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-foreground">Filters</h2>
+              <div><h2 className="text-base font-semibold text-foreground">Refine your list</h2><p className="mt-0.5 text-sm text-muted-foreground">Narrow events by date, venue, category, or priority.</p></div>
               {hasEventFilters ? <Button
                 type="button"
                 size="sm"
@@ -2193,7 +2166,14 @@ export function EventManagementPage() {
                 Clear filters
               </Button> : null}
             </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-4">
+              <label className="relative block w-full" htmlFor="event-record-search">
+                <span className="sr-only">Search events</span>
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input id="event-record-search" className="h-11 w-full rounded-lg border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search by code, name, venue, or category..." value={search} onChange={(event) => setSearch(event.target.value)} />
+              </label>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               <div className="grid gap-3 sm:grid-cols-2 xl:col-span-2">
                 <label className="space-y-1 text-xs font-medium text-muted-foreground">
                   <span>From date</span>

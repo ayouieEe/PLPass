@@ -66,7 +66,7 @@ export function DashboardLayout({
   const unreadCount = useNotificationUnreadCount(notificationContext);
   
   const routeMeta = useMemo(() => getRouteHeaderMeta(location.pathname, role), [location.pathname, role]);
-  const currentTitle = title ?? headerOverride.title ?? routeMeta.title;
+  const currentTitle = title ?? (role === "organizer" ? "Organizer Workspace" : headerOverride.title ?? routeMeta.title);
   const currentDescription = description ?? headerOverride.description ?? routeMeta.description ?? "PLPass authenticated workspace";
   const currentPrimaryAction = primaryAction ?? headerOverride.primaryAction;
   const routeAnnouncement = typeof location.state === "object" && location.state && "announcement" in location.state

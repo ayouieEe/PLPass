@@ -8,10 +8,8 @@ import {
   CheckCircle2,
   ClipboardList,
   Download,
-  Eye,
   FileSpreadsheet,
   FileText,
-  Filter,
   GraduationCap,
   History,
   IdCard,
@@ -134,13 +132,13 @@ function MetricCard({
   icon: LucideIcon;
 }) {
   return (
-    <article className="rounded-lg border bg-surface p-4 shadow-sm">
+    <article className="rounded-xl border bg-surface p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
           <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
         </div>
-        <span className="grid h-9 w-9 place-items-center rounded-md border border-primary/15 bg-primary/5 text-primary">
+        <span className="grid h-9 w-9 place-items-center rounded-lg border border-primary/15 bg-primary/5 text-primary">
           <Icon className="h-4 w-4" aria-hidden="true" />
         </span>
       </div>
@@ -188,7 +186,7 @@ function DetailTile({
   children: ReactNode;
 }) {
   return (
-    <div className="rounded-md border bg-surface p-3">
+    <div className="rounded-xl border bg-surface p-3.5">
       <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
       <div className="mt-2 text-sm font-medium text-foreground">{children}</div>
     </div>
@@ -205,7 +203,7 @@ function ProfileCardTile({
   colSpan?: string;
 }) {
   return (
-    <div className={`rounded-md border bg-surface p-3 ${colSpan}`}>
+    <div className={`rounded-xl border bg-surface p-3.5 ${colSpan}`}>
       <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
       <div className="mt-1.5 text-sm font-medium text-foreground">{children}</div>
     </div>
@@ -215,16 +213,12 @@ function ProfileCardTile({
 function StudentDetailModal({
   student,
   onClose,
-  onRegenerateQr,
-  onMarkFacialReady,
   onApproveCorrection,
   onRejectCorrection,
   onEdit
 }: {
   student: StudentAccount | undefined;
   onClose: () => void;
-  onRegenerateQr: (studentId: string) => void;
-  onMarkFacialReady: (studentId: string) => void;
   onApproveCorrection: (requestId: string) => void;
   onRejectCorrection: (requestId: string) => void;
   onEdit?: (studentId: string) => void;
@@ -232,6 +226,8 @@ function StudentDetailModal({
   if (!student) {
     return null;
   }
+  const initials = student.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  const attendanceRate = student.attendanceRate ?? null;
 
   // Rendered via a portal directly into document.body so the overlay's
   // z-[9999] is evaluated in the root stacking context. Without this, a
@@ -239,24 +235,26 @@ function StudentDetailModal({
   // wrapper) can trap the modal in a local stacking context, letting a
   // sticky/fixed topbar render on top of it and show through as a white bar.
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-700/40 p-6">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-700/40 p-6" onClick={onClose}>
       <section
-        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-lg border bg-white shadow-xl"
+        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-2xl border bg-white shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="student-detail-title"
+        onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b border-primary/10 bg-white px-5 py-4">
+        <div className="border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-primary">Student Account Details</p>
-              <h2 id="student-detail-title" className="mt-1 text-2xl font-semibold text-foreground">
-                {student.name}
-              </h2>
-              <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="font-mono text-xs">{student.studentId}</span>
-                <span>•</span>
-                <span>{student.program} {student.yearLevel}-{student.section}</span>
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-sm">{initials}</span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p>
+                <h2 id="student-detail-title" className="mt-0.5 truncate text-2xl font-semibold text-foreground">{student.name}</h2>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                  <span className="font-mono text-xs">{student.studentId}</span>
+                  <span aria-hidden="true">•</span>
+                  <span>{student.program} · Year {student.yearLevel} · Section {student.section}</span>
+                </div>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -282,16 +280,16 @@ function StudentDetailModal({
           </div>
         </div>
 
-        <div className="max-h-[calc(86vh-97px)] overflow-y-auto bg-white px-6 pb-10 pt-6">
+        <div className="max-h-[calc(86vh-97px)] overflow-y-auto bg-muted/20 px-5 pb-8 pt-5 sm:px-6 sm:pt-6">
           <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <DetailTile label="Account status">
               <StatusBadge value={student.status} />
             </DetailTile>
             <DetailTile label="Attendance rate">
               <div className="flex items-center gap-3">
-                <span>{student.attendanceRate}%</span>
+                <span>{attendanceRate === null ? "N/A" : `${attendanceRate}%`}</span>
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full bg-primary" style={{ width: `${student.attendanceRate}%` }} />
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${attendanceRate ?? 0}%` }} />
                 </div>
               </div>
             </DetailTile>
@@ -322,37 +320,38 @@ function StudentDetailModal({
                   <History className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
                   <h3 className="font-semibold text-foreground">Full Participation History</h3>
                 </div>
-                <div className="mt-4 overflow-hidden rounded-md border bg-surface">
-                  <table className="w-full text-left text-sm">
-                    <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Event</th>
-                        <th className="px-3 py-2 font-medium">Date</th>
-                        <th className="px-3 py-2 font-medium">Method</th>
-                        <th className="px-3 py-2 text-right font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {student.participationHistory.map((record) => (
-                        <tr key={`${record.eventCode}-${record.date}`}>
-                          <td className="px-3 py-3">
-                            <p className="font-medium text-foreground">{record.eventCode}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{record.eventTitle}</p>
-                          </td>
-                          <td className="px-3 py-3 text-muted-foreground">{formatDate(record.date)}</td>
-                          <td className="px-3 py-3">
-                            <span className="rounded-md border bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
-                              {record.method}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            <StatusBadge value={record.status} />
-                          </td>
+                {student.participationHistory.length ? (
+                  <div className="mt-4 overflow-hidden rounded-xl border bg-surface">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Event</th>
+                          <th className="px-3 py-2 font-medium">Date</th>
+                          <th className="px-3 py-2 font-medium">Method</th>
+                          <th className="px-3 py-2 text-right font-medium">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y">
+                        {student.participationHistory.map((record) => (
+                          <tr key={`${record.eventCode}-${record.date}`}>
+                            <td className="px-3 py-3">
+                              <p className="font-medium text-foreground">{record.eventCode}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{record.eventTitle}</p>
+                            </td>
+                            <td className="px-3 py-3 text-muted-foreground">{formatDate(record.date)}</td>
+                            <td className="px-3 py-3"><span className="rounded-md border bg-background px-2 py-1 text-xs font-medium text-muted-foreground">{record.method}</span></td>
+                            <td className="px-3 py-3 text-right"><StatusBadge value={record.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="mt-4 flex min-h-28 items-center gap-3 rounded-xl border border-dashed bg-surface px-4 text-sm text-muted-foreground">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><History className="h-4 w-4" aria-hidden="true" /></span>
+                    <div><p className="font-medium text-foreground">No participation history yet</p><p className="mt-0.5">Attendance from completed events will appear here.</p></div>
+                  </div>
+                )}
               </section>
             </div>
 
@@ -362,28 +361,14 @@ function StudentDetailModal({
                   <ShieldCheck className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
                   <h3 className="font-semibold text-foreground">Credential Status</h3>
                 </div>
-                <div className="mt-4 grid gap-3">
-                  <div className="rounded-md border bg-surface p-3">
-                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">QR Credential</p>
+                <div className="mt-4 divide-y overflow-hidden rounded-xl border bg-surface">
+                  <div className="flex items-center justify-between gap-4 p-4">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">QR Credential</p>
                     <StatusBadge value={student.qrStatus} />
-                    <button
-                      type="button"
-                      onClick={() => onRegenerateQr(student.id)}
-                      className="mt-3 h-8 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-muted"
-                    >
-                      Regenerate QR
-                    </button>
                   </div>
-                  <div className="rounded-md border bg-surface p-3">
-                    <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Facial Credential</p>
+                  <div className="flex items-center justify-between gap-4 p-4">
+                    <p className="text-xs font-medium uppercase text-muted-foreground">Facial Credential</p>
                     <StatusBadge value={student.facialStatus} />
-                    <button
-                      type="button"
-                      onClick={() => onMarkFacialReady(student.id)}
-                      className="mt-3 h-8 rounded-md border bg-background px-3 text-xs font-semibold text-foreground transition hover:bg-muted"
-                    >
-                      Activate Facial Credential
-                    </button>
                   </div>
                 </div>
               </section>
@@ -571,12 +556,13 @@ function ReportExportModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={onClose}>
       <section
         className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all"
         role="dialog"
         aria-modal="true"
         aria-labelledby="export-modal-title"
+        onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
         <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
@@ -855,15 +841,18 @@ function AddStudentModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-bold text-foreground">Add Student Manually</h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UserPlus className="h-5 w-5" aria-hidden="true" /></span>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Add student</h2></div>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close add student modal">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 bg-muted/20 p-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
@@ -995,15 +984,18 @@ function EditStudentModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-bold text-foreground">Edit Student Information</h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Edit className="h-5 w-5" aria-hidden="true" /></span>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Edit student</h2></div>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close edit student modal">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4 bg-muted/20 p-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
@@ -1132,16 +1124,19 @@ function BulkAddStudentModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl overflow-hidden p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-foreground">Bulk Import Students</h2>
-          <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UploadCloud className="h-5 w-5" aria-hidden="true" /></span>
+            <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student accounts</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Bulk import</h2></div>
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close bulk import modal">
             <X className="h-5 w-5" />
           </button>
         </div>
-        
-        <div className="mb-6 rounded-md bg-slate-50 border p-4 text-sm text-slate-600">
+        <div className="space-y-6 bg-muted/20 p-6">
+        <div className="rounded-xl border bg-white p-4 text-sm text-slate-600">
           <p className="mb-3 font-semibold">Instructions:</p>
           <ol className="list-decimal pl-4 space-y-1">
             <li>Download the template file.</li>
@@ -1166,6 +1161,7 @@ function BulkAddStudentModal({
             <span className="text-sm font-medium text-slate-600">{isLoading ? "Processing..." : "Click to select CSV file"}</span>
             <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={isLoading} />
           </label>
+        </div>
         </div>
       </div>
     </div>,
@@ -1405,29 +1401,6 @@ export function OrganizerUserManagementPage() {
         valueGetter: ({ data }) => data?.correctionRequests.length ?? 0,
         valueFormatter: ({ value }) => `${value ?? 0} filed`
       },
-      {
-        headerName: "Actions",
-        colId: "viewMore",
-        minWidth: 145,
-        maxWidth: 160,
-        pinned: "right",
-        sortable: false,
-        filter: false,
-        cellRenderer: ({ data }: ICellRendererParams<StudentAccount>) =>
-          data ? (
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedStudentId(data.id);
-                setIsStudentModalOpen(true);
-              }}
-              className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted"
-            >
-              <Eye className="h-4 w-4" aria-hidden="true" />
-              View More
-            </button>
-          ) : null
-      }
     ],
     []
   );
@@ -1439,14 +1412,23 @@ export function OrganizerUserManagementPage() {
         <p className="text-sm text-muted-foreground">Manage student accounts, track participation, and handle requests.</p>
       </div>
 
-      <div className="rounded-lg border bg-surface p-4 shadow-sm">
+      <section aria-label="Student account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
+        <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Active" icon={UserRoundCheck} />
+        <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Average rate" icon={BadgeCheck} />
+        <MetricCard title="Correction Requests" value={totalCorrectionRequests.toString()} detail="Filed requests" icon={ClipboardList} />
+      </section>
+
+      <div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-              <Filter className="h-3 w-3" aria-hidden="true" />
-              {filteredStudents.length} results
-            </span>
-            <div className="h-4 w-px bg-slate-200 mx-1"></div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground">Student directory</h2>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{filteredStudents.length} {filteredStudents.length === 1 ? "student" : "students"}</span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage student accounts.</p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
             <button
               type="button"
               onClick={() => setIsAddStudentModalOpen(true)}
@@ -1523,13 +1505,6 @@ export function OrganizerUserManagementPage() {
         </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
-        <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Active" icon={UserRoundCheck} />
-        <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Average rate" icon={BadgeCheck} />
-        <MetricCard title="Correction Requests" value={totalCorrectionRequests.toString()} detail="Filed requests" icon={ClipboardList} />
-      </section>
-
       <section className="space-y-4">
         {filteredStudents.length === 0 ? (
           <div className="flex min-h-[400px] flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface p-8 text-center animate-in fade-in-50">
@@ -1562,14 +1537,16 @@ export function OrganizerUserManagementPage() {
             emptyDescription="No student accounts match the current search and filters."
             enableColumnVisibility
             hideHeader
+            onRowClick={(student) => {
+              setSelectedStudentId(student.id);
+              setIsStudentModalOpen(true);
+            }}
           />
         )}
       </section>
       <StudentDetailModal
         student={isStudentModalOpen ? selectedStudent : undefined}
         onClose={() => setIsStudentModalOpen(false)}
-        onRegenerateQr={regenerateQrCredential}
-        onMarkFacialReady={markFacialReady}
         onApproveCorrection={approveCorrection}
         onRejectCorrection={rejectCorrection}
         onEdit={(id) => {

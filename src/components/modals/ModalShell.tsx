@@ -76,7 +76,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
   }
 
   const modal = (
-    <div className="fixed inset-0 z-[9999] grid h-dvh place-items-center bg-foreground/45 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[9999] grid h-dvh place-items-center bg-foreground/45 p-4 backdrop-blur-sm" onClick={onClose}>
       <section
         ref={dialogRef}
         className={cn(
@@ -89,6 +89,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDownCapture={handleDialogKeyDown}
+        onClick={(event) => event.stopPropagation()}
       >
         <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/80 via-primary/30 to-transparent" />
         <div className="flex shrink-0 items-start justify-between gap-4 border-b p-5">

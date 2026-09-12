@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Check, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
 import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -149,14 +149,6 @@ const TARGET_GROUP_OPTIONS = [
 ];
 
 const MIN_OBJECTIVES = 3;
-const RANKED_ATTENDANCE_FACTORS = [
-  { label: "Attendance history", importance: 92 },
-  { label: "Previous event participation", importance: 81 },
-  { label: "Year level", importance: 74 },
-  { label: "Event category", importance: 69 },
-  { label: "Venue accessibility", importance: 64 }
-];
-
 function timeToMinutes(value: string) {
   const [hoursPart = "0", minutesPart = "0"] = value.split(":");
   const hours = Number(hoursPart);
@@ -408,15 +400,17 @@ function CreateEventSectionHeader({
   title,
   description
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
 }) {
   return (
-    <div className="border-b pb-4">
-      <p className="text-xs font-medium uppercase text-primary">{eyebrow}</p>
-      <h2 className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <div className="flex items-start gap-3 border-b pb-4">
+      {eyebrow ? <span className="mt-0.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary/10 px-1.5 text-xs font-semibold text-primary">{eyebrow}</span> : null}
+      <div>
+      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+      {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+      </div>
     </div>
   );
 }
@@ -435,6 +429,7 @@ export function CreateEventPage() {
   const scope = useOrganizerScope();
   const navigate = useNavigate();
   const location = useLocation();
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [programId, setProgramId] = useState("");
   const [yearLevel, setYearLevel] = useState("");
@@ -459,6 +454,7 @@ export function CreateEventPage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const form = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchemaWithObjectives),
     defaultValues: {
@@ -595,6 +591,7 @@ export function CreateEventPage() {
   const watchedVenue = form.watch("venue");
   const watchedStartTime = form.watch("startTime");
   const watchedEndTime = form.watch("endTime");
+  const reviewValues = form.watch();
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
     return shellState;
@@ -626,6 +623,46 @@ export function CreateEventPage() {
   const allMatchingSelected = filteredStudents.length > 0 && matchingSelectedCount === filteredStudents.length;
   const someMatchingSelected = matchingSelectedCount > 0 && !allMatchingSelected;
   const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
+  const attendanceOutlookFactors = (() => {
+    if (selectedStudents.length === 0) return [];
+
+    const selectedStudentIds = new Set(selectedStudents.map((student) => student.id));
+    const historicalRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => selectedStudentIds.has(record.studentId));
+    const attendedRecords = historicalRecords.filter((record) => record.status === "present" || record.status === "late");
+    const studentsWithHistory = new Set(historicalRecords.map((record) => record.studentId));
+    const yearLevelCounts = selectedStudents.reduce((counts, student) => {
+      counts.set(student.yearLevel, (counts.get(student.yearLevel) ?? 0) + 1);
+      return counts;
+    }, new Map<number, number>());
+    const [largestYearLevel, largestYearLevelCount] = [...yearLevelCounts.entries()]
+      .sort(([, leftCount], [, rightCount]) => rightCount - leftCount)[0] ?? [0, 0];
+
+    const attendanceRate = historicalRecords.length
+      ? Math.round((attendedRecords.length / historicalRecords.length) * 100)
+      : null;
+    const participationRate = studentsWithHistory.size
+      ? Math.round((studentsWithHistory.size / selectedStudents.length) * 100)
+      : null;
+    const yearLevelShare = Math.round((largestYearLevelCount / selectedStudents.length) * 100);
+
+    return [
+      {
+        label: "Attendance history",
+        detail: attendanceRate === null ? "No history yet" : `${attendanceRate}%`,
+        value: attendanceRate
+      },
+      {
+        label: "Prior event participation",
+        detail: participationRate === null ? "No history yet" : `${participationRate}%`,
+        value: participationRate
+      },
+      {
+        label: "Largest year-level group",
+        detail: `Year ${largestYearLevel} · ${yearLevelShare}%`,
+        value: yearLevelShare
+      }
+    ];
+  })();
   const normalizedSelectedParticipantSearch = selectedParticipantSearch.trim().toLowerCase();
   const visibleSelectedStudents = selectedStudents.filter((student) => {
     if (!normalizedSelectedParticipantSearch) return true;
@@ -813,20 +850,73 @@ export function CreateEventPage() {
 
     setPendingPublish(values);
   }
+
+  async function continueToParticipants() {
+    const valid = await form.trigger([
+      "code", "title", "category", "venue", "date", "startTime", "endTime",
+      "institutionalCategory", "participationStatus", "targetGroup", "collegeOffice", "objectives"
+    ]);
+    if (!valid) return;
+    setCurrentStep(2);
+  }
+
+  function continueToReview() {
+    if (selectedIds.length === 0) {
+      setParticipantError("Select at least one participant.");
+      return;
+    }
+    setCurrentStep(3);
+  }
   return (
     <OrganizerFrame>
       <PageHeader
-        title="Create Event"
-        description="Set up an event and schedule attendance."
+        title="Create event"
+        description="Set event details, choose participants, and publish when ready."
       />
       <form className="space-y-5 lg:space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-6 rounded-xl border bg-surface p-5 shadow-sm">
+        <nav aria-label="Create event steps" className="overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-r from-surface via-surface to-primary/[0.03] px-4 py-4 shadow-sm sm:px-7">
+          <ol className="mx-auto flex max-w-4xl items-center">
+            {(["Event details", "Participants", "Review"] as const).map((label, index) => {
+              const step = (index + 1) as 1 | 2 | 3;
+              const active = currentStep === step;
+              const complete = currentStep > step;
+              return (
+                <li key={label} className={`flex min-w-0 flex-1 items-center ${index === 2 ? "flex-none" : ""}`}>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
+                        active
+                          ? "border-primary bg-primary text-primary-foreground shadow-sm ring-4 ring-primary/10"
+                          : complete
+                            ? "border-primary/20 bg-primary/10 text-primary"
+                            : "border-transparent bg-muted text-muted-foreground"
+                      }`}
+                      aria-current={active ? "step" : undefined}
+                    >
+                      {complete ? <Check className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" /> : step}
+                    </span>
+                    <span className="hidden min-w-0 sm:block">
+                      <span className={`block truncate text-sm font-semibold ${active ? "text-foreground" : complete ? "text-primary" : "text-muted-foreground"}`}>{label}</span>
+                      <span className="mt-0.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Step {step}</span>
+                    </span>
+                  </div>
+                  {index < 2 ? (
+                    <span className="relative mx-3 h-1 min-w-3 flex-1 overflow-hidden rounded-full bg-muted sm:mx-5" aria-hidden="true">
+                      <span className={`absolute inset-y-0 left-0 rounded-full bg-primary transition-all ${complete ? "w-full" : "w-0"}`} />
+                    </span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+
+        {currentStep === 1 ? <section>
+          <div className="space-y-6 rounded-xl border bg-surface p-5 shadow-sm md:p-6">
 
             <CreateEventSectionHeader
-              eyebrow="Step 1 of 3"
               title="Event Details"
-              description="Add the event schedule, classification, organizational details, and objectives."
+              description="Add the event information and schedule."
             />
 
             <section className="space-y-4">
@@ -862,9 +952,9 @@ export function CreateEventPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border bg-muted/20 p-4">
+            <section className="rounded-xl border bg-muted/20 p-4">
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
-              <p className="mt-1 text-sm text-muted-foreground">These values are generated automatically from the classification above.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Calculated from the event classification.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }); return <>
                   <PredictionMetric label="Urgency Points" value={String(ranking.urgencyPoints)} />
@@ -981,31 +1071,16 @@ export function CreateEventPage() {
                 ))}
               </div>
             </section>
-          </div>
-          <aside className="h-fit rounded-xl border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-primary">Ranked factors</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Reference information for planning the event.</p>
-            <div className="mt-4 space-y-2.5">
-              {RANKED_ATTENDANCE_FACTORS.map((factor) => (
-                <div key={factor.label} className="grid gap-1">
-                  <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
-                    <span className="min-w-0 truncate text-foreground">{factor.label}</span>
-                    <span className="font-medium text-muted-foreground">{factor.importance}%</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${factor.importance}%` }} />
-                  </div>
-                </div>
-              ))}
+            <div className="flex justify-end border-t pt-5">
+              <Button type="button" onClick={() => void continueToParticipants()}>Continue to participants</Button>
             </div>
-          </aside>
-        </section>
+          </div>
+        </section> : null}
 
-        <section className="space-y-4 rounded-xl border bg-surface p-5 shadow-sm">
+        {currentStep === 2 ? <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="space-y-4 rounded-xl border bg-surface p-5 shadow-sm md:p-6">
           <CreateEventSectionHeader
-            eyebrow="Step 2 of 3"
             title="Select Participants"
-            description="First filter the student list, then select the participants to invite."
           />
           <div className="rounded-lg border bg-background p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1019,8 +1094,8 @@ export function CreateEventPage() {
                 Clear filters
               </Button>
             </div>
-            <div className="grid gap-3 md:grid-cols-[minmax(220px,1.5fr)_repeat(3,minmax(0,1fr))]">
-              <SearchInput value={search} placeholder="Search by name or student number" onChange={setSearch} />
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              <div className="lg:col-span-3"><SearchInput value={search} placeholder="Search by name or student number" onChange={setSearch} /></div>
               <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={programId} onChange={(event) => setProgramId(event.target.value)} aria-label="Program filter">
                 <option value="">All programs</option>
                 {catalog.programs.data?.items.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
@@ -1045,26 +1120,13 @@ export function CreateEventPage() {
                 <p className="text-sm text-muted-foreground">{selectedIds.length} selected from {filteredStudents.length} matching student{filteredStudents.length === 1 ? "" : "s"}</p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <input
-                  ref={(element) => {
-                    if (element) element.indeterminate = someMatchingSelected;
-                  }}
-                  type="checkbox"
-                  checked={allMatchingSelected}
-                  onChange={toggleAllFiltered}
-                  disabled={filteredStudents.length === 0}
-                  aria-label="Select all matching students"
-                />
-                Select all matching
-              </label>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => { setHasOrganizerInteracted(true); setSelectedIds([]); }} disabled={selectedIds.length === 0}>Clear selection</Button>
               <Button type="button" variant="default" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)} disabled={selectedIds.length === 0}>
                 <Users className="mr-1.5 h-4 w-4" aria-hidden="true" />
                 View selected participants
               </Button>
-            </div>
+              </div>
           </div>
           {participantError ? <p role="alert" aria-live="assertive" className="text-sm text-danger">{participantError}</p> : null}
 
@@ -1075,7 +1137,19 @@ export function CreateEventPage() {
                   <table className="w-full min-w-[680px] text-left text-sm">
                     <thead className="sticky top-0 z-10 border-b bg-muted/80 text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
                       <tr>
-                        <th scope="col" className="w-12 px-4 py-3"><span className="sr-only">Select</span></th>
+                        <th scope="col" className="w-12 px-4 py-3">
+                          <input
+                            ref={(element) => {
+                              if (element) element.indeterminate = someMatchingSelected;
+                            }}
+                            type="checkbox"
+                            checked={allMatchingSelected}
+                            onChange={toggleAllFiltered}
+                            disabled={filteredStudents.length === 0}
+                            aria-label="Select all matching students"
+                            className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                          />
+                        </th>
                         <th scope="col" className="px-3 py-3">Student</th>
                         <th scope="col" className="px-3 py-3">Student number</th>
                         <th scope="col" className="px-3 py-3">Program</th>
@@ -1089,7 +1163,7 @@ export function CreateEventPage() {
                         return (
                           <tr key={student.id} className={isSelected ? "bg-primary/5" : "hover:bg-muted/30"}>
                             <td className="px-4 py-3 align-middle">
-                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} />
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2" />
                             </td>
                             <th scope="row" className="px-3 py-3 font-medium text-foreground">{student.fullName ?? student.studentNumber}</th>
                             <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
@@ -1146,7 +1220,34 @@ export function CreateEventPage() {
               ) : null}
             </div>
           </div>
+          <div className="flex items-center justify-between border-t pt-5">
+            <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>Back</Button>
+            <Button type="button" onClick={continueToReview}>Continue to review</Button>
+          </div>
         </section>
+        <aside className="h-fit rounded-xl border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Attendance outlook guide</h2>
+            <span className="whitespace-nowrap rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{selectedIds.length} selected</span>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">{selectedIds.length ? "Based on the selected students’ recorded attendance." : "Select students to view their attendance context."}</p>
+          <div className="mt-4 space-y-2.5">
+            {attendanceOutlookFactors.map((factor) => (
+              <div key={factor.label} className="grid gap-1">
+                <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
+                  <span className="min-w-0 truncate text-foreground">{factor.label}</span>
+                  <span className="whitespace-nowrap font-medium text-muted-foreground">{factor.detail}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${factor.value ?? 0}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </aside>
+        </section> : null}
+
+        {currentStep === 3 ? <>
         {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
         {scheduleConflicts.length > 0 ? (
           <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
@@ -1168,24 +1269,77 @@ export function CreateEventPage() {
             </div>
           </section>
         ) : null}
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/5 p-5 shadow-sm">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Step 3 of 3</p>
-            <h2 className="mt-1 font-semibold text-foreground">Review and publish</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Publish the event and notify the selected students.</p>
+        <section className="rounded-xl border bg-surface p-5 shadow-sm md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Review and publish</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Confirm the event details before invitations are sent.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(1)}>Edit event details</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(2)}>Edit participants</Button>
+            </div>
           </div>
-          <SubmitButton
-            isSubmitting={isPublishingEvent || mutations.createEventMutation.isPending}
-            submittingLabel="Publishing Event…"
-            onClick={() => {
-              if (selectedIds.length === 0) {
-                setParticipantError("Select at least one participant.");
-              }
-            }}
-          >
-            Publish Event
-          </SubmitButton>
+          <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Event</dt><dd className="mt-2 font-semibold text-foreground">{reviewValues.title || "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.code}</dd></div>
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Schedule</dt><dd className="mt-2 font-semibold text-foreground">{watchedDate ? formatDate(`${watchedDate}T00:00:00+08:00`) : "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{formatTimeOfDay(watchedStartTime)} – {formatTimeOfDay(watchedEndTime)}</dd></div>
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Participants</dt><dd className="mt-2 font-semibold text-foreground">{selectedIds.length} selected</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.venue || "Venue not set"}</dd></div>
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Priority</dt><dd className="mt-2 font-semibold text-foreground">{calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }).priorityTier}</dd><dd className="mt-1 text-sm text-muted-foreground">Calculated ranking</dd></div>
+          </dl>
+          <div className="mt-5 grid gap-5 xl:grid-cols-2">
+            <section className="rounded-xl border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Event details</h3>
+              <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Category</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.category || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.venue || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Requested by</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.requestedBy || "Not provided"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">College / office</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.collegeOffice || "Not set"}</dd></div>
+              </dl>
+            </section>
+            <section className="rounded-xl border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Classification and priority</h3>
+              <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Institutional category</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.institutionalCategory || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Participation</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.participationStatus || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Target group</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.targetGroup || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Fixed priority</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.fixedPriority ? "Yes" : "No"}</dd></div>
+              </dl>
+            </section>
+            <section className="rounded-xl border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Objectives</h3>
+              <ol className="mt-3 space-y-2 text-sm text-foreground">
+                {reviewValues.objectives.filter((objective) => objective.value.trim()).map((objective, index) => <li key={`${objective.value}-${index}`} className="flex gap-2"><span className="text-primary">{index + 1}.</span><span>{objective.value}</span></li>)}
+              </ol>
+            </section>
+            <section className="rounded-xl border bg-background p-4">
+              <h3 className="font-semibold text-foreground">Notes and resources</h3>
+              <div className="mt-3 space-y-3 text-sm">
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Description</p><p className="mt-1 whitespace-pre-line text-foreground">{reviewValues.description || "Not provided"}</p></div>
+                {reviewValues.remarks ? <div><p className="text-xs font-medium uppercase text-muted-foreground">Remarks</p><p className="mt-1 whitespace-pre-line text-foreground">{reviewValues.remarks}</p></div> : null}
+                <div><p className="text-xs font-medium uppercase text-muted-foreground">Resources</p><p className="mt-1 text-foreground">{pendingResources.length ? pendingResources.map((resource) => resource.title).join(", ") : "None"}</p></div>
+              </div>
+            </section>
+          </div>
+          <section className="mt-5 rounded-xl border bg-background p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div><h3 className="font-semibold text-foreground">Selected participants</h3><p className="mt-1 text-sm text-muted-foreground">{selectedStudents.length} students will receive an invitation.</p></div>
+              <Button type="button" variant="outline" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)}>View selected participants</Button>
+            </div>
+            <div className="mt-4 max-h-44 divide-y overflow-y-auto rounded-lg border">
+              {selectedStudents.map((student) => <div key={student.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm"><span className="font-medium text-foreground">{student.fullName ?? student.studentNumber}</span><span className="text-muted-foreground">{student.studentNumber}</span></div>)}
+            </div>
+          </section>
+          <div className="mt-5 flex items-center justify-between border-t pt-5">
+            <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>Back</Button>
+            <SubmitButton
+              isSubmitting={isPublishingEvent || mutations.createEventMutation.isPending}
+              submittingLabel="Publishing Event…"
+            >
+              Publish Event
+            </SubmitButton>
+          </div>
         </section>
+        </> : null}
       </form>
       <ModalShell
         open={isSelectedParticipantsOpen}
