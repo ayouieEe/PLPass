@@ -1,16 +1,25 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const secretKeys = (() => {
+  try {
+    const value = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") ?? "{}");
+    return Object.values(value).filter((key): key is string => typeof key === "string");
+  } catch {
+    return [];
+  }
+})();
+const serviceKey = secretKeys.find((key) => key.startsWith("sb_secret_"))
+  ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
 const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
 const brevoFromName = "PLPass";
 
-if (!supabaseUrl || !serviceRoleKey) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+if (!supabaseUrl || !serviceKey) {
+  throw new Error("SUPABASE_URL and a server API key are required.");
 }
 
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
+const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
@@ -99,7 +108,9 @@ Deno.serve(async (request) => {
   const requestBody = await request.json().catch(() => ({}));
   const action = typeof requestBody.action === "string" ? requestBody.action : "";
   const authorization = request.headers.get("Authorization");
-  const isWorker = authorization === `Bearer ${serviceRoleKey}`;
+  // The platform verifies the secret key before this handler runs. Keeping the
+  // worker credential in `apikey` avoids the deprecated legacy-JWT path.
+  const isWorker = (request.headers.get("apikey") ?? "").startsWith("sb_secret_");
 
   if (action === "dispatch") {
     if (!isWorker) return json({ error: "Worker authorization is required." }, 403);

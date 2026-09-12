@@ -9,7 +9,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_service_role_key text;
+  v_api_key text;
   v_function_url text;
 begin
   if not exists (
@@ -21,9 +21,9 @@ begin
     return;
   end if;
 
-  select decrypted_secret into v_service_role_key
+  select decrypted_secret into v_api_key
   from vault.decrypted_secrets
-  where name = 'event_email_worker_service_role_key'
+  where name = 'event_email_worker_api_key'
   limit 1;
 
   select decrypted_secret into v_function_url
@@ -31,7 +31,7 @@ begin
   where name = 'event_email_worker_function_url'
   limit 1;
 
-  if v_service_role_key is null or v_function_url is null then
+  if v_api_key is null or v_function_url is null then
     raise warning 'Event email worker is not configured: missing required Vault secret.';
     return;
   end if;
@@ -40,8 +40,7 @@ begin
     url := v_function_url,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || v_service_role_key,
-      'apikey', v_service_role_key
+      'apikey', v_api_key
     ),
     body := jsonb_build_object('action', 'dispatch')
   );
