@@ -71,7 +71,7 @@ export class LocalAttendanceDatabase {
 
   getStatus(eventId: string): OfflineStatus {
     const event = this.db.prepare("SELECT preparation_status, prepared_at, last_successful_sync_at FROM prepared_events WHERE event_id=?").get(eventId) as SqlRow | undefined;
-    const counts = this.db.prepare(`SELECT COUNT(*) total, SUM(sync_status='RETRY') retries, SUM(sync_status='CONFLICT') conflicts, SUM(sync_status='FAILED') failed, SUM(sync_status='SYNCING') syncing, MIN(next_attempt_at) next_attempt_at FROM pending_attendance WHERE event_id=?`).get(eventId) as SqlRow;
+    const counts = this.db.prepare(`SELECT COUNT(*) total, SUM(sync_status='RETRY') retries, SUM(sync_status='CONFLICT') conflicts, SUM(sync_status='FAILED') failed, SUM(sync_status='SYNCING') syncing, MIN(CASE WHEN sync_status IN ('PENDING_SYNC', 'RETRY') THEN next_attempt_at END) next_attempt_at FROM pending_attendance WHERE event_id=?`).get(eventId) as SqlRow;
     return { runtimeAvailable: true, connectivity: "checking", packageStatus: (value(event ?? {}, "preparation_status") as OfflineStatus["packageStatus"]) ?? "NOT_PREPARED", preparedAt: value(event ?? {}, "prepared_at"), pendingCount: Number(counts.total ?? 0), retryCount: Number(counts.retries ?? 0), conflictCount: Number(counts.conflicts ?? 0), failedCount: Number(counts.failed ?? 0), syncingCount: Number(counts.syncing ?? 0), nextAttemptAt: value(counts, "next_attempt_at"), lastSuccessfulSyncAt: value(event ?? {}, "last_successful_sync_at") };
   }
   getPreparedEvent(eventId:string):PreparedEventPackage|null {

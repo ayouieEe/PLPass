@@ -16,6 +16,7 @@ import {
 } from "@/app/providers/supabaseSessionResolver";
 import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTimeout";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createDebouncedQueryInvalidator } from "@/lib/async/createDebouncedQueryInvalidator";
 import { repositories } from "@/services/repositories";
 
 const supabaseAuthDeadlineMs = 12_000;
@@ -173,13 +174,16 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     };
 
     const channel = supabase.channel(`plpass-sync-${session.userId}`);
+    const invalidator = createDebouncedQueryInvalidator((queryKey) => {
+      void queryClient.invalidateQueries({ queryKey });
+    });
     Object.entries(tableQueryKeys).forEach(([table, queryKeys]) => {
       channel.on(
         "postgres_changes",
         { event: "*", schema: "public", table },
         () => {
           queryKeys.forEach((queryKey) => {
-            void queryClient.invalidateQueries({ queryKey });
+            invalidator.schedule(queryKey);
           });
         }
       );
@@ -187,6 +191,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     channel.subscribe();
 
     return () => {
+      invalidator.clear();
       void supabase.removeChannel(channel);
     };
   }, [session]);
