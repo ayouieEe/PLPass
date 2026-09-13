@@ -80,7 +80,7 @@ test.describe("organizer critical journeys", () => {
     await expect(page.getByRole("navigation", { name: "organizer navigation" })).toBeVisible();
 
     await page.goto("/organizer/events");
-    await expect(page.getByRole("heading", { name: "Event Management", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Events", exact: true }).first()).toBeVisible();
     await expect(page.getByText("CCS Orientation").first()).toBeVisible();
 
     await page.goto("/organizer/analytics");
