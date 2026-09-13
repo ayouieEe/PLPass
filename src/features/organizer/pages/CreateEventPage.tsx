@@ -149,6 +149,10 @@ const TARGET_GROUP_OPTIONS = [
 ];
 
 const MIN_OBJECTIVES = 3;
+function toEventTitle(value: string) {
+  return value.trim().replace(/\s+/g, " ").toUpperCase();
+}
+
 function timeToMinutes(value: string) {
   const [hoursPart = "0", minutesPart = "0"] = value.split(":");
   const hours = Number(hoursPart);
@@ -663,6 +667,11 @@ export function CreateEventPage() {
       }
     ];
   })();
+  const targetGroupGuidance = watchedTargetGroup === "University-wide"
+    ? "All enrolled students are eligible. Use the selection list to remove anyone who should not receive this invitation."
+    : watchedTargetGroup === "College or Department-wide"
+      ? "Filter the student list by program, year, or section, then select the students for this college or department event."
+      : "Select the students who belong to this class or organization. Filters stay active while you move through the list.";
   const normalizedSelectedParticipantSearch = selectedParticipantSearch.trim().toLowerCase();
   const visibleSelectedStudents = selectedStudents.filter((student) => {
     if (!normalizedSelectedParticipantSearch) return true;
@@ -742,9 +751,9 @@ export function CreateEventPage() {
       toast.error(`You can add up to ${MAX_EVENT_RESOURCES} resources to an event.`);
       return;
     }
-    const oversizedFile = selectedFiles.find((file) => file.size > MAX_EVENT_RESOURCE_BYTES);
-    if (oversizedFile) {
-      toast.error(`${oversizedFile.name} is larger than the 25 MB limit.`);
+    const invalidFile = selectedFiles.find((file) => !file.name.trim() || file.size <= 0 || file.size > MAX_EVENT_RESOURCE_BYTES);
+    if (invalidFile) {
+      toast.error(invalidFile.size > MAX_EVENT_RESOURCE_BYTES ? `${invalidFile.name} is larger than the 25 MB limit.` : `${invalidFile.name || "The selected file"} is empty or unreadable.`);
       return;
     }
     setHasOrganizerInteracted(true);
@@ -779,7 +788,7 @@ export function CreateEventPage() {
       const ranking = calculatePriority(values);
       const event = await mutations.createEventMutation.mutateAsync({
         code: values.code,
-        title: values.title,
+        title: toEventTitle(values.title),
         category: values.category,
         venue: values.venue,
         date: values.date,
@@ -843,12 +852,22 @@ export function CreateEventPage() {
     }
   }
   async function onSubmit(values: EventFormValues) {
+    const invalidResource = pendingResources.find((resource) => resource.kind === "link"
+      ? !resource.title.trim() || !isSecureResourceUrl(resource.externalUrl)
+      : !resource.title.trim() || !resource.file.name.trim() || resource.file.size <= 0 || resource.file.size > MAX_EVENT_RESOURCE_BYTES);
+    if (invalidResource) {
+      toast.error(invalidResource.kind === "link" ? "Fix the resource title and use a valid HTTPS link before publishing." : "Fix or remove the invalid file before publishing.");
+      setCurrentStep(1);
+      return;
+    }
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
 
-    setPendingPublish(values);
+    const normalizedValues = { ...values, title: toEventTitle(values.title) };
+    form.setValue("title", normalizedValues.title, { shouldValidate: true, shouldDirty: true });
+    setPendingPublish(normalizedValues);
   }
 
   async function continueToParticipants() {
@@ -857,6 +876,18 @@ export function CreateEventPage() {
       "institutionalCategory", "participationStatus", "targetGroup", "collegeOffice", "objectives"
     ]);
     if (!valid) return;
+    const invalidResource = pendingResources.find((resource) => resource.kind === "link"
+      ? !resource.title.trim() || !isSecureResourceUrl(resource.externalUrl)
+      : !resource.title.trim() || !resource.file.name.trim() || resource.file.size <= 0 || resource.file.size > MAX_EVENT_RESOURCE_BYTES);
+    if (invalidResource) {
+      toast.error(invalidResource.kind === "link" ? "Fix the resource title and use a valid HTTPS link before continuing." : "Fix or remove the invalid file before continuing.");
+      return;
+    }
+    const normalizedTitle = toEventTitle(form.getValues("title"));
+    form.setValue("title", normalizedTitle, { shouldValidate: true, shouldDirty: true });
+    if (form.getValues("targetGroup") === "University-wide") {
+      setSelectedIds(students.map((student) => student.id));
+    }
     setCurrentStep(2);
   }
 
@@ -1081,6 +1112,7 @@ export function CreateEventPage() {
         <section className="space-y-4 rounded-xl border bg-surface p-5 shadow-sm md:p-6">
           <CreateEventSectionHeader
             title="Select Participants"
+            description={`${watchedTargetGroup || "Target group"} · ${targetGroupGuidance}`}
           />
           <div className="rounded-lg border bg-background p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1232,7 +1264,7 @@ export function CreateEventPage() {
           </div>
           <p className="mt-2 text-sm text-muted-foreground">{selectedIds.length ? "Based on the selected students’ recorded attendance." : "Select students to view their attendance context."}</p>
           <div className="mt-4 space-y-2.5">
-            {attendanceOutlookFactors.map((factor) => (
+            {attendanceOutlookFactors.length ? attendanceOutlookFactors.map((factor) => (
               <div key={factor.label} className="grid gap-1">
                 <div className="flex items-center justify-between gap-3 text-xs sm:text-sm">
                   <span className="min-w-0 truncate text-foreground">{factor.label}</span>
@@ -1242,7 +1274,13 @@ export function CreateEventPage() {
                   <div className="h-full rounded-full bg-primary transition-[width] duration-300" style={{ width: `${factor.value ?? 0}%` }} />
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="rounded-lg border border-dashed bg-background px-4 py-6 text-center">
+                <Users className="mx-auto h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                <p className="mt-2 text-sm font-medium text-foreground">Select participants to calculate the outlook</p>
+                <p className="mt-1 text-sm text-muted-foreground">The guide uses recorded attendance and participation history for this group.</p>
+              </div>
+            )}
           </div>
         </aside>
         </section> : null}

@@ -19,7 +19,12 @@ function safeFileName(value: string) {
 }
 
 export function isSecureResourceUrl(value: string) {
-  return /^https:\/\//i.test(value.trim());
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 export function formatResourceFileSize(bytes: number) {
@@ -48,6 +53,9 @@ export async function createEventLinkResource(eventId: string, title: string, ex
 }
 
 export async function uploadEventFileResource(eventId: string, title: string, file: File) {
+  if (!file.name.trim() || file.size <= 0) {
+    throw new Error("Choose a readable file before attaching it.");
+  }
   if (file.size > MAX_EVENT_RESOURCE_BYTES) {
     throw new Error("Each attached file must be 25 MB or smaller.");
   }

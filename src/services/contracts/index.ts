@@ -17,6 +17,8 @@ import type {
   Notification,
   OrganizerProfile,
   Program,
+  Section,
+  EventCategory,
   Report,
   Semester,
   Student,
@@ -59,6 +61,8 @@ export type UpdateStudentInput = {
   departmentId: string;
   sectionId: string;
   yearLevel: number;
+  accountStatus?: "active" | "inactive" | "suspended";
+  statusOnly?: boolean;
 };
 
 export type CreateCorrectionRequestInput = Pick<
@@ -268,8 +272,23 @@ export type UpdateSystemSettingsInput = Partial<
     | "readerPolicy"
     | "credentialStatusPolicy"
     | "notificationPreferencePlaceholder"
+    | "eventApprovalRequired"
+    | "participantInvitationMode"
+    | "noStartReminderMinutes"
+    | "autoCancelAfterMinutes"
+    | "requireCancellationReason"
+    | "minimumTimeOutIntervalMinutes"
+    | "allowAttendanceAfterScheduledEnd"
+    | "automaticAbsentMarking"
+    | "allowedVerificationMethods"
+    | "sensitiveActionReasonRequired"
   >
 >;
+
+export type CatalogDepartmentInput = { id?: string; code: string; name: string; isActive?: boolean };
+export type CatalogProgramInput = { id?: string; departmentId: string; code: string; name: string; isActive?: boolean };
+export type CatalogSectionInput = { id?: string; programId: string; name: string; yearLevel: number; academicYear: string; semester: string; isActive?: boolean };
+export type CatalogCategoryInput = { id?: string; name: string; isActive?: boolean };
 
 export interface AuthenticationRepository {
   listDevelopmentAccounts(context?: RepositoryContext): Promise<DevelopmentAccount[]>;
@@ -294,6 +313,13 @@ export interface AcademicManagementRepository {
   listSemesters(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Semester>>;
   listClasses(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Class>>;
   getClassById(classId: string, context?: RepositoryContext): Promise<Class>;
+  createOrUpdateDepartment?: (input: CatalogDepartmentInput, context?: RepositoryContext) => Promise<Department>;
+  createOrUpdateProgram?: (input: CatalogProgramInput, context?: RepositoryContext) => Promise<Program>;
+  createOrUpdateSection?: (input: CatalogSectionInput, context?: RepositoryContext) => Promise<Section>;
+  listSections?: (query?: ListQuery, context?: RepositoryContext) => Promise<PaginatedResult<Section>>;
+  createOrUpdateEventCategory?: (input: CatalogCategoryInput, context?: RepositoryContext) => Promise<EventCategory>;
+  listEventCategories?: (query?: ListQuery, context?: RepositoryContext) => Promise<PaginatedResult<EventCategory>>;
+  setCatalogActive?: (table: "departments" | "programs" | "sections" | "event_categories", id: string, isActive: boolean, context?: RepositoryContext) => Promise<void>;
 }
 
 export interface ClassRosterRepository {

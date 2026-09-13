@@ -28,6 +28,7 @@ import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
+import type { Event } from "@/types/domain";
 import {
   hasValidEventSchedule,
   isTodayEvent,
@@ -53,9 +54,9 @@ import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, OfflineStatus } from "@/features/offline/types";
 
-// Event Records is organized around three lifecycle tabs: Today, Incoming,
-// and Completed. A live session is a full-page state entered after Start Session.
-type EventTab = "today" | "incoming";
+// Event Records is organized around Today, Incoming, and Cancelled events.
+// A live session is a full-page state entered after Start Session.
+type EventTab = "today" | "incoming" | "cancelled";
 type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
 type EventFilters = {
   dateFrom: string;
@@ -388,6 +389,32 @@ function eventFromStore(event: OrganizerEvent): EventRecord {
   };
 }
 
+function eventRecordFromRepository(event: Event, objectives: string[] = []): EventRecord {
+  return {
+    id: event.id,
+    code: event.code,
+    name: event.title,
+    category: event.category,
+    venue: event.venue,
+    date: dateKey(event.startsAt),
+    startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
+    endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
+    predictedTurnout: event.predictedTurnout == null ? "N/A" : `${event.predictedTurnout}%`,
+    objectives,
+    status: event.status,
+    cancellationReason: event.cancellationReason,
+    priorityLevel: event.priorityLevel,
+    impactScore: event.impactScore,
+    institutionalCategory: event.institutionalCategory,
+    participationStatus: event.participationStatus,
+    targetGroup: event.targetGroup,
+    urgencyPoints: event.urgencyPoints,
+    priorityScore: event.priorityScore,
+    priorityTier: event.priorityTier,
+    fixedPriority: event.fixedPriority
+  };
+}
+
 function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
   return {
     ...eventFromStore(event),
@@ -514,6 +541,7 @@ export function EventManagementPage() {
     const tab = params.get("tab");
 
     if (tab === "incoming") return "incoming" as const;
+    if (tab === "cancelled") return "cancelled" as const;
     return "today" as const;
   }, [location.search]);
   const sessionIdFromQuery = useMemo(
@@ -526,6 +554,7 @@ export function EventManagementPage() {
   const [search, setSearch] = useState("");
   const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
+  const [eventAttention, setEventAttention] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
@@ -566,6 +595,8 @@ export function EventManagementPage() {
   const previousManualStudentIdRef = useRef<string | null>(null);
   const hydratedSessionIdRef = useRef<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
+  const notifiedEventCodesRef = useRef(new Set<string>());
+  const autoCancelledEventIdsRef = useRef(new Set<string>());
 
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -585,6 +616,42 @@ export function EventManagementPage() {
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const credentialStatusesQuery = useStudentCredentialStatuses(context);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
+
+  useEffect(() => {
+    const checkUnstartedEvents = () => {
+      if (attendanceSessionsQuery.isLoading) return;
+      const events = eventsQuery.data?.items ?? [];
+      const today = dateKey(new Date());
+      const startedEventIds = new Set(sessionsList.filter((session) => session.eventId).map((session) => session.eventId));
+
+      events.forEach((event) => {
+        if (!event.id || event.status === "completed" || event.status === "cancelled" || startedEventIds.has(event.id)) return;
+        const eventDate = dateKey(event.startsAt);
+        if (eventDate < today && !autoCancelledEventIdsRef.current.has(event.id)) {
+          autoCancelledEventIdsRef.current.add(event.id);
+          void cancelEventMutation.mutateAsync({
+            eventId: event.id,
+            reason: "Automatically cancelled because it was not started, rescheduled, or cancelled within its scheduled day."
+          }).then(() => {
+            toast.warning(`${event.code} was automatically cancelled and moved to Cancelled events.`);
+          }).catch(() => {
+            autoCancelledEventIdsRef.current.delete(event.id);
+          });
+          return;
+        }
+
+        if (eventDate === today && Date.now() >= new Date(event.startsAt).getTime() && !notifiedEventCodesRef.current.has(event.code)) {
+          notifiedEventCodesRef.current.add(event.code);
+          setEventAttention(eventRecordFromRepository(event));
+          toast.warning(`${event.code} has not been started. Choose whether to reschedule or cancel it.`);
+        }
+      });
+    };
+
+    checkUnstartedEvents();
+    const interval = window.setInterval(checkUnstartedEvents, 60_000);
+    return () => window.clearInterval(interval);
+  }, [attendanceSessionsQuery.isLoading, cancelEventMutation, eventsQuery.data?.items, sessionsList]);
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
   const resolvedLiveSessionId = useMemo(
@@ -742,31 +809,16 @@ export function EventManagementPage() {
   const repositoryEvents = useMemo<EventRecord[]>(() => {
     return (eventsQuery.data?.items ?? [])
       .filter((event) => event.status !== "completed" && event.status !== "cancelled")
-      .map((event) => {
-        const rec: EventRecord = {
-          id: event.id,
-          code: event.code,
-          name: event.title,
-          category: event.category,
-          venue: event.venue,
-          date: dateKey(event.startsAt),
-          startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
-          endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
-          predictedTurnout: "85%",
-          objectives: objectivesByEventId.get(event.id) ?? [],
-          priorityLevel: event.priorityLevel,
-          impactScore: event.impactScore,
-          institutionalCategory: event.institutionalCategory,
-          participationStatus: event.participationStatus,
-          targetGroup: event.targetGroup,
-          urgencyPoints: event.urgencyPoints,
-          priorityScore: event.priorityScore,
-          priorityTier: event.priorityTier,
-          fixedPriority: event.fixedPriority
-        };
-        return rec;
-      });
+      .map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? []));
   }, [eventsQuery.data?.items, objectivesByEventId]);
+
+  const cancelledEvents = useMemo(
+    () => (eventsQuery.data?.items ?? [])
+      .filter((event) => event.status === "cancelled")
+      .map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? []))
+      .filter((event) => matchesSearch(event, search) && matchesEventFilters(event, eventFilters)),
+    [eventFilters, eventsQuery.data?.items, objectivesByEventId, search]
+  );
 
   // Use only Supabase data (repositoryEvents), not UI store events
   const storeEvents = useMemo(
@@ -1038,8 +1090,8 @@ export function EventManagementPage() {
     [filterableEvents]
   );
   const selectedEvents = useMemo(
-    () => (activeTab === "today" ? todayEvents : incomingEvents).filter((event) => matchesEventFilters(event, eventFilters)),
-    [activeTab, eventFilters, incomingEvents, todayEvents]
+    () => (activeTab === "today" ? todayEvents : activeTab === "incoming" ? incomingEvents : cancelledEvents),
+    [activeTab, cancelledEvents, incomingEvents, todayEvents]
   );
   const prepareOfflinePackage = useCallback(async (event: EventRecord) => {
     const eventId = event.id;
@@ -1095,7 +1147,7 @@ export function EventManagementPage() {
     return () => { cancelled = true; };
   }, [activeTab, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
   const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
-  const selectedListTitle = activeTab === "today" ? "Today's events" : "Incoming events";
+  const selectedListTitle = activeTab === "today" ? "Today's events" : activeTab === "incoming" ? "Incoming events" : "Cancelled events";
 
   useEffect(() => {
     setHeaderOverride({
@@ -1764,6 +1816,20 @@ export function EventManagementPage() {
 
   const incomingColumns = incomingColumnsWithActions.slice(1);
 
+  const cancelledColumns: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
+    { accessorKey: "code", header: "Event Code" },
+    { accessorKey: "name", header: "Event Name" },
+    { accessorKey: "venue", header: "Venue" },
+    { accessorKey: "date", header: "Scheduled Date" },
+    { accessorKey: "startTime", header: "Start Time" },
+    {
+      id: "reason",
+      header: "Cancellation reason",
+      cell: ({ row }) => <span className="block max-w-xs truncate text-sm text-muted-foreground" title={row.original.cancellationReason}>{row.original.cancellationReason || "No reason recorded"}</span>
+    },
+    { id: "status", header: "Status", cell: () => <StatusBadge label="Cancelled" tone="danger" /> }
+  ];
+
   const liveColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
     { accessorKey: "checkInTime", header: "Time In" },
@@ -1826,7 +1892,7 @@ export function EventManagementPage() {
         <span>
           <span className="block text-sm font-semibold">{label}</span>
           <span className="mt-0.5 block text-xs font-normal opacity-75">
-            {tab === "today" ? "Requires attention today" : "Future published schedule"}
+            {tab === "today" ? "Requires attention today" : tab === "incoming" ? "Future published schedule" : "Events cancelled by the organizer or system"}
           </span>
         </span>
         <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold text-foreground">
@@ -1895,12 +1961,12 @@ export function EventManagementPage() {
             </span>
             <span className="flex shrink-0 items-center gap-2 rounded-xl border border-primary/10 bg-surface/80 px-4 py-2.5 text-sm">
             <Filter className="h-4 w-4 text-primary" aria-hidden="true" />
-            <span className="font-semibold text-foreground">{activeTab === "today" ? todayEvents.length : incomingEvents.length}</span>
+            <span className="font-semibold text-foreground">{activeTab === "today" ? todayEvents.length : activeTab === "incoming" ? incomingEvents.length : cancelledEvents.length}</span>
             <span className="text-muted-foreground">events</span>
             </span>
           </div>
         </div>
-        <div className="mt-4 grid w-full grid-cols-2 gap-1 rounded-xl border border-primary/10 bg-background p-1" role="tablist" aria-label="Event schedule">
+        <div className="mt-4 grid w-full grid-cols-3 gap-1 rounded-xl border border-primary/10 bg-background p-1" role="tablist" aria-label="Event schedule">
           <button type="button" role="tab" aria-selected={activeTab === "today"} onClick={() => { setActiveTab("today"); setSelectedEventForSession(null); }} className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === "today" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}>
             <span className="font-semibold">Today</span>
             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "today" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{todayEvents.length}</span>
@@ -1908,6 +1974,10 @@ export function EventManagementPage() {
           <button type="button" role="tab" aria-selected={activeTab === "incoming"} onClick={() => { setActiveTab("incoming"); setSelectedEventForSession(null); }} className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === "incoming" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}>
             <span className="font-semibold">Incoming</span>
             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "incoming" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{incomingEvents.length}</span>
+          </button>
+          <button type="button" role="tab" aria-selected={activeTab === "cancelled"} onClick={() => { setActiveTab("cancelled"); setSelectedEventForSession(null); }} className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors ${activeTab === "cancelled" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}>
+            <span className="font-semibold">Cancelled</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "cancelled" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{cancelledEvents.length}</span>
           </button>
         </div>
       </section>
@@ -2238,9 +2308,9 @@ export function EventManagementPage() {
             <PLPassDataGrid
               label={selectedListTitle}
               data={selectedEvents}
-              columns={incomingColumns}
-              emptyTitle={activeTab === "today" ? "No events today" : "No incoming events"}
-              emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : "Future published events will appear here."}
+              columns={activeTab === "cancelled" ? cancelledColumns : incomingColumns}
+              emptyTitle={activeTab === "today" ? "No events today" : activeTab === "incoming" ? "No incoming events" : "No cancelled events"}
+              emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : activeTab === "incoming" ? "Future published events will appear here." : "Cancelled events will be recorded here for reference."}
               onRowClick={(event) => {
                 if (event.id) navigate(`${APP_ROUTES.organizerEvents}/${event.id}`);
               }}
@@ -2317,6 +2387,28 @@ export function EventManagementPage() {
             >
               Manage participants
             </Button>
+          </div>
+        </ModalFrame>
+      ) : null}
+
+      {eventAttention ? (
+        <ModalFrame onClose={() => setEventAttention(null)} width="max-w-md">
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+              <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-xl font-semibold">Event not started</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{eventAttention.code} · {eventAttention.name}</p>
+            </div>
+          </div>
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            This event was scheduled to start at {eventAttention.startTime}, but no attendance session has been started. Reschedule or cancel it before the end of today.
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setEventAttention(null)}>Remind me later</Button>
+            <Button type="button" variant="outline" onClick={() => { setEditEvent(eventAttention); setEventAttention(null); }}>Reschedule</Button>
+            <Button type="button" variant="destructive" onClick={() => { setConfirmCancelEvent(eventAttention); setEventAttention(null); }}>Cancel event</Button>
           </div>
         </ModalFrame>
       ) : null}

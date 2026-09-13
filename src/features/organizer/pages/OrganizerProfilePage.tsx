@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
@@ -170,10 +171,7 @@ export function OrganizerProfilePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Profile</h1>
-        <p className="text-sm text-muted-foreground">Manage your organizer account settings and view profile information.</p>
-      </div>
+      <PageHeader title="Profile" description="Manage your organizer account settings and view profile information." />
 
 
       <div className="grid gap-6 lg:grid-cols-3">

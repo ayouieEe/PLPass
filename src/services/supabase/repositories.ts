@@ -114,7 +114,7 @@ export function isNonBlockingAuditLoggingError(error: unknown): boolean {
 
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
-const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email), sections(section_name, year_level), programs(program_code, program_name)";
+const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 const facialEnrollmentBucket = "facial-enrollments";
@@ -418,7 +418,15 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data, error } = await client.functions.invoke("manage-users", {
       body: { action: "update-student", student: input }
     });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) {
+      let message = error.message;
+      const response = (error as { context?: unknown }).context;
+      if (response && typeof response === "object" && "json" in response && typeof response.json === "function") {
+        const body = await (response as Response).clone().json().catch(() => null) as { error?: unknown } | null;
+        if (typeof body?.error === "string" && body.error.trim()) message = body.error;
+      }
+      throw new RepositoryError(message, "VALIDATION_ERROR");
+    }
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
 
     const { data: studentRow, error: fetchError } = await client
@@ -481,11 +489,11 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
 export const supabaseAcademicManagementRepository: AcademicManagementRepository = {
   async listDepartments(query) {
     const rows = await selectRows("departments", query);
-    return pageResult(rows.items.map((row): Department => ({ id: String(row.id ?? ""), code: String(row.department_code ?? row.code ?? ""), name: String(row.name ?? row.department_name ?? "") })), rows.total, query);
+    return pageResult(rows.items.map((row): Department => ({ id: String(row.id ?? ""), code: String(row.department_code ?? row.code ?? ""), name: String(row.name ?? row.department_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
   async listPrograms(query) {
     const rows = await selectRows("programs", query);
-    return pageResult(rows.items.map((row): Program => ({ id: String(row.id ?? ""), departmentId: String(row.department_id ?? ""), code: String(row.program_code ?? row.code ?? ""), name: String(row.name ?? row.program_name ?? "") })), rows.total, query);
+    return pageResult(rows.items.map((row): Program => ({ id: String(row.id ?? ""), departmentId: String(row.department_id ?? ""), code: String(row.program_code ?? row.code ?? ""), name: String(row.name ?? row.program_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
   async listSemesters(query) {
   const rows = await selectRows("semesters", query);
@@ -502,6 +510,51 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     query
   );
 },
+  async listSections(query) {
+    const rows = await selectRows("sections", query);
+    return pageResult(rows.items.map((row) => ({
+      id: String(row.id ?? ""), programId: String(row.program_id ?? ""), name: String(row.section_name ?? ""),
+      yearLevel: Number(row.year_level ?? 0), academicYear: String(row.academic_year ?? ""), semester: String(row.semester ?? ""), isActive: row.is_active !== false
+    })), rows.total, query);
+  },
+  async listEventCategories(query) {
+    const rows = await selectRows("event_categories", query);
+    return pageResult(rows.items.map((row) => ({ id: String(row.id ?? ""), name: String(row.category_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
+  },
+  async createOrUpdateDepartment(input, context) {
+    requireOrganizerContext(context);
+    const row = input.id
+      ? await updateRow("departments", input.id, { department_code: input.code.trim(), department_name: input.name.trim(), is_active: input.isActive ?? true })
+      : await insertRow("departments", { department_code: input.code.trim(), department_name: input.name.trim(), is_active: input.isActive ?? true });
+    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.department_updated" : "settings.department_created", targetType: "department", targetId: String(row.id), metadata: { code: input.code.trim(), name: input.name.trim() } }, context);
+    return { id: String(row.id), code: String(row.department_code), name: String(row.department_name), isActive: row.is_active !== false };
+  },
+  async createOrUpdateProgram(input, context) {
+    requireOrganizerContext(context);
+    const values = { department_id: input.departmentId, program_code: input.code.trim(), program_name: input.name.trim(), is_active: input.isActive ?? true };
+    const row = input.id ? await updateRow("programs", input.id, values) : await insertRow("programs", values);
+    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.program_updated" : "settings.program_created", targetType: "program", targetId: String(row.id), metadata: values }, context);
+    return { id: String(row.id), departmentId: String(row.department_id), code: String(row.program_code), name: String(row.program_name), isActive: row.is_active !== false };
+  },
+  async createOrUpdateSection(input, context) {
+    requireOrganizerContext(context);
+    const values = { program_id: input.programId, section_name: input.name.trim(), year_level: input.yearLevel, academic_year: input.academicYear.trim(), semester: input.semester.trim(), is_active: input.isActive ?? true };
+    const row = input.id ? await updateRow("sections", input.id, values) : await insertRow("sections", values);
+    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.section_updated" : "settings.section_created", targetType: "section", targetId: String(row.id), metadata: values }, context);
+    return { id: String(row.id), programId: String(row.program_id), name: String(row.section_name), yearLevel: Number(row.year_level), academicYear: String(row.academic_year), semester: String(row.semester), isActive: row.is_active !== false };
+  },
+  async createOrUpdateEventCategory(input, context) {
+    requireOrganizerContext(context);
+    const values = { category_name: input.name.trim(), is_active: input.isActive ?? true };
+    const row = input.id ? await updateRow("event_categories", input.id, values) : await insertRow("event_categories", values);
+    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.category_updated" : "settings.category_created", targetType: "event_category", targetId: String(row.id), metadata: values }, context);
+    return { id: String(row.id), name: String(row.category_name), isActive: row.is_active !== false };
+  },
+  async setCatalogActive(table, id, isActive, context) {
+    requireOrganizerContext(context);
+    await updateRow(table, id, { is_active: isActive });
+    await supabaseAuditLogRepository.logClientAction({ action: `settings.${table}.status_changed`, targetType: table, targetId: id, metadata: { isActive } }, context);
+  },
   async listClasses(query) {
     const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)", {});
     return pageResult(
@@ -1976,22 +2029,88 @@ export const supabaseAnalyticsMlRepository: AnalyticsMlRepository = {
 };
 
 export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
-  async getSettings(): Promise<SystemSettings> {
+  async getSettings(context): Promise<SystemSettings> {
+    requireOrganizerContext(context);
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("system_settings" as never)
+      .select("id, institution_name, current_school_year, current_semester_id, attendance_late_cutoff_minutes, default_session_duration_minutes, verification_policy, notification_preferences, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    throwIfSupabaseError(error);
+    if (!data) {
+      throw new RepositoryError("System settings have not been configured yet. Please contact an administrator.", "NOT_FOUND");
+    }
+    const row = data as unknown as Row;
+    const preferences = (row.notification_preferences && typeof row.notification_preferences === "object" && !Array.isArray(row.notification_preferences))
+      ? row.notification_preferences as Row
+      : {};
+    const listOfMethods = Array.isArray(preferences.allowedVerificationMethods) ? preferences.allowedVerificationMethods : ["qr", "facial"];
     return {
-      id: "supabase-settings",
-      institutionName: "PLPass",
-      currentSchoolYear: "",
-      currentSemesterId: "",
-      attendanceLateCutoffMinutes: 15,
-      defaultSessionDurationMinutes: 90,
-      readerPolicy: "Managed in Supabase policies.",
-      credentialStatusPolicy: "Managed in Supabase policies.",
-      notificationPreferencePlaceholder: "Managed by Supabase profile settings.",
-      updatedAt: new Date().toISOString()
+      id: String(row.id),
+      institutionName: String(row.institution_name ?? ""),
+      currentSchoolYear: String(row.current_school_year ?? ""),
+      currentSemesterId: String(row.current_semester_id ?? ""),
+      attendanceLateCutoffMinutes: Number(row.attendance_late_cutoff_minutes ?? 15),
+      defaultSessionDurationMinutes: Number(row.default_session_duration_minutes ?? 90),
+      readerPolicy: String(preferences.readerPolicy ?? row.verification_policy ?? ""),
+      credentialStatusPolicy: String(preferences.credentialStatusPolicy ?? ""),
+      notificationPreferencePlaceholder: String(preferences.notificationPreferencePlaceholder ?? ""),
+      eventApprovalRequired: preferences.eventApprovalRequired !== false,
+      participantInvitationMode: preferences.participantInvitationMode === "email" || preferences.participantInvitationMode === "in_app" ? preferences.participantInvitationMode : "both",
+      noStartReminderMinutes: Number(preferences.noStartReminderMinutes ?? 60),
+      autoCancelAfterMinutes: Number(preferences.autoCancelAfterMinutes ?? 720),
+      requireCancellationReason: preferences.requireCancellationReason !== false,
+      minimumTimeOutIntervalMinutes: Number(preferences.minimumTimeOutIntervalMinutes ?? 15),
+      allowAttendanceAfterScheduledEnd: preferences.allowAttendanceAfterScheduledEnd !== false,
+      automaticAbsentMarking: preferences.automaticAbsentMarking !== false,
+      allowedVerificationMethods: listOfMethods.filter((method): method is "qr" | "facial" => method === "qr" || method === "facial"),
+      sensitiveActionReasonRequired: preferences.sensitiveActionReasonRequired !== false,
+      updatedAt: String(row.updated_at ?? new Date().toISOString())
     };
   },
-  async updateSettings(): Promise<SystemSettings> {
-    throw new RepositoryError("System setting writes require an approved Supabase settings table mapping.", "VALIDATION_ERROR");
+  async updateSettings(input, context): Promise<SystemSettings> {
+    requireOrganizerContext(context);
+    if (input.attendanceLateCutoffMinutes !== undefined && (input.attendanceLateCutoffMinutes < 0 || input.attendanceLateCutoffMinutes > 240)) {
+      throw new RepositoryError("Late attendance cutoff must be between 0 and 240 minutes.", "VALIDATION_ERROR");
+    }
+    if (input.defaultSessionDurationMinutes !== undefined && (input.defaultSessionDurationMinutes < 1 || input.defaultSessionDurationMinutes > 1440)) {
+      throw new RepositoryError("Session duration must be between 1 and 1,440 minutes.", "VALIDATION_ERROR");
+    }
+    const current = await supabaseSystemSettingsRepository.getSettings(context);
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("system_settings" as never)
+      .update({
+        ...(input.institutionName !== undefined ? { institution_name: input.institutionName.trim() } : {}),
+        ...(input.currentSchoolYear !== undefined ? { current_school_year: input.currentSchoolYear.trim() } : {}),
+        ...(input.currentSemesterId !== undefined ? { current_semester_id: input.currentSemesterId || null } : {}),
+        ...(input.attendanceLateCutoffMinutes !== undefined ? { attendance_late_cutoff_minutes: input.attendanceLateCutoffMinutes } : {}),
+        ...(input.defaultSessionDurationMinutes !== undefined ? { default_session_duration_minutes: input.defaultSessionDurationMinutes } : {}),
+        notification_preferences: {
+          readerPolicy: input.readerPolicy?.trim() || current.readerPolicy,
+          credentialStatusPolicy: input.credentialStatusPolicy?.trim() || current.credentialStatusPolicy,
+          notificationPreferencePlaceholder: input.notificationPreferencePlaceholder?.trim() || current.notificationPreferencePlaceholder,
+          eventApprovalRequired: input.eventApprovalRequired ?? current.eventApprovalRequired,
+          participantInvitationMode: input.participantInvitationMode ?? current.participantInvitationMode,
+          noStartReminderMinutes: input.noStartReminderMinutes ?? current.noStartReminderMinutes,
+          autoCancelAfterMinutes: input.autoCancelAfterMinutes ?? current.autoCancelAfterMinutes,
+          requireCancellationReason: input.requireCancellationReason ?? current.requireCancellationReason,
+          minimumTimeOutIntervalMinutes: input.minimumTimeOutIntervalMinutes ?? current.minimumTimeOutIntervalMinutes,
+          allowAttendanceAfterScheduledEnd: input.allowAttendanceAfterScheduledEnd ?? current.allowAttendanceAfterScheduledEnd,
+          automaticAbsentMarking: input.automaticAbsentMarking ?? current.automaticAbsentMarking,
+          allowedVerificationMethods: input.allowedVerificationMethods ?? current.allowedVerificationMethods,
+          sensitiveActionReasonRequired: input.sensitiveActionReasonRequired ?? current.sensitiveActionReasonRequired
+        },
+        verification_policy: input.readerPolicy?.trim() || current.readerPolicy
+      } as never)
+      .eq("id" as never, current.id)
+      .select("id, institution_name, current_school_year, current_semester_id, attendance_late_cutoff_minutes, default_session_duration_minutes, verification_policy, notification_preferences, updated_at")
+      .single();
+    throwIfSupabaseError(error);
+    void data;
+    return supabaseSystemSettingsRepository.getSettings(context);
   }
 };
 

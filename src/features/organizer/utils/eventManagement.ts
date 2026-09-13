@@ -1,5 +1,5 @@
 import type { OrganizerEvent } from "@/features/organizer/data/organizerUiStore";
-import type { PriorityLevel } from "@/types/enums";
+import type { EventStatus, PriorityLevel } from "@/types/enums";
 
 export type AttendanceStatus = "present" | "late" | "absent";
 export type ManualAttendanceStatus = Extract<AttendanceStatus, "present" | "late">;
@@ -17,7 +17,8 @@ export type EventRecord = {
   predictedTurnout: string;
   objectives: string[];
   description?: string;
-  status?: OrganizerEvent["status"];
+  status?: OrganizerEvent["status"] | EventStatus;
+  cancellationReason?: string;
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   institutionalCategory?: string;

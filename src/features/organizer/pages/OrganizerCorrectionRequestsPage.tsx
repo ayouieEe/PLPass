@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -452,6 +453,7 @@ export function OrganizerCorrectionRequestsPage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | RequestStatus>("all");
+  const [requestTypeFilter, setRequestTypeFilter] = useState<"all" | RequestType>("all");
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -499,14 +501,32 @@ export function OrganizerCorrectionRequestsPage() {
 
   const requests = repositoryRequests;
 
-  const filteredRequests = requests.filter(
-    (request) =>
-      (statusFilter === "all" || request.status === statusFilter) &&
-      (request.requestId.toLowerCase().includes(search.toLowerCase()) ||
-        request.studentName.toLowerCase().includes(search.toLowerCase()) ||
-        request.eventCode.toLowerCase().includes(search.toLowerCase()) ||
-        request.eventName.toLowerCase().includes(search.toLowerCase()))
+  const statusCounts = useMemo(
+    () => requests.reduce<Record<RequestStatus, number>>((counts, request) => {
+      counts[request.status] += 1;
+      return counts;
+    }, { pending: 0, approved: 0, rejected: 0 }),
+    [requests]
   );
+
+  const filteredRequests = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return requests.filter((request) => {
+      const matchesStatus = statusFilter === "all" || request.status === statusFilter;
+      const matchesType = requestTypeFilter === "all" || request.requestType === requestTypeFilter;
+      const matchesSearch = !normalizedSearch || [request.requestId, request.studentName, request.studentNumber, request.eventCode, request.eventName]
+        .some((value) => value.toLowerCase().includes(normalizedSearch));
+      return matchesStatus && matchesType && matchesSearch;
+    });
+  }, [requestTypeFilter, requests, search, statusFilter]);
+
+  const hasActiveFilters = Boolean(search.trim()) || statusFilter !== "all" || requestTypeFilter !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setRequestTypeFilter("all");
+  }
 
   function buildRequestDetails(request: CorrectionRequest): RequestDetails {
     const baseDetails = requestDetails[request.id];
@@ -619,15 +639,17 @@ export function OrganizerCorrectionRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Correction Requests</h1>
-        <p className="text-sm text-muted-foreground">Review and manage student attendance corrections and excused absence requests.</p>
-      </div>
+      <PageHeader title="Correction Requests" description="Review and manage student attendance corrections and excused absence requests." />
 
       <section className="space-y-4">
-        <div className="rounded-xl border bg-surface p-4 shadow-sm sm:p-5">
+        <div className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-foreground">Request queue</h2>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Request queue</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Showing {filteredRequests.length} of {requests.length} requests
+              </p>
+            </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
                 <Filter className="h-3 w-3" aria-hidden="true" />
@@ -643,32 +665,52 @@ export function OrganizerCorrectionRequestsPage() {
               </button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Correction request status">
-              {(["all", "pending", "approved", "rejected"] as const).map((tab) => (
-                <Button
-                  key={tab}
-                  type="button"
-                  aria-pressed={statusFilter === tab}
-                  variant={statusFilter === tab ? "default" : "outline"}
-                  size="sm"
-                  className="capitalize"
-                  onClick={() => setStatusFilter(tab)}
-                >
-                  {tab}
-                </Button>
-              ))}
-            </div>
-            <label className="relative block w-full sm:w-80">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                id="correction-search"
-                className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
-                placeholder="Search request, student, or event..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
+          <div className="grid grid-cols-1 items-end gap-3 border-t border-border/50 pt-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_auto]">
+            <label className="relative block min-w-0">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <input
+                  id="correction-search"
+                  className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
+                  placeholder="Search ID, student, or event"
+                  aria-label="Search correction requests"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
             </label>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="correction-filter-type" className="text-[11px] font-medium text-muted-foreground">Request type</label>
+              <select
+                id="correction-filter-type"
+                value={requestTypeFilter}
+                onChange={(event) => setRequestTypeFilter(event.target.value as "all" | RequestType)}
+                className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="all">All request types</option>
+                <option value="Correction">Correction</option>
+                <option value="Excuse">Excuse</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="correction-filter-status" className="text-[11px] font-medium text-muted-foreground">Status</label>
+              <select
+                id="correction-filter-status"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as "all" | RequestStatus)}
+                className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              >
+                <option value="all">All statuses ({requests.length})</option>
+                <option value="pending">Pending ({statusCounts.pending})</option>
+                <option value="approved">Approved ({statusCounts.approved})</option>
+                <option value="rejected">Rejected ({statusCounts.rejected})</option>
+              </select>
+            </div>
+            <div className="flex min-h-9 items-center lg:justify-end">
+              {hasActiveFilters ? (
+                <Button type="button" variant="ghost" size="sm" className="px-0 text-xs" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -678,7 +720,7 @@ export function OrganizerCorrectionRequestsPage() {
           columns={columns}
           onRowClick={viewRequest}
           emptyTitle="No requests"
-          emptyDescription="No requests matching current filter."
+          emptyDescription={hasActiveFilters ? "Try clearing a filter or changing your search." : "There are no correction requests to review."}
           enableColumnVisibility
           hideHeader
         />

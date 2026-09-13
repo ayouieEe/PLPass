@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock3, Download, FileText, FileUp, Link2, MapPin, Play, Plus, Search, Users } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock3, Download, FileText, FileUp, Link2, MapPin, Play, Plus, Search, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -206,7 +206,11 @@ function attendanceRate(records: AttendanceRecord[]) {
 }
 
 function eventLabel(event: Event | undefined) {
-  return event ? `${event.code} - ${event.title}` : "Unknown event";
+  return event ? `${event.code} - ${formatEventTitle(event.title)}` : "Unknown event";
+}
+
+function formatEventTitle(value: string) {
+  return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
 
 function studentName(student: Student | undefined) {
@@ -337,6 +341,16 @@ export function EventDetailsPage() {
   const [tab, setTab] = useState("participants");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [participantStudentNumber, setParticipantStudentNumber] = useState("");
+  const [isParticipantPickerOpen, setIsParticipantPickerOpen] = useState(false);
+  const [participantPickerSelectedIds, setParticipantPickerSelectedIds] = useState<string[]>([]);
+  const [participantPickerSearch, setParticipantPickerSearch] = useState("");
+  const [participantPickerProgramId, setParticipantPickerProgramId] = useState("");
+  const [participantPickerYearLevel, setParticipantPickerYearLevel] = useState("");
+  const [participantPickerSection, setParticipantPickerSection] = useState("");
+  const [participantSearch, setParticipantSearch] = useState("");
+  const [participantProgramId, setParticipantProgramId] = useState("");
+  const [participantYearLevel, setParticipantYearLevel] = useState("");
+  const [participantSection, setParticipantSection] = useState("");
   const [participantPendingAddition, setParticipantPendingAddition] = useState<Student | null>(null);
   const [participantPendingRemoval, setParticipantPendingRemoval] = useState<string | null>(null);
   const [isUpdatingParticipants, setIsUpdatingParticipants] = useState(false);
@@ -449,11 +463,44 @@ export function EventDetailsPage() {
   const objectives = objectivesQuery.data ?? [];
   const resources = resourcesQuery.data?.items ?? [];
   const participantList = participantStudents(participants, students);
+  const participantStudentIds = new Set(participantList.map((student) => student.id));
+  const participantPrograms = [...new Set(participantList.map((student) => student.programId).filter(Boolean))]
+    .map((id) => ({ id, code: programById.get(id) ?? id }))
+    .sort((left, right) => left.code.localeCompare(right.code));
+  const participantSections = [...new Set(participantList.map((student) => student.section).filter(Boolean))].sort();
+  const normalizedParticipantSearch = participantSearch.trim().toLowerCase();
+  const filteredParticipantList = participantList.filter((student) => {
+    const searchable = [student.fullName, student.formattedName, student.studentNumber, student.email]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return (!normalizedParticipantSearch || searchable.includes(normalizedParticipantSearch))
+      && (!participantProgramId || student.programId === participantProgramId)
+      && (!participantYearLevel || student.yearLevel === Number(participantYearLevel))
+      && (!participantSection || student.section === participantSection);
+  });
+  const availableStudents = students.filter((student) => !participantStudentIds.has(student.id) && student.status === "enrolled");
+  const availablePrograms = [...new Set(availableStudents.map((student) => student.programId).filter(Boolean))]
+    .map((id) => ({ id, code: programById.get(id) ?? id }))
+    .sort((left, right) => left.code.localeCompare(right.code));
+  const availableSections = [...new Set(availableStudents.map((student) => student.section).filter(Boolean))].sort();
+  const normalizedPickerSearch = participantPickerSearch.trim().toLowerCase();
+  const filteredAvailableStudents = availableStudents.filter((student) => {
+    const searchable = [student.fullName, student.formattedName, student.studentNumber, student.email]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return (!normalizedPickerSearch || searchable.includes(normalizedPickerSearch))
+      && (!participantPickerProgramId || student.programId === participantPickerProgramId)
+      && (!participantPickerYearLevel || student.yearLevel === Number(participantPickerYearLevel))
+      && (!participantPickerSection || student.section === participantPickerSection);
+  });
+  const allFilteredAvailableSelected = filteredAvailableStudents.length > 0
+    && filteredAvailableStudents.every((student) => participantPickerSelectedIds.includes(student.id));
   const participantPendingRemovalStudent = participantPendingRemoval
     ? participantList.find((student) => student.id === participantPendingRemoval)
     : undefined;
   const invitationStatusByProfileId = new Map(invitationStatuses.map((status) => [status.recipientProfileId, status]));
-  const participantStudentIds = new Set(participantList.map((student) => student.id));
   const studentNumberForAddition = participantStudentNumber.trim().toLowerCase();
   const matchedStudentForAddition = studentNumberForAddition
     ? students.find((student) => student.studentNumber.trim().toLowerCase() === studentNumberForAddition)
@@ -662,6 +709,30 @@ export function EventDetailsPage() {
     }
   }
 
+  async function addSelectedParticipants() {
+    if (!participantPickerSelectedIds.length) return;
+    setIsUpdatingParticipants(true);
+    try {
+      const rows = participantPickerSelectedIds.map((studentId) => ({ event_id: event.id, student_id: studentId, participant_status: "confirmed" }));
+      const { error } = await getSupabaseBrowserClient()
+        .from("event_participants")
+        .upsert(rows, { onConflict: "event_id,student_id" });
+      if (error) throw error;
+
+      const addedCount = participantPickerSelectedIds.length;
+      await participantsQuery.refetch();
+      setParticipantPickerSelectedIds([]);
+      setIsParticipantPickerOpen(false);
+      setInvitationStatusRefreshKey((current) => current + 1);
+      toast.success(`${addedCount} participant${addedCount === 1 ? "" : "s"} added. Invitation emails are queued for delivery.`);
+    } catch (error) {
+      console.error("Failed to add selected participants:", error);
+      toast.error("Could not add the selected participants. Please try again.");
+    } finally {
+      setIsUpdatingParticipants(false);
+    }
+  }
+
   async function removeParticipant(studentId: string) {
     setIsUpdatingParticipants(true);
     try {
@@ -788,7 +859,7 @@ export function EventDetailsPage() {
       header: "Actions",
       cell: ({ row }) => (
         <div className="flex items-center gap-2 whitespace-nowrap">
-          <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>View</Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>View details</Button>
           {canManageParticipants ? (
             <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setParticipantPendingRemoval(row.original.id)} disabled={isUpdatingParticipants}>Remove</Button>
           ) : null}
@@ -809,10 +880,18 @@ export function EventDetailsPage() {
   return (
     <OrganizerFrame>
       <PageHeader
-        title={event.title}
+        title={formatEventTitle(event.title)}
         description="Manage this event, prepare attendance, and review participation."
-        actions={canChangeEvent ? (
-          <div className="flex items-center gap-2">
+        actions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button asChild type="button" variant="outline" size="sm">
+              <NavLink to={APP_ROUTES.organizerEvents}>
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back to events
+              </NavLink>
+            </Button>
+            {canChangeEvent ? (
+            <div className="flex items-center gap-2">
             <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
               setSessionModalMode(activeSession ? "existing" : "start");
               if (!activeSession) setLateCutoffMinutes(15);
@@ -831,8 +910,10 @@ export function EventDetailsPage() {
                 <button type="button" className="w-full rounded-sm px-3 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10" onClick={() => setIsCancelOpen(true)}>Cancel event</button>
               </div>
             </details>
+            </div>
+            ) : null}
           </div>
-        ) : undefined}
+        }
       />
 
       <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-5 shadow-sm md:p-6" aria-label="Event at a glance">
@@ -1103,11 +1184,24 @@ export function EventDetailsPage() {
           {tab === "participants" ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-semibold text-foreground">Participant management</h3>
+                <div>
+                  <h3 className="font-semibold text-foreground">Participant management</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{event.targetGroup ?? "Selected participants"} · {filteredParticipantList.length} of {participantList.length} shown</p>
+                </div>
                 {!canManageParticipants ? <span className="w-fit rounded-full border bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground">Changes locked</span> : null}
               </div>
               {canManageParticipants ? (
-                <form
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 p-3">
+                    <div>
+                      <p className="font-medium text-foreground">Add multiple students</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Browse enrolled students by section, program, or year level.</p>
+                    </div>
+                    <Button type="button" onClick={() => { setParticipantPickerSelectedIds([]); setIsParticipantPickerOpen(true); }}>
+                      Browse students
+                    </Button>
+                  </div>
+                  <form
                   className="rounded-lg border bg-muted/20 p-3"
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -1147,13 +1241,33 @@ export function EventDetailsPage() {
                   ) : (
                     <p className="mt-3 text-sm text-muted-foreground">Enter a Student ID to verify the student before adding them.</p>
                   )}
-                </form>
+                  </form>
+                </div>
               ) : (
                 <p className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">Participant changes are locked after a session is completed or when the event is completed.</p>
               )}
+              <div className="grid gap-3 rounded-lg border bg-background p-3 sm:grid-cols-2 xl:grid-cols-4">
+                <label className="sm:col-span-2 xl:col-span-1">
+                  <span className="sr-only">Search participants</span>
+                  <input className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={participantSearch} onChange={(inputEvent) => setParticipantSearch(inputEvent.target.value)} placeholder="Search name or student number" />
+                </label>
+                <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantProgramId} onChange={(inputEvent) => setParticipantProgramId(inputEvent.target.value)} aria-label="Filter participants by program">
+                  <option value="">All programs</option>
+                  {participantPrograms.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
+                </select>
+                <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantYearLevel} onChange={(inputEvent) => setParticipantYearLevel(inputEvent.target.value)} aria-label="Filter participants by year level">
+                  <option value="">All year levels</option>
+                  {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+                </select>
+                <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantSection} onChange={(inputEvent) => setParticipantSection(inputEvent.target.value)} aria-label="Filter participants by section">
+                  <option value="">All sections</option>
+                  {participantSections.map((sectionName) => <option key={sectionName} value={sectionName}>Section {sectionName}</option>)}
+                </select>
+                {(participantSearch || participantProgramId || participantYearLevel || participantSection) ? <Button type="button" variant="ghost" size="sm" className="justify-self-start text-muted-foreground hover:text-foreground sm:col-span-2 xl:col-span-4" onClick={() => { setParticipantSearch(""); setParticipantProgramId(""); setParticipantYearLevel(""); setParticipantSection(""); }}>Clear participant filters</Button> : null}
+              </div>
               <PLPassDataGrid
                 label="Event participants"
-                data={participantList}
+                data={filteredParticipantList}
                 columns={participantColumns}
                 emptyTitle="No participants"
                 emptyDescription="Add students here before the event session is completed."
@@ -1230,6 +1344,64 @@ export function EventDetailsPage() {
         onCancel={() => setResourcePendingRemoval(null)}
         onConfirm={() => void confirmResourceRemoval()}
       />
+
+      <ModalShell
+        open={isParticipantPickerOpen}
+        title="Browse students to add"
+        description="Filter the enrolled student list, select one or more students, then add them to this event."
+        size="xl"
+        onClose={() => !isUpdatingParticipants && setIsParticipantPickerOpen(false)}
+        footer={<><Button type="button" variant="outline" onClick={() => setIsParticipantPickerOpen(false)} disabled={isUpdatingParticipants}>Cancel</Button><Button type="button" onClick={() => void addSelectedParticipants()} disabled={!participantPickerSelectedIds.length || isUpdatingParticipants}>{isUpdatingParticipants ? "Adding…" : `Add ${participantPickerSelectedIds.length || "selected"} student${participantPickerSelectedIds.length === 1 ? "" : "s"}`}</Button></>}
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 rounded-xl border bg-background p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="sm:col-span-2 lg:col-span-1">
+              <span className="sr-only">Search students</span>
+              <input className="plpass-field h-10 w-full rounded-md border px-3 text-sm" value={participantPickerSearch} onChange={(inputEvent) => setParticipantPickerSearch(inputEvent.target.value)} placeholder="Search name or student number" />
+            </label>
+            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantPickerProgramId} onChange={(inputEvent) => setParticipantPickerProgramId(inputEvent.target.value)} aria-label="Filter available students by program">
+              <option value="">All programs</option>
+              {availablePrograms.map((program) => <option key={program.id} value={program.id}>{program.code}</option>)}
+            </select>
+            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantPickerYearLevel} onChange={(inputEvent) => setParticipantPickerYearLevel(inputEvent.target.value)} aria-label="Filter available students by year level">
+              <option value="">All year levels</option>
+              {[1, 2, 3, 4].map((level) => <option key={level} value={String(level)}>Year {level}</option>)}
+            </select>
+            <select className="plpass-field h-10 rounded-md border px-3 text-sm" value={participantPickerSection} onChange={(inputEvent) => setParticipantPickerSection(inputEvent.target.value)} aria-label="Filter available students by section">
+              <option value="">All sections</option>
+              {availableSections.map((sectionName) => <option key={sectionName} value={sectionName}>Section {sectionName}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5 text-sm">
+            <span className="text-muted-foreground">{filteredAvailableStudents.length} enrolled student{filteredAvailableStudents.length === 1 ? "" : "s"} available · {participantPickerSelectedIds.length} selected</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => setParticipantPickerSelectedIds(allFilteredAvailableSelected ? [] : [...new Set([...participantPickerSelectedIds, ...filteredAvailableStudents.map((student) => student.id)])])} disabled={!filteredAvailableStudents.length}>
+              {allFilteredAvailableSelected ? "Clear visible selection" : "Select all visible"}
+            </Button>
+          </div>
+          {filteredAvailableStudents.length ? (
+            <div className="max-h-[52vh] overflow-auto rounded-xl border">
+              <table className="w-full min-w-[700px] text-left text-sm">
+                <thead className="sticky top-0 z-10 border-b bg-muted/90 text-xs uppercase tracking-wide text-muted-foreground backdrop-blur">
+                  <tr><th className="w-12 px-4 py-3"><span className="sr-only">Select</span></th><th className="px-3 py-3">Student</th><th className="px-3 py-3">Student number</th><th className="px-3 py-3">Program</th><th className="px-3 py-3">Year</th><th className="px-3 py-3">Section</th></tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredAvailableStudents.map((student) => {
+                    const selected = participantPickerSelectedIds.includes(student.id);
+                    return <tr key={student.id} className={selected ? "bg-primary/5" : "hover:bg-muted/30"}>
+                      <td className="px-4 py-3"><input type="checkbox" checked={selected} onChange={() => setParticipantPickerSelectedIds((current) => selected ? current.filter((id) => id !== student.id) : [...current, student.id])} aria-label={`Select ${studentName(student)}`} className="h-5 w-5 accent-primary" /></td>
+                      <th scope="row" className="px-3 py-3 font-medium text-foreground">{studentName(student)}</th>
+                      <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{programById.get(student.programId) ?? student.programId}</td>
+                      <td className="px-3 py-3 text-muted-foreground">Year {student.yearLevel}</td>
+                      <td className="px-3 py-3 text-muted-foreground">{student.section || "—"}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">No enrolled students match these filters.</div>}
+        </div>
+      </ModalShell>
 
       <ConfirmModal
         open={Boolean(participantPendingAddition)}

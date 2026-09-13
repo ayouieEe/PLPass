@@ -9,7 +9,8 @@ import {
   UserCircle,
   Users,
   FileText,
-  UserCheck
+  UserCheck,
+  Settings
 } from "lucide-react";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { RoleNavigationConfig } from "@/types/navigation";
@@ -25,6 +26,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Authentication Methods", path: APP_ROUTES.organizerReports, icon: FileText, group: "Insights" },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights" },
     { label: "Audit Logs", path: APP_ROUTES.organizerAuditLogs, icon: ClipboardList, group: "Account" },
+    { label: "Settings", path: APP_ROUTES.organizerSettings, icon: Settings, group: "Account" },
     { label: "Profile", path: APP_ROUTES.organizerProfile, icon: UserCircle, group: "Account" }
   ],
   student: [

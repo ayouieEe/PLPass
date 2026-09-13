@@ -35,7 +35,8 @@ const ACTION_EXACT_MAP: Record<string, string> = {
   "correction_request.rejected": "Correction request rejected",
   "user.invited": "User invited",
   "user.updated": "User profile updated",
-  "user.role_updated": "User role updated"
+  "user.role_updated": "User role updated",
+  "audit_log.reverted": "Audit action reverted"
 };
 
 export function formatAuditAction(action: string | undefined | null): string {

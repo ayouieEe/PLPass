@@ -23,6 +23,7 @@ import { TextField } from "@/components/forms/TextField";
 import { TimePickerField } from "@/components/forms/TimePickerField";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { SearchInput } from "@/components/shared/SearchInput";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
@@ -572,10 +573,7 @@ export function EventAttendancePage() {
   }
   return (
     <OrganizerFrame>
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Attendance</h1>
-        <p className="text-sm text-muted-foreground">Monitor live check-ins, record manual attendance, and view session statistics.</p>
-      </div>
+      <PageHeader title="Event Attendance" description="Monitor live check-ins, record manual attendance, and view session statistics." />
       <div className="rounded-lg border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
