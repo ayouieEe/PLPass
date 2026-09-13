@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertCircle, Check, CheckCircle2, Download, Eye, FileSpreadsheet, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Download, FileSpreadsheet, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -70,24 +70,29 @@ function statusTone(status: RequestStatus) {
   return "muted" as const;
 }
 
-function ModalFrame({ children, onClose, width = "max-w-2xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
-      <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}>
-        <div className="flex justify-end border-b px-5 py-3">
-          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal">
-            <X className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        </div>
-        <div className="max-h-[calc(90vh-58px)] overflow-y-auto p-5">{children}</div>
+function ModalFrame({ children, header, onClose, width = "max-w-2xl" }: { children: ReactNode; header?: ReactNode; onClose: () => void; width?: string }) {
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-label="Correction request details" className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border bg-surface shadow-2xl ${width}`} onClick={(event) => event.stopPropagation()}>
+        {header}
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
 
 function InfoTile({ label, value }: { label: string; value: string | React.ReactNode }) {
   return (
-    <div className="rounded-lg border bg-background p-3">
+    <div className="rounded-xl border bg-background p-3.5">
       <p className="text-xs font-medium uppercase text-muted-foreground">{label}</p>
       <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
     </div>
@@ -179,12 +184,13 @@ function ReportExportModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={onClose}>
       <section
         className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all"
         role="dialog"
         aria-modal="true"
         aria-labelledby="export-modal-title"
+        onClick={(event) => event.stopPropagation()}
       >
         {/* Header */}
         <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
@@ -609,27 +615,6 @@ export function OrganizerCorrectionRequestsPage() {
       header: "Status",
       cell: ({ row }) => <StatusBadge label={row.original.status} tone={statusTone(row.original.status)} />
     },
-    {
-      id: "actions",
-      header: "Actions",
-      meta: {
-        agGrid: {
-          pinned: "right",
-          minWidth: 150,
-          maxWidth: 165,
-          sortable: false,
-          filter: false
-        }
-      },
-      cell: ({ row }) => (
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => viewRequest(row.original)} aria-label={`View more ${row.original.requestId}`}>
-            <Eye className="h-4 w-4" aria-hidden="true" />
-            View More
-          </Button>
-        </div>
-      )
-    }
   ];
 
   return (
@@ -640,9 +625,10 @@ export function OrganizerCorrectionRequestsPage() {
       </div>
 
       <section className="space-y-4">
-        <div className="rounded-lg border bg-surface p-4 shadow-sm">
+        <div className="rounded-xl border bg-surface p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <h2 className="text-base font-semibold text-foreground">Request queue</h2>
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
                 <Filter className="h-3 w-3" aria-hidden="true" />
                 {filteredRequests.length} results
@@ -690,11 +676,7 @@ export function OrganizerCorrectionRequestsPage() {
           label="Correction requests"
           data={filteredRequests}
           columns={columns}
-          onSelectionChange={(selectedRows) => {
-            if (selectedRows[0]) {
-              viewRequest(selectedRows[0]);
-            }
-          }}
+          onRowClick={viewRequest}
           emptyTitle="No requests"
           emptyDescription="No requests matching current filter."
           enableColumnVisibility
@@ -717,19 +699,41 @@ export function OrganizerCorrectionRequestsPage() {
       />
 
       {selectedRequest ? (
-        <ModalFrame onClose={() => setSelectedRequest(null)} width="max-w-3xl">
-          <div>
-            <p className="text-sm font-semibold text-primary">Request Details</p>
-            <h2 className="mt-1 text-2xl font-semibold">{selectedRequest.requestId}</h2>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ModalFrame
+          onClose={() => setSelectedRequest(null)}
+          width="max-w-3xl"
+          header={(
+            <header className="flex items-start justify-between gap-4 border-b border-primary/10 bg-gradient-to-r from-primary/[0.09] via-surface to-surface px-5 py-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+                  <AlertCircle className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Attendance request</p>
+                  <h2 className="mt-0.5 truncate text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{selectedRequest.requestId}</h2>
+                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{selectedRequest.studentName} · {selectedRequest.eventCode}</p>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge label={selectedRequest.status} tone={statusTone(selectedRequest.status)} />
+                <Button type="button" variant="ghost" size="icon" className="rounded-full" onClick={() => setSelectedRequest(null)} aria-label="Close request details">
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            </header>
+          )}
+        >
+          <div className="bg-muted/20">
+            <div className="p-5 sm:p-6">
+              <div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <InfoTile label="Student Name" value={selectedRequest.studentName} />
               <InfoTile label="Student Number" value={selectedRequest.studentNumber} />
               <InfoTile label="Event Code" value={selectedRequest.eventCode} />
               <InfoTile label="Request Type" value={selectedRequest.requestType} />
             </div>
 
-            <section className="mt-5 rounded-lg border bg-background p-4">
+            <section className="mt-5 rounded-xl border bg-background p-4">
               <h3 className="font-semibold">Attendance Information</h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <InfoTile label="Event" value={selectedRequest.eventName} />
@@ -738,9 +742,9 @@ export function OrganizerCorrectionRequestsPage() {
               </div>
             </section>
 
-            <section className="mt-5 rounded-lg border bg-background p-4">
+            <section className="mt-5 rounded-xl border bg-background p-4">
               <h3 className="font-semibold">Request Details</h3>
-              <p className="mt-3 text-sm text-muted-foreground">{selectedRequest.explanation}</p>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">{selectedRequest.explanation || "No explanation was provided."}</p>
               {selectedRequest.attachmentFileName ? (
                 <div className="mt-4 rounded-lg border border-dashed bg-surface p-3">
                   <p className="text-sm font-medium">Supporting Attachment</p>
@@ -752,7 +756,7 @@ export function OrganizerCorrectionRequestsPage() {
             </section>
 
             {selectedRequest.status === "pending" ? (
-              <section className="mt-5 rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <section className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
                 <h3 className="font-semibold">Organizer Decision</h3>
                 <div className="mt-4 space-y-3">
                   <label className="text-sm font-medium">
@@ -778,7 +782,7 @@ export function OrganizerCorrectionRequestsPage() {
                 </div>
               </section>
             ) : (
-              <section className="mt-5 rounded-lg border bg-background p-4">
+              <section className="mt-5 rounded-xl border bg-background p-4">
                 <h3 className="font-semibold">Organizer Decision</h3>
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${selectedRequest.decision === "approved" ? "border border-green-200 bg-green-50 text-green-700" : "border border-red-200 bg-red-50 text-red-700"}`}>
@@ -793,6 +797,8 @@ export function OrganizerCorrectionRequestsPage() {
                 ) : null}
               </section>
             )}
+              </div>
+            </div>
           </div>
         </ModalFrame>
       ) : null}

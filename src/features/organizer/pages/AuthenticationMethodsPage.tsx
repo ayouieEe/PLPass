@@ -2,7 +2,7 @@
 import { type ReactNode, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { Camera, CheckCircle2, ChevronDown, Download, FileSpreadsheet, FileText, Filter, QrCode, RefreshCw, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
+import { AlertCircle, Camera, CheckCircle2, ChevronDown, Download, FileSpreadsheet, FileText, Filter, QrCode, RefreshCw, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
@@ -53,6 +53,28 @@ function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
         <p>Issued: {student?.dateGenerated || new Date().toISOString().slice(0, 10)}</p>
       </div>
     </div>
+  );
+}
+
+function CredentialMetric({ label, value, icon, accent = "default" }: { label: string; value: number; icon: ReactNode; accent?: "default" | "success" | "warning" | "danger" }) {
+  const accentClass = {
+    default: "bg-primary/10 text-primary",
+    success: "bg-emerald-50 text-emerald-700",
+    warning: "bg-amber-50 text-amber-700",
+    danger: "bg-rose-50 text-rose-700"
+  }[accent];
+
+  return (
+    <article className="group relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="absolute inset-x-0 top-0 h-0.5 bg-primary/35" />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
+        </div>
+        <span className={`grid h-9 w-9 place-items-center rounded-lg ${accentClass}`}>{icon}</span>
+      </div>
+    </article>
   );
 }
 
@@ -744,23 +766,19 @@ export function AuthenticationMethodsPage() {
     }
   }, [handleDisableQr, handleActivateQr]);
 
-  const handleViewQr = useCallback((studentName: string) => {
+  const handleViewQr = useCallback((student: QrRow) => {
+    const isActive = student.status === "Active";
+    const canManage = student.status !== "Missing" && Boolean(student.credentialId);
     setActiveModal({
       type: "qr",
       title: "QR credential details",
-      description: `Review the current QR credential for ${studentName}.`,
-      confirmLabel: "Close",
-      studentName
+      description: `Review the current QR credential for ${student.studentName}.`,
+      confirmLabel: canManage ? (isActive ? "Disable credential" : "Enable credential") : "Close",
+      cancelLabel: canManage ? "Cancel" : "Close",
+      tone: canManage && isActive ? "danger" : "default",
+      studentName: student.studentName
     });
   }, []);
-
-  const handleQuickViewQr = useCallback(() => {
-    if (!filteredQrRows.length) {
-      toast.warning("No QR credentials available to preview.");
-      return;
-    }
-    handleViewQr(filteredQrRows[0].studentName);
-  }, [handleViewQr, filteredQrRows]);
 
   const handleApproveFacialRequest = useCallback((request: FacialEnrollmentRequest) => {
     setActiveModal({
@@ -838,14 +856,14 @@ export function AuthenticationMethodsPage() {
         setActiveModal(null);
         return;
       }
-      if (activeModal.title.includes("Disable")) {
+      if (activeModal.title.includes("Disable") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
           status: "inactive"
         });
         toast.success(`QR credential disabled for ${activeModal.studentName}.`);
-      } else if (activeModal.title.includes("Enable") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate")) {
+      } else if (activeModal.title.includes("Enable") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate") || (activeModal.title === "QR credential details" && student.status !== "Missing" && Boolean(student.credentialId))) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
@@ -918,50 +936,7 @@ export function AuthenticationMethodsPage() {
     },
     { headerName: "Date Generated", field: "dateGenerated", minWidth: 150 },
     { headerName: "Last Used", field: "lastUsed", minWidth: 150 },
-    {
-      headerName: "Actions",
-      colId: "actions",
-      minWidth: 220,
-      pinned: "right",
-      sortable: false,
-      filter: false,
-      cellRenderer: ({ data }: ICellRendererParams<QrRow>) =>
-        data ? (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 border-border bg-background shadow-xs"
-              onClick={() => handleViewQr(data.studentName)}
-            >
-              View QR
-            </Button>
-            {data.status === "Active" ? (
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                className="h-8 shadow-xs"
-                onClick={() => handleDisableQr(data.studentName)}
-              >
-                Disable
-              </Button>
-            ) : data.status === "Disabled" || data.status === "Expired" ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="h-8 shadow-xs"
-                onClick={() => handleActivateQr(data.studentName)}
-              >
-                Enable
-              </Button>
-            ) : null}
-          </div>
-        ) : null
-    }
-  ], [handleDisableQr, handleActivateQr, handleViewQr]);
+  ], []);
 
   const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
     { headerName: "School ID", field: "studentNumber", minWidth: 120 },
@@ -1040,11 +1015,64 @@ export function AuthenticationMethodsPage() {
         <p className="text-sm text-muted-foreground">Manage QR codes and facial recognition credentials for all students.</p>
       </div>
 
-      {/* Search and Filters Bar */}
-      <div className="rounded-lg border bg-surface p-4 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          {/* Search Input */}
-          <div className="relative flex-1 min-w-[240px]">
+      <section className={activeTab === "qr" ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-4" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"} aria-label="Credential overview">
+        {activeTab === "qr" ? (
+          <>
+            <CredentialMetric label="QR credentials" value={qrRows.length} icon={<QrCode className="h-4 w-4" />} />
+            <CredentialMetric label="Active" value={qrRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
+            <CredentialMetric label="Disabled" value={qrRows.filter((row) => row.status === "Disabled").length} icon={<UserX className="h-4 w-4" />} accent="danger" />
+            <CredentialMetric label="Missing" value={qrRows.filter((row) => row.status === "Missing").length} icon={<QrCode className="h-4 w-4" />} accent="warning" />
+          </>
+        ) : (
+          <>
+            <CredentialMetric label="Enrolled" value={facialRows.length} icon={<Camera className="h-4 w-4" />} />
+            <CredentialMetric label="Activated" value={facialRows.filter((row) => row.status === "Activated").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
+            <CredentialMetric label="Damaged" value={facialRows.filter((row) => row.status === "Damaged").length} icon={<AlertCircle className="h-4 w-4" />} accent="danger" />
+            <CredentialMetric label="Inactive" value={facialRows.filter((row) => row.status === "Inactive").length} icon={<UserX className="h-4 w-4" />} accent="warning" />
+            <CredentialMetric label="Missing" value={facialRows.filter((row) => row.status === "Missing").length} icon={<Camera className="h-4 w-4" />} />
+          </>
+        )}
+      </section>
+
+      <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-1.5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setActiveTab("qr")}
+          className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
+        >
+          <QrCode className="h-4 w-4" />
+          QR Code
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("facial")}
+          className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
+        >
+          <Camera className="h-4 w-4" />
+          Facial Recognition
+        </button>
+      </div>
+
+      <section className="rounded-xl border bg-surface p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-foreground">Credential directory</h2>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              <Filter className="h-3 w-3" aria-hidden="true" />
+              {activeTab === "qr" ? filteredQrRows.length : filteredFacialRows.length} results
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <input
               type="text"
@@ -1061,12 +1089,9 @@ export function AuthenticationMethodsPage() {
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
-            )}
+              )}
           </div>
-
-          {/* Status Filters */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-            <span className="text-xs font-semibold text-muted-foreground mr-1">Status:</span>
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0" role="group" aria-label="Credential status">
             {(["All", "Active", "Inactive", "Missing"] as const).map((status) => (
               <button
                 key={status}
@@ -1083,49 +1108,7 @@ export function AuthenticationMethodsPage() {
             ))}
           </div>
         </div>
-
-        <div className="flex items-center justify-between border-t border-border/50 pt-3">
-          <div className="flex items-center gap-2">
-            {activeTab === "qr" ? (
-              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={handleQuickViewQr}>
-                View QR
-              </Button>
-            ) : null}
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-              <Filter className="h-3 w-3" aria-hidden="true" />
-              {activeTab === "qr" ? filteredQrRows.length : filteredFacialRows.length} results
-            </span>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsExportModalOpen(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
-          >
-            <Download className="h-3.5 w-3.5" aria-hidden="true" />
-            Export
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 rounded-lg border bg-card p-1">
-        <button
-          type="button"
-          onClick={() => setActiveTab("qr")}
-          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
-        >
-          <QrCode className="h-4 w-4" />
-          QR Code
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("facial")}
-          className={`flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
-        >
-          <Camera className="h-4 w-4" />
-          Facial Recognition
-        </button>
-      </div>
+      </section>
 
       <ConfirmModal
         open={Boolean(activeModal)}
@@ -1138,12 +1121,13 @@ export function AuthenticationMethodsPage() {
         onCancel={() => setActiveModal(null)}
       >
         {activeModal?.type === "qr" && activeModal.studentName ? (
-          <div className="space-y-3 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+          <div className="space-y-4 rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-surface to-surface p-4 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
-              <p className="font-medium text-foreground">QR credential preview</p>
-              <span className="rounded-full border border-border bg-background px-2 py-1 text-xs font-semibold uppercase tracking-wide text-foreground">
-                {activeModal.title.includes("Regenerate") ? "New credential" : "Current credential"}
-              </span>
+              <div>
+                <p className="font-semibold text-foreground">QR credential preview</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Use this credential for event attendance.</p>
+              </div>
+              <StatusBadge label={selectedStudentQrInfo?.status ?? "Missing"} tone={qrTone(selectedStudentQrInfo?.status ?? "Missing")} />
             </div>
             <OrganizerQrPreview student={selectedStudentQrInfo} />
             <p>
@@ -1199,25 +1183,6 @@ export function AuthenticationMethodsPage() {
 
       {activeTab === "qr" ? (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Total QR Credentials</p>
-              <p className="mt-2 text-2xl font-semibold">{qrRows.length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Active QR Credentials</p>
-              <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Active").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Disabled QR Credentials</p>
-              <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Disabled").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Missing QR Credentials</p>
-              <p className="mt-2 text-2xl font-semibold">{qrRows.filter((row) => row.status === "Missing").length}</p>
-            </div>
-          </div>
-
           <PLPassDataGrid
             label="Student QR Credentials"
             data={filteredQrRows}
@@ -1225,34 +1190,11 @@ export function AuthenticationMethodsPage() {
             isLoading={studentsQuery.isLoading}
             emptyTitle="No QR credentials found"
             emptyDescription="There are no student QR credentials matching your criteria."
-            enableQuickFilter
+            onRowClick={handleViewQr}
           />
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-5">
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Total Enrolled</p>
-              <p className="mt-2 text-2xl font-semibold">{facialRows.length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Activated</p>
-              <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Activated").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Damaged</p>
-              <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Damaged").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Inactive</p>
-              <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Inactive").length}</p>
-            </div>
-            <div className="rounded-lg border bg-surface p-4">
-              <p className="text-sm text-muted-foreground">Missing</p>
-              <p className="mt-2 text-2xl font-semibold">{facialRows.filter((row) => row.status === "Missing").length}</p>
-            </div>
-          </div>
-
           <PLPassDataGrid
             label="Facial Enrollment Records"
             data={filteredFacialRows}
@@ -1260,7 +1202,7 @@ export function AuthenticationMethodsPage() {
             isLoading={studentsQuery.isLoading}
             emptyTitle="No facial enrollment records found"
             emptyDescription="There are no facial enrollment records matching your criteria."
-            enableQuickFilter
+            onRowClick={(row) => handleViewFacial(row.studentName)}
           />
 
           <PLPassDataGrid
@@ -1270,7 +1212,6 @@ export function AuthenticationMethodsPage() {
             isLoading={credentialRequestsQuery.isLoading}
             emptyTitle="No pending facial enrollment requests found"
             emptyDescription="There are no facial enrollment requests to review."
-            enableQuickFilter
           />
         </div>
       )}

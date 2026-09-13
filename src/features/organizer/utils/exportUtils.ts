@@ -69,9 +69,34 @@ export async function exportTabularReportXlsx(title: string, rows: ExportTableRo
 
   worksheet.columns = headers.map((header) => ({ header, key: header }));
   rows.forEach((row) => worksheet.addRow(headers.map((header) => row[header] ?? "")));
-  worksheet.getRow(1).font = { bold: true };
+  worksheet.views = [{ state: "frozen", ySplit: 1 }];
+  if (headers.length) {
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: Math.max(rows.length + 1, 1), column: headers.length }
+    };
+  }
+  const headerRow = worksheet.getRow(1);
+  headerRow.height = 22;
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3F7444" } };
+  headerRow.alignment = { vertical: "middle" };
+  worksheet.eachRow((row, rowNumber) => {
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFDCE7DD" } },
+        left: { style: "thin", color: { argb: "FFDCE7DD" } },
+        bottom: { style: "thin", color: { argb: "FFDCE7DD" } },
+        right: { style: "thin", color: { argb: "FFDCE7DD" } }
+      };
+      cell.alignment = { vertical: "middle", wrapText: true };
+      if (rowNumber > 1 && rowNumber % 2 === 1) {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F9F5" } };
+      }
+    });
+  });
   worksheet.columns.forEach((column) => {
-    column.width = Math.min(Math.max(column.header?.length ?? 10, 12), 32);
+    column.width = Math.min(Math.max(column.header?.length ?? 10, 14), 34);
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -81,17 +106,31 @@ export async function exportTabularReportXlsx(title: string, rows: ExportTableRo
 export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
   const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+  const reportTitle = title.replace(/\s+(?:XLSX|PDF)$/i, "");
+  doc.setFillColor(63, 116, 68);
+  doc.rect(0, 0, 297, 10, "F");
+  doc.setTextColor(63, 116, 68);
   doc.setFontSize(16);
-  doc.text(title.replace(/\s+(?:XLSX|PDF)$/i, ""), 14, 18);
+  doc.text(reportTitle, 14, 20);
+  doc.setTextColor(82, 97, 85);
   doc.setFontSize(9);
-  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
+  doc.text(`PLPass · Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 27);
   autoTable(doc, {
-    startY: 28,
+    startY: 32,
     head: [headers],
     body: rows.map((row) => headers.map((header) => String(row[header] ?? ""))),
     theme: "striped",
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
-    styles: { fontSize: 7, cellPadding: 2 }
+    headStyles: { fillColor: [63, 116, 68], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
+    alternateRowStyles: { fillColor: [245, 249, 245] },
+    styles: { fontSize: 7, cellPadding: 2, lineColor: [220, 231, 221], lineWidth: 0.1 },
+    didDrawPage: (data) => {
+      doc.setDrawColor(220, 231, 221);
+      doc.line(14, 201, 283, 201);
+      doc.setTextColor(82, 97, 85);
+      doc.setFontSize(7);
+      doc.text("PLPass Event Management", 14, 206);
+      doc.text(`Page ${data.pageNumber}`, 283, 206, { align: "right" });
+    }
   });
   doc.save(`${reportFileName(title)}.pdf`);
 }

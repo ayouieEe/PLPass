@@ -37,7 +37,7 @@ test("organizer event validation connects errors to shared fields", async ({ pag
   await seedSession(page, "organizer");
   await page.goto("/organizer/events/create");
   await expect(page.getByRole("heading", { name: "Create Event" })).toBeVisible();
-  await page.getByRole("button", { name: "Publish Event" }).click();
+  await page.getByRole("button", { name: "Continue to participants" }).click();
   await expectConnectedError(page.getByLabel("Event Name"), "Event title is required");
   await expectConnectedError(page.getByLabel("Category"), "Category is required");
 });

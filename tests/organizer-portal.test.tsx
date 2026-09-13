@@ -11,11 +11,12 @@ import { repositories } from "@/services/repositories";
 
 vi.mock("@/components/data-display/PLPassDataGrid", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  PLPassDataGrid: ({ toolbarActions, data, columns, onSelectionChange }: any) => (
+  PLPassDataGrid: ({ toolbarActions, data, columns, onSelectionChange, onRowClick }: any) => (
     <div>
       {toolbarActions}
       { }
       <button type="button" onClick={() => onSelectionChange?.(data?.slice(0, 1) ?? [])}>Select first row</button>
+      <button type="button" onClick={() => onRowClick?.(data?.[0])}>Open first row</button>
       <div data-testid="mock-grid-rows">
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
         {(data ?? []).map((row: any) => (
@@ -304,13 +305,13 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
-  it("opens a modal when a credential action button is clicked", async () => {
+  it("opens a credential modal when a student row is clicked", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");
     render(<App />);
 
     const user = userEvent.setup();
-    await user.click((await screen.findAllByRole("button", { name: /^view qr$/i }))[0]);
+    await user.click(await screen.findByRole("button", { name: "Open first row" }));
 
     expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
   });
@@ -320,7 +321,7 @@ describe("organizer UI flows", () => {
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Event Management" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
     expect(await screen.findByText("Business Forum")).toBeInTheDocument();
     expect(screen.queryByText("CCS Orientation")).not.toBeInTheDocument();
   });
@@ -333,7 +334,7 @@ describe("organizer UI flows", () => {
     expect(await screen.findByRole("heading", { name: "Event unavailable" })).toBeInTheDocument();
   });
 
-  it("shows export report actions inside the completed event modal", () => {
+  it("shows export report actions inside the completed event modal", async () => {
     render(
       <CompletedEventModal
         record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] }}
@@ -342,11 +343,13 @@ describe("organizer UI flows", () => {
       />
     );
 
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Export" }));
     expect(screen.getByText(/export this event/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attendance XLSX" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attendance PDF" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Event Summary XLSX" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Event Summary PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Event summary XLSX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Event summary PDF" })).toBeInTheDocument();
   });
 
   it("updates a pending correction request after the organizer approves it", async () => {
@@ -355,7 +358,7 @@ describe("organizer UI flows", () => {
     render(<App />);
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("button", { name: /select first row/i }));
+    await user.click(await screen.findByRole("button", { name: "Open first row" }));
     await user.click(await screen.findByRole("button", { name: /approve request/i }));
 
     expect((await screen.findAllByText(/approved/i))[0]).toBeInTheDocument();
@@ -372,16 +375,16 @@ describe("organizer UI flows", () => {
     expect(screen.getByRole("button", { name: /rejected/i })).toBeInTheDocument();
   });
 
-  it("validates create event participant selection", async () => {
+  it("validates create event details before advancing to participant selection", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/events/create");
     render(<App />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Event Details" })).toBeInTheDocument();
-    await user.click(await screen.findByRole("button", { name: "Publish Event" }));
+    await user.click(await screen.findByRole("button", { name: "Continue to participants" }));
 
-    expect(await screen.findByText("Select at least one participant.")).toBeInTheDocument();
+    expect(await screen.findByText("Event title is required")).toBeInTheDocument();
   });
 
   it("refreshes visible organizer data after account switching", async () => {
