@@ -94,7 +94,7 @@ test.describe("organizer critical journeys", () => {
     await page.goto("/organizer/events/create");
     await expect(page.getByRole("heading", { name: "Create Event" })).toBeVisible();
     await page.getByRole("button", { name: "Continue to participants" }).click();
-    await expect(page.getByText("Event title is required.")).toBeVisible();
+    await expect(page.getByText("Event title is required")).toBeVisible();
 
     await page.goto("/organizer/reports");
     await expect(page.getByText("Student 01").first()).toBeVisible();
