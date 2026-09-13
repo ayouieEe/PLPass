@@ -27,10 +27,10 @@ async function seedSession(page: Page, role: keyof typeof sessions) {
 test("organizer participant failure is announced without relying on a toast", async ({ page }) => {
   await seedSession(page, "organizer");
   await page.goto("/organizer/events/create");
-  await page.getByRole("button", { name: "Publish Event" }).click();
-  const participantAlert = page.getByRole("alert").filter({ hasText: "Select at least one participant." });
-  await expect(participantAlert).toBeVisible();
-  await expect(participantAlert).toHaveAttribute("aria-live", "assertive");
+  await page.getByRole("button", { name: "Continue to participants" }).click();
+  const validationAlert = page.getByRole("alert").filter({ hasText: "Event title is required." });
+  await expect(validationAlert).toBeVisible();
+  await expect(validationAlert).toHaveAttribute("aria-live", "assertive");
 });
 
 test("student correction success remains available as an inline status", async ({ page }) => {
