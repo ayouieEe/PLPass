@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, Filter, Search, Eye, Calendar, User as UserIcon, Tag, RotateCcw } from "lucide-react";
+import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ModalShell } from "@/components/modals/ModalShell";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAuditLogs,
   useEvents,
   useStudents,
-  useAttendanceSessions
+  useAttendanceSessions,
+  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { AuditLog } from "@/types/domain";
@@ -45,6 +47,7 @@ export function OrganizerAuditLogsPage() {
 
   // Selected Log for Details Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [isReverting, setIsReverting] = useState(false);
 
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
@@ -57,9 +60,15 @@ export function OrganizerAuditLogsPage() {
     []
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
+  const auditLogMutations = useAuditLogMutations(context);
   const rawLogs = useMemo(
     () => auditLogsQuery.data?.items ?? [],
     [auditLogsQuery.data?.items]
+  );
+
+  const actorOptions = useMemo(
+    () => [...new Set(rawLogs.map((log) => log.actorUserId).filter(Boolean))],
+    [rawLogs]
   );
 
   // Entity queries for target resolution
@@ -107,6 +116,28 @@ export function OrganizerAuditLogsPage() {
     setCustomEndDate("");
     setActorUserId("all");
     setActionCategory("all");
+  }
+
+  async function revertAuditLog() {
+    if (!selectedLog || selectedLog.action === "audit_log.reverted") return;
+    setIsReverting(true);
+    try {
+      await auditLogMutations.logActionMutation.mutateAsync({
+        action: "audit_log.reverted",
+        targetType: "audit_log",
+        targetId: selectedLog.id,
+        metadata: {
+          revertedAction: selectedLog.action,
+          revertedTargetType: selectedLog.targetType,
+          revertedTargetId: selectedLog.targetId ?? null,
+          revertedAt: new Date().toISOString()
+        }
+      });
+      toast.success("Revert action recorded in Audit Logs.");
+      setSelectedLog(null);
+    } finally {
+      setIsReverting(false);
+    }
   }
 
   function getActorInfo(userId: string) {
@@ -203,67 +234,39 @@ export function OrganizerAuditLogsPage() {
         );
       }
     },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => {
-        return (
-          <div className="flex items-center h-full">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 px-3 text-xs font-semibold text-foreground hover:border-primary hover:text-primary transition"
-              onClick={() => setSelectedLog(row.original)}
-            >
-              <Eye className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-              View details
-            </Button>
-          </div>
-        );
-      }
-    }
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Audit Logs</h1>
-        <p className="text-sm text-muted-foreground">Review system activity, credential issuance, and administrative actions.</p>
-      </div>
+      <PageHeader title="Audit Logs" description="Review system activity, credential issuance, and administrative actions." />
 
       <section className="space-y-4">
         {/* Search and Filters Bar */}
         <div className="rounded-xl border bg-surface p-4 shadow-sm space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
-                <Filter className="h-3 w-3" aria-hidden="true" />
-                {filteredLogs.length} results
-              </span>
               {isFiltered ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleClearFilters}
-                  className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1"
-                >
+                <Button type="button" variant="ghost" size="sm" onClick={handleClearFilters} className="h-7 gap-1 text-xs text-muted-foreground hover:text-foreground">
                   <RotateCcw className="h-3 w-3" />
                   Clear filters
                 </Button>
               ) : null}
             </div>
-
-            <Button
-              type="button"
-              onClick={exportAuditLogs}
-              disabled={!filteredLogs.length}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" aria-hidden="true" />
-              Export
-            </Button>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+                <Filter className="h-3 w-3" aria-hidden="true" />
+                {filteredLogs.length} results
+              </span>
+              <Button
+                type="button"
+                onClick={exportAuditLogs}
+                disabled={!filteredLogs.length}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                Export
+              </Button>
+            </div>
           </div>
 
           {/* Search Input */}
@@ -315,10 +318,9 @@ export function OrganizerAuditLogsPage() {
                 onChange={(e) => setActorUserId(e.target.value)}
               >
                 <option value="all">All Users</option>
-                <option value="user-organizer-1">Organizer One</option>
-                <option value="user-organizer-2">Organizer Two</option>
-                <option value="user-faculty-1">Faculty One</option>
-                <option value="user-admin-1">Admin One</option>
+                {actorOptions.map((actorId) => (
+                  <option key={actorId} value={actorId}>{getActorInfo(actorId).name}</option>
+                ))}
               </select>
             </div>
 
@@ -382,6 +384,7 @@ export function OrganizerAuditLogsPage() {
             label="Audit logs"
             data={filteredLogs}
             columns={columns}
+            onRowClick={(log) => setSelectedLog(log)}
             emptyTitle="No audit logs found"
             emptyDescription="Audit records matching your criteria will appear here."
             enableColumnVisibility
@@ -400,9 +403,17 @@ export function OrganizerAuditLogsPage() {
           size="lg"
           onClose={() => setSelectedLog(null)}
           footer={
-            <Button type="button" variant="secondary" onClick={() => setSelectedLog(null)}>
-              Close
-            </Button>
+            <div className="flex w-full items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={isReverting || selectedLog.action === "audit_log.reverted"}
+                onClick={revertAuditLog}
+              >
+                {isReverting ? "Recording..." : "Revert action"}
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setSelectedLog(null)}>Close</Button>
+            </div>
           }
         >
           {(() => {

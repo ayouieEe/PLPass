@@ -226,6 +226,7 @@ export function mapStudent(row: Row): Student {
     userId: stringValue(row, ["profile_id", "user_id", "id"]),
     studentNumber: stringValue(row, ["student_number", "student_no", "student_id", "id"]),
     status: stringValue(row, ["student_status", "status"], "enrolled") as Student["status"],
+    accountStatus: profile ? stringValue(profile, ["account_status"], "active") as Student["accountStatus"] : "active",
     programId: stringValue(row, ["program_id"]),
     departmentId: stringValue(row, ["department_id", "college_id"]),
     programCode: stringValue(program ?? {}, ["program_code", "code"], stringValue(row, ["program_id"])),

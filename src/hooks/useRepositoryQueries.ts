@@ -105,10 +105,7 @@ export function useStudentMutations(context?: RepositoryContext) {
     }),
     updateStudentMutation: useMutation({
       mutationFn: (input: UpdateStudentInput) => repositories.userManagement.updateStudent(input, context),
-      onSuccess: invalidateStudents,
-      onError: (error: unknown) => {
-        toast.error(getErrorMessage(error));
-      }
+      onSuccess: invalidateStudents
     }),
     bulkCreateStudentsMutation: useMutation({
       mutationFn: (inputs: CreateStudentInput[]) => repositories.userManagement.bulkCreateStudents(inputs, context),
@@ -150,6 +147,8 @@ export function useAdminProfiles(query?: Partial<ListQuery>, context?: Repositor
 
 export function useAcademicCatalog(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
+  const queryClient = useQueryClient();
+  const invalidate = async () => { await queryClient.invalidateQueries({ queryKey: ["departments"] }); await queryClient.invalidateQueries({ queryKey: ["programs"] }); await queryClient.invalidateQueries({ queryKey: ["sections"] }); await queryClient.invalidateQueries({ queryKey: ["eventCategories"] }); };
   return {
     departments: useQuery({
       queryKey: ["departments", listQuery, context],
@@ -162,7 +161,14 @@ export function useAcademicCatalog(query?: Partial<ListQuery>, context?: Reposit
     semesters: useQuery({
       queryKey: ["semesters", listQuery, context],
       queryFn: () => repositories.academicManagement.listSemesters(listQuery, context)
-    })
+    }),
+    sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }) }),
+    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }) }),
+    createDepartmentMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateDepartment>>[0]) => { if (!repositories.academicManagement.createOrUpdateDepartment) throw new Error("Department management is unavailable."); return repositories.academicManagement.createOrUpdateDepartment(input, context); }, onSuccess: invalidate }),
+    createProgramMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateProgram>>[0]) => { if (!repositories.academicManagement.createOrUpdateProgram) throw new Error("Program management is unavailable."); return repositories.academicManagement.createOrUpdateProgram(input, context); }, onSuccess: invalidate }),
+    createSectionMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateSection>>[0]) => { if (!repositories.academicManagement.createOrUpdateSection) throw new Error("Section management is unavailable."); return repositories.academicManagement.createOrUpdateSection(input, context); }, onSuccess: invalidate }),
+    createCategoryMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateEventCategory>>[0]) => { if (!repositories.academicManagement.createOrUpdateEventCategory) throw new Error("Category management is unavailable."); return repositories.academicManagement.createOrUpdateEventCategory(input, context); }, onSuccess: invalidate }),
+    setCatalogActiveMutation: useMutation({ mutationFn: async (input: { table: "departments" | "programs" | "sections" | "event_categories"; id: string; isActive: boolean }) => { if (!repositories.academicManagement.setCatalogActive) throw new Error("Catalog management is unavailable."); return repositories.academicManagement.setCatalogActive(input.table, input.id, input.isActive, context); }, onSuccess: invalidate })
   };
 }
 

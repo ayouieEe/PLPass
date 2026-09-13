@@ -29,6 +29,7 @@ import {
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -62,7 +63,7 @@ function useOrganizerScope() {
   };
 }
 
-type StudentStatus = "Active" | "Suspended";
+type StudentStatus = "Active" | "Deactivated";
 type CredentialStatus = "Ready" | "Needs Review" | "Missing" | "Generated" | "Regeneration Requested" | "Activated" | "Inactive" | "Damaged";
 type CorrectionStatus = "Pending" | "Approved" | "Rejected";
 
@@ -89,6 +90,7 @@ type StudentAccount = {
   yearLevel: number | string;
   section: string;
   status: StudentStatus;
+  accountStatus: "active" | "inactive" | "suspended";
   attendanceRate: number | null;
   eventsJoined: number;
   qrStatus: CredentialStatus;
@@ -124,6 +126,7 @@ function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | Corr
 function MetricCard({
   title,
   value,
+  detail,
   icon: Icon
 }: {
   title: string;
@@ -134,9 +137,10 @@ function MetricCard({
   return (
     <article className="rounded-xl border bg-surface p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{title}</p>
           <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
+          {detail ? <p className="mt-2 text-xs font-medium text-muted-foreground">{detail}</p> : null}
         </div>
         <span className="grid h-9 w-9 place-items-center rounded-lg border border-primary/15 bg-primary/5 text-primary">
           <Icon className="h-4 w-4" aria-hidden="true" />
@@ -215,13 +219,17 @@ function StudentDetailModal({
   onClose,
   onApproveCorrection,
   onRejectCorrection,
-  onEdit
+  onEdit,
+  onToggleAccountStatus,
+  isStatusUpdating
 }: {
   student: StudentAccount | undefined;
   onClose: () => void;
   onApproveCorrection: (requestId: string) => void;
   onRejectCorrection: (requestId: string) => void;
   onEdit?: (studentId: string) => void;
+  onToggleAccountStatus?: (studentId: string, nextStatus: "active" | "inactive") => void;
+  isStatusUpdating?: boolean;
 }) {
   if (!student) {
     return null;
@@ -268,6 +276,20 @@ function StudentDetailModal({
                   Edit Information
                 </button>
               )}
+              {onToggleAccountStatus ? (
+                <button
+                  type="button"
+                  disabled={isStatusUpdating}
+                  onClick={() => onToggleAccountStatus(student.id, student.accountStatus === "active" ? "inactive" : "active")}
+                  className={`inline-flex h-9 items-center rounded-md border px-3 text-sm font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                    student.accountStatus === "active"
+                      ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                  }`}
+                >
+                  {isStatusUpdating ? "Updating..." : student.accountStatus === "active" ? "Deactivate" : "Reactivate"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onClose}
@@ -700,7 +722,7 @@ function ReportExportModal({
                 >
                   <option value="all">All statuses</option>
                   <option value="Active">Active</option>
-                  <option value="Suspended">Suspended</option>
+                  <option value="Deactivated">Deactivated</option>
                 </select>
               </div>
 
@@ -945,7 +967,8 @@ function EditStudentModal({
     programId: "",
     departmentId: "",
     sectionId: "",
-    yearLevel: 1
+    yearLevel: 1,
+    accountStatus: "active"
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -961,7 +984,8 @@ function EditStudentModal({
         programId: student.programId || "",
         departmentId: student.departmentId || "",
         sectionId: student.section || "",
-        yearLevel: student.yearLevel || 1
+        yearLevel: student.yearLevel || 1,
+        accountStatus: student.accountStatus ?? "active"
       });
     }
   }, [student]);
@@ -1222,7 +1246,8 @@ export function OrganizerUserManagementPage() {
         program: programCode,
         yearLevel: student.yearLevel,
         section: student.section,
-        status: student.status === "enrolled" ? ("Active" as StudentStatus) : ("Suspended" as StudentStatus),
+        accountStatus: student.accountStatus ?? "active",
+        status: student.accountStatus === "active" && student.status === "enrolled" ? ("Active" as StudentStatus) : ("Deactivated" as StudentStatus),
         attendanceRate: rate,
         eventsJoined: attendedCount,
         qrStatus: (!qrCredential ? "Missing" : qrExpired || qrCredential.revokedAt || qrCredential.status !== "activated" ? "Inactive" : "Ready") as CredentialStatus,
@@ -1237,6 +1262,7 @@ export function OrganizerUserManagementPage() {
   const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [statusUpdatingStudentId, setStatusUpdatingStudentId] = useState<string | null>(null);
 
   const filteredStudents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1281,6 +1307,37 @@ export function OrganizerUserManagementPage() {
       toast.success("Facial credential activated in Supabase.");
     } catch {
       // The repository mutation reports the backend error; never simulate success locally.
+    }
+  }
+
+  async function toggleStudentAccountStatus(studentId: string, nextStatus: "active" | "inactive") {
+    const student = studentsQuery.data?.items?.find((item) => item.id === studentId);
+    if (!student) {
+      toast.error("Student information is no longer available. Refresh the page and try again.");
+      return;
+    }
+
+    setStatusUpdatingStudentId(studentId);
+    try {
+      await studentMutations.updateStudentMutation.mutateAsync({
+        id: student.id,
+        profileId: student.userId,
+        email: student.email ?? "",
+        firstName: student.firstName ?? "",
+        middleName: student.middleName ?? "",
+        lastName: student.lastName ?? "",
+        programId: student.programId,
+        departmentId: student.departmentId,
+        sectionId: student.section,
+        yearLevel: student.yearLevel,
+        accountStatus: nextStatus,
+        statusOnly: true
+      });
+      toast.success(nextStatus === "active" ? "Student account reactivated." : "Student account deactivated. QR and facial credentials were kept.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setStatusUpdatingStudentId(null);
     }
   }
 
@@ -1344,7 +1401,7 @@ export function OrganizerUserManagementPage() {
         headerName: "Status",
         field: "status",
         minWidth: 130,
-        cellRenderer: ({ value }: ICellRendererParams<StudentAccount, StudentStatus>) => <StatusBadge value={value ?? "Suspended"} />
+        cellRenderer: ({ value }: ICellRendererParams<StudentAccount, StudentStatus>) => <StatusBadge value={value ?? "Deactivated"} />
       },
       {
         headerName: "Attendance",
@@ -1407,14 +1464,16 @@ export function OrganizerUserManagementPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">User Management</h1>
-        <p className="text-sm text-muted-foreground">Manage student accounts, track participation, and handle requests.</p>
-      </div>
+      <PageHeader title="User Management" description="Manage student accounts, track participation, and handle requests." />
 
       <section aria-label="Student account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
-        <MetricCard title="Active Accounts" value={studentAccounts.filter((student) => student.status === "Active").length.toString()} detail="Active" icon={UserRoundCheck} />
+        <MetricCard
+          title="Active Accounts"
+          value={studentAccounts.filter((student) => student.status === "Active").length.toString()}
+          detail={`${studentAccounts.filter((student) => student.status === "Deactivated").length} deactivated`}
+          icon={UserRoundCheck}
+        />
         <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Average rate" icon={BadgeCheck} />
         <MetricCard title="Correction Requests" value={totalCorrectionRequests.toString()} detail="Filed requests" icon={ClipboardList} />
       </section>
@@ -1500,7 +1559,7 @@ export function OrganizerUserManagementPage() {
           >
             <option value="all">All statuses</option>
             <option value="Active">Active</option>
-            <option value="Suspended">Suspended</option>
+            <option value="Deactivated">Deactivated</option>
           </select>
         </div>
       </div>
@@ -1549,6 +1608,8 @@ export function OrganizerUserManagementPage() {
         onClose={() => setIsStudentModalOpen(false)}
         onApproveCorrection={approveCorrection}
         onRejectCorrection={rejectCorrection}
+        onToggleAccountStatus={toggleStudentAccountStatus}
+        isStatusUpdating={statusUpdatingStudentId === selectedStudent?.id}
         onEdit={(id) => {
           setSelectedStudentId(id);
           setIsEditModalOpen(true);

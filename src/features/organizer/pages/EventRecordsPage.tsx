@@ -21,6 +21,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
+import { PageHeader } from "@/components/shared/PageHeader";
 
 // Lets column defs pass a className through to PLPassDataGrid's <th>/<td>.
 // PLPassDataGrid must read column.columnDef.meta?.headerClassName /
@@ -502,10 +503,7 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-5 lg:space-y-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Event Records</h1>
-        <p className="text-sm text-muted-foreground">Review completed events and attendance outcomes.</p>
-      </header>
+      <PageHeader title="Event Records" description="Review completed events and attendance outcomes." />
 
       <section aria-label="Completed event summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <EventMetricCard title="Completed events" value={String(pastEventsStats.totalEvents)} icon={CalendarCheck} />

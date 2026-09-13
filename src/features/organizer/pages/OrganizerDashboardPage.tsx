@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAcademicCatalog, useEvents, useStudents } from "@/hooks/useRepositoryQueries";
-import { useOrganizerDashboardAnalytics, useOrganizerLiveEventSessions } from "@/features/organizer/hooks/useOrganizerDashboardAnalytics";
+import { useAcademicCatalog, useCorrectionRequests, useEvents, useStudents } from "@/hooks/useRepositoryQueries";
+import { useOrganizerDashboardAnalytics } from "@/features/organizer/hooks/useOrganizerDashboardAnalytics";
 import type { Event } from "@/types/domain";
 
 function shortCode(eventCode: string) {
@@ -69,7 +69,7 @@ export function OrganizerDashboardPage() {
   const { session } = useDevelopmentSession();
   const context = useMemo(() => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined), [session]);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
-  const liveSessionsQuery = useOrganizerLiveEventSessions();
+  const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, context);
   const { semesters: semestersQuery } = useAcademicCatalog({ pageSize: 100 }, context);
   const studentsQuery = useStudents({ pageSize: 1 }, context);
   const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
@@ -78,19 +78,14 @@ export function OrganizerDashboardPage() {
   const activeEvents = useMemo(() => events.filter((event) => event.status !== "rejected" && event.status !== "cancelled"), [events]);
   const todaysEvents = useMemo(() => activeEvents.filter((event) => isSameDay(event.startsAt, today)), [activeEvents, today]);
   const activeEvent: Event | undefined = todaysEvents[0];
-  const liveEventIds = useMemo(
-    () => new Set((liveSessionsQuery.data ?? []).filter((session) => isSameDay(session.actualStart, today)).map((session) => session.eventId)),
-    [liveSessionsQuery.data, today]
-  );
-  const liveEvents = useMemo(
-    () => events.filter((event) => liveEventIds.has(event.id) && event.status !== "completed" && event.status !== "cancelled"),
-    [events, liveEventIds]
-  );
-  const liveEvent = liveEvents[0];
   const highlightedEvent = activeEvent;
   const nextEvent = useMemo(() => activeEvents.filter((event) => new Date(event.startsAt).getTime() > today.getTime()).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0], [activeEvents, today]);
   const predictionOverviewData = useMemo(() => activeEvents.map((event) => ({ label: shortCode(event.code), title: event.title, predictedAttend: event.predictedTurnout ?? 0, predictedMiss: 100 - (event.predictedTurnout ?? 0) })), [activeEvents]);
   const activeSemester = semestersQuery.data?.items.find((semester) => semester.isActive);
+  const pendingCorrectionRequests = useMemo(
+    () => (correctionRequestsQuery.data?.items ?? []).filter((request) => request.status === "pending").length,
+    [correctionRequestsQuery.data?.items]
+  );
   const trend = analyticsQuery.data?.attendanceTrend ?? [];
   const totalPresent = trend.reduce((total, row) => total + row.present, 0);
   const totalLate = trend.reduce((total, row) => total + row.late, 0);
@@ -103,7 +98,7 @@ export function OrganizerDashboardPage() {
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={APP_ROUTES.organizerEvents} />
-        <DashboardMetricCard title="Active Today" value={liveEvents.length.toLocaleString()} detail={liveEvent ? `${liveEvent.code}: ${liveEvent.title}` : "No live session right now."} icon={Clock3} tone="success" to={`${APP_ROUTES.organizerEvents}?tab=today`} />
+        <DashboardMetricCard title="Correction Requests" value={pendingCorrectionRequests.toLocaleString()} detail={pendingCorrectionRequests ? "Awaiting organizer review." : "No pending requests."} icon={AlertCircle} tone="warning" to={APP_ROUTES.organizerCorrections} />
         <DashboardMetricCard title="Registered Students" value={(studentsQuery.data?.total ?? 0).toLocaleString()} detail="Total students enrolled in the system." icon={Users} to={APP_ROUTES.organizerUsers} />
         <DashboardMetricCard title="Next Event Turnout" value={nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A"} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" to={APP_ROUTES.organizerAnalytics} />
       </section>

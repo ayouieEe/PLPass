@@ -27,6 +27,7 @@ const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/Org
 const OrganizerCorrectionRequestsPage = lazy(() => import("@/features/organizer/pages/OrganizerCorrectionRequestsPage").then((module) => ({ default: module.OrganizerCorrectionRequestsPage })));
 const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/OrganizerAuditLogsPage").then((module) => ({ default: module.OrganizerAuditLogsPage })));
 const OrganizerProfilePage = lazy(() => import("@/features/organizer/pages/OrganizerProfilePage").then((module) => ({ default: module.OrganizerProfilePage })));
+const OrganizerSettingsPage = lazy(() => import("@/features/organizer/pages/OrganizerSettingsPage").then((module) => ({ default: module.OrganizerSettingsPage })));
 const StudentRootPage = lazy(() => import("@/features/student/pages/StudentRootPage").then((module) => ({ default: module.StudentRootPage })));
 const StudentDashboardPage = lazy(() => import("@/features/student/pages/StudentDashboardPage").then((module) => ({ default: module.StudentDashboardPage })));
 const StudentSchedulePage = lazy(() => import("@/features/student/pages/StudentSchedulePage").then((module) => ({ default: module.StudentSchedulePage })));
@@ -69,6 +70,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
               <Route path={APP_ROUTES.organizerAuditLogs} element={<OrganizerAuditLogsPage />} />
               <Route path={APP_ROUTES.organizerProfile} element={<OrganizerProfilePage />} />
+              <Route path={APP_ROUTES.organizerSettings} element={<OrganizerSettingsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />

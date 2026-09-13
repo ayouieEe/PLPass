@@ -36,6 +36,7 @@ export type Student = {
   userId: ID;
   studentNumber: string;
   status: StudentStatus;
+  accountStatus?: "active" | "inactive" | "suspended";
   programId: ID;
   departmentId: ID;
   yearLevel: number;
@@ -82,6 +83,7 @@ export type Department = {
   id: ID;
   code: string;
   name: string;
+  isActive: boolean;
 };
 
 export type Program = {
@@ -89,6 +91,23 @@ export type Program = {
   departmentId: ID;
   code: string;
   name: string;
+  isActive: boolean;
+};
+
+export type Section = {
+  id: ID;
+  programId: ID;
+  name: string;
+  yearLevel: number;
+  academicYear: string;
+  semester: string;
+  isActive: boolean;
+};
+
+export type EventCategory = {
+  id: ID;
+  name: string;
+  isActive: boolean;
 };
 
 export type Semester = {
@@ -405,8 +424,27 @@ export type SystemSettings = {
   readerPolicy: string;
   credentialStatusPolicy: string;
   notificationPreferencePlaceholder: string;
+  eventApprovalRequired: boolean;
+  participantInvitationMode: "email" | "in_app" | "both";
+  noStartReminderMinutes: number;
+  autoCancelAfterMinutes: number;
+  requireCancellationReason: boolean;
+  minimumTimeOutIntervalMinutes: number;
+  allowAttendanceAfterScheduledEnd: boolean;
+  automaticAbsentMarking: boolean;
+  allowedVerificationMethods: Array<"qr" | "facial">;
+  sensitiveActionReasonRequired: boolean;
   updatedAt: ISODateString;
 };
+
+export type InstitutionSettings = Pick<SystemSettings, "institutionName" | "currentSchoolYear" | "currentSemesterId">;
+export type AcademicStructureSettings = InstitutionSettings;
+export type EventSettings = Pick<SystemSettings, "eventApprovalRequired" | "participantInvitationMode" | "defaultSessionDurationMinutes">;
+export type EventLifecycleSettings = Pick<SystemSettings, "noStartReminderMinutes" | "autoCancelAfterMinutes" | "requireCancellationReason">;
+export type AttendanceSettings = Pick<SystemSettings, "attendanceLateCutoffMinutes" | "defaultSessionDurationMinutes" | "minimumTimeOutIntervalMinutes" | "allowAttendanceAfterScheduledEnd" | "automaticAbsentMarking">;
+export type VerificationSettings = Pick<SystemSettings, "readerPolicy" | "credentialStatusPolicy" | "allowedVerificationMethods">;
+export type NotificationSettings = Pick<SystemSettings, "notificationPreferencePlaceholder" | "participantInvitationMode">;
+export type AccessAuditSettings = Pick<SystemSettings, "sensitiveActionReasonRequired">;
 
 export type AuthSession = {
   userId: ID;

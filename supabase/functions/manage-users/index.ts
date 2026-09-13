@@ -60,16 +60,37 @@ Deno.serve(async (request) => {
     const student = requestBody.student;
     if (!student) return json({ error: "No student provided." }, 400);
     try {
-      const { id, profileId, email, firstName, middleName, lastName, programId, departmentId, sectionId, yearLevel } = student;
+      const { id, profileId, email, firstName, middleName, lastName, programId, departmentId, sectionId, yearLevel, accountStatus, statusOnly } = student;
+      if (statusOnly) {
+        if (!id || !profileId || !accountStatus || !["active", "inactive", "suspended"].includes(accountStatus)) {
+          return json({ error: "A valid student account status is required." }, 400);
+        }
+        const { error: statusUpdateError } = await supabase
+          .from("profiles")
+          .update({ account_status: accountStatus })
+          .eq("id", profileId);
+        if (statusUpdateError) throw new Error(`Account status update failed: ${statusUpdateError.message}`);
+        return json({ success: true });
+      }
+      if (!id || !profileId || !email || !firstName || !lastName || !programId || !departmentId || !sectionId || !yearLevel) {
+        return json({ error: "Please complete all required student information before saving." }, 400);
+      }
+      if (accountStatus && !["active", "inactive", "suspended"].includes(accountStatus)) {
+        return json({ error: "The selected account status is not valid." }, 400);
+      }
       
-      if (email) {
+      const { data: existingProfile, error: existingProfileError } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("id", profileId)
+        .maybeSingle();
+      if (existingProfileError) throw new Error(`Could not load the student profile: ${existingProfileError.message}`);
+      if (!existingProfile) return json({ error: "The student profile could not be found." }, 404);
+
+      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      if (emailChanged) {
         const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, {
-          email: email,
-          user_metadata: {
-            first_name: firstName,
-            middle_name: middleName,
-            last_name: lastName
-          }
+          email
         });
         if (updateAuthError) throw new Error(`Auth update failed: ${updateAuthError.message}`);
       }
@@ -78,7 +99,8 @@ Deno.serve(async (request) => {
         email: email,
         first_name: firstName,
         middle_name: middleName,
-        last_name: lastName
+        last_name: lastName,
+        ...(accountStatus ? { account_status: accountStatus } : {})
       }).eq("id", profileId);
       
       if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);

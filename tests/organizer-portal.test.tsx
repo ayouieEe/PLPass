@@ -364,15 +364,17 @@ describe("organizer UI flows", () => {
     expect((await screen.findAllByText(/approved/i))[0]).toBeInTheDocument();
   });
 
-  it("shows pending, approved, and rejected request tabs", async () => {
+  it("shows status and request-type filters for correction requests", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/corrections");
     render(<App />);
 
-    expect(await screen.findByRole("button", { name: /^all$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /pending/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /approved/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /rejected/i })).toBeInTheDocument();
+    expect(await screen.findByRole("combobox", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Request type" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /All statuses/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Pending/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Approved/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Rejected/ })).toBeInTheDocument();
   });
 
   it("validates create event details before advancing to participant selection", async () => {

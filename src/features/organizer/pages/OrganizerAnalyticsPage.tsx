@@ -37,6 +37,7 @@ import { z } from "zod";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { DatePickerField } from "@/components/forms/DatePickerField";
@@ -925,10 +926,7 @@ export function OrganizerAnalyticsPage() {
 
   return (
     <div className="space-y-6 pb-12">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Analytics Insights</h1>
-        <p className="text-sm text-muted-foreground">Monitor attendance trends, turnout forecasts, and feedback sentiment across events.</p>
-      </div>
+      <PageHeader title="Analytics Insights" description="Monitor attendance trends, turnout forecasts, and feedback sentiment across events." />
       
       {/* Header with Export Action */}
       

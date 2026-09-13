@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
@@ -616,6 +617,7 @@ export function AuthenticationMethodsPage() {
   }, [rawStudents]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("qr");
+  const [enrollmentRequestTab, setEnrollmentRequestTab] = useState<"Pending" | "Approved">("Pending");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Inactive" | "Missing">("All");
 
@@ -924,8 +926,19 @@ export function AuthenticationMethodsPage() {
   }, [activeModal?.studentName, facialRows]);
 
   const qrColumns = useMemo<ColDef<QrRow>[]>(() => [
-    { headerName: "School ID", field: "studentNumber", minWidth: 120 },
-    { headerName: "Student Name", field: "studentName", minWidth: 200, flex: 1 },
+    {
+      headerName: "Student",
+      colId: "student",
+      minWidth: 240,
+      flex: 1,
+      valueGetter: ({ data }) => data ? `${data.studentName} ${data.studentNumber}` : "",
+      cellRenderer: ({ data }: ICellRendererParams<QrRow>) => data ? (
+        <div className="py-1 leading-tight">
+          <div className="font-medium text-foreground">{data.studentName}</div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">{data.studentNumber}</div>
+        </div>
+      ) : null
+    },
     {
       headerName: "QR Status",
       field: "status",
@@ -939,8 +952,19 @@ export function AuthenticationMethodsPage() {
   ], []);
 
   const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
-    { headerName: "School ID", field: "studentNumber", minWidth: 120 },
-    { headerName: "Student Name", field: "studentName", minWidth: 200, flex: 1 },
+    {
+      headerName: "Student",
+      colId: "student",
+      minWidth: 240,
+      flex: 1,
+      valueGetter: ({ data }) => data ? `${data.studentName} ${data.studentNumber}` : "",
+      cellRenderer: ({ data }: ICellRendererParams<FacialRow>) => data ? (
+        <div className="py-1 leading-tight">
+          <div className="font-medium text-foreground">{data.studentName}</div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">{data.studentNumber}</div>
+        </div>
+      ) : null
+    },
     { headerName: "Enrollment Date", field: "enrollmentDate", minWidth: 150 },
     {
       headerName: "Status",
@@ -950,29 +974,8 @@ export function AuthenticationMethodsPage() {
         <StatusBadge label={value ?? "Inactive"} tone={facialTone(value ?? "Inactive")} />
       )
     },
-    { headerName: "Last Scan", field: "lastScan", minWidth: 150 },
-    {
-      headerName: "Actions",
-      colId: "actions",
-      minWidth: 180,
-      pinned: "right",
-      sortable: false,
-      filter: false,
-      cellRenderer: ({ data }: ICellRendererParams<FacialRow>) =>
-        data ? (
-          <FacialActionsRenderer
-            data={data}
-            onViewFacial={handleViewFacial}
-            onReEnrollFacial={handleReEnrollFacial}
-            onToggleFacialStatus={handleToggleFacialStatus}
-          />
-        ) : null
-    }
-  ], [
-    handleViewFacial,
-    handleReEnrollFacial,
-    handleToggleFacialStatus
-  ]);
+    { headerName: "Last Scan", field: "lastScan", minWidth: 150 }
+  ], []);
 
   const facialRequestColumns = useMemo<ColDef<FacialEnrollmentRequest>[]>(() => [
     { headerName: "Request ID", field: "id", minWidth: 120 },
@@ -987,35 +990,13 @@ export function AuthenticationMethodsPage() {
         <StatusBadge label={value ?? "Pending"} tone={value === "Approved" ? "success" : value === "Rejected" ? "danger" : "warning"} />
       )
     },
-    {
-      headerName: "Action",
-      colId: "actions",
-      minWidth: 120,
-      pinned: "right",
-      sortable: false,
-      filter: false,
-      cellRenderer: ({ data }: ICellRendererParams<FacialEnrollmentRequest>) =>
-        data ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => handleApproveFacialRequest(data)}
-            disabled={data.status !== "Pending" || credentialRequestsQuery.reviewMutation.isPending}
-          >
-            Approve
-          </Button>
-        ) : null
-    }
-  ], [handleApproveFacialRequest, credentialRequestsQuery.reviewMutation.isPending]);
+  ], []);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Authentication Methods</h1>
-        <p className="text-sm text-muted-foreground">Manage QR codes and facial recognition credentials for all students.</p>
-      </div>
+      <PageHeader title="Authentication Methods" description="Manage QR codes and facial recognition credentials for all students." />
 
-      <section className={activeTab === "qr" ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-4" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"} aria-label="Credential overview">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Credential overview">
         {activeTab === "qr" ? (
           <>
             <CredentialMetric label="QR credentials" value={qrRows.length} icon={<QrCode className="h-4 w-4" />} />
@@ -1027,7 +1008,6 @@ export function AuthenticationMethodsPage() {
           <>
             <CredentialMetric label="Enrolled" value={facialRows.length} icon={<Camera className="h-4 w-4" />} />
             <CredentialMetric label="Activated" value={facialRows.filter((row) => row.status === "Activated").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
-            <CredentialMetric label="Damaged" value={facialRows.filter((row) => row.status === "Damaged").length} icon={<AlertCircle className="h-4 w-4" />} accent="danger" />
             <CredentialMetric label="Inactive" value={facialRows.filter((row) => row.status === "Inactive").length} icon={<UserX className="h-4 w-4" />} accent="warning" />
             <CredentialMetric label="Missing" value={facialRows.filter((row) => row.status === "Missing").length} icon={<Camera className="h-4 w-4" />} />
           </>
@@ -1053,7 +1033,7 @@ export function AuthenticationMethodsPage() {
         </button>
       </div>
 
-      <section className="rounded-xl border bg-surface p-4 shadow-sm sm:p-5">
+      <section className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-foreground">Credential directory</h2>
           <div className="flex items-center gap-2">
@@ -1071,8 +1051,8 @@ export function AuthenticationMethodsPage() {
             </button>
           </div>
         </div>
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative w-full sm:max-w-md">
+        <div className="mt-3 grid grid-cols-1 items-end gap-3 border-t border-border/50 pt-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+          <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <input
               type="text"
@@ -1091,21 +1071,26 @@ export function AuthenticationMethodsPage() {
               </button>
               )}
           </div>
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0" role="group" aria-label="Credential status">
-            {(["All", "Active", "Inactive", "Missing"] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={`h-8 rounded-md px-3 text-xs font-semibold transition ${
-                  statusFilter === status
-                    ? "bg-primary text-primary-foreground shadow-xs"
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                {status}
-              </button>
-            ))}
+          <div className="flex flex-col gap-1">
+            <label htmlFor="credential-status-filter" className="text-[11px] font-medium text-muted-foreground">Credential status</label>
+            <select
+              id="credential-status-filter"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+              className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="All">All statuses</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive / disabled</option>
+              <option value="Missing">Missing</option>
+            </select>
+          </div>
+          <div className="flex min-h-9 items-center lg:justify-end">
+            {searchQuery || statusFilter !== "All" ? (
+              <Button type="button" variant="ghost" size="sm" className="px-0 text-xs" onClick={() => { setSearchQuery(""); setStatusFilter("All"); }}>
+                Clear filters
+              </Button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -1161,6 +1146,22 @@ export function AuthenticationMethodsPage() {
                 ? "A fresh facial profile will be captured and linked to the student’s account for future check-ins."
                 : "This preview shows the stored facial profile and recent verification activity for the student."}
             </p>
+            {activeModal.title === "Facial enrollment details" && selectedStudentFacialInfo ? (
+              <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => handleReEnrollFacial(selectedStudentFacialInfo.studentName)}>
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  Re-enroll
+                </Button>
+                <Button
+                  type="button"
+                  variant={selectedStudentFacialInfo.status === "Activated" ? "destructive" : "default"}
+                  size="sm"
+                  onClick={() => handleToggleFacialStatus(selectedStudentFacialInfo.studentName, selectedStudentFacialInfo.status)}
+                >
+                  {selectedStudentFacialInfo.status === "Activated" ? "Deactivate facial" : "Activate facial"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1205,14 +1206,37 @@ export function AuthenticationMethodsPage() {
             onRowClick={(row) => handleViewFacial(row.studentName)}
           />
 
-          <PLPassDataGrid
-            label="Enrollment Requests"
-            data={facialRequestsState}
-            columns={facialRequestColumns}
-            isLoading={credentialRequestsQuery.isLoading}
-            emptyTitle="No pending facial enrollment requests found"
-            emptyDescription="There are no facial enrollment requests to review."
-          />
+          <section className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Enrollment Requests</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Review facial enrollment requests by status.</p>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg border bg-background p-1" role="tablist" aria-label="Enrollment request status">
+                {(["Pending", "Approved"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    aria-selected={enrollmentRequestTab === tab}
+                    onClick={() => setEnrollmentRequestTab(tab)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${enrollmentRequestTab === tab ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                  >
+                    {tab} <span className="ml-1 opacity-75">{facialRequestsState.filter((request) => request.status === tab).length}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <PLPassDataGrid
+              label={`${enrollmentRequestTab} facial enrollment requests`}
+              data={facialRequestsState.filter((request) => request.status === enrollmentRequestTab)}
+              columns={facialRequestColumns}
+              isLoading={credentialRequestsQuery.isLoading}
+              emptyTitle={`No ${enrollmentRequestTab.toLowerCase()} requests`}
+              emptyDescription={`There are no ${enrollmentRequestTab.toLowerCase()} facial enrollment requests.`}
+              onRowClick={(row) => { if (row.status === "Pending") handleApproveFacialRequest(row); }}
+            />
+          </section>
         </div>
       )}
 

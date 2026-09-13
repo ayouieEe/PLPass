@@ -44,18 +44,18 @@ export const userFixtures: User[] = [
 ];
 
 export const departmentFixtures: Department[] = [
-  { id: "dept-ccs", code: "CCS", name: "College of Computer Studies" },
-  { id: "dept-cba", code: "CBA", name: "College of Business Administration" },
-  { id: "dept-cte", code: "CTE", name: "College of Teacher Education" },
-  { id: "dept-hm", code: "HM", name: "Hospitality Management" }
+  { id: "dept-ccs", code: "CCS", name: "College of Computer Studies", isActive: true },
+  { id: "dept-cba", code: "CBA", name: "College of Business Administration", isActive: true },
+  { id: "dept-cte", code: "CTE", name: "College of Teacher Education", isActive: true },
+  { id: "dept-hm", code: "HM", name: "Hospitality Management", isActive: true }
 ];
 
 export const programFixtures: Program[] = [
-  { id: "program-bsit", departmentId: "dept-ccs", code: "BSIT", name: "Bachelor of Science in Information Technology" },
-  { id: "program-bscs", departmentId: "dept-ccs", code: "BSCS", name: "Bachelor of Science in Computer Science" },
-  { id: "program-bsa", departmentId: "dept-cba", code: "BSA", name: "Bachelor of Science in Accountancy" },
-  { id: "program-bsed", departmentId: "dept-cte", code: "BSED", name: "Bachelor of Secondary Education" },
-  { id: "program-bshm", departmentId: "dept-hm", code: "BSHM", name: "Bachelor of Science in Hospitality Management" }
+  { id: "program-bsit", departmentId: "dept-ccs", code: "BSIT", name: "Bachelor of Science in Information Technology", isActive: true },
+  { id: "program-bscs", departmentId: "dept-ccs", code: "BSCS", name: "Bachelor of Science in Computer Science", isActive: true },
+  { id: "program-bsa", departmentId: "dept-cba", code: "BSA", name: "Bachelor of Science in Accountancy", isActive: true },
+  { id: "program-bsed", departmentId: "dept-cte", code: "BSED", name: "Bachelor of Secondary Education", isActive: true },
+  { id: "program-bshm", departmentId: "dept-hm", code: "BSHM", name: "Bachelor of Science in Hospitality Management", isActive: true }
 ];
 
 export const semesterFixtures: Semester[] = [
@@ -228,6 +228,16 @@ export const systemSettingsFixture: SystemSettings = {
   readerPolicy: "Trusted USB keyboard-mode readers only",
   credentialStatusPolicy: "Blocked and lost credentials require admin review",
   notificationPreferencePlaceholder: "Development-only notification preferences",
+  eventApprovalRequired: true,
+  participantInvitationMode: "both",
+  noStartReminderMinutes: 60,
+  autoCancelAfterMinutes: 720,
+  requireCancellationReason: true,
+  minimumTimeOutIntervalMinutes: 15,
+  allowAttendanceAfterScheduledEnd: true,
+  automaticAbsentMarking: true,
+  allowedVerificationMethods: ["qr", "facial"],
+  sensitiveActionReasonRequired: true,
   updatedAt: now
 };
 

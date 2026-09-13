@@ -59,6 +59,13 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
       breadcrumbs: [rolePrefix, "Event Records"]
     };
   }
+  if (pathname === "/organizer/settings") {
+    return {
+      title: "Settings",
+      description: "Manage the configuration that controls PLPass operations.",
+      breadcrumbs: [rolePrefix, "Settings"]
+    };
+  }
   if (pathname === "/organizer/reports") {
     return {
       title: "Authentication Methods",
