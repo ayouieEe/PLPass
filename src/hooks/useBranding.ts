@@ -2,7 +2,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useOrganizerBranding, useOrganizerProfiles } from "@/hooks/useRepositoryQueries";
 
 export const DEFAULT_BRANDING = {
-  plpLogoUrl: "/plp-logo.svg",
+  plpLogoUrl: "/plp-logo.png",
   collegeName: "Pamantasan ng Lungsod ng Pasig",
   collegeLogoUrl: undefined,
   systemName: "PLPass"

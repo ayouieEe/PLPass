@@ -60,7 +60,8 @@ export const programFixtures: Program[] = [
 
 export const semesterFixtures: Semester[] = [
   { id: "sem-2026-1", label: "First Semester", schoolYear: "2026-2027", startsAt: "2026-06-01", endsAt: "2026-10-31", isActive: true },
-  { id: "sem-2026-2", label: "Second Semester", schoolYear: "2026-2027", startsAt: "2026-11-01", endsAt: "2027-03-31", isActive: false }
+  { id: "sem-2026-midyear", label: "Midyear Semester", schoolYear: "2026-2027", startsAt: "2026-11-01", endsAt: "2027-01-31", isActive: false },
+  { id: "sem-2026-2", label: "Second Semester", schoolYear: "2026-2027", startsAt: "2027-02-01", endsAt: "2027-06-30", isActive: false }
 ];
 
 export const studentFixtures: Student[] = Array.from({ length: 12 }, (_, index) => {
@@ -89,12 +90,12 @@ export const facultyProfileFixtures: FacultyProfile[] = [
 ];
 
 export const organizerProfileFixtures: OrganizerProfile[] = [
-  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
-  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
+  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
+  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
 ];
 
 export const adminProfileFixtures: AdminProfile[] = [
-  { id: "admin-1", userId: "user-admin-1", employeeNumber: "A-0001", departmentId: "dept-ccs", officeName: "Dean's Office" }
+  { id: "admin-1", userId: "user-admin-1", employeeNumber: "001", departmentId: "dept-ccs", officeName: "Dean's Office" }
 ];
 
 export const classFixtures: Class[] = [

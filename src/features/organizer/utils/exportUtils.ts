@@ -51,7 +51,7 @@ export type ExportTableRow = Record<string, string | number | boolean | null | u
 
 function reportFileName(title: string) {
   const safeTitle = title.toLowerCase().replace(/\b(?:xlsx|pdf)\b/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `${safeTitle || "organizer-report"}-${todayLabel()}`;
+  return `plpass-${safeTitle || "organizer-report"}-${todayLabel()}`;
 }
 
 export function exportTabularReportCsv(title: string, rows: ExportTableRow[]) {
@@ -70,8 +70,7 @@ export async function exportTabularReportPdf(title: string, rows: ExportTableRow
 
 export async function exportTabularReport(title: string, rows: ExportTableRow[], scope?: ReportExportScope) {
   if (/\bpdf\b/i.test(title)) await exportReportPdf({ title, rows, fileName: reportFileName(title), scope });
-  else if (/\bxlsx\b/i.test(title)) await exportReportXlsx({ title, rows, fileName: reportFileName(title), scope });
-  else exportTabularReportCsv(title, rows);
+  else await exportReportXlsx({ title, rows, fileName: reportFileName(title), scope });
 }
 
 function buildCsvString(headers: string[], rows: (string | number)[][]): string {

@@ -1192,17 +1192,7 @@ export function EventDetailsPage() {
                 {!canManageParticipants ? <span className="w-fit rounded-full border bg-muted/30 px-2.5 py-1 text-xs font-medium text-muted-foreground">Changes locked</span> : null}
               </div>
               {canManageParticipants ? (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/15 bg-primary/5 p-3">
-                    <div>
-                      <p className="font-medium text-foreground">Add multiple students</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Browse enrolled students by section, program, or year level.</p>
-                    </div>
-                    <Button type="button" onClick={() => { setParticipantPickerSelectedIds([]); setIsParticipantPickerOpen(true); }}>
-                      Browse students
-                    </Button>
-                  </div>
-                  <form
+                <form
                   className="rounded-lg border bg-muted/20 p-3"
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -1228,6 +1218,9 @@ export function EventDetailsPage() {
                     >
                       Add participant
                     </Button>
+                    <Button type="button" variant="outline" onClick={() => { setParticipantPickerSelectedIds([]); setIsParticipantPickerOpen(true); }}>
+                      Browse students
+                    </Button>
                   </div>
                   {participantStudentNumber.trim() ? (
                     matchedStudentForAddition ? (
@@ -1242,8 +1235,7 @@ export function EventDetailsPage() {
                   ) : (
                     <p className="mt-3 text-sm text-muted-foreground">Enter a Student ID to verify the student before adding them.</p>
                   )}
-                  </form>
-                </div>
+                </form>
               ) : (
                 <p className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">Participant changes are locked after a session is completed or when the event is completed.</p>
               )}

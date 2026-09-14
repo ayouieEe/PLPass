@@ -91,6 +91,17 @@ function profileDisplayName(row: Row) {
   return nameParts.length ? nameParts.join(" ") : stringValue(row, ["email"], "PLPass User");
 }
 
+function auditActorDisplayName(row: Row) {
+  const firstName = stringValue(row, ["first_name"]);
+  const middleName = stringValue(row, ["middle_name"]);
+  const lastName = stringValue(row, ["last_name"]);
+  if (firstName || lastName) {
+    const middleInitial = middleName.trim() ? ` ${middleName.trim().charAt(0).toUpperCase()}.` : "";
+    return [firstName, middleInitial.trim(), lastName].filter(Boolean).join(" ");
+  }
+  return profileDisplayName(row);
+}
+
 function mapClassStatus(value: string) {
   return value === "active" ? "active" : "archived";
 }
@@ -533,9 +544,18 @@ export function mapNotification(row: Row): Notification {
 }
 
 export function mapAuditLog(row: Row): AuditLog {
+  const actor = nestedRow(row, "actor") ?? nestedRow(row, "profiles");
+  const actorName = actor ? auditActorDisplayName(actor) : "";
+  const actorIdentifier = actor
+    ? stringValue(actor, ["employee_id", "student_id"])
+    : "";
   return {
     id: stringValue(row, ["id"]),
     actorUserId: stringValue(row, ["actor_user_id", "created_by", "performed_by"]),
+    actorDisplayName: actorName || undefined,
+    actorRole: actor ? stringValue(actor, ["role"]) || undefined : undefined,
+    actorIdentifier: actorIdentifier || undefined,
+    actorEmail: actor ? stringValue(actor, ["email"]) || undefined : undefined,
     action: stringValue(row, ["action"]),
     targetType: stringValue(row, ["target_type", "session_type"]),
     targetId: stringValue(row, ["target_id", "session_id"]),

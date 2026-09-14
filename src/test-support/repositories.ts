@@ -704,7 +704,9 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const stamp = Date.now();
     const userId = `organizer-user-${stamp}`;
     const profileId = `organizer-profile-${stamp}`;
-    const profile = { id: profileId, userId, employeeNumber: input.employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" as const };
+    const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
+    const employeeNumber = `O-${String(nextId).padStart(3, "0")}`;
+    const profile = { id: profileId, userId, employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" as const };
     userFixtures.push({
       id: userId,
       role: "organizer",
@@ -716,11 +718,22 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     organizerProfileFixtures.push(profile);
     return profile;
   },
+  async createAdmin(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const stamp = Date.now();
+    const userId = `admin-user-${stamp}`;
+    const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^A-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
+    const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `A-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
+    userFixtures.push({ id: userId, role: "admin", email: input.email, displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
+    adminProfileFixtures.push(profile);
+    return profile;
+  },
   async bulkCreateOrganizers(inputs, context) {
     await beforeRead("userManagement", context, ["admin"]);
     inputs.forEach((input, index) => {
       const userId = `organizer-user-${Date.now()}-${index}`;
-      organizerProfileFixtures.push({ id: `organizer-${Date.now()}-${index}`, userId, employeeNumber: input.employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" });
+      const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
+      organizerProfileFixtures.push({ id: `organizer-${Date.now()}-${index}`, userId, employeeNumber: `O-${String(nextId).padStart(3, "0")}`, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" });
       userFixtures.push({
         id: userId,
         role: "organizer",
@@ -819,6 +832,24 @@ export const simulatedAcademicManagementRepository: AcademicManagementRepository
       throw new RepositoryError("Students can only access enrolled classes.", "PERMISSION_DENIED");
     }
     return classRecord;
+  },
+  async setCatalogActive(table, id, isActive, context) {
+    await beforeRead("academicManagement", context, ["admin", "organizer"]);
+    const items = table === "departments" ? departmentFixtures : table === "programs" ? programFixtures : [];
+    if (!items.length) {
+      throw new RepositoryError(`${table} catalog management is unavailable in the development repository.`, "NOT_FOUND");
+    }
+    const item = items.find((entry) => entry.id === id);
+    if (!item) {
+      throw new RepositoryError("Catalog record was not found.", "NOT_FOUND");
+    }
+    item.isActive = isActive;
+    await simulatedRepositoryRegistry.auditLogs.logClientAction({
+      action: `settings.${table}.status_changed`,
+      targetType: table,
+      targetId: id,
+      metadata: { isActive }
+    }, context);
   }
 };
 

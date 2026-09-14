@@ -14,7 +14,11 @@ import {
   useEvents,
   useStudents,
   useAttendanceSessions,
-  useAuditLogMutations
+  useAuditLogMutations,
+  useAcademicCatalog,
+  useUsers,
+  useOrganizerProfiles,
+  useAdminProfiles
 } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { AuditLog } from "@/types/domain";
@@ -25,14 +29,6 @@ import {
   filterAuditLogs,
   type AuditLogFilters
 } from "../utils/auditLogUtils";
-
-const ACTOR_NAME_MAP: Record<string, { name: string; role: string }> = {
-  "user-admin-1": { name: "Admin One", role: "Admin" },
-  "user-faculty-1": { name: "Faculty One", role: "Faculty" },
-  "user-faculty-2": { name: "Faculty Two", role: "Faculty" },
-  "user-organizer-1": { name: "Organizer One", role: "Organizer" },
-  "user-organizer-2": { name: "Organizer Two", role: "Organizer" }
-};
 
 export function OrganizerAuditLogsPage() {
   const { session } = useDevelopmentSession();
@@ -75,14 +71,25 @@ export function OrganizerAuditLogsPage() {
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const eventsQuery = useEvents({ pageSize: 200 }, context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
+  const usersQuery = useUsers({ pageSize: 200 }, context);
+  const organizersQuery = useOrganizerProfiles({ pageSize: 200 }, context);
+  const adminsQuery = useAdminProfiles({ pageSize: 200 }, context);
+  const catalog = useAcademicCatalog({ pageSize: 200 }, context);
 
   const lookups = useMemo(
     () => ({
       students: studentsQuery.data?.items ?? [],
       events: eventsQuery.data?.items ?? [],
-      sessions: sessionsQuery.data?.items ?? []
+      sessions: sessionsQuery.data?.items ?? [],
+      users: usersQuery.data?.items ?? [],
+      organizers: organizersQuery.data?.items ?? [],
+      admins: adminsQuery.data?.items ?? [],
+      departments: catalog.departments.data?.items ?? [],
+      programs: catalog.programs.data?.items ?? [],
+      sections: catalog.sections.data?.items ?? [],
+      categories: catalog.categories.data?.items ?? []
     }),
-    [studentsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items]
+    [studentsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items, usersQuery.data?.items, organizersQuery.data?.items, adminsQuery.data?.items, catalog.departments.data?.items, catalog.programs.data?.items, catalog.sections.data?.items, catalog.categories.data?.items]
   );
 
   // Filtered Logs
@@ -141,18 +148,22 @@ export function OrganizerAuditLogsPage() {
   }
 
   function getActorInfo(userId: string) {
-    if (ACTOR_NAME_MAP[userId]) {
-      return ACTOR_NAME_MAP[userId];
+    const log = rawLogs.find((entry) => entry.actorUserId === userId && entry.actorDisplayName);
+    if (log?.actorDisplayName) {
+      return {
+        name: log.actorDisplayName,
+        role: log.actorRole || "User",
+        identifier: log.actorIdentifier,
+        email: log.actorEmail
+      };
     }
-    if (session?.userId === userId) {
-      return { name: session.displayName || "Organizer", role: session.role };
-    }
-    return { name: `User ${userId.slice(0, 8)}`, role: "User" };
+    if (session?.userId === userId) return { name: session.displayName || "Current user", role: session.role };
+    return { name: "Deleted account", role: "User", identifier: userId ? `ID ${userId.slice(0, 8)}` : undefined };
   }
 
-  function exportAuditLogs() {
-    exportTabularReport(
-      "Audit Logs",
+  async function exportAuditLogs(format: "xlsx" | "pdf" = "xlsx") {
+    await exportTabularReport(
+      `Audit Logs ${format.toUpperCase()}`,
       filteredLogs.map((log) => {
         const actor = getActorInfo(log.actorUserId);
         const target = getAuditTargetInfo(log, lookups);
@@ -164,11 +175,12 @@ export function OrganizerAuditLogsPage() {
           "User Role": actor.role,
           "Target Name": target.name,
           "Target Category": target.badge,
+          "Target Reference": target.reference ?? "—",
           "Target ID": log.targetId ?? "—"
         };
       })
     );
-    toast.success("Audit Logs downloaded.");
+    toast.success(`Audit Logs ${format.toUpperCase()} downloaded.`);
   }
 
   const columns: ColumnDef<AuditLog>[] = [
@@ -201,7 +213,7 @@ export function OrganizerAuditLogsPage() {
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <span className="font-semibold text-xs text-foreground whitespace-nowrap truncate">{actor.name}</span>
-              <span className="text-[11px] text-muted-foreground capitalize leading-tight">{actor.role}</span>
+              <span className="text-[11px] text-muted-foreground capitalize leading-tight">{actor.role}{actor.identifier ? ` · ${actor.identifier}` : ""}</span>
             </div>
           </div>
         );
@@ -227,6 +239,7 @@ export function OrganizerAuditLogsPage() {
         return (
           <div className="flex flex-col justify-center gap-1 h-full min-w-0">
             <span className="font-semibold text-xs text-foreground truncate max-w-[240px] leading-tight">{target.name}</span>
+            {target.reference ? <span className="text-[11px] text-muted-foreground truncate max-w-[240px] leading-tight">{target.reference}</span> : null}
             <span className="inline-flex items-center w-fit rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary leading-none">
               {target.badge}
             </span>
@@ -259,12 +272,16 @@ export function OrganizerAuditLogsPage() {
               </span>
               <Button
                 type="button"
-                onClick={exportAuditLogs}
+                onClick={() => void exportAuditLogs("xlsx")}
                 disabled={!filteredLogs.length}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                Export
+                XLSX
+              </Button>
+              <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                PDF
               </Button>
             </div>
           </div>
@@ -449,6 +466,8 @@ export function OrganizerAuditLogsPage() {
                     <div className="space-y-1 text-xs">
                       <div><strong className="text-muted-foreground">User:</strong> <span className="font-medium text-foreground">{actor.name}</span></div>
                       <div><strong className="text-muted-foreground">Role:</strong> <span className="font-medium text-foreground capitalize">{actor.role}</span></div>
+                      {actor.identifier ? <div><strong className="text-muted-foreground">ID:</strong> <span className="font-medium text-foreground">{actor.identifier}</span></div> : null}
+                      {actor.email ? <div><strong className="text-muted-foreground">Email:</strong> <span className="font-medium text-foreground">{actor.email}</span></div> : null}
                     </div>
                   </div>
 
@@ -461,6 +480,7 @@ export function OrganizerAuditLogsPage() {
                     <div className="space-y-1 text-xs">
                       <div><strong className="text-muted-foreground">Name / Title:</strong> <span className="font-medium text-foreground">{target.name}</span></div>
                       <div><strong className="text-muted-foreground">Category:</strong> <span className="font-medium text-foreground">{target.badge}</span></div>
+                      {target.reference ? <div><strong className="text-muted-foreground">Reference:</strong> <span className="font-medium text-foreground">{target.reference}</span></div> : null}
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import type { AuditLog, Event, Student, User, AttendanceSession } from "@/types/domain";
+import type { AuditLog, AttendanceSession, Department, Event, EventCategory, OrganizerProfile, AdminProfile, Program, Section, Student, User } from "@/types/domain";
 
 const ACRONYM_MAP: Record<string, string> = {
   qr: "QR",
@@ -96,33 +96,54 @@ export interface AuditTargetLookups {
   events?: Event[];
   sessions?: AttendanceSession[];
   users?: User[];
+  organizers?: OrganizerProfile[];
+  admins?: AdminProfile[];
+  departments?: Department[];
+  programs?: Program[];
+  sections?: Section[];
+  categories?: EventCategory[];
 }
 
 export interface ResolvedTargetInfo {
   name: string;
   badge: string;
+  reference?: string;
+  source: "snapshot" | "live" | "fallback";
 }
 
 export function getAuditTargetInfo(log: AuditLog, lookups?: AuditTargetLookups): ResolvedTargetInfo {
   const badge = formatTargetType(log.targetType);
   const metadata = log.metadata ?? {};
+  const stringMetadata = (...keys: string[]) => keys.map((key) => metadata[key]).find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim();
+  const reference = stringMetadata("code", "eventCode", "event_code", "studentNumber", "student_number", "employeeId", "employee_id", "id")
+    ?? (log.targetId ? log.targetId.slice(0, 8) : undefined);
+  const withReference = (name: string, source: ResolvedTargetInfo["source"], customReference = reference): ResolvedTargetInfo => ({
+    name,
+    badge,
+    reference: customReference,
+    source
+  });
 
   // 1. Check metadata for explicit name/title
-  if (typeof metadata.studentName === "string" && metadata.studentName) {
-    const studentNumber = typeof metadata.studentNumber === "string" ? ` (${metadata.studentNumber})` : "";
-    return { name: `${metadata.studentName}${studentNumber}`, badge };
+  const studentName = stringMetadata("studentName", "student_name", "studentDisplayName");
+  if (studentName) {
+    return withReference(studentName, "snapshot", stringMetadata("studentNumber", "student_number"));
   }
-  if (typeof metadata.eventTitle === "string" && metadata.eventTitle) {
-    return { name: metadata.eventTitle, badge };
+  const eventTitle = stringMetadata("eventTitle", "event_title", "title");
+  if (eventTitle && (/(event|session|export)/i.test(log.targetType) || /export/i.test(log.action))) {
+    return withReference(eventTitle, "snapshot", stringMetadata("eventCode", "event_code", "reportType", "report_type"));
   }
-  if (typeof metadata.sessionTitle === "string" && metadata.sessionTitle) {
-    return { name: metadata.sessionTitle, badge };
+  const sessionTitle = stringMetadata("sessionTitle", "session_title");
+  if (sessionTitle) {
+    return withReference(sessionTitle, "snapshot", stringMetadata("eventTitle", "event_title", "eventCode", "event_code"));
   }
-  if (typeof metadata.userName === "string" && metadata.userName) {
-    return { name: metadata.userName, badge };
+  const userName = stringMetadata("userName", "user_name", "displayName", "display_name", "fullName", "full_name");
+  if (userName) {
+    return withReference(userName, "snapshot", stringMetadata("employeeId", "employee_id", "studentNumber", "student_number"));
   }
-  if (typeof metadata.targetName === "string" && metadata.targetName) {
-    return { name: metadata.targetName, badge };
+  const targetName = stringMetadata("targetName", "target_name", "name", "label", "collegeName", "college_name");
+  if (targetName) {
+    return withReference(targetName, "snapshot");
   }
 
   // 2. Perform entity lookup using targetId
@@ -132,7 +153,7 @@ export function getAuditTargetInfo(log: AuditLog, lookups?: AuditTargetLookups):
   if (targetTypeLower.includes("event") && lookups?.events) {
     const match = lookups.events.find((e) => e.id === targetId);
     if (match) {
-      return { name: match.title, badge };
+      return withReference(match.title, "live", match.code);
     }
   }
 
@@ -140,26 +161,61 @@ export function getAuditTargetInfo(log: AuditLog, lookups?: AuditTargetLookups):
     const match = lookups.students.find((s) => s.id === targetId || s.userId === targetId);
     if (match) {
       const displayName = match.fullName ?? match.formattedName ?? `Student ${match.studentNumber}`;
-      return { name: `${displayName} (${match.studentNumber})`, badge };
+      return withReference(displayName, "live", match.studentNumber);
     }
   }
 
   if (targetTypeLower.includes("session") && lookups?.sessions) {
     const match = lookups.sessions.find((s) => s.id === targetId);
     if (match) {
-      return { name: match.title, badge };
+      return withReference(match.title, "live");
     }
   }
 
   if (targetTypeLower.includes("user") && lookups?.users) {
     const match = lookups.users.find((u) => u.id === targetId);
     if (match) {
-      return { name: match.displayName, badge };
+      return withReference(match.displayName, "live");
     }
   }
 
-  // 3. Fallback format (user friendly: avoid showing raw technical IDs like event-1)
-  return { name: badge, badge };
+  if (targetTypeLower.includes("organizer") && lookups?.organizers) {
+    const match = lookups.organizers.find((organizer) => organizer.id === targetId || organizer.userId === targetId);
+    if (match) {
+      const user = lookups.users?.find((candidate) => candidate.id === match.userId);
+      return withReference(user?.displayName || match.organizationName || "Organizer", "live", match.employeeNumber);
+    }
+  }
+
+  if (targetTypeLower.includes("admin") && lookups?.admins) {
+    const match = lookups.admins.find((admin) => admin.id === targetId || admin.userId === targetId);
+    if (match) {
+      const user = lookups.users?.find((candidate) => candidate.id === match.userId);
+      return withReference(user?.displayName || match.officeName || "Administrator", "live", match.employeeNumber);
+    }
+  }
+
+  if (targetTypeLower.includes("department") && lookups?.departments) {
+    const match = lookups.departments.find((department) => department.id === targetId);
+    if (match) return withReference(match.name, "live", match.code);
+  }
+  if (targetTypeLower.includes("program") && lookups?.programs) {
+    const match = lookups.programs.find((program) => program.id === targetId);
+    if (match) return withReference(match.name, "live", match.code);
+  }
+  if (targetTypeLower.includes("section") && lookups?.sections) {
+    const match = lookups.sections.find((section) => section.id === targetId);
+    if (match) return withReference(match.name, "live", `Year ${match.yearLevel}`);
+  }
+  if ((targetTypeLower.includes("category") || targetTypeLower.includes("event_category")) && lookups?.categories) {
+    const match = lookups.categories.find((category) => category.id === targetId);
+    if (match) return withReference(match.name, "live");
+  }
+
+  // 3. Fallback remains readable while retaining a short traceable reference.
+  const actionReport = stringMetadata("reportName", "report_name", "reportType", "report_type");
+  if (actionReport) return withReference(actionReport, "snapshot", stringMetadata("reportType", "report_type"));
+  return withReference(badge, "fallback");
 }
 
 export interface AuditLogFilters {
@@ -183,8 +239,10 @@ export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, look
       const targetBadge = targetInfo.badge.toLowerCase();
       const targetId = (log.targetId || "").toLowerCase();
       const metadataStr = JSON.stringify(log.metadata ?? {}).toLowerCase();
+      const actorStr = `${log.actorDisplayName ?? ""} ${log.actorRole ?? ""} ${log.actorIdentifier ?? ""} ${log.actorEmail ?? ""}`.toLowerCase();
 
       const matches =
+        actorStr.includes(term) ||
         formattedAction.includes(term) ||
         rawAction.includes(term) ||
         targetName.includes(term) ||
