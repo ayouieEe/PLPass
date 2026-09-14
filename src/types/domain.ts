@@ -417,6 +417,10 @@ export type NotificationPreferences = {
 export type AuditLog = {
   id: ID;
   actorUserId: ID;
+  actorDisplayName?: string;
+  actorRole?: string;
+  actorIdentifier?: string;
+  actorEmail?: string;
   action: string;
   targetType: string;
   targetId: ID;

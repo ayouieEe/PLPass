@@ -297,6 +297,8 @@ function ReportExportModal({
   qrRows,
   facialRows,
   activeTab,
+  activeSearch,
+  activeStatusFilter,
   onExportAction
 }: {
   isOpen: boolean;
@@ -304,21 +306,25 @@ function ReportExportModal({
   qrRows: QrRow[];
   facialRows: FacialRow[];
   activeTab: ActiveTab;
+  activeSearch: string;
+  activeStatusFilter: "All" | "Active" | "Inactive" | "Missing";
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(activeStatusFilter === "All" ? "all" : activeStatusFilter);
+  const [exportSearch, setExportSearch] = useState(activeSearch);
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const filteredQr = qrRows.filter((r) => statusFilter === "all" || r.status === statusFilter);
-  const filteredFacial = facialRows.filter((r) => statusFilter === "all" || r.status === statusFilter);
+  const filteredQr = qrRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
+  const filteredFacial = facialRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
   const count = reportType === "qr" ? filteredQr.length : filteredFacial.length;
 
   function handleResetFilters() {
     setStatusFilter("all");
+    setExportSearch("");
   }
 
   async function handleExport() {
@@ -345,10 +351,10 @@ function ReportExportModal({
         lastUsed: r.lastUsed
       }));
       if (exportFormat === "xlsx") {
-        exportTools.exportQrCredentialsXlsx(data);
-        toast.success(`Exported ${data.length} QR credential record(s) as CSV.`);
+        await exportTools.exportQrCredentialsXlsx(data);
+        toast.success(`Exported ${data.length} QR credential record(s) as XLSX.`);
       } else {
-        exportTools.exportQrCredentialsPdf(data);
+        await exportTools.exportQrCredentialsPdf(data);
         toast.success(`Exported ${data.length} QR credential record(s) as PDF.`);
       }
     } else {
@@ -360,10 +366,10 @@ function ReportExportModal({
         lastScan: r.lastScan
       }));
       if (exportFormat === "xlsx") {
-        exportTools.exportFacialProfilesXlsx(data);
-        toast.success(`Exported ${data.length} facial enrollment record(s) as CSV.`);
+        await exportTools.exportFacialProfilesXlsx(data);
+        toast.success(`Exported ${data.length} facial enrollment record(s) as XLSX.`);
       } else {
-        exportTools.exportFacialProfilesPdf(data);
+        await exportTools.exportFacialProfilesPdf(data);
         toast.success(`Exported ${data.length} facial enrollment record(s) as PDF.`);
       }
     }
@@ -491,6 +497,10 @@ function ReportExportModal({
             </div>
 
             <div>
+              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search students</label>
+              <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Name or student ID" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
+            </div>
+            <div>
               <label className="text-[11px] font-semibold text-slate-600 block mb-1">Status</label>
               <select
                 value={statusFilter}
@@ -535,7 +545,7 @@ function ReportExportModal({
                 </div>
                 <div>
                   <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel / CSV format</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
                 </div>
               </button>
 
@@ -1246,6 +1256,8 @@ export function AuthenticationMethodsPage() {
         qrRows={qrRows}
         facialRows={facialRows}
         activeTab={activeTab}
+        activeSearch={searchQuery}
+        activeStatusFilter={statusFilter}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,

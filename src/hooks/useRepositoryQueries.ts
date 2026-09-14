@@ -12,6 +12,7 @@ import type {
   CreateEventSessionInput,
   CreateStudentInput,
   CreateOrganizerInput,
+  CreateAdminInput,
   UpdateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
@@ -810,6 +811,19 @@ export function useOrganizerAccountMutation(context?: RepositoryContext) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
       toast.success("Organizer account created successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+}
+
+export function useAdminAccountMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAdminInput) => repositories.userManagement.createAdmin(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["users"] });
+      await queryClient.invalidateQueries({ queryKey: ["adminProfiles"] });
+      toast.success("Admin account created successfully.");
     },
     onError: (error: unknown) => toast.error(getErrorMessage(error))
   });

@@ -44,12 +44,13 @@ import {
   useStudents,
   useAuditLogMutations,
   useStudentMutations
-  ,useOrganizerAccountMutation, useBulkOrganizerAccountMutation
+  ,useOrganizerAccountMutation, useBulkOrganizerAccountMutation, useAdminAccountMutation, useAdminProfiles
 } from "@/hooks/useRepositoryQueries";
 import Papa from "papaparse";
 import { downloadStudentCsvTemplate } from "@/features/organizer/utils/csvTemplate";
-import type { CreateOrganizerInput, CreateStudentInput, UpdateStudentInput } from "@/services/contracts";
+import type { CreateAdminInput, CreateOrganizerInput, CreateStudentInput, UpdateStudentInput } from "@/services/contracts";
 import type { Student } from "@/types/domain";
+import { exportReportPdf, exportReportXlsx } from "@/lib/exports/reportExport";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -102,6 +103,26 @@ type StudentAccount = {
   participationHistory: ParticipationRecord[];
   correctionRequests: CorrectionRequest[];
 };
+type OrganizerDirectoryRow = {
+  id: string;
+  name: string;
+  email: string;
+  employeeNumber: string;
+  organizationName: string;
+  position: string;
+  status: "Active" | "Inactive";
+  eventsManaged: number;
+};
+function formatEmployeeIdInput(value: string) {
+  return value.replace(/\D/g, "").slice(0, 12);
+}
+function nextEmployeeId(items: Array<{ employeeNumber: string }>, prefix: "O" | "A") {
+  const highest = items.reduce((max, item) => {
+    const match = item.employeeNumber.match(new RegExp(`^${prefix}-(\\d{3})$`));
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
+}
 function formatDate(date: string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
@@ -461,6 +482,7 @@ function ReportExportModal({
   activeProgramFilter,
   activeSectionFilter,
   activeStatusFilter,
+  activeSearch,
   onExportAction
 }: {
   isOpen: boolean;
@@ -471,12 +493,14 @@ function ReportExportModal({
   activeProgramFilter: string;
   activeSectionFilter: string;
   activeStatusFilter: string;
+  activeSearch: string;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"students" | "participation">("students");
   const [exportProgram, setExportProgram] = useState(activeProgramFilter);
   const [exportSection, setExportSection] = useState(activeSectionFilter);
   const [exportStatus, setExportStatus] = useState(activeStatusFilter);
+  const [exportSearch, setExportSearch] = useState(activeSearch);
   const [exportAttendance, setExportAttendance] = useState("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
@@ -486,6 +510,8 @@ function ReportExportModal({
   }
 
   const filteredStudents = studentAccounts.filter((s) => {
+    const normalizedSearch = exportSearch.trim().toLowerCase();
+    const matchSearch = !normalizedSearch || `${s.name} ${s.email} ${s.studentId} ${s.program} ${s.section}`.toLowerCase().includes(normalizedSearch);
     const matchProg = exportProgram === "all" || s.program === exportProgram;
     const matchSec = exportSection === "all" || s.section === exportSection;
     const matchStat = exportStatus === "all" || s.status === exportStatus;
@@ -493,7 +519,7 @@ function ReportExportModal({
     if (exportAttendance === "low") matchAtt = (s.attendanceRate ?? 0) < 75;
     else if (exportAttendance === "high") matchAtt = (s.attendanceRate ?? 0) >= 75;
 
-    return matchProg && matchSec && matchStat && matchAtt;
+    return matchSearch && matchProg && matchSec && matchStat && matchAtt;
   });
 
   function handleResetFilters() {
@@ -501,6 +527,7 @@ function ReportExportModal({
     setExportSection("all");
     setExportStatus("all");
     setExportAttendance("all");
+    setExportSearch("");
   }
 
   async function handleExport() {
@@ -535,10 +562,10 @@ function ReportExportModal({
       }));
 
       if (exportFormat === "xlsx") {
-        exportTools.exportStudentListXlsx(data);
-        toast.success(`Exported ${data.length} student record(s) as CSV.`);
+        await exportTools.exportStudentListXlsx(data);
+        toast.success(`Exported ${data.length} student record(s) as XLSX.`);
       } else {
-        exportTools.exportStudentListPdf(data);
+        await exportTools.exportStudentListPdf(data);
         toast.success(`Exported ${data.length} student record(s) as PDF.`);
       }
     } else {
@@ -554,10 +581,10 @@ function ReportExportModal({
       }));
 
       if (exportFormat === "xlsx") {
-        exportTools.exportParticipationHistoryXlsx(data);
-        toast.success(`Exported participation summary for ${data.length} student(s) as CSV.`);
+        await exportTools.exportParticipationHistoryXlsx(data);
+        toast.success(`Exported participation summary for ${data.length} student(s) as XLSX.`);
       } else {
-        exportTools.exportParticipationHistoryPdf(data);
+        await exportTools.exportParticipationHistoryPdf(data);
         toast.success(`Exported participation summary for ${data.length} student(s) as PDF.`);
       }
     }
@@ -689,6 +716,10 @@ function ReportExportModal({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search students</label>
+                <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Name, email, student ID, program, or section" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
+              </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Program</label>
                 <select
@@ -765,7 +796,7 @@ function ReportExportModal({
                 </div>
                 <div>
                   <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel / CSV format</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
                 </div>
               </button>
 
@@ -944,10 +975,11 @@ function AddStudentModal({
   );
 }
 
-function AccountDirectoryTabs({ activeTab, onChange }: { activeTab: "students" | "organizers"; onChange: (tab: "students" | "organizers") => void }) {
-  return <div role="tablist" aria-label="User account type" className="grid w-full grid-cols-2 rounded-xl border border-border bg-muted/30 p-1">
+function AccountDirectoryTabs({ activeTab, onChange }: { activeTab: "students" | "organizers" | "admins"; onChange: (tab: "students" | "organizers" | "admins") => void }) {
+  return <div role="tablist" aria-label="User account type" className="grid w-full grid-cols-3 rounded-xl border border-border bg-muted/30 p-1">
     <button type="button" role="tab" aria-selected={activeTab === "students"} onClick={() => onChange("students")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "students" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Students</button>
     <button type="button" role="tab" aria-selected={activeTab === "organizers"} onClick={() => onChange("organizers")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "organizers" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Organizers</button>
+    <button type="button" role="tab" aria-selected={activeTab === "admins"} onClick={() => onChange("admins")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "admins" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Admins</button>
   </div>;
 }
 
@@ -959,9 +991,50 @@ function OrganizerDirectoryStyledModern({ organizers, users, events, onAdd, onBu
   events.forEach((event) => counts.set(event.organizerId, (counts.get(event.organizerId) ?? 0) + 1));
   const filtered = organizers.filter((organizer) => { const user = users.find((item) => item.id === organizer.userId); const active = user?.isActive !== false && organizer.employmentStatus === "active"; const haystack = `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.organizationName} ${organizer.position}`.toLowerCase(); return haystack.includes(search.toLowerCase()) && (college === "all" || organizer.organizationName === college) && (status === "all" || (status === "active" ? active : !active)); });
   const activeCount = organizers.filter((organizer) => organizer.employmentStatus === "active" && users.find((user) => user.id === organizer.userId)?.isActive !== false).length;
-  const exportCsv = () => { const rows = filtered.map((organizer) => { const user = users.find((item) => item.id === organizer.userId); return [user?.displayName ?? "", user?.email ?? "", organizer.employeeNumber, organizer.organizationName, organizer.position, organizer.employmentStatus, counts.get(organizer.id) ?? 0]; }); const csv = [["Organizer", "Email", "Employee ID", "College/Department", "Position", "Status", "Events Managed"], ...rows].map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\n"); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const link = document.createElement("a"); link.href = url; link.download = "organizer-accounts.csv"; link.click(); URL.revokeObjectURL(url); };
+  const exportCsv = async () => { if (!filtered.length) return; await exportReportXlsx({ title: "PLPass Organizer Directory Report", rows: filtered.map((row) => { const user = users.find((item) => item.id === row.userId); return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": row.employeeNumber, "College / Department": row.organizationName, Position: row.position, Status: row.employmentStatus, "Events Managed": counts.get(row.id) ?? 0 }; }), fileName: "plpass-organizer-directory-" + new Date().toISOString().slice(0, 10) }); };
   const colleges = Array.from(new Set(organizers.map((organizer) => organizer.organizationName))).sort();
-  return <div className="space-y-6"><section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard title="Organizer Accounts" value={`${organizers.length}`} detail="Accounts in scope" icon={Users} /><MetricCard title="Active Accounts" value={`${activeCount}`} detail="Currently active" icon={UserRoundCheck} /><MetricCard title="Inactive Accounts" value={`${organizers.length - activeCount}`} detail="Require attention" icon={ShieldCheck} /><MetricCard title="Events Managed" value={`${events.length}`} detail="Across all organizers" icon={CalendarCheck} /></section><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{filtered.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button><button type="button" onClick={exportCsv} disabled={!filtered.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_160px]"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, email, ID, college..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label><select value={college} onChange={(event) => setCollege(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by college"><option value="all">All colleges</option>{colleges.map((item) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div><section className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-3">Organizer</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">College / department</th><th className="px-4 py-3">Position</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Events managed</th></tr></thead><tbody className="divide-y divide-border/70">{filtered.map((organizer) => { const user = users.find((item) => item.id === organizer.userId); const active = user?.isActive !== false && organizer.employmentStatus === "active"; return <tr key={organizer.id} className="hover:bg-primary/5"><td className="px-4 py-3 font-medium">{user?.displayName || "Unnamed organizer"}</td><td className="px-4 py-3 text-muted-foreground">{user?.email || "—"}</td><td className="px-4 py-3">{organizer.employeeNumber}</td><td className="px-4 py-3">{organizer.organizationName}</td><td className="px-4 py-3 text-muted-foreground">{organizer.position}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-700" : "bg-red-500/10 text-red-700"}`}>{active ? "Active" : "Inactive"}</span></td><td className="px-4 py-3 font-medium">{counts.get(organizer.id) ?? 0}</td></tr>; })}</tbody></table>{!filtered.length ? <p className="p-8 text-center text-sm text-muted-foreground">No organizer accounts match the current filters.</p> : null}</div></section></div>;
+  return <div className="space-y-6"><section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard title="Organizer Accounts" value={`${organizers.length}`} detail="Accounts in scope" icon={Users} /><MetricCard title="Active Accounts" value={`${activeCount}`} detail="Currently active" icon={UserRoundCheck} /><MetricCard title="Inactive Accounts" value={`${organizers.length - activeCount}`} detail="Require attention" icon={ShieldCheck} /><MetricCard title="Events Managed" value={`${events.length}`} detail="Across all organizers" icon={CalendarCheck} /></section><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{filtered.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button><button type="button" onClick={exportCsv} disabled={!filtered.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export XLSX</button><button type="button" onClick={exportCsv} disabled={!filtered.length} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted disabled:opacity-50"><Download className="h-4 w-4" />Export XLSX</button></div></div><div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_160px]"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, email, ID, college..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label><select value={college} onChange={(event) => setCollege(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by college"><option value="all">All colleges</option>{colleges.map((item) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div><section className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="overflow-x-auto rounded-xl border"><table className="w-full min-w-[950px] text-left text-sm"><thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-3">Organizer</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">College / department</th><th className="px-4 py-3">Position</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Events managed</th></tr></thead><tbody className="divide-y divide-border/70">{filtered.map((organizer) => { const user = users.find((item) => item.id === organizer.userId); const active = user?.isActive !== false && organizer.employmentStatus === "active"; return <tr key={organizer.id} className="hover:bg-primary/5"><td className="px-4 py-3 font-medium">{user?.displayName || "Unnamed organizer"}</td><td className="px-4 py-3 text-muted-foreground">{user?.email || "—"}</td><td className="px-4 py-3">{organizer.employeeNumber}</td><td className="px-4 py-3">{organizer.organizationName}</td><td className="px-4 py-3 text-muted-foreground">{organizer.position}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active ? "bg-emerald-500/10 text-emerald-700" : "bg-red-500/10 text-red-700"}`}>{active ? "Active" : "Inactive"}</span></td><td className="px-4 py-3 font-medium">{counts.get(organizer.id) ?? 0}</td></tr>; })}</tbody></table>{!filtered.length ? <p className="p-8 text-center text-sm text-muted-foreground">No organizer accounts match the current filters.</p> : null}</div></section></div>;
+}
+
+function OrganizerDirectoryPaginated({ organizers, users, events, onAdd, onBulkAdd }: { organizers: Array<{ id: string; employeeNumber: string; organizationName: string; position: string; employmentStatus: string; userId: string }>; users: Array<{ id: string; displayName: string; email: string; isActive: boolean }>; events: Array<{ organizerId: string }>; onAdd: () => void; onBulkAdd: () => void }) {
+  const [search, setSearch] = useState("");
+  const [college, setCollege] = useState("all");
+  const [status, setStatus] = useState("all");
+  const eventCounts = new Map<string, number>();
+  events.forEach((event) => eventCounts.set(event.organizerId, (eventCounts.get(event.organizerId) ?? 0) + 1));
+  const filtered = organizers.filter((organizer) => {
+    const user = users.find((item) => item.id === organizer.userId);
+    const active = user?.isActive !== false && organizer.employmentStatus === "active";
+    const haystack = `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.organizationName} ${organizer.position}`.toLowerCase();
+    return haystack.includes(search.toLowerCase()) && (college === "all" || organizer.organizationName === college) && (status === "all" || (status === "active" ? active : !active));
+  });
+  const rows: OrganizerDirectoryRow[] = filtered.map((organizer) => {
+    const user = users.find((item) => item.id === organizer.userId);
+    return {
+      id: organizer.id,
+      name: user?.displayName || "Unnamed organizer",
+      email: user?.email || "—",
+      employeeNumber: organizer.employeeNumber,
+      organizationName: organizer.organizationName,
+      position: organizer.position,
+      status: user?.isActive !== false && organizer.employmentStatus === "active" ? "Active" : "Inactive",
+      eventsManaged: eventCounts.get(organizer.id) ?? 0
+    };
+  });
+  const columns = useMemo<ColDef<OrganizerDirectoryRow>[]>(() => [
+    { headerName: "Organizer", field: "name", minWidth: 220, pinned: "left", flex: 1.2, cellRenderer: ({ data }: ICellRendererParams<OrganizerDirectoryRow>) => data ? <div className="py-1 leading-tight"><div className="font-medium text-foreground">{data.name}</div><div className="mt-1 font-mono text-xs text-muted-foreground">{data.employeeNumber}</div></div> : null },
+    { headerName: "Email", field: "email", minWidth: 220, flex: 1.1 },
+    { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 },
+    { headerName: "College / department", field: "organizationName", minWidth: 220, flex: 1 },
+    { headerName: "Position", field: "position", minWidth: 180 },
+    { headerName: "Status", field: "status", minWidth: 120, cellRenderer: ({ value }: ICellRendererParams<OrganizerDirectoryRow, OrganizerDirectoryRow["status"]>) => <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${value === "Active" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}>{value}</span> },
+    { headerName: "Events managed", field: "eventsManaged", minWidth: 150, valueFormatter: ({ value }) => `${value ?? 0} events` }
+  ], []);
+  const colleges = Array.from(new Set(organizers.map((organizer) => organizer.organizationName))).sort();
+  const exportRows = rows.map((row) => ({ Organizer: row.name, Email: row.email, "Employee ID": row.employeeNumber, "College / Department": row.organizationName, Position: row.position, Status: row.status, "Events Managed": row.eventsManaged }));
+  const exportCsv = async () => { if (!exportRows.length) return; await exportReportXlsx({ title: "PLPass Organizer Directory Report", rows: exportRows, fileName: "plpass-organizer-directory-" + new Date().toISOString().slice(0, 10) }); };
+  const exportPdf = async () => { if (!exportRows.length) return; await exportReportPdf({ title: "PLPass Organizer Directory Report", rows: exportRows, fileName: "plpass-organizer-directory-" + new Date().toISOString().slice(0, 10) }); };
+  return <div className="space-y-4"><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button><button type="button" onClick={exportCsv} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export XLSX</button></div></div><div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_160px]"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, email, ID, college..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm" /></label><select value={college} onChange={(event) => setCollege(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by college"><option value="all">All colleges</option>{colleges.map((item) => <option key={item} value={item}>{item}</option>)}</select><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={columns} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search and filters." enableColumnVisibility hideHeader /></div>;
 }
 
 function OrganizerDirectoryStyled({ organizers, users, onAdd }: { organizers: Array<{ id: string; employeeNumber: string; organizationName: string; position: string; employmentStatus: string; userId: string }>; users: Array<{ id: string; displayName: string; email: string; isActive: boolean }>; onAdd: () => void }) {
@@ -975,8 +1048,37 @@ function OrganizerDirectory({ organizers, users, onAdd }: { organizers: Array<{ 
   return <section className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer accounts</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{organizers.length} accounts</span></div><p className="mt-1 text-sm text-muted-foreground">All organizer accounts are displayed here after they are created.</p></div><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button></div><div className="mt-5 overflow-x-auto rounded-xl border"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-3">Organizer</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">College / department</th><th className="px-4 py-3">Position</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-border/70">{organizers.map((organizer) => { const account = users.find((user) => user.id === organizer.userId); return <tr key={organizer.id} className="hover:bg-primary/5"><td className="px-4 py-3 font-medium">{account?.displayName || "Unnamed organizer"}</td><td className="px-4 py-3 text-muted-foreground">{account?.email || "—"}</td><td className="px-4 py-3">{organizer.employeeNumber}</td><td className="px-4 py-3">{organizer.organizationName}</td><td className="px-4 py-3 text-muted-foreground">{organizer.position}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${account?.isActive && organizer.employmentStatus === "active" ? "bg-emerald-500/10 text-emerald-700" : "bg-red-500/10 text-red-700"}`}>{account?.isActive && organizer.employmentStatus === "active" ? "Active" : "Inactive"}</span></td></tr>; })}</tbody></table>{organizers.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">No organizer accounts found.</p> : null}</div></section>;
 }
 
-function AddOrganizerModal({ isOpen, onClose, mutation, departments }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }> }) {
-  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: "", departmentId: "", organizationName: "", position: "Organizer" });
+function AdminDirectory({ users, onAdd }: { users: Array<{ id: string; displayName: string; email: string; isActive: boolean; role: string }>; onAdd: () => void }) {
+  const admins = users.filter((user) => user.role === "admin");
+  const columns = useMemo<ColDef<{ id: string; name: string; email: string; status: string }>[]>(() => [
+    { headerName: "Admin", field: "name", minWidth: 240, pinned: "left", flex: 1 },
+    { headerName: "Email", field: "email", minWidth: 260, flex: 1.2 },
+    { headerName: "Status", field: "status", minWidth: 140, cellRenderer: ({ value }: ICellRendererParams) => <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{value}</span> }
+  ], []);
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Admin directory</h2><p className="mt-1 text-sm text-muted-foreground">Manage administrator accounts with institution-wide access.</p></div><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Admin</button></div><PLPassDataGrid label="Admin accounts" data={admins.map((user) => ({ id: user.id, name: user.displayName, email: user.email, status: user.isActive ? "Active" : "Inactive" }))} columns={columns} emptyTitle="No admin accounts" emptyDescription="Create an admin account to give another user administrator access." enableColumnVisibility hideHeader /></div>;
+}
+
+function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
+  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
+  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
+  if (!isOpen) return null;
+  const update = (key: keyof CreateAdminInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  async function submit(event: React.FormEvent) { event.preventDefault(); try { await mutation.mutateAsync({ ...form, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation displays the error */ } }
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 className="text-lg font-semibold">Add admin</h2></div><button type="button" onClick={onClose} aria-label="Close add admin dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label><label className="text-sm font-medium">Office<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">The Admin ID will be used as the temporary password.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div></form></div></div>, document.body);
+}
+
+function AddAdminModal({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
+  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
+  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
+  if (!isOpen) return null;
+  const update = (key: keyof CreateAdminInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  async function submit(event: React.FormEvent) { event.preventDefault(); try { await mutation.mutateAsync(form); onClose(); setForm({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: "", departmentId: "", officeName: "" }); } catch { /* mutation displays the error */ } }
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 className="text-lg font-semibold">Add admin</h2></div><button type="button" onClick={onClose} aria-label="Close add admin dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Admin ID<input required inputMode="numeric" pattern="[0-9]{3,}" placeholder="001" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.employeeNumber} onChange={(event) => update("employeeNumber", formatEmployeeIdInput(event.target.value))} onBlur={() => update("employeeNumber", form.employeeNumber.padStart(3, "0"))} /><span className="mt-1 block text-xs text-muted-foreground">Use 001, 002, 003…</span></label><label className="text-sm font-medium">Office<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">The Admin ID will be used as the temporary password.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div></form></div></div>, document.body);
+}
+
+function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
+  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", organizationName: "", position: "Organizer" });
+  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
   if (!isOpen) return null;
   const update = (key: keyof CreateOrganizerInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
   async function submit(event: React.FormEvent) { event.preventDefault(); try { await mutation.mutateAsync(form); onClose(); setForm({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: "", departmentId: "", organizationName: "", position: "Organizer" }); } catch { /* mutation displays the error */ } }
@@ -1256,17 +1358,20 @@ export function OrganizerUserManagementPage() {
   const studentMutations = useStudentMutations(scope.context);
   const organizerMutation = useOrganizerAccountMutation(scope.context);
   const bulkOrganizerMutation = useBulkOrganizerAccountMutation(scope.context);
+  const adminMutation = useAdminAccountMutation(scope.context);
   const organizersQuery = useOrganizerProfiles({ pageSize: 100 }, scope.context);
   const usersQuery = useUsers({ pageSize: 100 }, scope.context);
+  const adminProfilesQuery = useAdminProfiles({ pageSize: 100 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
 
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState<"students" | "organizers">("students");
+  const [activeTab, setActiveTab] = useState<"students" | "organizers" | "admins">("students");
   const [isAddOrganizerModalOpen, setIsAddOrganizerModalOpen] = useState(false);
   const [isBulkOrganizerModalOpen, setIsBulkOrganizerModalOpen] = useState(false);
+  const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
 
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
@@ -1663,7 +1768,7 @@ export function OrganizerUserManagementPage() {
           />
         )}
       </section>
-      </> : <>
+      </> : activeTab === "organizers" ? <>
         <section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard title="Organizer Accounts" value={`${organizersQuery.data?.items.length ?? 0}`} detail="Accounts in scope" icon={Users} />
           <MetricCard title="Active Accounts" value={`${organizersQuery.data?.items.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length ?? 0}`} detail="Currently active" icon={UserRoundCheck} />
@@ -1672,8 +1777,11 @@ export function OrganizerUserManagementPage() {
         </section>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
         <div className="[&>div>section:first-child]:hidden">
-          <OrganizerDirectoryStyledModern organizers={organizersQuery.data?.items ?? []} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} />
+          <OrganizerDirectoryPaginated organizers={organizersQuery.data?.items ?? []} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} />
         </div>
+      </> : <>
+        <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
+        <AdminDirectory users={usersQuery.data?.items ?? []} onAdd={() => setIsAddAdminModalOpen(true)} />
       </>}
 
       {activeTab === "students" ? <>
@@ -1698,6 +1806,7 @@ export function OrganizerUserManagementPage() {
         activeProgramFilter={programFilter}
         activeSectionFilter={sectionFilter}
         activeStatusFilter={statusFilter}
+        activeSearch={query}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,
@@ -1736,8 +1845,9 @@ export function OrganizerUserManagementPage() {
         }}
       />
       </> : null}
-      <AddOrganizerModal isOpen={isAddOrganizerModalOpen} onClose={() => setIsAddOrganizerModalOpen(false)} mutation={organizerMutation} departments={academicCatalog.departments.data?.items ?? []} />
+      <AddOrganizerModal isOpen={isAddOrganizerModalOpen} onClose={() => setIsAddOrganizerModalOpen(false)} mutation={organizerMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(organizersQuery.data?.items ?? [], "O")} />
       <BulkAddOrganizerModal isOpen={isBulkOrganizerModalOpen} onClose={() => setIsBulkOrganizerModalOpen(false)} mutation={bulkOrganizerMutation} />
+      <AddAdminModalAutomatic isOpen={isAddAdminModalOpen} onClose={() => setIsAddAdminModalOpen(false)} mutation={adminMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(adminProfilesQuery.data?.items ?? [], "A")} />
     </div>
   );
 }

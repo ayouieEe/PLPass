@@ -505,9 +505,23 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-organizer", organizer: input } });
     if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
-    const { data: row, error: fetchError } = await client.from("organizers").select("id, profile_id, employee_id, organization_name, department_id, position, organizer_status").eq("employee_id", input.employeeNumber).single();
+    const generatedEmployeeNumber = String(data?.employeeNumber ?? input.employeeNumber);
+    const { data: row, error: fetchError } = await client.from("organizers").select("id, profile_id, employee_id, organization_name, department_id, position, organizer_status").eq("employee_id", generatedEmployeeNumber).single();
     throwIfSupabaseError(fetchError);
     return mapOrganizer(row as Row);
+  },
+  async createAdmin(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create admin accounts.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-admin", admin: input } });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("employee_number", input.employeeNumber).single();
+    throwIfSupabaseError(fetchError);
+    return {
+      id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number),
+      departmentId: String(row.department_id), officeName: String(row.office_name)
+    };
   },
   async bulkCreateOrganizers(inputs, context) {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
@@ -2105,7 +2119,19 @@ export const supabaseAuditLogRepository: AuditLogRepository = {
     builder = builder.order(listQuery.sortBy ?? "created_at", { ascending: listQuery.sortDirection !== "desc" });
     const { data, error, count } = await builder.range(from, to);
     throwIfSupabaseError(error);
-    return pageResult(((data ?? []) as Row[]).map(mapAuditLog), count ?? data?.length ?? 0, listQuery);
+    const rawRows = (data ?? []) as Row[];
+    const actorIds = [...new Set(rawRows.map((row) => typeof row.actor_user_id === "string" ? row.actor_user_id : "").filter(Boolean))];
+    let actorRows: Row[] = [];
+    if (actorIds.length) {
+      const { data: profiles, error: profilesError } = await client
+        .from("profiles")
+        .select("id, first_name, middle_name, last_name, email, role, employee_id, student_id")
+        .in("id", actorIds);
+      throwIfSupabaseError(profilesError);
+      actorRows = (profiles ?? []) as unknown as Row[];
+    }
+    const actorById = new Map(actorRows.map((actor) => [String(actor.id), actor]));
+    return pageResult(rawRows.map((row) => ({ ...row, actor: actorById.get(String(row.actor_user_id ?? "")) })).map(mapAuditLog), count ?? rawRows.length, listQuery);
   },
   async logClientAction(input) {
     const client = getSupabaseBrowserClient();

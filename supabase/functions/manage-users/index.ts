@@ -13,6 +13,16 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function nextEmployeeId(supabase: ReturnType<typeof createClient>, table: "organizers" | "admin_profiles", column: "employee_id" | "employee_number", prefix: "O" | "A") {
+  const { data, error } = await supabase.from(table).select(column).like(column, `${prefix}-%`);
+  if (error) throw new Error(`Could not generate an employee ID: ${error.message}`);
+  const highest = (data ?? []).reduce((max, row) => {
+    const match = String((row as Record<string, unknown>)[column] ?? "").match(new RegExp(`^${prefix}-(\\d{3})$`));
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+  return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
+}
+
 async function recordAdminAudit(
   supabase: ReturnType<typeof createClient>,
   actorUserId: string,
@@ -79,9 +89,10 @@ Deno.serve(async (request) => {
     let success = 0;
     const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
     for (const [index, organizer] of organizers.entries()) {
-      const { email, firstName, middleName, lastName, employeeNumber, departmentId, organizationName, position } = organizer ?? {};
+      const { email, firstName, middleName, lastName, departmentId, organizationName, position } = organizer ?? {};
       try {
-        if (!email || !firstName || !lastName || !employeeNumber || !organizationName || !position) throw new Error("Missing required organizer information.");
+        if (!email || !firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
+        const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
         const { data: userData, error: authError } = await supabase.auth.admin.createUser({ email, password: employeeNumber, email_confirm: true, user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName } });
         if (authError || !userData.user) throw new Error(authError?.message || "Authentication account creation failed.");
         const userId = userData.user.id;
@@ -92,7 +103,7 @@ Deno.serve(async (request) => {
         await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "bulk" });
         success++;
       } catch (err) {
-        errors.push({ row: index + 2, email, employeeNumber, error: err instanceof Error ? err.message : String(err) });
+        errors.push({ row: index + 2, email, error: err instanceof Error ? err.message : String(err) });
       }
     }
     return json({ success, failed: errors.length, errors });
@@ -101,11 +112,12 @@ Deno.serve(async (request) => {
   if (action === "create-organizer") {
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
-    const { email, firstName, middleName, lastName, employeeNumber, departmentId, organizationName, position } = organizer;
-    if (!email || !firstName || !lastName || !employeeNumber || !organizationName || !position) {
+    const { email, firstName, middleName, lastName, departmentId, organizationName, position } = organizer;
+    if (!email || !firstName || !lastName || !organizationName || !position) {
       return json({ error: "Please complete all required organizer information." }, 400);
     }
     try {
+      const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
       const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({
         email, password: employeeNumber, email_confirm: true,
         user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName }
@@ -127,6 +139,25 @@ Deno.serve(async (request) => {
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
+  }
+
+  if (action === "create-admin") {
+    const admin = requestBody.admin;
+    if (!admin) return json({ error: "No admin provided." }, 400);
+    const { email, firstName, middleName, lastName, departmentId, officeName } = admin;
+    if (!email || !firstName || !lastName || !departmentId || !officeName) return json({ error: "Please complete all required admin information." }, 400);
+    try {
+      const employeeNumber = await nextEmployeeId(supabase, "admin_profiles", "employee_number", "A");
+      const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({ email, password: employeeNumber, email_confirm: true, user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName } });
+      if (createUserError || !userData.user) throw new Error(createUserError?.message || "Admin account could not be created.");
+      const userId = userData.user.id;
+      const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "admin", account_status: "active" });
+      if (profileInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileInsertError.message); }
+      const { error: adminInsertError } = await supabase.from("admin_profiles").insert({ profile_id: userId, employee_number: employeeNumber, department_id: departmentId, office_name: officeName });
+      if (adminInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(adminInsertError.message); }
+      await recordAdminAudit(supabase, authData.user.id, userId, "user.admin_created", { email, employeeNumber, source: "manual" });
+      return json({ success: true, employeeNumber });
+    } catch (err) { return json({ error: err instanceof Error ? err.message : String(err) }, 400); }
   }
 
   if (action === "update-student") {

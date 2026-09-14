@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Activity, MoreHorizontal, UserCircle } from "lucide-react";
+import { MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
-import { useBranding } from "@/hooks/useBranding";
 import type { NavigationItem } from "@/types/navigation";
 import type { UserRole } from "@/types/roles";
 
@@ -45,7 +44,7 @@ export function RoleBasedSidebar({
   const groups = groupedItems(ROLE_NAVIGATION[role] ?? []);
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
-  const branding = useBranding();
+  const workspaceLabel = role === "admin" ? "Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;
 
   return (
     <aside
@@ -59,13 +58,13 @@ export function RoleBasedSidebar({
     >
       <div className={cn("flex h-[72px] shrink-0 items-center border-b border-border px-4", collapsed && "justify-center px-2.5")}>
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20">
-            <Activity className="h-4.5 w-4.5" aria-hidden="true" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-primary/20">
+            <img src="/plp-logo.png" alt="PLPass logo" className="h-full w-full object-cover" />
           </div>
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{role === "organizer" ? branding.collegeName : `${role} workspace`}</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{workspaceLabel}</p>
             </div>
           ) : null}
           {headerAction ? <div className="shrink-0">{headerAction}</div> : null}

@@ -106,16 +106,19 @@ function ReportExportModal({
   onClose,
   requests,
   activeStatusFilter,
+  activeSearch,
   onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
   requests: CorrectionRequest[];
   activeStatusFilter: string;
+  activeSearch: string;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"directory" | "summary">("directory");
   const [exportStatus, setExportStatus] = useState(activeStatusFilter);
+  const [exportSearch, setExportSearch] = useState(activeSearch);
   const [exportTypeFilter, setExportTypeFilter] = useState<"all" | RequestType>("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
@@ -123,14 +126,16 @@ function ReportExportModal({
   if (!isOpen) return null;
 
   const filtered = requests.filter((r) => {
+    const matchSearch = !exportSearch.trim() || `${r.studentName} ${r.studentNumber} ${r.eventCode} ${r.eventName}`.toLowerCase().includes(exportSearch.trim().toLowerCase());
     const matchStatus = exportStatus === "all" || r.status === exportStatus;
     const matchType = exportTypeFilter === "all" || r.requestType === exportTypeFilter;
-    return matchStatus && matchType;
+    return matchSearch && matchStatus && matchType;
   });
 
   function handleResetFilters() {
     setExportStatus("all");
     setExportTypeFilter("all");
+    setExportSearch("");
   }
 
   async function handleExport() {
@@ -161,10 +166,10 @@ function ReportExportModal({
       .finally(() => setIsExportLoading(false));
     if (!exportTools) return;
     if (exportFormat === "xlsx") {
-      exportTools.exportCorrectionRequestsXlsx(data);
-      toast.success(`Exported ${data.length} correction request(s) as CSV.`);
+      await exportTools.exportCorrectionRequestsXlsx(data);
+      toast.success(`Exported ${data.length} correction request(s) as XLSX.`);
     } else {
-      exportTools.exportCorrectionRequestsPdf(data);
+      await exportTools.exportCorrectionRequestsPdf(data);
       toast.success(`Exported ${data.length} correction request(s) as PDF.`);
     }
 
@@ -293,6 +298,10 @@ function ReportExportModal({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search requests</label>
+                <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Student, event code, or event name" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
+              </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Request Status</label>
                 <select
@@ -342,7 +351,7 @@ function ReportExportModal({
                 </div>
                 <div>
                   <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel / CSV format</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
                 </div>
               </button>
 
@@ -732,6 +741,7 @@ export function OrganizerCorrectionRequestsPage() {
         onClose={() => setIsExportModalOpen(false)}
         requests={requests}
         activeStatusFilter={statusFilter}
+        activeSearch={search}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,

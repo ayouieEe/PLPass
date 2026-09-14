@@ -106,7 +106,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.adminAuditLogs} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminCatalogs} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminSettings} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminProfile} element={<AccessDeniedPage />} />
+              <Route path={APP_ROUTES.adminProfile} element={<AdminOrOrganizerProfilePage />} />
               <Route path={APP_ROUTES.organizerUsers} element={<AccessDeniedPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>

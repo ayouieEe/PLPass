@@ -55,7 +55,7 @@ import { Button } from "@/components/ui/button";
 import {
   lateReasons
 } from "@/features/organizer/data/organizerUiStore";
-import { exportTabularReport, type ExportTableRow } from "@/features/organizer/utils/exportUtils";
+import { exportReportPdf, exportReportXlsx, type ReportExportSection } from "@/lib/exports/reportExport";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -235,7 +235,7 @@ function AnalyticsExportModal({
   onClose: () => void;
   events: Array<{ code: string; title: string }>;
   activeEventFilter: string;
-  onExport: (reportTitle: string) => void;
+  onExport: (request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; eventCode: string; category: string; range: string; format: "xlsx" | "pdf" }) => void;
 }) {
   const [reportType, setReportType] = useState<"master" | "attendance" | "prediction" | "sentiment" | "late">("master");
   const [selectedEvent, setSelectedEvent] = useState(activeEventFilter);
@@ -252,19 +252,7 @@ function AnalyticsExportModal({
   }
 
   function handleExportSubmit() {
-    const reportNames: Record<string, string> = {
-      master: "Full Analytics Master Report",
-      attendance: "Attendance Summary Report",
-      prediction: "Turnout Prediction Report",
-      sentiment: "Performance & Sentiment Report",
-      late: "Late Arrival Patterns Report"
-    };
-
-    const eventLabel = selectedEvent === "all" ? "All Events" : selectedEvent;
-    const formatUpper = exportFormat.toUpperCase();
-    const title = `${reportNames[reportType]} (${eventLabel}) ${formatUpper}`;
-
-    onExport(title);
+    onExport({ reportType, eventCode: selectedEvent, category: selectedCategory, range: selectedRange, format: exportFormat });
     onClose();
   }
 
@@ -452,7 +440,7 @@ function AnalyticsExportModal({
                 </div>
                 <div>
                   <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel & CSV tabular format</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
                 </div>
               </button>
 
@@ -563,6 +551,7 @@ export function OrganizerAnalyticsPage() {
     () =>
       (eventsQuery.data?.items ?? []).map((event) => ({
         id: event.id,
+        organizerId: event.organizerId,
         code: event.code,
         title: event.title,
         category: event.category,
@@ -846,20 +835,30 @@ export function OrganizerAnalyticsPage() {
     return event ? baseFactors.map(f => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
   }, [eventFilter, eventLookup, insightsData]);
 
-  function handleExportReport(label: string) {
-    let rows: ExportTableRow[];
-    if (/prediction/i.test(label)) rows = predictionOverviewData.map((row) => ({ ...row }));
-    else if (/sentiment/i.test(label)) rows = sentimentData.map((row) => ({ ...row }));
-    else if (/late/i.test(label)) rows = filteredLateReasons.map((row) => ({ ...row }));
-    else rows = trendData.map((row) => ({ ...row }));
-    exportTabularReport(label, rows);
-    toast.success(`${label} downloaded.`);
-    
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Exported Analytics",
-      targetType: "export_action",
-      metadata: { label }
-    });
+  async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; eventCode: string; category: string; range: string; format: "xlsx" | "pdf" }) {
+    const selectedEvent = request.eventCode === "all" ? undefined : eventLookup.get(request.eventCode);
+    const now = new Date();
+    const rangeStart = request.range === "quarter" ? new Date(now.getTime() - 90 * 86400000) : request.range === "ay2026" ? new Date("2025-06-01") : new Date(now.getTime() - 180 * 86400000);
+    const matchesEvent = (event: { id: string; code: string; category?: string; date: string }) => (!selectedEvent || event.id === selectedEvent.id) && (request.category === "all" || (event.category ?? "").toLowerCase().includes(request.category === "career" ? "career" : "skill")) && new Date(event.date) >= rangeStart;
+    const selectedEvents = eventData.filter(matchesEvent);
+    const selectedIds = new Set(selectedEvents.map((event) => event.id));
+    const selectedSummaries = sessionSummaryData.filter((row) => row.eventId ? selectedIds.has(row.eventId) && new Date(row.date) >= rangeStart : false);
+    const eventLookupForId = (events: typeof eventData, eventId: string) => events.find((event) => event.id === eventId)?.code ?? eventId;
+    const reportNames = { master: "PLPass Master Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Prediction Report", sentiment: "PLPass Performance and Sentiment Report", late: "PLPass Late Arrival Patterns Report" };
+    const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered }));
+    const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Predicted Attendance": `${event.predictedTurnout}%`, "Predicted Absences": `${100 - event.predictedTurnout}%` }));
+    const summaryRows = (summariesQuery.data?.items ?? []).filter((row) => Boolean(row.eventId) && selectedIds.has(row.eventId)).map((row) => ({ "Event Code": eventLookupForId(eventData, row.eventId ?? ""), Positive: `${row.positivePercentage ?? 0}%`, Neutral: `${row.neutralPercentage ?? 0}%`, Negative: `${row.negativePercentage ?? 0}%` }));
+    const lateRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, Late: row.late, "Late Rate": `${row.totalRegistered ? Math.round((row.late / row.totalRegistered) * 100) : 0}%` }));
+    const sections: ReportExportSection[] = request.reportType === "master" ? [{ name: "Attendance Summary", rows: attendanceRows }, { name: "Turnout Prediction", rows: predictionRows }, { name: "Performance and Sentiment", rows: summaryRows }, { name: "Late Arrival Patterns", rows: lateRows }] : [{ name: reportNames[request.reportType].replace("PLPass ", "").replace(" Report", ""), rows: request.reportType === "attendance" ? attendanceRows : request.reportType === "prediction" ? predictionRows : request.reportType === "sentiment" ? summaryRows : lateRows }];
+    const scope = selectedEvent ? { type: "event" as const, eventId: selectedEvent.id } : { type: "global" as const };
+    const scopeSlug = selectedEvent ? selectedEvent.code : "all-events";
+    const filters = { "Target Event": selectedEvent ? `${selectedEvent.code} — ${selectedEvent.title}` : "All Events", Category: request.category === "all" ? "All Categories" : request.category === "career" ? "Career Development" : "Skills Training", "Time Horizon": request.range === "quarter" ? "Last Quarter" : request.range === "ay2026" ? "AY 2025-2026" : "Last 6 Months" };
+    try {
+      const options = { title: reportNames[request.reportType], sections, fileName: `plpass-${request.reportType}-analytics-${scopeSlug}-${new Date().toISOString().slice(0, 10)}`, scope, filters };
+      if (request.format === "xlsx") await exportReportXlsx(options); else await exportReportPdf(options);
+      toast.success(`${reportNames[request.reportType]} downloaded.`);
+      await auditLogMutations.logActionMutation.mutateAsync({ action: "Exported Analytics", targetType: "export_action", metadata: { reportType: request.reportType, format: request.format, ...filters } });
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Unable to generate this report."); }
   }
 
   const objectivePerformance = useMemo(() => {
@@ -927,14 +926,11 @@ export function OrganizerAnalyticsPage() {
 
   return (
     <div className="space-y-6 pb-12">
-      <PageHeader title="Analytics Insights" description="Monitor attendance trends, turnout forecasts, and feedback sentiment across events." />
-      
-      {/* Header with Export Action */}
-      
-
-      <div className="rounded-lg border bg-surface p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+      <PageHeader
+        title="Analytics Insights"
+        description="Monitor attendance trends, turnout forecasts, and feedback sentiment across events."
+        actions={
+          <>
             <Button
               type="button"
               variant="outline"
@@ -956,9 +952,9 @@ export function OrganizerAnalyticsPage() {
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
               Export
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Analytics Summary KPI Bar */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1009,11 +1005,10 @@ export function OrganizerAnalyticsPage() {
         </article>
       </div>
 
-      {/* Global Filter Bar & Navigation Tabs Row */}
-      <div className="sticky top-0 z-20 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-md backdrop-blur-md space-y-3">
-        {/* Navigation Tabs */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <nav className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none" aria-label="Analytics Navigation Tabs">
+      {/* Analytics navigation tabs */}
+      <div className="sticky top-0 z-20 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-md backdrop-blur-md">
+        <div className="flex w-full items-center gap-3 flex-wrap">
+          <nav className="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-4" aria-label="Analytics Navigation Tabs">
             {tabs.map((tab) => {
               const TabIcon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -1022,7 +1017,7 @@ export function OrganizerAnalyticsPage() {
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all whitespace-nowrap ${
+                  className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all whitespace-nowrap ${
                     isActive
                       ? "bg-primary text-white shadow-md shadow-primary/20"
                       : "bg-slate-100/70 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900"
@@ -1035,17 +1030,21 @@ export function OrganizerAnalyticsPage() {
             })}
           </nav>
 
-          {/* Quick Filters Row */}
-          <div className="flex items-center gap-3 flex-wrap">
+        </div>
+      </div>
+
+      {/* Analytics filters */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
+          <div className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {/* Event Filter */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex w-full items-center gap-1.5">
               <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                 <Filter className="h-3.5 w-3.5 text-primary" />
                 Event:
               </span>
               <select
                 aria-label="Event filter"
-                className="h-8 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                 value={eventFilter}
                 onChange={(event) => {
                   setEventFilter(event.target.value);
@@ -1064,14 +1063,14 @@ export function OrganizerAnalyticsPage() {
             </div>
 
             {/* Date Range Preset Selector */}
-            <div className="flex items-center gap-1.5">
+            <div className="flex w-full items-center gap-1.5">
               <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
                 <CalendarCheck className="h-3.5 w-3.5 text-primary" />
                 Date Range:
               </span>
               <select
                 aria-label="Date range filter"
-                className="h-8 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                 value={dateRangePreset}
                 onChange={(e) => {
                   setDateRangePreset(e.target.value as typeof dateRangePreset);
@@ -1091,11 +1090,11 @@ export function OrganizerAnalyticsPage() {
 
             {/* Custom Date Inputs */}
             {dateRangePreset === "custom" && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex w-full items-center gap-1.5 xl:col-span-2">
                 <input
                   type="date"
                   aria-label="Start date filter"
-                  className="h-8 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                  className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                   value={startDate}
                   onChange={(e) => {
                     setStartDate(e.target.value);
@@ -1108,7 +1107,7 @@ export function OrganizerAnalyticsPage() {
                 <input
                   type="date"
                   aria-label="End date filter"
-                  className="h-8 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                  className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                   value={endDate}
                   onChange={(e) => {
                     setEndDate(e.target.value);
@@ -1133,7 +1132,7 @@ export function OrganizerAnalyticsPage() {
                   setAttendancePage(0);
                   setLatePage(0);
                 }}
-                className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:text-primary transition"
+                className="inline-flex h-8 items-center justify-self-end gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:text-primary transition sm:col-start-2 xl:col-start-4"
                 title="Reset all filters"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -1141,7 +1140,6 @@ export function OrganizerAnalyticsPage() {
               </button>
             )}
           </div>
-        </div>
       </div>
 
       {/* Tab 1: TURNOUT FORECAST TAB */}
@@ -1424,30 +1422,6 @@ export function OrganizerAnalyticsPage() {
             </ChartPanel>
           </div>
 
-          <section className="rounded-xl border bg-surface p-4 shadow-xs">
-            <div className="flex items-center gap-2 mb-3">
-              <MessageSquareQuote className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-bold text-foreground">Representative Student Comments</h3>
-            </div>
-            {studentComments.length === 0 ? (
-              <div className="mt-2 rounded-lg border border-dashed bg-background p-6 text-center">
-                <EmptyState
-                  title="No feedback data yet"
-                  description="Student feedback comments will appear here once responses are submitted for the selected filters."
-                  icon={MessageSquareQuote}
-                />
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-3">
-                {studentComments.map((item, index) => (
-                  <article key={index} className="rounded-lg border bg-background p-3.5">
-                    <p className="text-xs font-bold text-foreground">{item.sentiment}</p>
-                    <p className="mt-1 text-xs text-muted-foreground italic">“{item.comment}”</p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
         </section>
       )}
 
