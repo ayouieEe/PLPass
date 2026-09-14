@@ -65,13 +65,13 @@ async function signIn(displayName: string) {
 describe("mock authentication flow", () => {
   it("restores an admin session and renders the admin workspace", async () => {
     storeSession("admin");
-    setRoute("/admin/dashboard");
+    setRoute("/admin");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Admin Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "System Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
   });
 
   it("denies admin routes to an organizer", async () => {
@@ -198,7 +198,7 @@ describe("shared user pages", () => {
     setRoute("/notifications");
     render(<App />);
 
-    await screen.findByText("Attendance recorded");
+    await screen.findByText("Attendance needs attention");
     expect(screen.queryByText("Correction request")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /mark read/i })[0]);
     await waitFor(() => expect(screen.getByText("read")).toBeInTheDocument());
