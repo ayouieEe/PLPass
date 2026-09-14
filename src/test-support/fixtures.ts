@@ -89,8 +89,8 @@ export const facultyProfileFixtures: FacultyProfile[] = [
 ];
 
 export const organizerProfileFixtures: OrganizerProfile[] = [
-  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "PLP Student Affairs", departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
-  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "PLP Academic Events", departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
+  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-2001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
+  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-2002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
 ];
 
 export const adminProfileFixtures: AdminProfile[] = [
@@ -196,11 +196,11 @@ export const reportFixtures: Report[] = [
 ];
 
 export const notificationFixtures: Notification[] = [
-  { id: "notification-1", userId: "user-student-1", type: "attendance", title: "Attendance recorded", body: "Your QR scan was accepted.", status: "unread", createdAt: now },
-  { id: "notification-2", userId: "user-faculty-1", type: "correction", title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now },
-  { id: "notification-3", userId: "user-admin-1", type: "system", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
-  { id: "notification-4", userId: "user-organizer-1", type: "report", title: "Report ready", body: "Event participation report is ready.", status: "unread", createdAt: now },
-  { id: "notification-5", userId: "user-student-1", type: "system", title: "Development reminder", body: "Review your latest attendance record.", status: "unread", createdAt: now }
+  { id: "notification-1", userId: "user-student-1", type: "attendance", code: "attendance.exception.verification_failed", severity: "warning", requiresAction: true, title: "Attendance needs attention", body: "Your attendance verification needs review.", status: "unread", createdAt: now },
+  { id: "notification-2", userId: "user-faculty-1", type: "correction", code: "correction.review_requested", requiresAction: true, title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now },
+  { id: "notification-3", userId: "user-admin-1", type: "system", code: "system.exception.mock_notice", severity: "warning", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
+  { id: "notification-4", userId: "user-organizer-1", type: "report", code: "report.ready", title: "Report ready", body: "Event participation report is ready.", status: "unread", createdAt: now },
+  { id: "notification-5", userId: "user-student-1", type: "system", code: "reminder.feedback_required", requiresAction: true, title: "Feedback required", body: "Review your latest attendance record.", status: "unread", createdAt: now }
 ];
 
 export const auditLogFixtures: AuditLog[] = [

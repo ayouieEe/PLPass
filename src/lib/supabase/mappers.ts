@@ -260,6 +260,7 @@ export function mapOrganizer(row: Row): OrganizerProfile {
     userId: stringValue(row, ["profile_id", "user_id"]),
     employeeNumber: stringValue(row, ["employee_number", "organizer_number", "employee_id", "id"]),
     organizationName: stringValue(row, ["organization_name", "office_name"], "Organizer"),
+    collegeLogoPath: optionalString(row, ["college_logo_path"]),
     departmentId: optionalString(row, ["department_id", "college_id"]),
     position: stringValue(row, ["position"], "Organizer"),
     employmentStatus: mapEmploymentStatus(stringValue(row, ["employment_status", "organizer_status", "status"], "active"))
@@ -521,7 +522,13 @@ export function mapNotification(row: Row): Notification {
     title: stringValue(row, ["title"], "Notification"),
     body: stringValue(row, ["body", "message"]),
     status: stringValue(row, ["notification_status", "status"], stringValue(row, ["read_at"]) ? "read" : "unread") as Notification["status"],
-    createdAt: stringValue(row, ["created_at"], new Date().toISOString())
+    createdAt: stringValue(row, ["created_at"], new Date().toISOString()),
+    code: optionalString(row, ["notification_code", "code"]),
+    severity: stringValue(row, ["severity"], "info") as Notification["severity"],
+    requiresAction: Boolean(row.requires_action),
+    relatedType: optionalString(row, ["related_type"]),
+    referenceId: optionalString(row, ["reference_id"]),
+    actionUrl: optionalString(row, ["action_url"])
   };
 }
 

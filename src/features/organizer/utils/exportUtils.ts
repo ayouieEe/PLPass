@@ -1,5 +1,4 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { exportReportPdf, exportReportXlsx, type ReportExportScope } from "@/lib/exports/reportExport";
 
 /**
  * Export utilities for organizer reports.
@@ -62,82 +61,16 @@ export function exportTabularReportCsv(title: string, rows: ExportTableRow[]) {
 }
 
 export async function exportTabularReportXlsx(title: string, rows: ExportTableRow[]) {
-  const { Workbook } = await import("exceljs");
-  const workbook = new Workbook();
-  const worksheet = workbook.addWorksheet("Report");
-  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-
-  worksheet.columns = headers.map((header) => ({ header, key: header }));
-  rows.forEach((row) => worksheet.addRow(headers.map((header) => row[header] ?? "")));
-  worksheet.views = [{ state: "frozen", ySplit: 1 }];
-  if (headers.length) {
-    worksheet.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: Math.max(rows.length + 1, 1), column: headers.length }
-    };
-  }
-  const headerRow = worksheet.getRow(1);
-  headerRow.height = 22;
-  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
-  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3F7444" } };
-  headerRow.alignment = { vertical: "middle" };
-  worksheet.eachRow((row, rowNumber) => {
-    row.eachCell((cell) => {
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFDCE7DD" } },
-        left: { style: "thin", color: { argb: "FFDCE7DD" } },
-        bottom: { style: "thin", color: { argb: "FFDCE7DD" } },
-        right: { style: "thin", color: { argb: "FFDCE7DD" } }
-      };
-      cell.alignment = { vertical: "middle", wrapText: true };
-      if (rowNumber > 1 && rowNumber % 2 === 1) {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF5F9F5" } };
-      }
-    });
-  });
-  worksheet.columns.forEach((column) => {
-    column.width = Math.min(Math.max(column.header?.length ?? 10, 14), 34);
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  downloadFile(new Blob([buffer]), `${reportFileName(title)}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  await exportReportXlsx({ title, rows, fileName: reportFileName(title) });
 }
 
-export function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
-  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row))));
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const reportTitle = title.replace(/\s+(?:XLSX|PDF)$/i, "");
-  doc.setFillColor(63, 116, 68);
-  doc.rect(0, 0, 297, 10, "F");
-  doc.setTextColor(63, 116, 68);
-  doc.setFontSize(16);
-  doc.text(reportTitle, 14, 20);
-  doc.setTextColor(82, 97, 85);
-  doc.setFontSize(9);
-  doc.text(`PLPass · Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 27);
-  autoTable(doc, {
-    startY: 32,
-    head: [headers],
-    body: rows.map((row) => headers.map((header) => String(row[header] ?? ""))),
-    theme: "striped",
-    headStyles: { fillColor: [63, 116, 68], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8 },
-    alternateRowStyles: { fillColor: [245, 249, 245] },
-    styles: { fontSize: 7, cellPadding: 2, lineColor: [220, 231, 221], lineWidth: 0.1 },
-    didDrawPage: (data) => {
-      doc.setDrawColor(220, 231, 221);
-      doc.line(14, 201, 283, 201);
-      doc.setTextColor(82, 97, 85);
-      doc.setFontSize(7);
-      doc.text("PLPass Event Management", 14, 206);
-      doc.text(`Page ${data.pageNumber}`, 283, 206, { align: "right" });
-    }
-  });
-  doc.save(`${reportFileName(title)}.pdf`);
+export async function exportTabularReportPdf(title: string, rows: ExportTableRow[]) {
+  await exportReportPdf({ title, rows, fileName: reportFileName(title) });
 }
 
-export async function exportTabularReport(title: string, rows: ExportTableRow[]) {
-  if (/\bpdf\b/i.test(title)) exportTabularReportPdf(title, rows);
-  else if (/\bxlsx\b/i.test(title)) await exportTabularReportXlsx(title, rows);
+export async function exportTabularReport(title: string, rows: ExportTableRow[], scope?: ReportExportScope) {
+  if (/\bpdf\b/i.test(title)) await exportReportPdf({ title, rows, fileName: reportFileName(title), scope });
+  else if (/\bxlsx\b/i.test(title)) await exportReportXlsx({ title, rows, fileName: reportFileName(title), scope });
   else exportTabularReportCsv(title, rows);
 }
 
@@ -167,7 +100,7 @@ function todayLabel(): string {
 // Student List exports
 // ---------------------------------------------------------------------------
 
-export function exportStudentListXlsx(students: ExportStudentRow[]) {
+export async function exportStudentListXlsx(students: ExportStudentRow[]) {
   const headers = [
     "Student ID",
     "Full Name",
@@ -198,79 +131,18 @@ export function exportStudentListXlsx(students: ExportStudentRow[]) {
     s.correctionRequests
   ]);
 
-  const csv = buildCsvString(headers, rows);
-  downloadFile(csv, `student-list-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+  await exportReportXlsx({ title: "Student List Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `student-list-${todayLabel()}` });
 }
 
-export function exportStudentListPdf(students: ExportStudentRow[]) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-
-  // Title
-  doc.setFontSize(16);
-  doc.setTextColor(26, 26, 46);
-  doc.text("Student List Report", 14, 18);
-
-  // Subtitle
-  doc.setFontSize(9);
-  doc.setTextColor(107, 114, 128);
-  doc.text(
-    `Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${students.length} student(s)`,
-    14,
-    24
-  );
-
-  autoTable(doc, {
-    startY: 28,
-    head: [[
-      "Student ID",
-      "Full Name",
-      "Program",
-      "Year / Sec",
-      "Email",
-      "Status",
-      "Attendance",
-      "Events",
-      "QR",
-      "Facial",
-      "Requests"
-    ]],
-    body: students.map((s) => [
-      s.studentId,
-      s.name,
-      s.program,
-      `Year ${s.yearLevel} - ${s.section}`,
-      s.email,
-      s.status,
-      `${s.attendanceRate}%`,
-      s.eventsJoined,
-      s.qrStatus,
-      s.facialStatus,
-      s.correctionRequests
-    ]),
-    theme: "striped",
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 9
-    },
-    styles: {
-      fontSize: 8,
-      cellPadding: 3
-    },
-    alternateRowStyles: {
-      fillColor: [245, 245, 255]
-    }
-  });
-
-  doc.save(`student-list-${todayLabel()}.pdf`);
+export async function exportStudentListPdf(students: ExportStudentRow[]) {
+  await exportReportPdf({ title: "Student List Report", fileName: `student-list-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, Email: s.email, Status: s.status, Attendance: `${s.attendanceRate}%`, Events: s.eventsJoined, QR: s.qrStatus, Facial: s.facialStatus, Requests: s.correctionRequests })) });
 }
 
 // ---------------------------------------------------------------------------
 // Participation History exports
 // ---------------------------------------------------------------------------
 
-export function exportParticipationHistoryXlsx(students: ExportParticipationRow[]) {
+export async function exportParticipationHistoryXlsx(students: ExportParticipationRow[]) {
   const headers = [
     "Student ID",
     "Full Name",
@@ -293,64 +165,11 @@ export function exportParticipationHistoryXlsx(students: ExportParticipationRow[
     s.correctionRequests
   ]);
 
-  const csv = buildCsvString(headers, rows);
-  downloadFile(csv, `participation-history-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+  await exportReportXlsx({ title: "Participation History Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `participation-history-${todayLabel()}` });
 }
 
-export function exportParticipationHistoryPdf(students: ExportParticipationRow[]) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-
-  // Title
-  doc.setFontSize(16);
-  doc.setTextColor(26, 26, 46);
-  doc.text("Participation History Report", 14, 18);
-
-  // Subtitle
-  doc.setFontSize(9);
-  doc.setTextColor(107, 114, 128);
-  doc.text(
-    `Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${students.length} student(s)`,
-    14,
-    24
-  );
-
-  autoTable(doc, {
-    startY: 28,
-    head: [[
-      "Student ID",
-      "Full Name",
-      "Program",
-      "Year / Sec",
-      "Attendance Rate",
-      "Events Joined",
-      "Correction Requests Filed"
-    ]],
-    body: students.map((s) => [
-      s.studentId,
-      s.name,
-      s.program,
-      `Year ${s.yearLevel} - ${s.section}`,
-      `${s.attendanceRate}%`,
-      s.eventsJoined,
-      s.correctionRequests
-    ]),
-    theme: "striped",
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 9
-    },
-    styles: {
-      fontSize: 8,
-      cellPadding: 3
-    },
-    alternateRowStyles: {
-      fillColor: [245, 245, 255]
-    }
-  });
-
-  doc.save(`participation-history-${todayLabel()}.pdf`);
+export async function exportParticipationHistoryPdf(students: ExportParticipationRow[]) {
+  await exportReportPdf({ title: "Participation History Report", fileName: `participation-history-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, "Attendance Rate": `${s.attendanceRate}%`, "Events Joined": s.eventsJoined, "Correction Requests Filed": s.correctionRequests })) });
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +189,7 @@ export type ExportCorrectionRequestRow = {
   requestedStatus: string;
 };
 
-export function exportCorrectionRequestsXlsx(requests: ExportCorrectionRequestRow[]) {
+export async function exportCorrectionRequestsXlsx(requests: ExportCorrectionRequestRow[]) {
   const headers = [
     "Request ID",
     "Student ID",
@@ -397,68 +216,11 @@ export function exportCorrectionRequestsXlsx(requests: ExportCorrectionRequestRo
     r.requestedStatus
   ]);
 
-  const csv = buildCsvString(headers, rows);
-  downloadFile(csv, `correction-requests-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+  await exportReportXlsx({ title: "Correction Requests Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `correction-requests-${todayLabel()}` });
 }
 
-export function exportCorrectionRequestsPdf(requests: ExportCorrectionRequestRow[]) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-
-  // Title
-  doc.setFontSize(16);
-  doc.setTextColor(26, 26, 46);
-  doc.text("Correction Requests Report", 14, 18);
-
-  // Subtitle
-  doc.setFontSize(9);
-  doc.setTextColor(107, 114, 128);
-  doc.text(
-    `Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${requests.length} request(s)`,
-    14,
-    24
-  );
-
-  autoTable(doc, {
-    startY: 28,
-    head: [[
-      "Request ID",
-      "Student ID",
-      "Student Name",
-      "Event Code",
-      "Request Type",
-      "Date Submitted",
-      "Status",
-      "Recorded",
-      "Requested"
-    ]],
-    body: requests.map((r) => [
-      r.requestId,
-      r.studentId,
-      r.studentName,
-      r.eventCode,
-      r.requestType,
-      r.dateSubmitted,
-      r.status,
-      r.recordedStatus,
-      r.requestedStatus
-    ]),
-    theme: "striped",
-    headStyles: {
-      fillColor: [79, 70, 229],
-      textColor: [255, 255, 255],
-      fontStyle: "bold",
-      fontSize: 9
-    },
-    styles: {
-      fontSize: 8,
-      cellPadding: 3
-    },
-    alternateRowStyles: {
-      fillColor: [245, 245, 255]
-    }
-  });
-
-  doc.save(`correction-requests-${todayLabel()}.pdf`);
+export async function exportCorrectionRequestsPdf(requests: ExportCorrectionRequestRow[]) {
+  await exportReportPdf({ title: "Correction Requests Report", fileName: `correction-requests-${todayLabel()}`, rows: requests.map((r) => ({ "Request ID": r.requestId, "Student ID": r.studentId, "Student Name": r.studentName, "Event Code": r.eventCode, "Request Type": r.requestType, "Date Submitted": r.dateSubmitted, Status: r.status, Recorded: r.recordedStatus, Requested: r.requestedStatus })) });
 }
 
 // ---------------------------------------------------------------------------
@@ -481,62 +243,20 @@ export type ExportFacialProfileRow = {
   lastScan: string;
 };
 
-export function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[]) {
-  const headers = ["Student ID", "Student Name", "QR Status", "Date Generated", "Last Used"];
-  const data = rows.map((r) => [r.studentId, r.studentName, r.status, r.dateGenerated, r.lastUsed]);
-  const csv = buildCsvString(headers, data);
-  downloadFile(csv, `qr-credentials-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+export async function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[]) {
+  await exportReportXlsx({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })) });
 }
 
-export function exportQrCredentialsPdf(rows: ExportQrCredentialRow[]) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  doc.setFontSize(16);
-  doc.setTextColor(26, 26, 46);
-  doc.text("QR Credentials Report", 14, 18);
-  doc.setFontSize(9);
-  doc.setTextColor(107, 114, 128);
-  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
-
-  autoTable(doc, {
-    startY: 28,
-    head: [["Student ID", "Student Name", "QR Status", "Date Generated", "Last Used"]],
-    body: rows.map((r) => [r.studentId, r.studentName, r.status, r.dateGenerated, r.lastUsed]),
-    theme: "striped",
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
-    styles: { fontSize: 8, cellPadding: 3 },
-    alternateRowStyles: { fillColor: [245, 245, 255] }
-  });
-
-  doc.save(`qr-credentials-${todayLabel()}.pdf`);
+export async function exportQrCredentialsPdf(rows: ExportQrCredentialRow[]) {
+  await exportReportPdf({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })) });
 }
 
-export function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[]) {
-  const headers = ["Student ID", "Student Name", "Facial Status", "Enrollment Date", "Last Scan"];
-  const data = rows.map((r) => [r.studentId, r.studentName, r.status, r.enrollmentDate, r.lastScan]);
-  const csv = buildCsvString(headers, data);
-  downloadFile(csv, `facial-profiles-${todayLabel()}.csv`, "text/csv;charset=utf-8;");
+export async function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[]) {
+  await exportReportXlsx({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })) });
 }
 
-export function exportFacialProfilesPdf(rows: ExportFacialProfileRow[]) {
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  doc.setFontSize(16);
-  doc.setTextColor(26, 26, 46);
-  doc.text("Facial Enrollment Profiles Report", 14, 18);
-  doc.setFontSize(9);
-  doc.setTextColor(107, 114, 128);
-  doc.text(`Generated ${new Date().toLocaleDateString("en-PH", { dateStyle: "long" })} · ${rows.length} record(s)`, 14, 24);
-
-  autoTable(doc, {
-    startY: 28,
-    head: [["Student ID", "Student Name", "Facial Status", "Enrollment Date", "Last Scan"]],
-    body: rows.map((r) => [r.studentId, r.studentName, r.status, r.enrollmentDate, r.lastScan]),
-    theme: "striped",
-    headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 9 },
-    styles: { fontSize: 8, cellPadding: 3 },
-    alternateRowStyles: { fillColor: [245, 245, 255] }
-  });
-
-  doc.save(`facial-profiles-${todayLabel()}.pdf`);
+export async function exportFacialProfilesPdf(rows: ExportFacialProfileRow[]) {
+  await exportReportPdf({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })) });
 }
 
 

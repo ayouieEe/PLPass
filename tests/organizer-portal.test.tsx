@@ -305,15 +305,12 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
-  it("opens a credential modal when a student row is clicked", async () => {
+  it("denies the removed organizer reports route", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");
     render(<App />);
 
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Open first row" }));
-
-    expect(await screen.findByRole("dialog", { name: /qr credential details/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {

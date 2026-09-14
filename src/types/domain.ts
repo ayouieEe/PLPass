@@ -8,6 +8,7 @@ import type {
   FacultyEmploymentStatus,
   MlPredictionType,
   NotificationStatus,
+  NotificationSeverity,
   NotificationType,
   PriorityLevel,
   ReportStatus,
@@ -66,6 +67,7 @@ export type OrganizerProfile = {
   userId: ID;
   employeeNumber: string;
   organizationName: string;
+  collegeLogoPath?: string;
   departmentId?: ID;
   position: string;
   employmentStatus: FacultyEmploymentStatus;
@@ -389,6 +391,27 @@ export type Notification = {
   body: string;
   status: NotificationStatus;
   createdAt: ISODateString;
+  code?: string;
+  severity?: NotificationSeverity;
+  requiresAction?: boolean;
+  relatedType?: string;
+  referenceId?: ID;
+  actionUrl?: string;
+};
+
+export type OrganizerBranding = {
+  organizerId: ID;
+  collegeName: string;
+  collegeLogoPath?: string;
+  collegeLogoUrl?: string;
+  updatedAt?: ISODateString;
+};
+
+export type NotificationPreferences = {
+  reminders: boolean;
+  eventUpdates: boolean;
+  reports: boolean;
+  attendanceExceptions: boolean;
 };
 
 export type AuditLog = {

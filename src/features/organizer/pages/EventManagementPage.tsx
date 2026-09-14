@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
@@ -354,8 +355,8 @@ function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | u
 }
 
 function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4">
+  const modal = (
+    <div className="fixed inset-0 z-[9999] flex h-dvh w-screen items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}>
         <div className="flex justify-end border-b px-5 py-3">
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal">
@@ -366,6 +367,8 @@ function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: Reac
       </section>
     </div>
   );
+
+  return typeof document === "undefined" ? modal : createPortal(modal, document.body);
 }
 
 function eventFromStore(event: OrganizerEvent): EventRecord {
@@ -1625,7 +1628,7 @@ export function EventManagementPage() {
       "Total Registered": event.totalRegistered,
       "Attendance Rate": event.attendanceRate
     }));
-    exportTabularReport(label, rows);
+    exportTabularReport(label, rows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
     toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
@@ -1645,7 +1648,7 @@ export function EventManagementPage() {
       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
-    exportTabularReport(label, attendanceRows);
+    exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
     toast.success(`${label} downloaded.`);
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Attendance Report",

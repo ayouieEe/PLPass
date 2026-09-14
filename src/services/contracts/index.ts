@@ -15,7 +15,9 @@ import type {
   MlPrediction,
   AttendanceAttempt,
   Notification,
+  NotificationPreferences,
   OrganizerProfile,
+  OrganizerBranding,
   Program,
   Section,
   EventCategory,
@@ -63,6 +65,30 @@ export type UpdateStudentInput = {
   yearLevel: number;
   accountStatus?: "active" | "inactive" | "suspended";
   statusOnly?: boolean;
+};
+
+export type CreateOrganizerInput = {
+  email: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  employeeNumber: string;
+  departmentId?: string;
+  organizationName: string;
+  position: string;
+};
+
+export type BulkCreateOrganizersResult = {
+  success: number;
+  failed: number;
+  errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }>;
+};
+
+export type UpdateOrganizerBrandingInput = {
+  organizerId: string;
+  collegeName: string;
+  logo?: File | null;
+  removeLogo?: boolean;
 };
 
 export type CreateCorrectionRequestInput = Pick<
@@ -302,9 +328,13 @@ export interface UserManagementRepository {
   createStudent(input: CreateStudentInput, context?: RepositoryContext): Promise<Student>;
   updateStudent(input: UpdateStudentInput, context?: RepositoryContext): Promise<Student>;
   bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<{ success: number; failed: number }>;
+  createOrganizer(input: CreateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
+  bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
   listAdminProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AdminProfile>>;
+  getOrganizerBranding(organizerId: string, context?: RepositoryContext): Promise<OrganizerBranding>;
+  updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context?: RepositoryContext): Promise<OrganizerBranding>;
 }
 
 export interface AcademicManagementRepository {
@@ -405,6 +435,8 @@ export interface NotificationRepository {
   listNotifications(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Notification>>;
   markNotificationRead(notificationId: string, context?: RepositoryContext): Promise<Notification>;
   markAllNotificationsRead(context?: RepositoryContext): Promise<Notification[]>;
+  getPreferences(context?: RepositoryContext): Promise<NotificationPreferences>;
+  updatePreferences(input: Partial<NotificationPreferences>, context?: RepositoryContext): Promise<NotificationPreferences>;
 }
 
 export type CreateAuditLogInput = {

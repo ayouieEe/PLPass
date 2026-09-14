@@ -45,6 +45,7 @@ export type AttendanceFilter = {
 export type NotificationFilter = {
   notificationStatus?: NotificationStatus;
   notificationType?: NotificationType;
+  notificationCode?: string;
 };
 
 export type SortQuery = {

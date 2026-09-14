@@ -7,6 +7,13 @@ import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import type { UserRole } from "@/types/roles";
 
 const storedSessions: Partial<Record<UserRole, string>> = {
+  admin: JSON.stringify({
+    userId: "user-admin-1",
+    role: "admin",
+    displayName: "Admin One",
+    email: "admin.one@plpass.test",
+    isAuthenticated: true
+  }),
   organizer: JSON.stringify({
     userId: "user-organizer-1",
     role: "organizer",
@@ -56,6 +63,34 @@ async function signIn(displayName: string) {
 }
 
 describe("mock authentication flow", () => {
+  it("restores an admin session and renders the admin workspace", async () => {
+    storeSession("admin");
+    setRoute("/admin");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("denies admin routes to an organizer", async () => {
+    storeSession("organizer");
+    setRoute("/admin/users");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+  });
+
+  it("does not expose global user management to an organizer", async () => {
+    storeSession("organizer");
+    setRoute("/organizer/dashboard");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Dashboard" });
+    expect(screen.getByRole("navigation", { name: "organizer navigation" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "User Management" })).not.toBeInTheDocument();
+  });
   it.each([
     ["Organizer One", /^Dashboard$/i],
     ["Student 01", /Welcome back/i]
@@ -163,7 +198,7 @@ describe("shared user pages", () => {
     setRoute("/notifications");
     render(<App />);
 
-    await screen.findByText("Attendance recorded");
+    await screen.findByText("Attendance needs attention");
     expect(screen.queryByText("Correction request")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /mark read/i })[0]);
     await waitFor(() => expect(screen.getByText("read")).toBeInTheDocument());

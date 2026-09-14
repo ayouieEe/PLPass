@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
   User,
   ShieldAlert,
@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useUser,
@@ -31,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate } from "@/lib/utils/date";
+import { getErrorMessage } from "@/lib/utils/errors";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ensureStudentIdentityReadiness,
   formatCredentialStatus,
@@ -78,6 +81,27 @@ export function StudentProfilePage() {
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
   const credentialStatusQuery = useStudentCredentialStatus(studentQuery.data?.items[0]?.id, context);
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  useEffect(() => {
+    const fallback = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(session?.displayName || "Student")}`;
+    const storedAvatar = userQuery.data?.avatarUrl;
+    if (!storedAvatar?.startsWith("profile-avatars:")) {
+      setAvatarUrl(storedAvatar ?? fallback);
+      return;
+    }
+    let cancelled = false;
+    void getSupabaseBrowserClient()
+      .storage.from("profile-avatars")
+      .createSignedUrl(storedAvatar.slice("profile-avatars:".length), 3600)
+      .then(({ data, error }) => {
+        if (!cancelled) setAvatarUrl(error ? fallback : data.signedUrl);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.displayName, userQuery.data?.avatarUrl]);
 
   if (!session) {
     return <ErrorState title="No active session" message="Sign in with a student account to view this page." />;
@@ -131,8 +155,41 @@ export function StudentProfilePage() {
     : hasFacialEnrollment
       ? formatCredentialStatus(readiness.faceStatus)
       : "Organizer managed";
-  const avatarSeed = encodeURIComponent(user.displayName || "Student");
-  const avatarUrl = user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${avatarSeed}`;
+  async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file || isUploadingAvatar) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Use a JPG, PNG, or WebP profile picture.");
+      input.value = "";
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Profile pictures must be 2 MB or smaller.");
+      input.value = "";
+      return;
+    }
+    setIsUploadingAvatar(true);
+    try {
+      const client = getSupabaseBrowserClient();
+      const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+      const objectPath = `${session?.userId ?? "unknown"}/avatar.${extension}`;
+      const { error: uploadError } = await client.storage.from("profile-avatars").upload(objectPath, file, { contentType: file.type, cacheControl: "3600", upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: signedUrlData, error: signedUrlError } = await client.storage.from("profile-avatars").createSignedUrl(objectPath, 3600);
+      if (signedUrlError) throw signedUrlError;
+      const { error: profileError } = await client.from("profiles").update({ profile_picture: `profile-avatars:${objectPath}`, updated_at: new Date().toISOString() }).eq("id", session?.userId ?? "");
+      if (profileError) throw profileError;
+      setAvatarUrl(signedUrlData.signedUrl);
+      await queryClient.invalidateQueries({ queryKey: ["user", session?.userId] });
+      toast.success("Profile picture updated successfully.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setIsUploadingAvatar(false);
+      input.value = "";
+    }
+  }
 
   function handleLogout() {
     logout();
@@ -173,20 +230,17 @@ export function StudentProfilePage() {
                   className="h-full w-full object-cover"
                 />
               </div>
-              <span
-                className="absolute bottom-1 right-1 flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md"
-                aria-label="Profile image"
-                title="Profile image"
-              >
+              <label className="absolute bottom-1 right-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition hover:scale-105" aria-label="Change profile picture">
                 <Camera className="h-4.5 w-4.5" />
-              </span>
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={isUploadingAvatar} className="sr-only" />
+              </label>
             </div>
 
             <div className="min-w-0">
               <h3 className="text-lg font-bold text-foreground">{user.displayName}</h3>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Profile photo changes are handled by an administrator.
+                JPG, PNG, or WebP up to 2 MB.
               </p>
             </div>
 

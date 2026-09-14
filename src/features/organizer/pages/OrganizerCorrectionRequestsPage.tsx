@@ -28,12 +28,13 @@ function useOrganizerScope() {
     [session]
   );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const isAdmin = session?.role === "admin";
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" as const },
-    organizerId: organizerQuery.data?.items[0]?.id,
+    organizerId: organizerQuery.data?.items[0]?.id ?? (isAdmin ? "admin-global" : undefined),
     organizerName: session?.displayName ?? "Organizer",
     isLoading: organizerQuery.isLoading,
-    isError: organizerQuery.isError
+    isError: !isAdmin && organizerQuery.isError
   };
 }
 

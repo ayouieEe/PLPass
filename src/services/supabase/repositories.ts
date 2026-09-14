@@ -363,6 +363,21 @@ function requireCredentialManagerContext(context?: { actorRole?: string }) {
   }
 }
 
+function requireBrandingContext(context: { actorRole?: string } | undefined, organizerId: string) {
+  if (context?.actorRole === "student") {
+    throw new RepositoryError("Students cannot manage organizer branding.", "PERMISSION_DENIED");
+  }
+  if (context?.actorRole === "organizer" && !organizerId) {
+    throw new RepositoryError("Organizer branding requires an organizer profile.", "VALIDATION_ERROR");
+  }
+}
+
+async function signedBrandingUrl(path?: string | null) {
+  if (!path) return undefined;
+  const { data, error } = await getSupabaseBrowserClient().storage.from("branding-assets").createSignedUrl(path, 3600);
+  return error ? undefined : data?.signedUrl;
+}
+
 export const supabaseAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
     return [];
@@ -483,6 +498,73 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       rows.total,
       query
     );
+  },
+  async createOrganizer(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-organizer", organizer: input } });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    const { data: row, error: fetchError } = await client.from("organizers").select("id, profile_id, employee_id, organization_name, department_id, position, organizer_status").eq("employee_id", input.employeeNumber).single();
+    throwIfSupabaseError(fetchError);
+    return mapOrganizer(row as Row);
+  },
+  async bulkCreateOrganizers(inputs, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", { body: { action: "bulk-create-organizers", organizers: inputs } });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    return { success: Number(data?.success ?? 0), failed: Number(data?.failed ?? 0), errors: Array.isArray(data?.errors) ? data.errors : [] };
+  },
+  async getOrganizerBranding(organizerId, context) {
+    requireBrandingContext(context, organizerId);
+    const currentContext = context;
+    if (currentContext?.actorRole === "organizer") {
+      const current = await selectRowsFiltered("organizers", { pageIndex: 0, pageSize: 1 }, "id, profile_id, organization_name, college_logo_path, updated_at", { profile_id: currentContext.actorUserId });
+      const owned = current.items[0];
+      if (!owned || String(owned.id) !== organizerId) throw new RepositoryError("You can only view your own branding.", "PERMISSION_DENIED");
+    }
+    const row = await selectSingleRowWithColumns("organizers", organizerId, "id, organization_name, college_logo_path, updated_at");
+    return {
+      organizerId: String(row.id),
+      collegeName: String(row.organization_name ?? "PLP"),
+      collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined,
+      collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined),
+      updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined
+    };
+  },
+  async updateOrganizerBranding(input, context) {
+    requireBrandingContext(context, input.organizerId);
+    if (!input.collegeName.trim()) throw new RepositoryError("College name is required.", "VALIDATION_ERROR");
+    if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
+      throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
+    }
+    if (context?.actorRole === "organizer") {
+      const profile = await selectRowsFiltered("organizers", { pageIndex: 0, pageSize: 1 }, "id", { profile_id: context.actorUserId });
+      if (String(profile.items[0]?.id ?? "") !== input.organizerId) throw new RepositoryError("You can only update your own branding.", "PERMISSION_DENIED");
+    }
+    const current = await selectSingleRowWithColumns("organizers", input.organizerId, "id, college_logo_path");
+    let logoPath = typeof current.college_logo_path === "string" ? current.college_logo_path : null;
+    const client = getSupabaseBrowserClient();
+    if (input.logo) {
+      const extension = input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg";
+      logoPath = `${input.organizerId}/college-logo.${extension}`;
+      if (typeof current.college_logo_path === "string" && current.college_logo_path !== logoPath) {
+        await client.storage.from("branding-assets").remove([current.college_logo_path]);
+      }
+      const { error } = await client.storage.from("branding-assets").upload(logoPath, input.logo, { contentType: input.logo.type, cacheControl: "3600", upsert: true });
+      throwIfSupabaseError(error);
+    } else if (input.removeLogo) {
+      if (logoPath) await client.storage.from("branding-assets").remove([logoPath]);
+      logoPath = null;
+    }
+    const { data, error } = await client.from("organizers").update({ organization_name: input.collegeName.trim(), college_logo_path: logoPath, updated_at: new Date().toISOString() } as never).eq("id", input.organizerId).select("id, organization_name, college_logo_path, updated_at").single();
+    throwIfSupabaseError(error);
+    const row = data as unknown as Row;
+    const result = { organizerId: String(row.id), collegeName: String(row.organization_name ?? "PLP"), collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined, collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined), updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined };
+    try { await supabaseAuditLogRepository.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: input.organizerId, metadata: { collegeName: result.collegeName, logoUpdated: Boolean(input.logo), logoRemoved: Boolean(input.removeLogo) } }, context); } catch { /* Branding remains committed if audit logging is unavailable. */ }
+    return result;
   }
 };
 
@@ -1951,7 +2033,8 @@ export const supabaseNotificationRepository: NotificationRepository = {
       {
         recipient_id: recipientId,
         notification_status: query?.notificationStatus,
-        notification_type: query?.notificationType
+        notification_type: query?.notificationType,
+        notification_code: query?.notificationCode
       }
     );
     return pageResult(rows.items.map(mapNotification), rows.total, query);
@@ -1970,6 +2053,37 @@ export const supabaseNotificationRepository: NotificationRepository = {
     const { data, error } = await client.from("notifications").update({ notification_status: "read", read_at: new Date().toISOString() }).eq("recipient_id", recipientId).select("*");
     throwIfSupabaseError(error);
     return ((data ?? []) as Row[]).map(mapNotification);
+  },
+  async getPreferences(context) {
+    const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("notification_preferences" as never)
+      .select("preferences")
+      .eq("profile_id" as never, recipientId)
+      .maybeSingle();
+    throwIfSupabaseError(error);
+    const preferenceRow = data as unknown as Row | null;
+    const preferences = preferenceRow && preferenceRow.preferences && typeof preferenceRow.preferences === "object"
+      ? preferenceRow.preferences as Record<string, unknown>
+      : {};
+    return {
+      reminders: preferences.reminders !== false,
+      eventUpdates: preferences.eventUpdates !== false,
+      reports: preferences.reports !== false,
+      attendanceExceptions: preferences.attendanceExceptions !== false
+    };
+  },
+  async updatePreferences(input, context) {
+    const recipientId = context?.actorUserId ?? String((await currentProfile()).id ?? "");
+    const current = await this.getPreferences(context);
+    const preferences = { ...current, ...input };
+    const client = getSupabaseBrowserClient();
+    const { error } = await client
+      .from("notification_preferences" as never)
+      .upsert({ profile_id: recipientId, preferences, updated_at: new Date().toISOString() } as never, { onConflict: "profile_id" });
+    throwIfSupabaseError(error);
+    return preferences;
   }
 };
 
