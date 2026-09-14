@@ -299,6 +299,8 @@ export function DashboardLayout({
                       to={
                         session?.role === "organizer"
                           ? APP_ROUTES.organizerProfile
+                          : session?.role === "admin"
+                          ? APP_ROUTES.adminProfile
                           : session?.role === "student"
                           ? APP_ROUTES.studentProfile
                           : APP_ROUTES.profile

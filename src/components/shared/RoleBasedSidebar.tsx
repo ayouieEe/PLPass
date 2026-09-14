@@ -4,6 +4,7 @@ import { Activity, MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
+import { useBranding } from "@/hooks/useBranding";
 import type { NavigationItem } from "@/types/navigation";
 import type { UserRole } from "@/types/roles";
 
@@ -44,6 +45,7 @@ export function RoleBasedSidebar({
   const groups = groupedItems(ROLE_NAVIGATION[role] ?? []);
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
+  const branding = useBranding();
 
   return (
     <aside
@@ -63,7 +65,7 @@ export function RoleBasedSidebar({
           {!collapsed ? (
             <div className="min-w-0 flex-1">
               <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
-              <p className="mt-0.5 truncate text-xs capitalize text-muted-foreground">{role} workspace</p>
+              <p className="mt-0.5 truncate text-xs text-muted-foreground">{role === "organizer" ? branding.collegeName : `${role} workspace`}</p>
             </div>
           ) : null}
           {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
@@ -110,7 +112,7 @@ export function RoleBasedSidebar({
           title={collapsed ? `${userLabel} profile` : undefined}
           aria-label={`${userLabel} profile`}
           onClick={() => {
-            const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
+            const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "admin" ? APP_ROUTES.adminProfile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
             navigate(route);
             onNavigate?.();
           }}

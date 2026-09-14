@@ -11,6 +11,7 @@ import type {
   CreateEventInput,
   CreateEventSessionInput,
   CreateStudentInput,
+  CreateOrganizerInput,
   UpdateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
@@ -23,12 +24,14 @@ import type {
   SubmitEventFeedbackInput,
   SubmitLateReasonInput,
   SetStudentCredentialStatusInput,
-  UpdateSystemSettingsInput
+  UpdateSystemSettingsInput,
+  UpdateOrganizerBrandingInput
 } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { AttendanceAttempt, AttendanceRecord } from "@/types/domain";
 import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
+import { isNotificationVisibleForRole } from "@/lib/notifications/policy";
 
 const queryDefaults = {
   pageIndex: 0,
@@ -800,13 +803,78 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
   return { ...listQueryResult, markReadMutation, markAllReadMutation };
 }
 
+export function useOrganizerAccountMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateOrganizerInput) => repositories.userManagement.createOrganizer(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
+      toast.success("Organizer account created successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+}
+
+export function useBulkOrganizerAccountMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (inputs: CreateOrganizerInput[]) => repositories.userManagement.bulkCreateOrganizers(inputs, context),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
+      toast.success(`${result.success} organizer account${result.success === 1 ? "" : "s"} created.`);
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+}
+
+export function useOrganizerBranding(organizerId: string | undefined, context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["organizerBranding", organizerId, context],
+    queryFn: () => repositories.userManagement.getOrganizerBranding(organizerId ?? "", context),
+    enabled: Boolean(organizerId && context)
+  });
+  const updateMutation = useMutation({
+    mutationFn: (input: Omit<UpdateOrganizerBrandingInput, "organizerId">) => repositories.userManagement.updateOrganizerBranding({ ...input, organizerId: organizerId ?? "" }, context),
+    onSuccess: async (branding) => {
+      await queryClient.invalidateQueries({ queryKey: ["organizerBranding", organizerId] });
+      await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
+      queryClient.setQueryData(["organizerBranding", organizerId, context], branding);
+      toast.success("College branding updated successfully");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+  return { ...query, updateMutation };
+}
+
+export function useNotificationPreferences(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const queryKey = ["notificationPreferences", context] as const;
+  const query = useQuery({
+    queryKey,
+    queryFn: () => repositories.notifications.getPreferences(context),
+    enabled: Boolean(context),
+    retry: false
+  });
+  const updateMutation = useMutation({
+    mutationFn: (input: Parameters<typeof repositories.notifications.updatePreferences>[0]) =>
+      repositories.notifications.updatePreferences(input, context),
+    onSuccess: (preferences) => {
+      queryClient.setQueryData(queryKey, preferences);
+      toast.success("Notification preferences saved.");
+    },
+    onError: () => toast.error("Failed to save notification preferences.")
+  });
+  return { ...query, updateMutation };
+}
+
 export function useNotificationUnreadCount(context?: RepositoryContext) {
   const listQuery = queryWithDefaults({ notificationStatus: "unread", pageSize: 100 });
   return useQuery({
     queryKey: ["notifications", "unreadCount", context],
     queryFn: () => repositories.notifications.listNotifications(listQuery, context),
     enabled: Boolean(context),
-    select: (result) => result.total
+    select: (result) => context ? result.items.filter((notification) => isNotificationVisibleForRole(notification, context.actorRole) && notification.status === "unread").length : 0
   });
 }
 

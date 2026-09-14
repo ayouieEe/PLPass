@@ -422,7 +422,7 @@ export function EventRecordsPage() {
       "Total Registered": event.totalRegistered,
       "Attendance Rate": event.attendanceRate
     }));
-    exportTabularReport(label, rows);
+    exportTabularReport(label, rows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
     toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
@@ -445,7 +445,7 @@ export function EventRecordsPage() {
         "Late Arrival Reason": row.lateReason ?? "-"
       })) : []
     );
-    exportTabularReport(label, attendanceRows);
+    exportTabularReport(label, attendanceRows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
     toast.success(`${label} downloaded.`);
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Attendance Report",
@@ -464,7 +464,7 @@ export function EventRecordsPage() {
       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
-    exportTabularReport(label, attendanceRows);
+    exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
     toast.success(`${label} downloaded.`);
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Attendance Report",

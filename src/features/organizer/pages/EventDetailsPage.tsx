@@ -158,12 +158,13 @@ function useOrganizerScope(): OrganizerScope {
     [session]
   );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const isAdmin = session?.role === "admin";
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
-    organizerId: organizerQuery.data?.items[0]?.id,
+    organizerId: organizerQuery.data?.items[0]?.id ?? (isAdmin ? "admin-global" : undefined),
     organizerName: session?.displayName ?? "Organizer",
     isLoading: organizerQuery.isLoading,
-    isError: organizerQuery.isError
+    isError: !isAdmin && organizerQuery.isError
   };
 }
 
@@ -221,7 +222,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
   if (scope.isLoading) {
     return <LoadingState label="Loading organizer workspace" />;
   }
-  if (scope.isError || !scope.organizerId) {
+  if (scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
     return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
@@ -442,7 +443,7 @@ export function EventDetailsPage() {
   }, [eventId, invitationStatusRefreshKey, scope.organizerId, selectedEvent]);
 
   const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || !scope.organizerId) {
+  if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
     return shellState;
   }
   if (eventQuery.isLoading) {

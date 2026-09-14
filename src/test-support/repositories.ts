@@ -53,6 +53,7 @@ import type {
   StudentCredentialRepository,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
+  UpdateOrganizerBrandingInput,
   UserManagementRepository
 } from "@/services/contracts";
 import {
@@ -76,6 +77,7 @@ import type {
   EventParticipant,
   EventResource,
   Notification,
+  NotificationPreferences,
   Report,
   Student,
   StudentDashboardTask,
@@ -184,6 +186,11 @@ function organizerEventIds(context: RepositoryContext) {
   return eventState.filter((event) => event.organizerId === profile.id).map((event) => event.id);
 }
 
+function organizerStudentIds(context: RepositoryContext) {
+  const ownedEvents = new Set(organizerEventIds(context));
+  return new Set(eventParticipantState.filter((entry) => ownedEvents.has(entry.eventId)).map((entry) => entry.studentId));
+}
+
 function isSessionInFacultyScope(session: AttendanceSession, context: RepositoryContext) {
   if (context.actorRole !== "faculty") {
     return true;
@@ -276,6 +283,7 @@ let eventResourceState: EventResource[] = [];
 let completedFeedbackTaskIds = new Set<string>();
 let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
+let notificationPreferencesState: Record<string, NotificationPreferences> = {};
 let systemSettingsState = { ...systemSettingsFixture };
 
 const developmentCredentialStudentIds: Record<string, string> = {
@@ -299,6 +307,7 @@ export function resetSimulatedRepositoryState() {
   completedFeedbackTaskIds = new Set<string>();
   attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entry }));
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
+  notificationPreferencesState = {};
   systemSettingsState = { ...systemSettingsFixture };
 }
 
@@ -533,7 +542,7 @@ export const simulatedAuthenticationRepository: AuthenticationRepository = {
   async listDevelopmentAccounts() {
     await applySimulationMode("authentication");
     return userFixtures
-      .filter((user) => user.role === "organizer" || user.role === "student")
+      .filter((user) => user.role === "organizer" || user.role === "student" || user.role === "admin")
       .map((user) => ({
         userId: user.id,
         role: user.role,
@@ -578,7 +587,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       : paginateOrThrowEmpty(items, query);
   },
   async createStudent(input, context) {
-    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    await beforeRead("userManagement", context, ["admin"]);
     const newStudent: Student = {
       id: `student-simulated-${Date.now()}`,
       userId: `user-simulated-${Date.now()}`,
@@ -599,7 +608,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return newStudent;
   },
   async updateStudent(input, context) {
-    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    await beforeRead("userManagement", context, ["admin"]);
     const existing = getOrThrow(studentFixtures, input.id, "Student");
     const updated: Student = {
       ...existing,
@@ -620,7 +629,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return updated;
   },
   async bulkCreateStudents(inputs, context) {
-    await beforeRead("userManagement", context, ["organizer", "admin"]);
+    await beforeRead("userManagement", context, ["admin"]);
     let success = 0;
     for (const input of inputs) {
       const newStudent: Student = {
@@ -689,6 +698,77 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       adminProfileFixtures.filter((profile) => profile.userId === currentContext.actorUserId),
       query
     );
+  },
+  async createOrganizer(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const stamp = Date.now();
+    const userId = `organizer-user-${stamp}`;
+    const profileId = `organizer-profile-${stamp}`;
+    const profile = { id: profileId, userId, employeeNumber: input.employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" as const };
+    userFixtures.push({
+      id: userId,
+      role: "organizer",
+      email: input.email,
+      displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
+      isActive: true,
+      createdAt: new Date().toISOString()
+    });
+    organizerProfileFixtures.push(profile);
+    return profile;
+  },
+  async bulkCreateOrganizers(inputs, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    inputs.forEach((input, index) => {
+      const userId = `organizer-user-${Date.now()}-${index}`;
+      organizerProfileFixtures.push({ id: `organizer-${Date.now()}-${index}`, userId, employeeNumber: input.employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" });
+      userFixtures.push({
+        id: userId,
+        role: "organizer",
+        email: input.email,
+        displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
+        isActive: true,
+        createdAt: new Date().toISOString()
+      });
+    });
+    return { success: inputs.length, failed: 0, errors: [] };
+  },
+  async getOrganizerBranding(organizerId, context) {
+    await beforeRead("userManagement", context, ["admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    const profile = organizerProfileFixtures.find((item) => item.id === organizerId);
+    if (!profile || (currentContext.actorRole === "organizer" && profile.userId !== currentContext.actorUserId)) {
+      throw new RepositoryError("You can only view your own branding.", "PERMISSION_DENIED");
+    }
+    return {
+      organizerId: profile.id,
+      collegeName: profile.organizationName,
+      collegeLogoPath: profile.collegeLogoPath,
+      collegeLogoUrl: profile.collegeLogoPath,
+      updatedAt: new Date().toISOString()
+    };
+  },
+  async updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context) {
+    await beforeRead("userManagement", context, ["admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    const profile = organizerProfileFixtures.find((item) => item.id === input.organizerId);
+    if (!profile || (currentContext.actorRole === "organizer" && profile.userId !== currentContext.actorUserId)) {
+      throw new RepositoryError("You can only update your own branding.", "PERMISSION_DENIED");
+    }
+    if (!input.collegeName.trim()) throw new RepositoryError("College name is required.", "VALIDATION_ERROR");
+    if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
+      throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
+    }
+    profile.organizationName = input.collegeName.trim();
+    if (input.removeLogo) profile.collegeLogoPath = undefined;
+    if (input.logo) profile.collegeLogoPath = URL.createObjectURL(input.logo);
+    await simulatedRepositoryRegistry.auditLogs.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: profile.id, metadata: { collegeName: profile.organizationName } }, context);
+    return {
+      organizerId: profile.id,
+      collegeName: profile.organizationName,
+      collegeLogoPath: profile.collegeLogoPath,
+      collegeLogoUrl: profile.collegeLogoPath,
+      updatedAt: new Date().toISOString()
+    };
   }
 };
 
@@ -845,7 +925,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       : paginateOrThrowEmpty(items, query);
   },
   async listEventResources(eventId, query, context) {
-    await beforeRead("eventManagement", context, ["organizer", "student"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin", "student"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext) || !isEventInStudentScope(event, currentContext)) {
@@ -854,7 +934,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return paginate(eventResourceState.filter((resource) => resource.eventId === eventId), query);
   },
   async addEventResource(input, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, input.eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext)) {
@@ -872,7 +952,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return resource;
   },
   async removeEventResource(resourceId, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     const resource = getOrThrow(eventResourceState, resourceId, "Event resource");
     const event = getOrThrow(eventState, resource.eventId, "Event");
@@ -882,7 +962,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     eventResourceState = eventResourceState.filter((entry) => entry.id !== resourceId);
   },
   async generateNextEventCode(context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentYear = new Date().getFullYear();
     const prefix = `EVT-${currentYear}-`;
     const highestExistingNumber = eventState.reduce((highest, event) => {
@@ -893,9 +973,10 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return `${prefix}${String(highestExistingNumber + 1).padStart(3, "0")}`;
   },
   async createEvent(input: CreateEventInput, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
-    const profile = getOrganizerProfileForContext(currentContext);
+    const profile = getOrganizerProfileForContext(currentContext) ??
+      (currentContext.actorRole === "admin" ? organizerProfileFixtures[0] : undefined);
     if (!profile) {
       throw new RepositoryError("Organizer profile was not found.", "NOT_FOUND");
     }
@@ -966,7 +1047,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return updated;
   },
   async completeEvent(eventId, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext)) {
@@ -977,7 +1058,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return updated;
   },
   async cancelEvent(eventId, reason, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     if (!reason.trim()) throw new RepositoryError("A cancellation reason is required.", "VALIDATION_ERROR");
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, eventId, "Event");
@@ -989,7 +1070,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     return updated;
   },
   async rescheduleEvent(input: RescheduleEventInput, context) {
-    await beforeRead("eventManagement", context, ["organizer"]);
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, input.eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext)) {
@@ -1074,7 +1155,7 @@ export const simulatedAttendanceSessionRepository: AttendanceSessionRepository =
     return created;
   },
   async createEventSession(input: CreateEventSessionInput, context) {
-    await beforeRead("attendanceSessions", context, ["organizer"]);
+    await beforeRead("attendanceSessions", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, input.eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext)) {
@@ -1116,7 +1197,7 @@ export const simulatedAttendanceSessionRepository: AttendanceSessionRepository =
     return created;
   },
   async endAttendanceSession(input: EndAttendanceSessionInput, context) {
-    await beforeRead("attendanceSessions", context, ["faculty", "organizer"]);
+    await beforeRead("attendanceSessions", context, ["faculty", "organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     if (!input.reason.trim()) {
       throw new RepositoryError("A reason is required to end this session.", "VALIDATION_ERROR");
@@ -1344,7 +1425,7 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
       : paginateOrThrowEmpty(items, query);
   },
   async createCorrectionRequest(input: CreateCorrectionRequestInput, context) {
-    await beforeRead("correctionRequests", context, ["student", "faculty", "organizer", "admin"]);
+    await beforeRead("correctionRequests", context, ["student"]);
     const currentContext = contextOrDefault(context);
     const student = getStudentForContext(currentContext);
     if (!input.reason.trim()) {
@@ -1398,7 +1479,7 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
     return created;
   },
   async reviewCorrectionRequest(input: ReviewCorrectionRequestInput, context) {
-    await beforeRead("correctionRequests", context, ["faculty", "organizer"]);
+    await beforeRead("correctionRequests", context, ["faculty", "organizer", "admin"]);
     const currentContext = contextOrDefault(context);
     if (input.status === "rejected" && !input.reason?.trim()) {
       throw new RepositoryError("A rejection reason is required.", "VALIDATION_ERROR");
@@ -1438,9 +1519,10 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
     await beforeRead("credentialRequests", context, ["admin", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const student = getStudentForContext(currentContext);
+    const ownedStudentIds = organizerStudentIds(currentContext);
     const items = credentialRequestState.filter((request) => (
       matchesSearch([request.reason, request.status, request.credentialType, request.requestType], query?.search) &&
-      (currentContext.actorRole !== "student" || request.studentId === student?.id)
+      (currentContext.actorRole !== "student" ? currentContext.actorRole !== "organizer" || ownedStudentIds.has(request.studentId) : request.studentId === student?.id)
     ));
     return paginateList(items, query);
   },
@@ -1500,10 +1582,18 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
   },
   async getStudentCredentialStatus(studentId, context) {
     await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(studentId)) {
+      throw new RepositoryError("Organizers can only access credentials for participants in their own events.", "PERMISSION_DENIED");
+    }
     return { studentId };
   },
   async issueQrCredential(input, context) {
     await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
+      throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
+    }
     return {
       studentId: input.studentId,
       qrCredential: {
@@ -1518,6 +1608,10 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
   },
   async enrollFacialProfile(input, context) {
     await beforeRead("studentCredentials", context, ["admin", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
+      throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
+    }
     return {
       studentId: input.studentId,
       facialProfile: {
@@ -1532,6 +1626,10 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
   },
   async setCredentialStatus(input, context) {
     await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    const currentContext = contextOrDefault(context);
+    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
+      throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
+    }
     return { studentId: input.studentId };
   }
 };
@@ -1655,13 +1753,33 @@ export const simulatedNotificationRepository: NotificationRepository = {
       entry.userId === currentContext.actorUserId ? { ...entry, status: "read" } : entry
     );
     return notificationState.filter((entry) => entry.userId === currentContext.actorUserId);
+  },
+  async getPreferences(context) {
+    const currentContext = contextOrDefault(context);
+    return notificationPreferencesState[currentContext.actorUserId] ?? {
+      reminders: true,
+      eventUpdates: true,
+      reports: true,
+      attendanceExceptions: true
+    };
+  },
+  async updatePreferences(input, context) {
+    const currentContext = contextOrDefault(context);
+    const current = await this.getPreferences(context);
+    const updated = { ...current, ...input };
+    notificationPreferencesState[currentContext.actorUserId] = updated;
+    return updated;
   }
 };
 
 export const simulatedAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
     await beforeRead("auditLogs", context, ["admin", "organizer"]);
-    return paginate(auditLogState.filter((log) => matchesSearch([log.action, log.targetType, log.targetId], query?.search)), query);
+    const currentContext = contextOrDefault(context);
+    return paginate(auditLogState.filter((log) =>
+      matchesSearch([log.action, log.targetType, log.targetId], query?.search) &&
+      (currentContext.actorRole === "admin" || log.actorUserId === currentContext.actorUserId)
+    ), query);
   },
   async logClientAction(input, context) {
     const currentContext = contextOrDefault(context);

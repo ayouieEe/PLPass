@@ -13,6 +13,23 @@ function json(body: unknown, status = 200) {
   });
 }
 
+async function recordAdminAudit(
+  supabase: ReturnType<typeof createClient>,
+  actorUserId: string,
+  targetId: string,
+  action: string,
+  metadata: Record<string, string | number | boolean>
+) {
+  const { error } = await supabase.from("audit_logs").insert({
+    actor_user_id: actorUserId,
+    action,
+    target_type: "organizer_profile",
+    target_id: targetId,
+    metadata
+  });
+  if (error) throw new Error(`Audit log creation failed: ${error.message}`);
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -41,20 +58,76 @@ Deno.serve(async (request) => {
   const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
   if (authError || !authData.user) return json({ error: "The signed-in user could not be verified." }, 401);
 
-  // Check if the user is an organizer or admin
+  // Global account management is an administrator-only capability.
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", authData.user.id)
     .single();
 
-  if (profileError || !profile || (profile.role !== "organizer" && profile.role !== "admin")) {
-    return json({ error: "Access denied. Only organizers can manage users." }, 403);
+  if (profileError || !profile || profile.role !== "admin") {
+    return json({ error: "Access denied. Only administrators can manage users." }, 403);
   }
 
   const requestBody = await request.json().catch(() => ({}));
   const action = typeof requestBody.action === "string" ? requestBody.action : "";
   const students = Array.isArray(requestBody.students) ? requestBody.students : [];
+
+  if (action === "bulk-create-organizers") {
+    const organizers = Array.isArray(requestBody.organizers) ? requestBody.organizers : [];
+    if (organizers.length === 0) return json({ error: "No organizers provided." }, 400);
+    let success = 0;
+    const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
+    for (const [index, organizer] of organizers.entries()) {
+      const { email, firstName, middleName, lastName, employeeNumber, departmentId, organizationName, position } = organizer ?? {};
+      try {
+        if (!email || !firstName || !lastName || !employeeNumber || !organizationName || !position) throw new Error("Missing required organizer information.");
+        const { data: userData, error: authError } = await supabase.auth.admin.createUser({ email, password: employeeNumber, email_confirm: true, user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName } });
+        if (authError || !userData.user) throw new Error(authError?.message || "Authentication account creation failed.");
+        const userId = userData.user.id;
+        const { error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "organizer", account_status: "active" });
+        if (profileError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileError.message); }
+        const { error: organizerError } = await supabase.from("organizers").insert({ profile_id: userId, employee_id: employeeNumber, department_id: departmentId || null, organization_name: organizationName, position, organizer_status: "active" });
+        if (organizerError) { await supabase.auth.admin.deleteUser(userId); throw new Error(organizerError.message); }
+        await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "bulk" });
+        success++;
+      } catch (err) {
+        errors.push({ row: index + 2, email, employeeNumber, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return json({ success, failed: errors.length, errors });
+  }
+
+  if (action === "create-organizer") {
+    const organizer = requestBody.organizer;
+    if (!organizer) return json({ error: "No organizer provided." }, 400);
+    const { email, firstName, middleName, lastName, employeeNumber, departmentId, organizationName, position } = organizer;
+    if (!email || !firstName || !lastName || !employeeNumber || !organizationName || !position) {
+      return json({ error: "Please complete all required organizer information." }, 400);
+    }
+    try {
+      const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({
+        email, password: employeeNumber, email_confirm: true,
+        user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName }
+      });
+      if (createUserError || !userData.user) throw new Error(createUserError?.message || "Organizer account could not be created.");
+      const userId = userData.user.id;
+      const { error: profileInsertError } = await supabase.from("profiles").upsert({
+        id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName,
+        role: "organizer", account_status: "active"
+      });
+      if (profileInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileInsertError.message); }
+      const { error: organizerInsertError } = await supabase.from("organizers").insert({
+        profile_id: userId, employee_id: employeeNumber, department_id: departmentId || null,
+        organization_name: organizationName, position, organizer_status: "active"
+      });
+      if (organizerInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(organizerInsertError.message); }
+      await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "manual" });
+      return json({ success: true });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
+  }
 
   if (action === "update-student") {
     const student = requestBody.student;

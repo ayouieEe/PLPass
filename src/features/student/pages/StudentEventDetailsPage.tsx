@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -22,7 +22,6 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
-import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { getEventResourceDownloadUrl } from "@/features/organizer/lib/eventResources";
 import {
@@ -278,14 +277,7 @@ export function StudentEventDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Breadcrumb">
-          <NavLink className="font-medium transition hover:text-foreground" to={APP_ROUTES.studentUpcomingEvents}>
-            Events
-          </NavLink>
-          <span className="text-muted-foreground/50">/</span>
-          <span className="font-medium text-foreground">{event.code}</span>
-        </nav>
+      <div className="flex justify-end">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back

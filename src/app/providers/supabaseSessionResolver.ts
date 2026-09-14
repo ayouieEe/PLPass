@@ -14,6 +14,7 @@ export type SupabaseAuthFailureCode =
   | "STUDENT_RECORD_MISSING"
   | "FACULTY_RECORD_MISSING"
   | "ORGANIZER_RECORD_MISSING"
+  | "ADMIN_RECORD_MISSING"
   | "DEAN_ASSIGNMENT_MISSING"
   | "ROLE_RECORD_MULTIPLE"
   | "RLS_PERMISSION_DENIED"
@@ -51,6 +52,7 @@ type RoleRecord = {
   organizer_status?: string | null;
   student_id?: string | null;
   student_status?: string | null;
+  office_name?: string | null;
 };
 
 type DeanAssignmentRecord = {
@@ -63,6 +65,7 @@ export type SupabaseSessionReader = {
   readStudentRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readFacultyRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readOrganizerRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
+  readAdminRecord?: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readDeanAssignments: (userId: string) => Promise<SupabaseQueryResult<DeanAssignmentRecord[]>>;
 };
 
@@ -202,6 +205,14 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
         .maybeSingle();
       return { data, error };
     },
+    async readAdminRecord(userId) {
+      const { data, error } = await supabase
+        .from("admin_profiles")
+        .select("id, profile_id, employee_number, department_id, office_name")
+        .eq("profile_id", userId)
+        .maybeSingle();
+      return { data, error };
+    },
     async readDeanAssignments(userId) {
       void userId;
       return { data: [], error: null };
@@ -212,7 +223,8 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
 function assertSupabaseRoleRecord(
   role: UserRole,
   studentResult: SupabaseQueryResult<RoleRecord>,
-  organizerResult: SupabaseQueryResult<RoleRecord>
+  organizerResult: SupabaseQueryResult<RoleRecord>,
+  adminResult: SupabaseQueryResult<RoleRecord>
 ) {
   if (role === "student") {
     const { data, error } = studentResult;
@@ -225,6 +237,12 @@ function assertSupabaseRoleRecord(
     return;
   }
 
+  if (role === "admin") {
+    const { data, error } = adminResult;
+    if (error) throw databaseQueryError(error);
+    if (!data) throw new SupabaseAuthResolutionError("ADMIN_RECORD_MISSING", "No visible admin record was returned for this Supabase profile.", true);
+    return;
+  }
   if (role !== "organizer") {
     throw new SupabaseAuthResolutionError(
       "UNSUPPORTED_ROLE",
@@ -244,10 +262,11 @@ function assertSupabaseRoleRecord(
 
 export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, authUser: SupabaseAuthUser): Promise<DevelopmentSession> {
   try {
-    const [profileResult, studentResult, organizerResult] = await Promise.all([
+    const [profileResult, studentResult, organizerResult, adminResult] = await Promise.all([
       reader.readProfile(authUser.id),
       reader.readStudentRecord(authUser.id),
-      reader.readOrganizerRecord(authUser.id)
+      reader.readOrganizerRecord(authUser.id),
+      reader.readAdminRecord ? reader.readAdminRecord(authUser.id) : Promise.resolve({ data: null, error: null })
     ]);
     const { data: profile, error: profileError } = profileResult;
     if (profileError) {
@@ -272,7 +291,7 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
     } catch {
       throw new SupabaseAuthResolutionError("MAPPER_ERROR", "Unexpected mapper error while resolving the signed-in profile.", true);
     }
-    assertSupabaseRoleRecord(mappedUser.role, studentResult, organizerResult);
+    assertSupabaseRoleRecord(mappedUser.role, studentResult, organizerResult, adminResult);
 
     return {
       userId: mappedUser.id,
