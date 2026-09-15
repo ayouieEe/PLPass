@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/app/layouts/DashboardLayout";
 import { HeaderProvider } from "@/app/providers/HeaderProvider";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { ActiveSessionOverlay } from "@/features/attendance/ActiveSessionOverlay";
 
 export function RoleShellLayout() {
   const { session } = useDevelopmentSession();
@@ -20,6 +21,7 @@ export function RoleShellLayout() {
       <DashboardLayout role={session.role} userLabel={session.displayName}>
         <Outlet />
       </DashboardLayout>
+      <ActiveSessionOverlay />
     </HeaderProvider>
   );
 }
