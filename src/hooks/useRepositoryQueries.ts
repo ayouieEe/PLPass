@@ -12,6 +12,7 @@ import type {
   CreateEventSessionInput,
   CreateStudentInput,
   CreateOrganizerInput,
+  UpdateOrganizerInput,
   CreateAdminInput,
   UpdateStudentInput,
   EndAttendanceSessionInput,
@@ -811,6 +812,21 @@ export function useOrganizerAccountMutation(context?: RepositoryContext) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
       toast.success("Organizer account created successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+}
+
+export function useUpdateOrganizerAccountMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateOrganizerInput) => repositories.userManagement.updateOrganizer(input, context),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["users"] })
+      ]);
+      toast.success("Organizer account updated successfully.");
     },
     onError: (error: unknown) => toast.error(getErrorMessage(error))
   });

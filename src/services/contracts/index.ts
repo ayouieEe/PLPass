@@ -78,6 +78,20 @@ export type CreateOrganizerInput = {
   position: string;
 };
 
+export type UpdateOrganizerInput = {
+  id: string;
+  profileId: string;
+  email: string;
+  firstName: string;
+  middleName?: string;
+  lastName: string;
+  departmentId?: string;
+  organizationName: string;
+  position: string;
+  accountStatus: "active" | "inactive" | "suspended";
+  employmentStatus: "active" | "part_time" | "on_leave" | "separated";
+};
+
 export type CreateAdminInput = {
   email: string;
   firstName: string;
@@ -339,6 +353,7 @@ export interface UserManagementRepository {
   updateStudent(input: UpdateStudentInput, context?: RepositoryContext): Promise<Student>;
   bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<{ success: number; failed: number }>;
   createOrganizer(input: CreateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
+  updateOrganizer(input: UpdateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
   createAdmin(input: CreateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
   bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;

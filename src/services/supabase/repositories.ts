@@ -510,6 +510,20 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     throwIfSupabaseError(fetchError);
     return mapOrganizer(row as Row);
   },
+  async updateOrganizer(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can update organizer accounts.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", { body: { action: "update-organizer", organizer: input } });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    const { data: row, error: fetchError } = await client
+      .from("organizers")
+      .select("id, profile_id, employee_id, organization_name, department_id, position, organizer_status")
+      .eq("id", input.id)
+      .single();
+    throwIfSupabaseError(fetchError);
+    return mapOrganizer(row as Row);
+  },
   async createAdmin(input, context) {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create admin accounts.", "PERMISSION_DENIED");
     const client = getSupabaseBrowserClient();

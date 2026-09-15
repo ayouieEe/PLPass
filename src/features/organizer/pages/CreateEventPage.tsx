@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, Check, ChevronLeft, ChevronRight, ClipboardList, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Check, ChevronLeft, ChevronRight, ClipboardList, FileText, Link2, Paperclip, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
 import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -449,6 +449,7 @@ export function CreateEventPage() {
   const [pendingResources, setPendingResources] = useState<PendingEventResource[]>([]);
   const [newResourceTitle, setNewResourceTitle] = useState("");
   const [newResourceUrl, setNewResourceUrl] = useState("");
+  const [newFileResourceTitle, setNewFileResourceTitle] = useState("");
   const [uploadingResourceId, setUploadingResourceId] = useState<string | null>(null);
   const [isPublishingEvent, setIsPublishingEvent] = useState(false);
   const [pendingExitTo, setPendingExitTo] = useState<string | null>(null);
@@ -745,6 +746,10 @@ export function CreateEventPage() {
     setHasOrganizerInteracted(true);
     setPendingResources((resources) => resources.filter((resource) => resource.id !== resourceId));
   }
+  function updatePendingResourceTitle(resourceId: string, title: string) {
+    setHasOrganizerInteracted(true);
+    setPendingResources((resources) => resources.map((resource) => resource.id === resourceId ? { ...resource, title } : resource));
+  }
   function addResourceFiles(files: FileList | null) {
     const selectedFiles = Array.from(files ?? []);
     if (!selectedFiles.length) return;
@@ -760,8 +765,9 @@ export function CreateEventPage() {
     setHasOrganizerInteracted(true);
     setPendingResources((resources) => [
       ...resources,
-      ...selectedFiles.map((file) => ({ id: crypto.randomUUID(), kind: "file" as const, title: file.name, file }))
+      ...selectedFiles.map((file) => ({ id: crypto.randomUUID(), kind: "file" as const, title: newFileResourceTitle.trim() || file.name, file }))
     ]);
+    setNewFileResourceTitle("");
   }
   function addResourceLink() {
     const url = newResourceUrl.trim();
@@ -1026,35 +1032,47 @@ export function CreateEventPage() {
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
               </div>
-              <div className="rounded-lg border bg-muted/20 p-4">
+              <div className="rounded-xl border border-primary/15 bg-muted/20 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-primary/15 bg-primary/5 text-primary"><Paperclip className="h-5 w-5" aria-hidden="true" /></span>
+                    <div>
                     <div className="flex items-center gap-2">
                       <h4 className="font-semibold text-foreground">Resources</h4>
                       <span className="rounded-full bg-background px-2 py-0.5 text-xs font-medium text-muted-foreground">{pendingResources.length} of {MAX_EVENT_RESOURCES}</span>
                     </div>
                     <p className="mt-1 text-sm text-muted-foreground">Attach a file or add an HTTPS link. Up to {MAX_EVENT_RESOURCES} resources; files can be up to 25 MB.</p>
-                  </div>
-                  <input ref={resourceFileInputRef} type="file" multiple className="sr-only" onChange={(event) => { addResourceFiles(event.target.files); event.currentTarget.value = ""; }} />
-                </div>
-                <div className="mt-4 border-t pt-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto_auto]">
-                  <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={newResourceTitle} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceTitle(event.target.value); }} placeholder="Link title" aria-label="Resource link title" />
-                  <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={newResourceUrl} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceUrl(event.target.value); }} placeholder="https://..." aria-label="Resource link URL" />
-                  <Button type="button" variant="outline" size="sm" onClick={addResourceLink} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}>Add link</Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => resourceFileInputRef.current?.click()} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}>Attach file</Button>
-                  </div>
-                </div>
-                {pendingResources.length ? <div className="mt-4 space-y-2">{pendingResources.map((resource) => (
-                  <div key={resource.id} className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-2.5">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{resource.title}</p>
-                      <p className="text-xs text-muted-foreground">{uploadingResourceId === resource.id ? "Uploading…" : resource.kind === "file" ? `${resource.file.name} · ${formatResourceFileSize(resource.file.size)}` : "External link"}</p>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => removePendingResource(resource.id)} disabled={isPublishingEvent}>Remove</Button>
                   </div>
-                ))}</div> : <p className="mt-4 text-sm text-muted-foreground">No resources added yet.</p>}
+                  <input ref={resourceFileInputRef} type="file" className="sr-only" onChange={(event) => { addResourceFiles(event.target.files); event.currentTarget.value = ""; }} />
+                </div>
+                <div className="mt-5 border-t border-border/70 pt-4">
+                  <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p><p className="mt-1 text-xs text-muted-foreground">Choose the resource type first, then complete only the fields in that section.</p></div>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
+                      <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><Link2 className="h-4 w-4" aria-hidden="true" /></span><div><h5 className="text-sm font-semibold text-foreground">Add link</h5><p className="text-xs text-muted-foreground">Share a secure web resource.</p></div></div>
+                      <div className="mt-4 grid gap-3"><label className="grid gap-1.5 text-sm font-medium text-foreground">Link title<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={newResourceTitle} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceTitle(event.target.value); }} placeholder="e.g. Workshop slides" aria-label="Resource link title" /></label><label className="grid gap-1.5 text-sm font-medium text-foreground">HTTPS link<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={newResourceUrl} onChange={(event) => { setHasOrganizerInteracted(true); setNewResourceUrl(event.target.value); }} placeholder="https://..." aria-label="Resource link URL" /></label></div>
+                      <Button type="button" variant="outline" size="sm" className="mt-auto w-full" onClick={addResourceLink} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}><Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" />Add link</Button>
+                    </section>
+                    <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
+                      <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><FileText className="h-4 w-4" aria-hidden="true" /></span><div><h5 className="text-sm font-semibold text-foreground">Attach file</h5><p className="text-xs text-muted-foreground">Upload a file up to 25 MB.</p></div></div>
+                      <label className="mt-4 grid gap-1.5 text-sm font-medium text-foreground">File title <span className="font-normal text-muted-foreground">(optional)</span><input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={newFileResourceTitle} onChange={(event) => { setHasOrganizerInteracted(true); setNewFileResourceTitle(event.target.value); }} placeholder="e.g. Event programme" aria-label="Resource file title" /></label>
+                      <p className="mt-2 text-xs text-muted-foreground">If blank, the uploaded filename is used. You can edit it after attaching.</p>
+                      <Button type="button" variant="outline" size="sm" className="mt-auto w-full" onClick={() => resourceFileInputRef.current?.click()} disabled={pendingResources.length >= MAX_EVENT_RESOURCES}><FileText className="mr-1.5 h-4 w-4" aria-hidden="true" />Choose file</Button>
+                    </section>
+                  </div>
+                </div>
+                {pendingResources.length ? <div className="mt-5 space-y-2" role="list" aria-label="Added resources">{pendingResources.map((resource) => (
+                  <div key={resource.id} className="flex items-start justify-between gap-3 rounded-lg border bg-background p-3" role="listitem">
+                    <span className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/5 text-primary">{resource.kind === "file" ? <FileText className="h-4 w-4" aria-hidden="true" /> : <Link2 className="h-4 w-4" aria-hidden="true" />}</span>
+                    <div className="min-w-0 flex-1">
+                      <label className="sr-only" htmlFor={`event-resource-title-${resource.id}`}>Resource title</label>
+                      <input id={`event-resource-title-${resource.id}`} className="plpass-field h-8 w-full max-w-lg rounded-md border bg-background px-2 text-sm font-medium text-foreground" value={resource.title} onChange={(event) => updatePendingResourceTitle(resource.id, event.target.value)} aria-label={`Resource title for ${resource.kind === "file" ? resource.file.name : resource.externalUrl}`} disabled={isPublishingEvent} />
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{uploadingResourceId === resource.id ? "Uploading…" : resource.kind === "file" ? `${resource.file.name} · ${formatResourceFileSize(resource.file.size)}` : resource.externalUrl}</p>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => removePendingResource(resource.id)} disabled={isPublishingEvent}>Remove</Button>
+                  </div>
+                ))}</div> : <div className="mt-5 rounded-lg border border-dashed bg-background/60 px-4 py-5 text-center text-sm text-muted-foreground">No resources added yet. Add a link or attach a file above.</div>}
               </div>
             </section>
 
