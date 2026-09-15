@@ -718,6 +718,29 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     organizerProfileFixtures.push(profile);
     return profile;
   },
+  async updateOrganizer(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const organizerIndex = organizerProfileFixtures.findIndex((profile) => profile.id === input.id && profile.userId === input.profileId);
+    if (organizerIndex === -1) throw new RepositoryError("Organizer account not found.", "NOT_FOUND");
+    const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "organizer");
+    if (userIndex === -1) throw new RepositoryError("Organizer user profile not found.", "NOT_FOUND");
+    const organizer = organizerProfileFixtures[organizerIndex];
+    const updatedOrganizer = {
+      ...organizer,
+      departmentId: input.departmentId || undefined,
+      organizationName: input.organizationName,
+      position: input.position,
+      employmentStatus: input.employmentStatus
+    };
+    organizerProfileFixtures[organizerIndex] = updatedOrganizer;
+    userFixtures[userIndex] = {
+      ...userFixtures[userIndex],
+      email: input.email,
+      displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
+      isActive: input.accountStatus === "active"
+    };
+    return updatedOrganizer;
+  },
   async createAdmin(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
     const stamp = Date.now();

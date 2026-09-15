@@ -135,7 +135,7 @@ Deno.serve(async (request) => {
       });
       if (organizerInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(organizerInsertError.message); }
       await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "manual" });
-      return json({ success: true });
+      return json({ success: true, employeeNumber });
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
@@ -158,6 +158,59 @@ Deno.serve(async (request) => {
       await recordAdminAudit(supabase, authData.user.id, userId, "user.admin_created", { email, employeeNumber, source: "manual" });
       return json({ success: true, employeeNumber });
     } catch (err) { return json({ error: err instanceof Error ? err.message : String(err) }, 400); }
+  }
+
+  if (action === "update-organizer") {
+    const organizer = requestBody.organizer;
+    if (!organizer) return json({ error: "No organizer provided." }, 400);
+    try {
+      const { id, profileId, email, firstName, middleName, lastName, departmentId, organizationName, position, accountStatus, employmentStatus } = organizer;
+      if (!id || !profileId || !email || !firstName || !lastName || !organizationName || !position) {
+        return json({ error: "Please complete all required organizer information before saving." }, 400);
+      }
+      if (!["active", "inactive", "suspended"].includes(accountStatus)) {
+        return json({ error: "The selected account access status is not valid." }, 400);
+      }
+      if (!["active", "part_time", "on_leave", "separated"].includes(employmentStatus)) {
+        return json({ error: "The selected employment status is not valid." }, 400);
+      }
+
+      const { data: existingProfile, error: profileLoadError } = await supabase
+        .from("profiles")
+        .select("email, role")
+        .eq("id", profileId)
+        .maybeSingle();
+      if (profileLoadError) throw new Error(`Could not load the organizer profile: ${profileLoadError.message}`);
+      if (!existingProfile || existingProfile.role !== "organizer") return json({ error: "The organizer profile could not be found." }, 404);
+
+      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      if (emailChanged) {
+        const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
+        if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
+      }
+
+      const { error: profileUpdateError } = await supabase.from("profiles").update({
+        email,
+        first_name: firstName,
+        middle_name: middleName || null,
+        last_name: lastName,
+        account_status: accountStatus
+      }).eq("id", profileId).eq("role", "organizer");
+      if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
+
+      const { error: organizerUpdateError } = await supabase.from("organizers").update({
+        department_id: departmentId || null,
+        organization_name: organizationName,
+        position,
+        organizer_status: employmentStatus
+      }).eq("id", id).eq("profile_id", profileId);
+      if (organizerUpdateError) throw new Error(`Organizer update failed: ${organizerUpdateError.message}`);
+
+      await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email, organizerId: id, accountStatus, employmentStatus });
+      return json({ success: true });
+    } catch (err) {
+      return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+    }
   }
 
   if (action === "update-student") {

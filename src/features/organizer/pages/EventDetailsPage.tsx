@@ -369,6 +369,7 @@ export function EventDetailsPage() {
   const [cancellationReason, setCancellationReason] = useState("");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
+  const [resourceFileTitle, setResourceFileTitle] = useState("");
   const [isSavingResource, setIsSavingResource] = useState(false);
   const [resourcePendingRemoval, setResourcePendingRemoval] = useState<EventResource | null>(null);
   const resourceFileInputRef = useRef<HTMLInputElement>(null);
@@ -647,10 +648,10 @@ export function EventDetailsPage() {
     }
     setIsSavingResource(true);
     try {
-      await uploadEventFileResource(eventId, resourceTitle, file);
+      await uploadEventFileResource(eventId, resourceFileTitle, file);
       await resourcesQuery.refetch();
-      void auditLogMutations.logActionMutation.mutateAsync({ action: "Added Event Resource", targetType: "event_resource", targetId: eventId, metadata: { title: resourceTitle.trim() || file.name, type: "file" } });
-      setResourceTitle("");
+      void auditLogMutations.logActionMutation.mutateAsync({ action: "Added Event Resource", targetType: "event_resource", targetId: eventId, metadata: { title: resourceFileTitle.trim() || file.name, type: "file" } });
+      setResourceFileTitle("");
       toast.success("File attached.");
     } catch (error) {
       toast.error(eventResourceErrorMessage(error, "Unable to attach the file."));
@@ -858,6 +859,7 @@ export function EventDetailsPage() {
     {
       id: "action",
       header: "Actions",
+      meta: { agGrid: { width: 240, minWidth: 240, maxWidth: 240, flex: 0, resizable: false, sortable: false, filter: false } },
       cell: ({ row }) => (
         <div className="flex items-center gap-2 whitespace-nowrap">
           <Button type="button" variant="outline" size="sm" onClick={() => setSelectedStudent(row.original)}>View details</Button>
@@ -881,16 +883,19 @@ export function EventDetailsPage() {
   return (
     <OrganizerFrame>
       <PageHeader
+        eyebrow={
+          <NavLink
+            to={APP_ROUTES.organizerEvents}
+            className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back to events
+          </NavLink>
+        }
         title={formatEventTitle(event.title)}
         description="Manage this event, prepare attendance, and review participation."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button asChild type="button" variant="outline" size="sm">
-              <NavLink to={APP_ROUTES.organizerEvents}>
-                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-                Back to events
-              </NavLink>
-            </Button>
             {canChangeEvent ? (
             <div className="flex items-center gap-2">
             <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
@@ -1075,7 +1080,7 @@ export function EventDetailsPage() {
         </section>
       ) : null}
 
-      <section className="rounded-lg border bg-surface p-5 shadow-sm">
+      <section className="rounded-xl border border-primary/15 bg-surface p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -1088,18 +1093,19 @@ export function EventDetailsPage() {
         </div>
 
         <div className="mt-5 border-t pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.25fr)_auto_auto]">
-            <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={resourceTitle} onChange={(inputEvent) => setResourceTitle(inputEvent.target.value)} placeholder="Link title" aria-label="Link title" />
-            <input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm" value={resourceUrl} onChange={(inputEvent) => setResourceUrl(inputEvent.target.value)} placeholder="https://..." aria-label="HTTPS link" />
-            <Button type="button" variant="outline" size="sm" onClick={() => void addResourceLink()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}>
-              <Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Add link
-            </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => resourceFileInputRef.current?.click()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}>
-              <FileUp className="mr-1.5 h-4 w-4" aria-hidden="true" />
-              Attach file
-            </Button>
+          <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p><p className="mt-1 text-xs text-muted-foreground">Choose the resource type first, then complete only the fields in that section.</p></div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
+              <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><Link2 className="h-4 w-4" aria-hidden="true" /></span><div><h4 className="text-sm font-semibold text-foreground">Add link</h4><p className="text-xs text-muted-foreground">Share a secure web resource.</p></div></div>
+              <div className="mt-4 grid gap-3"><label className="grid gap-1.5 text-sm font-medium text-foreground">Link title<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceTitle} onChange={(inputEvent) => setResourceTitle(inputEvent.target.value)} placeholder="e.g. Workshop slides" aria-label="Link title" /></label><label className="grid gap-1.5 text-sm font-medium text-foreground">HTTPS link<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceUrl} onChange={(inputEvent) => setResourceUrl(inputEvent.target.value)} placeholder="https://..." aria-label="HTTPS link" /></label></div>
+              <Button type="button" variant="outline" size="sm" className="mt-auto w-full" onClick={() => void addResourceLink()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}><Link2 className="mr-1.5 h-4 w-4" aria-hidden="true" />Add link</Button>
+            </section>
+            <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
+              <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><FileUp className="h-4 w-4" aria-hidden="true" /></span><div><h4 className="text-sm font-semibold text-foreground">Attach file</h4><p className="text-xs text-muted-foreground">Upload a file up to 25 MB.</p></div></div>
+              <label className="mt-4 grid gap-1.5 text-sm font-medium text-foreground">File title <span className="font-normal text-muted-foreground">(optional)</span><input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceFileTitle} onChange={(inputEvent) => setResourceFileTitle(inputEvent.target.value)} placeholder="e.g. Event programme" aria-label="File title" /></label>
+              <p className="mt-2 text-xs text-muted-foreground">If blank, the uploaded filename is used.</p>
+              <Button type="button" variant="outline" size="sm" className="mt-auto w-full" onClick={() => resourceFileInputRef.current?.click()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}><FileUp className="mr-1.5 h-4 w-4" aria-hidden="true" />Choose file</Button>
+            </section>
           </div>
         </div>
 

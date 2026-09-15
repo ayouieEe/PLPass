@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from "react";
-import { AlertCircle, CalendarCheck, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AlertCircle, CalendarCheck, ChevronLeft, ChevronRight, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -67,6 +67,7 @@ function EventDetail({ label, value, detail }: { label: string; value: string; d
 
 export function OrganizerDashboardPage() {
   const { session } = useDevelopmentSession();
+  const [predictionPage, setPredictionPage] = useState(0);
   const context = useMemo(() => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined), [session]);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, context);
@@ -81,6 +82,13 @@ export function OrganizerDashboardPage() {
   const highlightedEvent = activeEvent;
   const nextEvent = useMemo(() => activeEvents.filter((event) => new Date(event.startsAt).getTime() > today.getTime()).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0], [activeEvents, today]);
   const predictionOverviewData = useMemo(() => activeEvents.map((event) => ({ label: shortCode(event.code), title: event.title, predictedAttend: event.predictedTurnout ?? 0, predictedMiss: 100 - (event.predictedTurnout ?? 0) })), [activeEvents]);
+  const predictionPageSize = 10;
+  const predictionPageCount = Math.ceil(predictionOverviewData.length / predictionPageSize);
+  const activePredictionPage = Math.min(predictionPage, Math.max(predictionPageCount - 1, 0));
+  const paginatedPredictionData = useMemo(
+    () => predictionOverviewData.slice(activePredictionPage * predictionPageSize, (activePredictionPage + 1) * predictionPageSize),
+    [activePredictionPage, predictionOverviewData]
+  );
   const activeSemester = semestersQuery.data?.items.find((semester) => semester.isActive);
   const pendingCorrectionRequests = useMemo(
     () => (correctionRequestsQuery.data?.items ?? []).filter((request) => request.status === "pending").length,
@@ -121,12 +129,12 @@ export function OrganizerDashboardPage() {
         </section>
         <div>
           <div className="sr-only" data-chart-summary>
-            <p>{`Prediction chart data: ${predictionOverviewData.map((item) => `${item.title}, ${item.predictedAttend}% predicted attendance and ${item.predictedMiss}% predicted non-attendance`).join("; ")}.`}</p>
+            <p>{`Prediction chart data: ${paginatedPredictionData.map((item) => `${item.title}, ${item.predictedAttend}% predicted attendance and ${item.predictedMiss}% predicted non-attendance`).join("; ")}.`}</p>
             <p>{`Attendance trend chart data: ${trend.map((item) => `${item.label}, ${item.attendanceRate}% attendance`).join("; ")}.`}</p>
             <p>{`Feedback sentiment chart data: ${(analyticsQuery.data?.sentiment ?? []).map((item) => `${item.name}, ${item.value}%`).join("; ")}.`}</p>
             <p>{`Late-arrival chart data: ${(analyticsQuery.data?.lateArrivals ?? []).map((item) => `${item.label}, ${item.count} late check-ins`).join("; ")}.`}</p>
           </div>
-          <ChartPanel title="Prediction Overview" description="Attendance forecast by event."><div className="flex h-full min-h-0 flex-col"><div className="flex shrink-0 items-center gap-5 pb-2 text-xs"><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-green-600" />Predicted Attendance</span><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-red-600" />Predicted Non-attendance</span></div><div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden" tabIndex={0} role="region" aria-label="Prediction overview chart"><div className="h-full" style={{ minWidth: `${Math.max(640, predictionOverviewData.length * 64)}px` }}><ResponsiveContainer width="100%" height="100%"><BarChart data={predictionOverviewData} margin={{ top: 4, right: 12, left: -16, bottom: 16 }} barCategoryGap="22%"><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" interval={0} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip labelFormatter={(_, payload) => payload?.[0]?.payload?.title ?? "Event"} formatter={(value: number) => `${value}%`} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div></div></div></ChartPanel>
+          <ChartPanel title="Prediction Overview" description="Attendance forecast by event." empty={!paginatedPredictionData.length} emptyMessage="No event turnout forecasts are available yet."><div className="flex h-full min-h-0 flex-col"><div className="flex shrink-0 items-center gap-5 pb-2 text-xs"><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-green-600" />Predicted Attendance</span><span className="flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-red-600" />Predicted Non-attendance</span></div><div className="min-h-0 flex-1" role="region" aria-label="Prediction overview chart"><ResponsiveContainer width="100%" height="100%"><BarChart data={paginatedPredictionData} margin={{ top: 4, right: 12, left: -16, bottom: 16 }} barCategoryGap="22%"><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" interval={0} tick={{ fontSize: 10 }} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip labelFormatter={(_, payload) => payload?.[0]?.payload?.title ?? "Event"} formatter={(value: number) => `${value}%`} /><Bar dataKey="predictedAttend" name="Predicted Attendance" stackId="prediction" fill="#16a34a" radius={[3, 3, 0, 0]} /><Bar dataKey="predictedMiss" name="Predicted Non-attendance" stackId="prediction" fill="#dc2626" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer></div>{predictionPageCount > 1 ? <div className="mt-3 flex shrink-0 items-center justify-between border-t pt-3"><p className="text-[10px] text-muted-foreground">Showing {activePredictionPage * predictionPageSize + 1} to {Math.min((activePredictionPage + 1) * predictionPageSize, predictionOverviewData.length)} of {predictionOverviewData.length} events</p><div className="flex items-center gap-1"><Button type="button" variant="outline" size="sm" className="h-6 w-6 p-0" aria-label="Previous prediction page" onClick={() => setPredictionPage((page) => Math.max(0, page - 1))} disabled={activePredictionPage === 0}><ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" /></Button><Button type="button" variant="outline" size="sm" className="h-6 w-6 p-0" aria-label="Next prediction page" onClick={() => setPredictionPage((page) => Math.min(predictionPageCount - 1, page + 1))} disabled={activePredictionPage >= predictionPageCount - 1}><ChevronRight className="h-3.5 w-3.5" aria-hidden="true" /></Button></div></div> : null}</div></ChartPanel>
         </div>
       </section>
 
