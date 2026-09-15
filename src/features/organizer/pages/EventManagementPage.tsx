@@ -53,7 +53,7 @@ import {
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
-import type { AttendanceCapturePhase, OfflineStatus } from "@/features/offline/types";
+import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
 
 // Event Records is organized around Today, Incoming, and Cancelled events.
 // A live session is a full-page state entered after Start Session.
@@ -325,6 +325,31 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
   };
 }
 
+function localAttendanceRow(
+  result: LocalAttendanceResult,
+  eventCode: string,
+  participant: Pick<PreparedEventParticipant, "studentId" | "displayName">
+): DraftAttendanceRow {
+  return {
+    id: `offline-${result.record.localAttendanceUuid}`,
+    studentId: participant.studentId,
+    studentName: participant.displayName,
+    eventCode,
+    attendanceMethod: result.record.identificationMethod === "facial" ? "Facial Recognition" : result.record.identificationMethod === "manual" ? "Manual" : "QR Code",
+    checkInAt: result.record.timeIn,
+    checkInTime: formatLocalTime(result.record.timeIn),
+    ...(result.record.timeOut ? { checkOutAt: result.record.timeOut, checkOutTime: formatLocalTime(result.record.timeOut) } : {}),
+    attendanceStatus: result.record.attendanceStatus,
+    ...(result.record.lateReason ? { lateReason: result.record.lateReason as LateReason } : {})
+  };
+}
+
+function upsertAttendanceRow(rows: DraftAttendanceRow[], next: DraftAttendanceRow) {
+  const existing = rows.find((row) => row.studentId === next.studentId);
+  if (!existing) return [...rows, next];
+  return rows.map((row) => row.studentId === next.studentId ? { ...row, ...next, id: row.id } : row);
+}
+
 function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | undefined, completedCodes: Set<string>, cancelledCodes: string[]) {
   if (activeEventCode === event.code) {
     return "Active";
@@ -593,6 +618,7 @@ export function EventManagementPage() {
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
+  const { refetch: refetchAttendanceRecords } = attendanceRecordsQuery;
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
@@ -1041,18 +1067,17 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api || !activeEvent?.id || !activeScannerSessionId) return;
 
-    const current = true;
+    let current = true;
     const refreshPhoneAttendance = async () => {
       try {
         const pending = await api.listPending(activeEvent.id);
         if (!current) return;
         const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
-        if (!records.length) return;
-
-        setActiveRows((rows) => {
-          const localStudentIds = new Set(records.map((record) => record.studentId));
-          const otherRows = rows.filter((row) => !localStudentIds.has(row.studentId));
-          const phoneRows: DraftAttendanceRow[] = records.map((record) => {
+        if (records.length) {
+          setActiveRows((rows) => {
+            const localStudentIds = new Set(records.map((record) => record.studentId));
+            const otherRows = rows.filter((row) => !localStudentIds.has(row.studentId));
+            const phoneRows: DraftAttendanceRow[] = records.map((record) => {
             const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
             return {
               id: `offline-${record.localAttendanceUuid}`,
@@ -1066,9 +1091,14 @@ export function EventManagementPage() {
               attendanceStatus: record.attendanceStatus,
               ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
             };
+            });
+            return [...otherRows, ...phoneRows];
           });
-          return [...otherRows, ...phoneRows];
-        });
+        }
+        // A fast reconnect can confirm and delete the local pending row before
+        // the renderer reads it. Refetch the server list so the live table
+        // remains current in both offline and online transitions.
+        await refetchAttendanceRecords();
       } catch {
         // The scanner itself remains the source of a safe result; a failed UI
         // refresh must not change or discard the locally recorded attendance.
@@ -1076,8 +1106,10 @@ export function EventManagementPage() {
     };
 
     void refreshPhoneAttendance();
-    return api.onScannerStatus(() => { void refreshPhoneAttendance(); });
-  }, [activeEvent, activeScannerSessionId, studentsQuery.data?.items]);
+    const unsubscribe = api.onScannerStatus(() => { void refreshPhoneAttendance(); });
+    const interval = window.setInterval(() => { void refreshPhoneAttendance(); }, 1000);
+    return () => { current = false; unsubscribe(); window.clearInterval(interval); };
+  }, [activeEvent, activeScannerSessionId, refetchAttendanceRecords, studentsQuery.data?.items]);
 
   const filterableEvents = useMemo(() => [...todayEvents, ...incomingEvents], [incomingEvents, todayEvents]);
   const filterOptions = useMemo(
@@ -1418,51 +1450,10 @@ export function EventManagementPage() {
       setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. You can scan the next enrolled participant.`);
       toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
     } catch (error) {
-      const onlineError = error instanceof Error ? error : new Error("Face verification could not be completed. Use QR or manual attendance instead.");
-      if (desktopApi() && activeEvent.id) {
-        try {
-          const student = await identifyOfflineStudent(activeEvent.id, "facial", video);
-          if (!student) throw onlineError;
-          const occurredAt = new Date().toISOString();
-          const local = await recordOfflineAttendance({
-            eventId: activeEvent.id,
-            sessionId,
-            studentId: student.studentId,
-            identificationMethod: "facial",
-            attendanceTimestamp: occurredAt
-          });
-          const actionLabel = local.action === "checked_in" ? "checked in" : local.action === "checked_out" ? "checked out" : "already recorded";
-          // An "already recorded" result still includes the local record. This
-          // happens after a refresh/reopen, when the record exists in SQLite but
-          // the in-memory grid is empty. Always hydrate from that canonical local
-          // record so the organizer immediately sees the saved attendance.
-          setActiveRows((current) => {
-            const existing = current.find((row) => row.studentId === student.studentId);
-            const localRow: DraftAttendanceRow = {
-              id: `offline-facial-${local.record.localAttendanceUuid}`,
-              studentId: student.studentId,
-              studentName: student.displayName,
-              eventCode: activeEvent.code,
-              attendanceMethod: "Facial Recognition",
-              checkInAt: local.record.timeIn,
-              checkInTime: formatLocalTime(local.record.timeIn),
-              attendanceStatus: local.record.attendanceStatus,
-              ...(local.record.timeOut
-                ? { checkOutAt: local.record.timeOut, checkOutTime: formatLocalTime(local.record.timeOut) }
-                : {})
-            };
-            if (!existing) return [...current, localRow];
-            return current.map((row) => row.studentId === student.studentId ? { ...row, ...localRow, id: row.id } : row);
-          });
-          setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${actionLabel} offline. This record will sync when connectivity returns.`);
-          toast.success(`${student.displayName}: ${actionLabel} offline`);
-          return;
-        } catch {
-          // Preserve the trusted online failure below when the local package or
-          // local DeepFace service cannot confirm the same face.
-        }
-      }
-      setFacialStatus(onlineError.message);
+      const errorMessage = error instanceof Error ? error.message : "Face verification could not be completed.";
+      setFacialStatus(!navigator.onLine || /failed to fetch|network|offline/i.test(errorMessage)
+        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR attendance."
+        : errorMessage);
     } finally {
       setFacialVerifying(false);
     }
@@ -1474,7 +1465,32 @@ export function EventManagementPage() {
     }
 
     setIsQrProcessing(true);
+    const eventId = activeEvent.id;
+    if (!eventId) {
+      setIsQrProcessing(false);
+      return;
+    }
+    const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
+    const recordQrLocally = async () => {
+      if (!sessionId) throw new Error("The active attendance session could not be found.");
+      const student = await identifyOfflineStudent(eventId, "qr", qrInput);
+      if (!student) throw new Error("This QR code is not available in the prepared offline event package.");
+      const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString() });
+      setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, student)));
+      toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} recorded offline`, { description: local.safeMessage });
+    };
     try {
+      if (desktopApi()) {
+        try {
+          // The prepared package is authoritative for desktop attendance. It
+          // also avoids relying on navigator.onLine, which can stay true while
+          // a laptop is connected to a phone hotspot without internet access.
+          await recordQrLocally();
+          return;
+        } catch {
+          // The package may be absent or stale; continue with central lookup.
+        }
+      }
       const credentialId = extractQrCredentialId(qrInput);
       const client = getSupabaseBrowserClient();
       const { data: credential, error: credentialError } = await client
@@ -1553,6 +1569,15 @@ export function EventManagementPage() {
           : `${student?.fullName ?? student?.studentNumber ?? "Student"} Time In recorded. This will be saved when you end the session.`
       );
     } catch (error) {
+      if (desktopApi()) {
+        try {
+          await recordQrLocally();
+          return;
+        } catch {
+          // Keep the central validation error when the event was not prepared
+          // or the QR is not present in the local package.
+        }
+      }
       toast.error(error instanceof Error ? error.message : "The QR code could not be validated.");
     } finally {
       setQrInput("");
@@ -2022,7 +2047,7 @@ export function EventManagementPage() {
         <>
         <section className="rounded-2xl border border-border bg-surface shadow-sm">
           <div className="flex flex-col gap-4 border-b border-border bg-background/40 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"><Play className="h-4 w-4" aria-hidden="true" /></span>
                 <h2 className="truncate text-lg font-semibold">{activeEvent.name}</h2>
@@ -2032,7 +2057,7 @@ export function EventManagementPage() {
               <p className="mt-1.5 text-sm text-muted-foreground">{activeEvent.code} <span aria-hidden="true">•</span> {activeEvent.venue}{activeAttendanceSession?.lateCutoffAt ? <> <span aria-hidden="true">•</span> Late after {formatLocalTime(activeAttendanceSession.lateCutoffAt)}</> : null}</p>
               {actualStartAt ? <p className="mt-1 text-xs text-muted-foreground">Actual start: {formatLocalTime(actualStartAt)}{startedLateMinutes > 0 ? ` — started ${startedLateMinutes} minute${startedLateMinutes === 1 ? "" : "s"} later than scheduled.` : ""}</p> : null}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:flex-nowrap">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
               <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
                 <Square className="h-4 w-4" aria-hidden="true" />

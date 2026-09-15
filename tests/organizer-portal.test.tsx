@@ -47,6 +47,14 @@ const organizerTwoSession = JSON.stringify({
   isAuthenticated: true
 });
 
+const adminSession = JSON.stringify({
+  userId: "user-admin-1",
+  role: "admin",
+  displayName: "Admin One",
+  email: "admin.one@plpass.test",
+  isAuthenticated: true
+});
+
 const studentSession = JSON.stringify({
   userId: "user-student-1",
   role: "student",
@@ -311,6 +319,15 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Authentication Methods" })).toBeInTheDocument();
+  });
+
+  it("renders authentication methods from the admin workspace", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/credentials");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Authentication Methods" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Authentication Methods" })).toHaveAttribute("href", "/admin/credentials");
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {
