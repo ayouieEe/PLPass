@@ -1773,33 +1773,6 @@ export function EventManagementPage() {
     { accessorKey: "date", header: "Date" },
     { accessorKey: "startTime", header: "Start Time" },
     {
-      id: "objectives",
-      header: "Objectives",
-      cell: ({ row }) => {
-        const objectives = row.original.objectives ?? [];
-        if (objectives.length === 0) {
-          return <span className="text-xs text-muted-foreground">—</span>;
-        }
-        return (
-          <button
-            type="button"
-            className="block max-w-full text-left transition-opacity hover:opacity-75"
-            title={objectives.join("\n")}
-            onClick={() => objectives.length > 1 && setSelectedObjectivesEvent(row.original)}
-          >
-            <p className="text-sm text-foreground truncate">
-              {objectives[0]}
-            </p>
-            {objectives.length > 1 && (
-              <p className="text-xs font-semibold text-primary">
-                +{objectives.length - 1} more
-              </p>
-            )}
-          </button>
-        );
-      }
-    },
-    {
       id: "priority",
       header: "Priority",
       cell: ({ row }) => <StatusBadge label={row.original.priorityLevel} tone={priorityTone(row.original.priorityLevel)} />
@@ -1874,6 +1847,32 @@ export function EventManagementPage() {
   const incomingColumns = incomingColumnsWithActions.slice(1);
 
   const cancelledColumns: Array<ColumnDef<EventRecord> | ColDef<EventRecord>> = [
+    {
+      id: "actions",
+      headerName: "Actions",
+      pinned: "right",
+      lockPosition: true,
+      lockPinned: true,
+      suppressMovable: true,
+      width: 150,
+      sortable: false,
+      filter: false,
+      cellRenderer: ({ data }: { data: EventRecord }) => (
+        <div className="flex justify-start">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditEvent(data);
+            }}
+          >
+            Reschedule
+          </Button>
+        </div>
+      )
+    } as ColDef<EventRecord>,
     { accessorKey: "code", header: "Event Code" },
     { accessorKey: "name", header: "Event Name" },
     { accessorKey: "venue", header: "Venue" },
@@ -1883,8 +1882,7 @@ export function EventManagementPage() {
       id: "reason",
       header: "Cancellation reason",
       cell: ({ row }) => <span className="block max-w-xs truncate text-sm text-muted-foreground" title={row.original.cancellationReason}>{row.original.cancellationReason || "No reason recorded"}</span>
-    },
-    { id: "status", header: "Status", cell: () => <StatusBadge label="Cancelled" tone="danger" /> }
+    }
   ];
 
   const liveColumns: ColumnDef<AttendanceRow>[] = [

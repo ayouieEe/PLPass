@@ -917,6 +917,12 @@ export function EventDetailsPage() {
               </div>
             </details>
             </div>
+            ) : event.status === "cancelled" ? (
+            <div className="flex items-center gap-2">
+            <Button type="button" size="sm" onClick={() => setIsRescheduleOpen(true)}>
+              Reschedule event
+            </Button>
+            </div>
             ) : null}
           </div>
         }
