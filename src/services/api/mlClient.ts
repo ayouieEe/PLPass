@@ -2,9 +2,10 @@
  * mlClient.ts
  *
  * Client for the FastAPI Machine Learning backend running on localhost:8000.
+ * Operates gracefully with resilient null fallbacks when the ML backend is offline.
  */
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_ML_API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export interface MlPredictionInsights {
   feature_importance: Array<{
@@ -39,24 +40,30 @@ export interface BatchPredictionResponse {
   }>;
 }
 
-export async function fetchModelInsights(): Promise<MlPredictionInsights> {
-  const response = await fetch(`${API_BASE}/model/insights`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch model insights: ${response.statusText}`);
+export async function fetchModelInsights(): Promise<MlPredictionInsights | null> {
+  try {
+    const response = await fetch(`${API_BASE}/model/insights`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    // Return null cleanly when the FastAPI ML server on port 8000 is offline/unreachable
+    return null;
   }
-  return response.json();
 }
 
-export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse> {
-  const response = await fetch(`${API_BASE}/predict/batch`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(request)
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch batch prediction: ${response.statusText}`);
+export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse | null> {
+  try {
+    const response = await fetch(`${API_BASE}/predict/batch`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(request)
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    // Return null cleanly when the FastAPI ML server on port 8000 is offline/unreachable
+    return null;
   }
-  return response.json();
 }
