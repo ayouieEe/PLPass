@@ -105,8 +105,10 @@ test.describe("organizer critical journeys", () => {
   test("loads correction controls", async ({ page }) => {
     await page.goto("/organizer/corrections");
     await expect(page.getByRole("heading", { name: "Correction Requests" })).toBeVisible();
-    for (const name of [/^all$/i, /pending/i, /approved/i, /rejected/i]) {
-      await expect(page.getByRole("button", { name })).toBeVisible();
+    const statusFilter = page.getByRole("combobox", { name: "Status" });
+    await expect(statusFilter).toBeVisible();
+    for (const label of ["All statuses", "Pending", "Approved", "Rejected"]) {
+      await expect(statusFilter).toContainText(label);
     }
     await expectBasicPageStructure(page);
   });

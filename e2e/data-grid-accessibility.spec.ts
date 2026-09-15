@@ -14,6 +14,13 @@ const sessions = {
     displayName: "Organizer One",
     email: "organizer.one@plpass.test",
     isAuthenticated: true
+  },
+  admin: {
+    userId: "user-admin-1",
+    role: "admin",
+    displayName: "Admin One",
+    email: "admin.one@plpass.test",
+    isAuthenticated: true
   }
 } as const;
 
@@ -44,13 +51,13 @@ async function expectAccessibleGrid(page: Page, label: string, browserName: stri
   expect(await grid.evaluate((element) => element.contains(document.activeElement))).toBe(true);
 }
 
-test("organizer student-account grid provides keyboard and screen-reader context", async ({ page, browserName }) => {
+test("admin student-account grid provides keyboard and screen-reader context", async ({ page, browserName }) => {
   const gridErrors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error" && message.text().includes("AG Grid")) gridErrors.push(message.text());
   });
-  await seedSession(page, "organizer");
-  await page.goto("/organizer/users");
+  await seedSession(page, "admin");
+  await page.goto("/admin/users");
   await expect(page.getByRole("heading", { name: "User Management", exact: true })).toBeVisible();
   await expectAccessibleGrid(page, "Student accounts", browserName);
   expect(gridErrors).toEqual([]);
