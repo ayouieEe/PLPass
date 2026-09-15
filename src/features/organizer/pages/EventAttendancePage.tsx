@@ -40,6 +40,8 @@ import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
 import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
 import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -60,7 +62,6 @@ import {
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { identifyOfflineStudent, recordOfflineAttendance } from "@/features/offline/offlineService";
@@ -495,10 +496,43 @@ export function EventAttendancePage() {
     setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
       if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){const student=await identifyOfflineStudent(event.id,"facial",video);if(!student)throw new Error("No unambiguous eligible face match was found in the local event package.");const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}
-      const result = await identifyLiveFace(activeSession.id, facialActionMode, [await captureVideoFrame(video)]);
-      const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
-      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. Face distance: ${result.distance.toFixed(3)}. Returning to QR for the next student.`);
-      toast.success(`${result.display_name}: ${actionLabel}`);
+      const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
+      const client = getSupabaseBrowserClient();
+      const { data: candidates, error: candidatesError } = await client.rpc("get_live_facial_candidates", {
+        p_event_session_id: activeSession.id
+      });
+      if (candidatesError) throw new Error(candidatesError.message);
+
+      const matches = (await Promise.all((candidates ?? []).map(async (candidate) => {
+        const { data: descriptor, error } = await client.rpc("get_facial_descriptor_for_organizer", {
+          p_event_session_id: activeSession.id,
+          p_student_id: candidate.student_id
+        });
+        if (error || !Array.isArray(descriptor) || !descriptor.every((value) => typeof value === "number")) return null;
+        return { candidate, similarity: faceSimilarity(descriptor, liveDescriptor) };
+      }))).filter((match): match is NonNullable<typeof match> => Boolean(match));
+
+      matches.sort((left, right) => right.similarity - left.similarity);
+      const bestMatch = matches[0];
+      if (!bestMatch || bestMatch.similarity < 0.82) {
+        throw new Error("No enrolled participant matched this face. Use QR or manual attendance.");
+      }
+      if (matches[1] && bestMatch.similarity - matches[1].similarity < 0.04) {
+        throw new Error("Face match is ambiguous. Keep only one participant in view or use QR.");
+      }
+
+      const { data: attendance, error: attendanceError } = await client.rpc("record_live_facial_attendance", {
+        p_event_session_id: activeSession.id,
+        p_student_id: bestMatch.candidate.student_id,
+        p_similarity: bestMatch.similarity,
+        p_action: facialActionMode,
+        p_occurred_at: new Date().toISOString()
+      });
+      if (attendanceError) throw new Error(attendanceError.message);
+      const action = attendance && typeof attendance === "object" && "action" in attendance ? attendance.action : "checked_in";
+      const actionLabel = action === "checked_out" ? "checked out" : action === "already_recorded" ? "already recorded" : "checked in";
+      setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. Returning to QR for the next student.`);
+      toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
       await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
       setFacialCameraOpen(false);
     } catch (error) {
@@ -606,7 +640,7 @@ export function EventAttendancePage() {
                 <option value="check_out">Check out students</option>
               </select>
             </label>
-            {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover" /> : null}
+            {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover scale-x-[-1]" /> : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
               <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Identifying…" : "Scan now"}</Button>

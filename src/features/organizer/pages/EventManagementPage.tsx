@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -25,7 +26,6 @@ import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSe
 import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { identifyLiveFace } from "@/services/api/facialRecognitionClient";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -300,22 +300,6 @@ function matchesEventFilters(event: EventRecord, filters: EventFilters) {
 
 function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
-}
-
-async function captureVideoFrame(video: HTMLVideoElement): Promise<Blob> {
-  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
-    throw new Error("Camera is still preparing. Keep one face centered and try again.");
-  }
-
-  const maximumWidth = 720;
-  const scale = Math.min(1, maximumWidth / video.videoWidth);
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(video.videoWidth * scale);
-  canvas.height = Math.round(video.videoHeight * scale);
-  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-  if (!blob) throw new Error("The camera frame could not be captured.");
-  return blob;
 }
 
 function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>): FinalizedSessionSummary {
@@ -842,7 +826,18 @@ export function EventManagementPage() {
 
     if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
       if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
+        // A session may have been ended or discarded in another organizer view.
+        // Never leave its stale in-memory workspace open with live controls.
+        if (activeEvent || liveSessionId) {
+          setActiveEvent(null);
+          setLiveSessionId(null);
+          setActiveRows([]);
+          setCaptureMode(null);
+          setFacialCameraOpen(false);
+          toast.info("This attendance session is no longer active. Returned to Events.");
+        }
         setHandledSessionRouteId(sessionIdFromQuery);
+        navigate(APP_ROUTES.organizerEvents, { replace: true });
       }
       return;
     }
@@ -1351,43 +1346,77 @@ export function EventManagementPage() {
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face among this event's enrolled participants…");
     try {
-      const result = await identifyLiveFace(
-        sessionId,
-        attendancePhase === "time_out" ? "check_out" : "check_in",
-        [await captureVideoFrame(video)]
-      );
-      const occurredAt = result.recorded_at ?? new Date().toISOString();
-      const actionLabel = result.action === "checked_in" ? "checked in" : result.action === "checked_out" ? "checked out" : "already recorded";
+      const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
+      const client = getSupabaseBrowserClient();
+      const { data: candidates, error: candidatesError } = await client.rpc("get_live_facial_candidates", {
+        p_event_session_id: sessionId
+      });
+      if (candidatesError) throw new Error(candidatesError.message);
 
-      if (result.action !== "already_recorded") {
+      const matches = (await Promise.all((candidates ?? []).map(async (candidate) => {
+        const { data: descriptor, error } = await client.rpc("get_facial_descriptor_for_organizer", {
+          p_event_session_id: sessionId,
+          p_student_id: candidate.student_id
+        });
+        if (error || !Array.isArray(descriptor) || !descriptor.every((value) => typeof value === "number")) return null;
+        return { candidate, similarity: faceSimilarity(descriptor, liveDescriptor) };
+      }))).filter((match): match is NonNullable<typeof match> => Boolean(match));
+
+      matches.sort((left, right) => right.similarity - left.similarity);
+      const bestMatch = matches[0];
+      if (!bestMatch || bestMatch.similarity < 0.82) {
+        throw new Error("No enrolled participant matched this face. Use QR or manual attendance instead.");
+      }
+      if (matches[1] && bestMatch.similarity - matches[1].similarity < 0.04) {
+        throw new Error("Face match is ambiguous. Keep only one participant in view or use QR.");
+      }
+
+      const occurredAt = new Date().toISOString();
+      const { data: attendance, error: attendanceError } = await client.rpc("record_live_facial_attendance", {
+        p_event_session_id: sessionId,
+        p_student_id: bestMatch.candidate.student_id,
+        p_similarity: bestMatch.similarity,
+        p_action: attendancePhase === "time_out" ? "check_out" : "check_in",
+        p_occurred_at: occurredAt
+      });
+      if (attendanceError) throw new Error(attendanceError.message);
+      const action = attendance && typeof attendance === "object" && "action" in attendance && typeof attendance.action === "string"
+        ? attendance.action
+        : "checked_in";
+      const actionLabel = action === "checked_out" ? "checked out" : action === "already_recorded" ? "already recorded" : "checked in";
+      const attendanceStatus = attendance && typeof attendance === "object" && "attendance_status" in attendance && (attendance.attendance_status === "late" || attendance.attendance_status === "present")
+        ? attendance.attendance_status
+        : "present";
+
+      if (action !== "already_recorded") {
         setActiveRows((current) => {
-          const existing = current.find((row) => row.studentId === result.student_id);
-          if (result.action === "checked_out") {
+          const existing = current.find((row) => row.studentId === bestMatch.candidate.student_id);
+          if (action === "checked_out") {
             if (!existing) return current;
-            return current.map((row) => row.studentId === result.student_id
+            return current.map((row) => row.studentId === bestMatch.candidate.student_id
               ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition" }
               : row);
           }
           if (existing) {
-            return current.map((row) => row.studentId === result.student_id
-              ? { ...row, attendanceMethod: "Facial Recognition", attendanceStatus: result.attendance_status }
+            return current.map((row) => row.studentId === bestMatch.candidate.student_id
+              ? { ...row, attendanceMethod: "Facial Recognition", attendanceStatus }
               : row);
           }
           return [...current, {
-            id: `facial-${result.student_id}`,
-            studentId: result.student_id,
-            studentName: result.display_name,
+            id: `facial-${bestMatch.candidate.student_id}`,
+            studentId: bestMatch.candidate.student_id,
+            studentName: bestMatch.candidate.display_name,
             eventCode: activeEvent.code,
             attendanceMethod: "Facial Recognition",
             checkInAt: occurredAt,
             checkInTime: formatLocalTime(occurredAt),
-            attendanceStatus: result.attendance_status
+            attendanceStatus
           }];
         });
       }
 
-      setFacialStatus(`${result.display_name} (${result.student_number}) — ${actionLabel}. You can scan the next enrolled participant.`);
-      toast.success(`${result.display_name}: ${actionLabel}`);
+      setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. You can scan the next enrolled participant.`);
+      toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
     } catch (error) {
       const onlineError = error instanceof Error ? error : new Error("Face verification could not be completed. Use QR or manual attendance instead.");
       if (desktopApi() && activeEvent.id) {
@@ -1940,19 +1969,21 @@ export function EventManagementPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Events"
-        description="Find an event, prepare attendance, or open a live session."
+        title={activeEvent ? "Live attendance session" : "Events"}
+        description={activeEvent ? `Recording attendance for ${activeEvent.name}.` : "Find an event, prepare attendance, or open a live session."}
         actions={
-          <Button asChild>
-            <NavLink to={APP_ROUTES.organizerCreateEvent}>
-              <span className="text-lg leading-none" aria-hidden="true">+</span>
-              Create event
-            </NavLink>
-          </Button>
+          !activeEvent ? (
+            <Button asChild>
+              <NavLink to={APP_ROUTES.organizerCreateEvent}>
+                <span className="text-lg leading-none" aria-hidden="true">+</span>
+                Create event
+              </NavLink>
+            </Button>
+          ) : undefined
         }
       />
 
-      <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
+      {!activeEvent ? <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">Your event workspace</p>
@@ -1983,7 +2014,7 @@ export function EventManagementPage() {
             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeTab === "cancelled" ? "bg-white/20 text-white" : "bg-background/80 text-foreground"}`}>{cancelledEvents.length}</span>
           </button>
         </div>
-      </section>
+      </section> : null}
 
       {activeEvent ? (
         // The original Live Session workspace stays inside Event Management.
@@ -2115,7 +2146,7 @@ export function EventManagementPage() {
                             autoPlay
                             muted
                             playsInline
-                            className="aspect-video w-full object-cover"
+                            className="aspect-video w-full scale-x-[-1] object-cover"
                           />
                         </div>
                       ) : null}

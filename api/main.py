@@ -2,8 +2,6 @@ import os
 import sys
 import json
 import asyncio
-import joblib
-import pandas as pd
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from typing import List
@@ -30,8 +28,6 @@ if parent_dir not in sys.path:
 load_dotenv(os.path.join(parent_dir, ".env.local"))
 load_dotenv(os.path.join(parent_dir, ".env"))
 
-from ml.feature_assembly import assemble_student_features
-from api.services.supabase_client import get_event_features, get_batch_student_history
 from api.services.prediction_insights import get_risk_level, get_pattern_insights
 from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, enroll_pose, identify_and_record, identify_offline_capture, warm_model
 
@@ -46,13 +42,10 @@ async def lifespan(app: FastAPI):
     # --- STARTUP ---
     print("Initializing FastAPI server...")
     
-    if os.path.exists(MODEL_PATH):
-        print(f"Loading ML model from {MODEL_PATH}...")
-        ml_artifacts["pipeline"] = joblib.load(MODEL_PATH)
-        print("Model loaded successfully!")
-    else:
-        print(f"WARNING: Model not found at {MODEL_PATH}.")
-        ml_artifacts["pipeline"] = None
+    # Keep the facial-recognition service available even when an optional ML
+    # analytics dependency is unavailable on a developer workstation. The
+    # attendance model is loaded on its first prediction request instead.
+    ml_artifacts["pipeline"] = None
 
     if os.path.exists(INSIGHTS_PATH):
         print(f"Loading Model Insights from {INSIGHTS_PATH}...")
@@ -114,7 +107,15 @@ def read_root():
 
 @app.post("/predict/batch", response_model=BatchPredictResponse)
 async def predict_attendance_batch(req: BatchPredictRequest):
+    import joblib
+    import pandas as pd
+    from ml.feature_assembly import assemble_student_features
+    from api.services.supabase_client import get_event_features, get_batch_student_history
+
     pipeline = ml_artifacts.get("pipeline")
+    if pipeline is None and os.path.exists(MODEL_PATH):
+        pipeline = joblib.load(MODEL_PATH)
+        ml_artifacts["pipeline"] = pipeline
     if not pipeline:
         raise HTTPException(status_code=503, detail="Model is not loaded.")
         

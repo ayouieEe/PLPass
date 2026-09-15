@@ -2142,6 +2142,21 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      generate_student_qr_credential: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          created_at: string
+          credential_status: string
+          expires_at: string | null
+          id: string
+          issued_at: string
+          last_successful_check_in_at: string | null
+          revoked_at: string | null
+          student_id: string
+          token_hash: string
+          updated_at: string
+        }
+      }
       cancel_organizer_event: {
         Args: { p_event_id: string; p_reason: string }
         Returns: {
