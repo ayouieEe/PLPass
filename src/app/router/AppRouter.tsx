@@ -102,7 +102,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.adminEvents} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminAttendance} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminCorrections} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminCredentials} element={<AccessDeniedPage />} />
+              <Route path={APP_ROUTES.adminCredentials} element={<AuthenticationMethodsPage />} />
               <Route path={APP_ROUTES.adminReports} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminAnalytics} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminAuditLogs} element={<AccessDeniedPage />} />

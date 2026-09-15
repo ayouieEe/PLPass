@@ -30,6 +30,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
   admin: [
     { label: "Dashboard", path: APP_ROUTES.organizerDashboard, icon: LayoutDashboard, group: "Overview" },
     { label: "Users", path: APP_ROUTES.adminUsers, icon: UserCircle, group: "Administration" },
+    { label: "Authentication Methods", path: APP_ROUTES.adminCredentials, icon: ShieldCheck, group: "Administration" },
     { label: "Events", path: APP_ROUTES.organizerEvents, icon: ClipboardList, group: "Events" },
     { label: "Create Event", path: APP_ROUTES.organizerCreateEvent, icon: CalendarCheck, group: "Events" },
     { label: "Event Records", path: APP_ROUTES.organizerRecords, icon: UserCheck, group: "Events" },

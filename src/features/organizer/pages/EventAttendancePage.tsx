@@ -495,7 +495,6 @@ export function EventAttendancePage() {
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
-      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){const student=await identifyOfflineStudent(event.id,"facial",video);if(!student)throw new Error("No unambiguous eligible face match was found in the local event package.");const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}
       const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
       const client = getSupabaseBrowserClient();
       const { data: candidates, error: candidatesError } = await client.rpc("get_live_facial_candidates", {
@@ -536,8 +535,10 @@ export function EventAttendancePage() {
       await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
       setFacialCameraOpen(false);
     } catch (error) {
-      if(canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,"facial",video);if(student){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:new Date().toISOString()});setFacialStatus(`${student.displayName} (${student.studentNumber}) - ${local.safeMessage}`);toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();setFacialCameraOpen(false);return;}}catch{/* Preserve the original safe status. */}}
-      setFacialStatus(error instanceof Error ? error.message : "Face verification could not be completed.");
+      const errorMessage = error instanceof Error ? error.message : "Face verification could not be completed.";
+      setFacialStatus(!navigator.onLine || /failed to fetch|network|offline/i.test(errorMessage)
+        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR attendance."
+        : errorMessage);
     } finally {
       setFacialVerifying(false);
     }

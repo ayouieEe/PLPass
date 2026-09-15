@@ -32,6 +32,16 @@ function localPythonPath() {
   return existsSync(developmentPython) ? developmentPython : undefined;
 }
 
+function localPythonWindowlessPath() {
+  const configured = process.env.PLPASS_PYTHON_PATH;
+  if (configured) {
+    const windowless = configured.replace(/python(?:\.exe)?$/i, "pythonw.exe");
+    if (existsSync(windowless)) return windowless;
+  }
+  const developmentPython = path.join(workspaceRoot, ".venv", "Scripts", "pythonw.exe");
+  return existsSync(developmentPython) ? developmentPython : localPythonPath();
+}
+
 async function ensureLocalFacialService() {
   if (await facialServiceReady()) return;
   const python = localPythonPath();
@@ -39,7 +49,7 @@ async function ensureLocalFacialService() {
     throw new Error("Offline facial recognition needs the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
   }
   if (!facialService || facialService.exitCode !== null) {
-    facialService = spawn(python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+    facialService = spawn(localPythonWindowlessPath() ?? python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
       cwd: workspaceRoot,
       detached: true,
       stdio: "ignore",
