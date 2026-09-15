@@ -12,6 +12,7 @@ import {
   Lock,
   Paperclip,
   QrCode,
+  RefreshCw,
   ShieldCheck,
   UploadCloud,
   X,
@@ -25,10 +26,10 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useCredentialRequests, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
+import { extractFaceDescriptorFromFile } from "@/lib/biometrics/humanFace";
 import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
-import { enrollFacePose } from "@/services/api/facialRecognitionClient";
 import { cn } from "@/lib/utils/cn";
 import {
   ensureStudentIdentityReadiness,
@@ -96,6 +97,7 @@ export function AttendanceMethodsPage() {
   const scope = useStudentScope();
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
+  const credentialMutations = useStudentCredentialMutations(scope.context);
   const [showChangeRequest, setShowChangeRequest] = useState(false);
   const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
   const [showIssueReport, setShowIssueReport] = useState(false);
@@ -105,8 +107,6 @@ export function AttendanceMethodsPage() {
   const [faceEnrollmentFile, setFaceEnrollmentFile] = useState<File | null>(null);
   const [faceEnrollmentError, setFaceEnrollmentError] = useState("");
   const [faceEnrollmentProcessing, setFaceEnrollmentProcessing] = useState(false);
-  const [faceEnrollmentPose, setFaceEnrollmentPose] = useState<"front" | "left" | "right">("front");
-  const [completedFacePoses, setCompletedFacePoses] = useState<string[]>([]);
   const [faceEnrollmentInputKey, setFaceEnrollmentInputKey] = useState(0);
   const [facePreviewUrl, setFacePreviewUrl] = useState("");
   const [faceCameraError, setFaceCameraError] = useState("");
@@ -195,7 +195,15 @@ export function AttendanceMethodsPage() {
   );
   const identityReadiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
   const hasQrCredential = hasUsableQrCredential(identityReadiness);
-  const qrStatus = pendingQrIssue ? "Issue pending" : hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Not configured";
+  // A support request must not make a valid credential look unusable. The QR
+  // remains scannable until it is explicitly regenerated, revoked, or expires.
+  const qrStatus = hasQrCredential
+    ? pendingQrIssue
+      ? `${formatCredentialStatus(identityReadiness.qrStatus)} · issue report pending`
+      : formatCredentialStatus(identityReadiness.qrStatus)
+    : pendingQrIssue
+      ? "Issue pending"
+      : "Not configured";
   const facialStatus = pendingFacialRequest
     ? "Request pending"
     : approvedFacialReEnrollment
@@ -218,6 +226,16 @@ export function AttendanceMethodsPage() {
       issueForm.reset();
       resetIssueProofFile();
       setShowIssueReport(false);
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    }
+  }
+
+  async function handleGenerateQr() {
+    try {
+      await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.id });
+      await credentialStatusQuery.refetch();
+      toast.success(hasQrCredential ? "QR credential regenerated." : "QR credential generated.");
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -327,7 +345,12 @@ export function AttendanceMethodsPage() {
       return;
     }
 
+    // The preview is mirrored so it behaves like a familiar selfie camera.
+    // Mirror the exported frame too; otherwise the saved photo appears
+    // reversed compared with what the student aligned in the preview.
+    context.setTransform(-1, 0, 0, 1, canvas.width, 0);
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.setTransform(1, 0, 0, 1, 0, 0);
     canvas.toBlob((blob) => {
       if (!blob) {
         setFaceEnrollmentError("Unable to capture a face photo. Please try again.");
@@ -349,18 +372,16 @@ export function AttendanceMethodsPage() {
       setFaceEnrollmentError("");
       setFaceEnrollmentProcessing(true);
       setFaceEnrollmentCapture(file);
-      const result = await enrollFacePose(faceEnrollmentPose, file);
-      setCompletedFacePoses(result.completed_poses);
+      const { descriptor } = await extractFaceDescriptorFromFile(file);
+      await credentialMutations.enrollFacialProfileMutation.mutateAsync({
+        studentId: student.id,
+        faceImage: file,
+        faceDescriptor: descriptor
+      });
       resetFaceEnrollmentFile();
-      if (result.complete) {
-        toast.success("Three-angle facial backup enrolled.");
-        setShowFaceEnrollment(false);
-        await credentialStatusQuery.refetch();
-      } else {
-        const nextPose = (["front", "left", "right"] as const).find((pose) => !result.completed_poses.includes(pose)) ?? "front";
-        setFaceEnrollmentPose(nextPose);
-        toast.success(`${faceEnrollmentPose === "front" ? "Front" : faceEnrollmentPose === "left" ? "Slight left" : "Slight right"} capture saved. Capture ${nextPose === "left" ? "a slight left turn" : nextPose === "right" ? "a slight right turn" : "the front"} next.`);
-      }
+      toast.success("Facial backup enrolled.");
+      setShowFaceEnrollment(false);
+      await credentialStatusQuery.refetch();
     } catch (error) {
       const message = getErrorMessage(error);
       setFaceEnrollmentError(message);
@@ -424,7 +445,7 @@ export function AttendanceMethodsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge label={`QR - ${qrStatus}`} tone={pendingQrIssue ? "warning" : hasQrCredential ? "success" : "muted"} />
+                  <StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : pendingQrIssue ? "warning" : "muted"} />
                 <StatusBadge label={`Face - ${facialStatus}`} tone={pendingFacialRequest ? "warning" : identityReadiness.faceEnrolled ? "success" : "muted"} />
               </div>
             </div>
@@ -439,7 +460,7 @@ export function AttendanceMethodsPage() {
                       Use this for Time In and Time Out scans when attending onsite events.
                     </p>
                   </div>
-                  <StatusBadge label={qrStatus} tone={pendingQrIssue ? "warning" : hasQrCredential ? "success" : "muted"} />
+                   <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : pendingQrIssue ? "warning" : "muted"} />
                 </div>
 
                 <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-5 text-center">
@@ -448,8 +469,19 @@ export function AttendanceMethodsPage() {
                     Student No. {student.studentNumber}
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-                    {hasQrCredential ? "Ready for organizer scanning." : "Ask an organizer or admin to issue your QR."}
+                    {hasQrCredential ? "Ready for organizer scanning." : "Generate your QR credential to use for onsite attendance."}
                   </p>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleGenerateQr()}
+                      disabled={credentialMutations.issueQrCredentialMutation.isPending}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {credentialMutations.issueQrCredentialMutation.isPending ? "Generating…" : hasQrCredential ? "Regenerate QR" : "Generate QR"}
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -572,7 +604,7 @@ export function AttendanceMethodsPage() {
       <ModalShell
         open={showFaceEnrollment}
         title="Enroll facial backup"
-        description="Capture front, slight left, and slight right. All three are required; future changes require a re-enrollment request."
+        description="Capture one clear, front-facing photo. Future changes require a re-enrollment request."
         size="md"
         onClose={() => {
           setShowFaceEnrollment(false);
@@ -586,7 +618,7 @@ export function AttendanceMethodsPage() {
                 <Camera className="h-5 w-5 text-primary" />
               </span>
               <div>
-                <p className="font-semibold">Capture: {faceEnrollmentPose === "front" ? "Front" : faceEnrollmentPose === "left" ? "Slight Left" : "Slight Right"}</p>
+                <p className="font-semibold">Capture: Front-facing photo</p>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   Make a natural slight head turn for side captures. Keep one face centered and well-lit; no photo is stored after the embedding is created.
                 </p>
@@ -628,7 +660,7 @@ export function AttendanceMethodsPage() {
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"} · {completedFacePoses.length}/3 poses saved</p>
+                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"}</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {faceEnrollmentProcessing
                     ? "Checking and saving this pose automatically…"
@@ -646,7 +678,7 @@ export function AttendanceMethodsPage() {
                 ) : !faceEnrollmentFile ? (
                   <Button type="button" onClick={captureLiveFacePhoto} disabled={faceCameraStarting || faceEnrollmentProcessing || Boolean(faceCameraError)}>
                     <Camera className="mr-2 h-4 w-4" />
-                    {faceEnrollmentProcessing ? "Saving…" : `Capture ${faceEnrollmentPose === "front" ? "front" : faceEnrollmentPose === "left" ? "slight left" : "slight right"}`}
+                    {faceEnrollmentProcessing ? "Saving…" : "Capture face"}
                   </Button>
                 ) : null}
               </div>

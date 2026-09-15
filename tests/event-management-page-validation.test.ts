@@ -51,10 +51,17 @@ describe("event page validation helpers", () => {
   });
 
   it("runs facial verification in the active event workspace", () => {
-    expect(eventManagementPage).toContain("identifyLiveFace(");
+    expect(eventManagementPage).toContain("extractMirroredFaceDescriptor(video)");
+    expect(eventManagementPage).toContain('client.rpc("record_live_facial_attendance"');
+    expect(eventManagementPage).not.toContain("identifyLiveFace(");
     expect(eventManagementPage).toContain("Live facial verification camera preview");
     expect(eventManagementPage).not.toContain("navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId))");
     expect(eventManagementPage).toContain("No active attendance session is available for facial verification.");
+  });
+
+  it("keeps schedule navigation out of a live event workspace and clears stale sessions", () => {
+    expect(eventManagementPage).toContain("{!activeEvent ? <section");
+    expect(eventManagementPage).toContain("This attendance session is no longer active. Returned to Events.");
   });
 
   it("allows an organizer to start an owned active event without approval", () => {

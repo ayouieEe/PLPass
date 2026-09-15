@@ -1822,8 +1822,18 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     };
   },
   async issueQrCredential(input: IssueQrCredentialInput, context) {
-    requireOrganizerContext(context);
     const client = getSupabaseBrowserClient();
+    if (context?.actorRole === "student") {
+      const studentId = await currentStudentIdForProfile(context.actorUserId);
+      if (studentId !== input.studentId) {
+        throw new RepositoryError("Students can only generate their own QR credential.", "PERMISSION_DENIED");
+      }
+      const { error } = await client.rpc("generate_student_qr_credential");
+      throwIfSupabaseError(error);
+      return supabaseStudentCredentialRepository.getStudentCredentialStatus(studentId, context);
+    }
+
+    requireOrganizerContext(context);
     const { error } = await client.rpc("issue_qr_credential", {
       p_student_id: input.studentId,
       ...(input.expiresAt ? { p_expires_at: input.expiresAt } : {})

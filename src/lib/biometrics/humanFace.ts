@@ -59,6 +59,25 @@ export async function extractFaceDescriptor(input: HumanInput): Promise<FaceDesc
   return { descriptor: [...(face.embedding ?? [])], confidence: face.score };
 }
 
+// Student enrollment captures a mirrored selfie frame. Match live organizer
+// frames in that same orientation so left/right facial features align.
+export async function extractMirroredFaceDescriptor(video: HTMLVideoElement): Promise<FaceDescriptorResult> {
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    throw new Error("Camera is still preparing. Keep one face centered and try again.");
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("The camera frame could not be prepared.");
+
+  context.setTransform(-1, 0, 0, 1, canvas.width, 0);
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  return extractFaceDescriptor(canvas);
+}
+
 export async function extractFaceDescriptorFromFile(file: File): Promise<FaceDescriptorResult> {
   const bitmap = await createImageBitmap(file);
   try {
