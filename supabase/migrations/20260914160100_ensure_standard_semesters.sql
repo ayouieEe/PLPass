@@ -1,3 +1,4 @@
+-- Keep this migration timestamp distinct from the branding migration created at 16:00.
 insert into public.semesters (semester_name, academic_year, start_date, end_date, status)
 select semester_name, academic_year, start_date, end_date, 'upcoming'
 from (
