@@ -305,12 +305,12 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
-  it("denies the removed organizer reports route", async () => {
+  it("renders the organizer authentication methods route", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Authentication Methods" })).toBeInTheDocument();
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {
