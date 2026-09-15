@@ -23,6 +23,7 @@ const CreateEventPage = lazy(() => import("@/features/organizer/pages/CreateEven
 const EventDetailsPage = lazy(() => import("@/features/organizer/pages/EventDetailsPage").then((module) => ({ default: module.EventDetailsPage })));
 const EventAttendancePage = lazy(() => import("@/features/organizer/pages/EventAttendancePage").then((module) => ({ default: module.EventAttendancePage })));
 const EventRecordsPage = lazy(() => import("@/features/organizer/pages/EventRecordsPage").then((module) => ({ default: module.EventRecordsPage })));
+const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/AuthenticationMethodsPage").then((module) => ({ default: module.AuthenticationMethodsPage })));
 const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
 const OrganizerCorrectionRequestsPage = lazy(() => import("@/features/organizer/pages/OrganizerCorrectionRequestsPage").then((module) => ({ default: module.OrganizerCorrectionRequestsPage })));
 const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/OrganizerAuditLogsPage").then((module) => ({ default: module.OrganizerAuditLogsPage })));
@@ -77,6 +78,7 @@ export function AppRouter() {
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="attendance.read.owned" />}>
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
+              <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="corrections.review.owned" />}>
               <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
