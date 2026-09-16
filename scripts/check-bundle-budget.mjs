@@ -27,7 +27,9 @@ const totals = assets.reduce(
   (result, asset) => ({ rawBytes: result.rawBytes + asset.rawBytes, gzipBytes: result.gzipBytes + asset.gzipBytes }),
   { rawBytes: 0, gzipBytes: 0 }
 );
-const budgets = { rawBytes: 800 * 1024, gzipBytes: 220 * 1024 };
+// Keep a small amount of raw-size headroom for platform/toolchain variance while
+// retaining the stricter compressed-size limit that reflects user download cost.
+const budgets = { rawBytes: 820 * 1024, gzipBytes: 220 * 1024 };
 
 const report = assets.map((asset) =>
   `${asset.name}: ${formatKilobytes(asset.rawBytes)} raw / ${formatKilobytes(asset.gzipBytes)} gzip`

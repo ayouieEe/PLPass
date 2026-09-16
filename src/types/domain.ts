@@ -452,6 +452,10 @@ export type SystemSettings = {
   readerPolicy: string;
   credentialStatusPolicy: string;
   notificationPreferencePlaceholder: string;
+  notificationEventsEnabled: boolean;
+  notificationCredentialsEnabled: boolean;
+  notificationCorrectionsEnabled: boolean;
+  notificationRemindersEnabled: boolean;
   eventApprovalRequired: boolean;
   participantInvitationMode: "email" | "in_app" | "both";
   noStartReminderMinutes: number;
@@ -471,7 +475,7 @@ export type EventSettings = Pick<SystemSettings, "eventApprovalRequired" | "part
 export type EventLifecycleSettings = Pick<SystemSettings, "noStartReminderMinutes" | "autoCancelAfterMinutes" | "requireCancellationReason">;
 export type AttendanceSettings = Pick<SystemSettings, "attendanceLateCutoffMinutes" | "defaultSessionDurationMinutes" | "minimumTimeOutIntervalMinutes" | "allowAttendanceAfterScheduledEnd" | "automaticAbsentMarking">;
 export type VerificationSettings = Pick<SystemSettings, "readerPolicy" | "credentialStatusPolicy" | "allowedVerificationMethods">;
-export type NotificationSettings = Pick<SystemSettings, "notificationPreferencePlaceholder" | "participantInvitationMode">;
+export type NotificationSettings = Pick<SystemSettings, "notificationPreferencePlaceholder" | "participantInvitationMode" | "notificationEventsEnabled" | "notificationCredentialsEnabled" | "notificationCorrectionsEnabled" | "notificationRemindersEnabled">;
 export type AccessAuditSettings = Pick<SystemSettings, "sensitiveActionReasonRequired">;
 
 export type AuthSession = {

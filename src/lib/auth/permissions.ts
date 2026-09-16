@@ -1,33 +1,49 @@
 import type { UserRole } from "@/types/roles";
 
-export type Permission =
-  | "users.read" | "users.manage" | "events.create" | "events.read.owned" | "events.read.all"
-  | "events.manage.owned" | "attendance.read.owned" | "attendance.read.all" | "attendance.manage.owned"
-  | "corrections.review.owned" | "corrections.review.all" | "reports.read.owned" | "analytics.read.owned"
-  | "analytics.read.all" | "credentials.use.owned_event" | "audit.read.own" | "audit.read.all"
-  | "profile.manage.own" | "notifications.read.own" | "settings.manage.own" | "settings.manage";
+export const CAPABILITIES = [
+  "users.read.all", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke",
+  "events.create", "events.read.owned", "events.manage.owned", "events.read.all",
+  "attendance.read.owned", "attendance.manage.owned", "attendance.read.all",
+  "corrections.review.owned", "corrections.review.all", "analytics.read.owned", "analytics.read.all",
+  "reports.read.owned", "reports.read.all", "credentials.use.owned_event", "credentials.reset", "credentials.revoke",
+  "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
+  "system.data_check.run", "system.cache.refresh", "attendance.session.recover", "attendance.correction.override",
+  "audit.read.own", "audit.read.all", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own"
+] as const;
 
-const organizerPermissions: Permission[] = [
+export type Capability = (typeof CAPABILITIES)[number];
+
+const organizerCapabilities = [
   "events.create", "events.read.owned", "events.manage.owned", "attendance.read.owned", "attendance.manage.owned",
   "corrections.review.owned", "reports.read.owned", "analytics.read.owned", "credentials.use.owned_event",
-  "audit.read.own", "profile.manage.own", "notifications.read.own", "settings.manage.own"
-];
+  "audit.read.own", "profile.manage.own", "settings.manage.own", "notifications.read.own"
+] as const satisfies readonly Capability[];
 
-const adminPermissions: Permission[] = [
-  "users.read", "users.manage", "events.create", "events.read.owned", "events.read.all", "events.manage.owned",
-  "attendance.read.owned", "attendance.read.all", "attendance.manage.owned", "corrections.review.owned", "corrections.review.all",
-  "reports.read.owned", "analytics.read.owned", "analytics.read.all", "credentials.use.owned_event", "audit.read.own", "audit.read.all",
-  "profile.manage.own", "notifications.read.own", "settings.manage.own", "settings.manage"
-];
+const adminCapabilities = [
+  "users.read.all", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke",
+  "events.read.all", "attendance.read.all", "corrections.review.all", "analytics.read.all", "reports.read.all",
+  "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
+  "system.data_check.run", "system.cache.refresh", "attendance.session.recover", "attendance.correction.override",
+  "credentials.reset", "credentials.revoke", "audit.read.all", "audit.export", "profile.manage.own", "notifications.read.own"
+] as const satisfies readonly Capability[];
 
-export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
+export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
   student: [],
-  organizer: organizerPermissions,
-  admin: adminPermissions,
+  organizer: organizerCapabilities,
+  admin: adminCapabilities,
   // Legacy data may still contain faculty rows, but faculty is not a supported login role.
   faculty: []
 };
 
-export function hasPermission(role: UserRole, permission: Permission) {
-  return ROLE_PERMISSIONS[role]?.includes(permission) ?? false;
+export function hasCapability(role: UserRole, capability: Capability) {
+  return ROLE_CAPABILITIES[role]?.includes(capability) ?? false;
 }
+
+export function hasAnyCapability(role: UserRole, capabilities: readonly Capability[]) {
+  return capabilities.some((capability) => hasCapability(role, capability));
+}
+
+// Compatibility aliases for callers that still use the old permission terminology.
+export const ROLE_PERMISSIONS = ROLE_CAPABILITIES;
+export type Permission = Capability;
+export const hasPermission = hasCapability;

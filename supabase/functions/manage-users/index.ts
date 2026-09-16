@@ -28,16 +28,38 @@ async function recordAdminAudit(
   actorUserId: string,
   targetId: string,
   action: string,
-  metadata: Record<string, string | number | boolean>
+  metadata: Record<string, string | number | boolean>,
+  targetType = "user"
 ) {
   const { error } = await supabase.from("audit_logs").insert({
     actor_user_id: actorUserId,
     action,
-    target_type: "organizer_profile",
+    target_type: targetType,
     target_id: targetId,
     metadata
   });
   if (error) throw new Error(`Audit log creation failed: ${error.message}`);
+}
+
+async function inviteAccount(
+  supabase: ReturnType<typeof createClient>,
+  email: string,
+  metadata: Record<string, string | undefined>
+) {
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
+  if (error || !data.user) throw new Error(error?.message || "Invitation could not be created.");
+  return data.user;
+}
+
+async function removeAccount(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  profileTable: "organizers" | "admin_profiles" | "students",
+  profileColumn: "profile_id"
+) {
+  await supabase.from(profileTable).delete().eq(profileColumn, userId);
+  await supabase.from("profiles").delete().eq("id", userId);
+  await supabase.auth.admin.deleteUser(userId);
 }
 
 Deno.serve(async (request) => {
@@ -71,11 +93,17 @@ Deno.serve(async (request) => {
   // Global account management is an administrator-only capability.
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, account_status")
     .eq("id", authData.user.id)
     .single();
 
-  if (profileError || !profile || profile.role !== "admin") {
+  const { data: adminProfile, error: adminProfileError } = await supabase
+    .from("admin_profiles")
+    .select("profile_id")
+    .eq("profile_id", authData.user.id)
+    .maybeSingle();
+
+  if (profileError || adminProfileError || !profile || !adminProfile || profile.role !== "admin" || profile.account_status !== "active") {
     return json({ error: "Access denied. Only administrators can manage users." }, 403);
   }
 
@@ -93,14 +121,14 @@ Deno.serve(async (request) => {
       try {
         if (!email || !firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
         const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
-        const { data: userData, error: authError } = await supabase.auth.admin.createUser({ email, password: employeeNumber, email_confirm: true, user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName } });
-        if (authError || !userData.user) throw new Error(authError?.message || "Authentication account creation failed.");
-        const userId = userData.user.id;
+        const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+        const userId = user.id;
         const { error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "organizer", account_status: "active" });
-        if (profileError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileError.message); }
+        if (profileError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileError.message); }
         const { error: organizerError } = await supabase.from("organizers").insert({ profile_id: userId, employee_id: employeeNumber, department_id: departmentId || null, organization_name: organizationName, position, organizer_status: "active" });
-        if (organizerError) { await supabase.auth.admin.deleteUser(userId); throw new Error(organizerError.message); }
-        await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "bulk" });
+        if (organizerError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(organizerError.message); }
+        try { await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "bulk" }); }
+        catch (auditError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw auditError; }
         success++;
       } catch (err) {
         errors.push({ row: index + 2, email, error: err instanceof Error ? err.message : String(err) });
@@ -118,24 +146,22 @@ Deno.serve(async (request) => {
     }
     try {
       const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
-      const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({
-        email, password: employeeNumber, email_confirm: true,
-        user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName }
-      });
-      if (createUserError || !userData.user) throw new Error(createUserError?.message || "Organizer account could not be created.");
-      const userId = userData.user.id;
+      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+      const userId = user.id;
       const { error: profileInsertError } = await supabase.from("profiles").upsert({
         id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName,
         role: "organizer", account_status: "active"
       });
-      if (profileInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileInsertError.message); }
+      if (profileInsertError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileInsertError.message); }
       const { error: organizerInsertError } = await supabase.from("organizers").insert({
         profile_id: userId, employee_id: employeeNumber, department_id: departmentId || null,
         organization_name: organizationName, position, organizer_status: "active"
       });
-      if (organizerInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(organizerInsertError.message); }
-      await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "manual" });
-      return json({ success: true, employeeNumber });
+      if (organizerInsertError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(organizerInsertError.message); }
+      try { await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "manual" }); }
+      catch (auditError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw auditError; }
+      // Existing clients recognize: return json({ success: true, employeeNumber });
+      return json({ success: true, employeeNumber, invitationSent: true });
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
@@ -148,15 +174,15 @@ Deno.serve(async (request) => {
     if (!email || !firstName || !lastName || !departmentId || !officeName) return json({ error: "Please complete all required admin information." }, 400);
     try {
       const employeeNumber = await nextEmployeeId(supabase, "admin_profiles", "employee_number", "A");
-      const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({ email, password: employeeNumber, email_confirm: true, user_metadata: { first_name: firstName, middle_name: middleName, last_name: lastName } });
-      if (createUserError || !userData.user) throw new Error(createUserError?.message || "Admin account could not be created.");
-      const userId = userData.user.id;
+      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+      const userId = user.id;
       const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "admin", account_status: "active" });
-      if (profileInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(profileInsertError.message); }
+      if (profileInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(profileInsertError.message); }
       const { error: adminInsertError } = await supabase.from("admin_profiles").insert({ profile_id: userId, employee_number: employeeNumber, department_id: departmentId, office_name: officeName });
-      if (adminInsertError) { await supabase.auth.admin.deleteUser(userId); throw new Error(adminInsertError.message); }
-      await recordAdminAudit(supabase, authData.user.id, userId, "user.admin_created", { email, employeeNumber, source: "manual" });
-      return json({ success: true, employeeNumber });
+      if (adminInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(adminInsertError.message); }
+      try { await recordAdminAudit(supabase, authData.user.id, userId, "user.admin_created", { email, employeeNumber, source: "manual" }); }
+      catch (auditError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw auditError; }
+      return json({ success: true, employeeNumber, invitationSent: true });
     } catch (err) { return json({ error: err instanceof Error ? err.message : String(err) }, 400); }
   }
 
@@ -177,36 +203,40 @@ Deno.serve(async (request) => {
 
       const { data: existingProfile, error: profileLoadError } = await supabase
         .from("profiles")
-        .select("email, role")
+        .select("email, first_name, middle_name, last_name, account_status, role")
         .eq("id", profileId)
         .maybeSingle();
       if (profileLoadError) throw new Error(`Could not load the organizer profile: ${profileLoadError.message}`);
       if (!existingProfile || existingProfile.role !== "organizer") return json({ error: "The organizer profile could not be found." }, 404);
+      const { data: existingOrganizer, error: organizerLoadError } = await supabase
+        .from("organizers")
+        .select("department_id, organization_name, position, organizer_status")
+        .eq("id", id)
+        .eq("profile_id", profileId)
+        .maybeSingle();
+      if (organizerLoadError || !existingOrganizer) throw new Error(`Could not load the organizer account: ${organizerLoadError?.message || "record not found"}`);
 
       const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
-      if (emailChanged) {
-        const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
-        if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
+      try {
+        if (emailChanged) {
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
+          if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
+        }
+        const { error: profileUpdateError } = await supabase.from("profiles").update({
+          email, first_name: firstName, middle_name: middleName || null, last_name: lastName, account_status: accountStatus
+        }).eq("id", profileId).eq("role", "organizer");
+        if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
+        const { error: organizerUpdateError } = await supabase.from("organizers").update({
+          department_id: departmentId || null, organization_name: organizationName, position, organizer_status: employmentStatus
+        }).eq("id", id).eq("profile_id", profileId);
+        if (organizerUpdateError) throw new Error(`Organizer update failed: ${organizerUpdateError.message}`);
+        await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email, organizerId: id, accountStatus, employmentStatus }, "organizer_profile");
+      } catch (operationError) {
+        await supabase.from("profiles").update({ email: existingProfile.email, first_name: existingProfile.first_name, middle_name: existingProfile.middle_name, last_name: existingProfile.last_name, account_status: existingProfile.account_status }).eq("id", profileId);
+        await supabase.from("organizers").update(existingOrganizer).eq("id", id).eq("profile_id", profileId);
+        if (emailChanged) await supabase.auth.admin.updateUserById(profileId, { email: existingProfile.email });
+        throw operationError;
       }
-
-      const { error: profileUpdateError } = await supabase.from("profiles").update({
-        email,
-        first_name: firstName,
-        middle_name: middleName || null,
-        last_name: lastName,
-        account_status: accountStatus
-      }).eq("id", profileId).eq("role", "organizer");
-      if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
-
-      const { error: organizerUpdateError } = await supabase.from("organizers").update({
-        department_id: departmentId || null,
-        organization_name: organizationName,
-        position,
-        organizer_status: employmentStatus
-      }).eq("id", id).eq("profile_id", profileId);
-      if (organizerUpdateError) throw new Error(`Organizer update failed: ${organizerUpdateError.message}`);
-
-      await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email, organizerId: id, accountStatus, employmentStatus });
       return json({ success: true });
     } catch (err) {
       return json({ error: err instanceof Error ? err.message : String(err) }, 400);
@@ -216,8 +246,16 @@ Deno.serve(async (request) => {
   if (action === "update-student") {
     const student = requestBody.student;
     if (!student) return json({ error: "No student provided." }, 400);
+    let previousProfileForRollback: Record<string, unknown> | null = null;
+    let previousStudentForRollback: Record<string, unknown> | null = null;
     try {
       const { id, profileId, email, firstName, middleName, lastName, programId, departmentId, sectionId, yearLevel, accountStatus, statusOnly } = student;
+      const { data: previousProfile, error: previousProfileError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, account_status").eq("id", profileId).maybeSingle();
+      if (previousProfileError || !previousProfile) throw new Error(`Could not load the student profile: ${previousProfileError?.message || "record not found"}`);
+      const { data: previousStudent, error: previousStudentError } = await supabase.from("students").select("program_id, department_id, section_id, year_level").eq("id", id).maybeSingle();
+      if (previousStudentError || !previousStudent) throw new Error(`Could not load the student account: ${previousStudentError?.message || "record not found"}`);
+      previousProfileForRollback = previousProfile as Record<string, unknown>;
+      previousStudentForRollback = previousStudent as Record<string, unknown>;
       if (statusOnly) {
         if (!id || !profileId || !accountStatus || !["active", "inactive", "suspended"].includes(accountStatus)) {
           return json({ error: "A valid student account status is required." }, 400);
@@ -226,7 +264,13 @@ Deno.serve(async (request) => {
           .from("profiles")
           .update({ account_status: accountStatus })
           .eq("id", profileId);
-        if (statusUpdateError) throw new Error(`Account status update failed: ${statusUpdateError.message}`);
+        try {
+          if (statusUpdateError) throw new Error(`Account status update failed: ${statusUpdateError.message}`);
+          await recordAdminAudit(supabase, authData.user.id, profileId, "user.student_status_changed", { studentId: id, accountStatus }, "student_profile");
+        } catch (operationError) {
+          await supabase.from("profiles").update({ account_status: previousProfile.account_status }).eq("id", profileId);
+          throw operationError;
+        }
         return json({ success: true });
       }
       if (!id || !profileId || !email || !firstName || !lastName || !programId || !departmentId || !sectionId || !yearLevel) {
@@ -236,19 +280,9 @@ Deno.serve(async (request) => {
         return json({ error: "The selected account status is not valid." }, 400);
       }
       
-      const { data: existingProfile, error: existingProfileError } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("id", profileId)
-        .maybeSingle();
-      if (existingProfileError) throw new Error(`Could not load the student profile: ${existingProfileError.message}`);
-      if (!existingProfile) return json({ error: "The student profile could not be found." }, 404);
-
-      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      const emailChanged = String(previousProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
       if (emailChanged) {
-        const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, {
-          email
-        });
+        const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, { email });
         if (updateAuthError) throw new Error(`Auth update failed: ${updateAuthError.message}`);
       }
       
@@ -306,9 +340,14 @@ Deno.serve(async (request) => {
       }).eq("id", id);
       
       if (studentUpdateError) throw new Error(`Student update failed: ${studentUpdateError.message}`);
-      
+      await recordAdminAudit(supabase, authData.user.id, profileId, "user.student_updated", { studentId: id, accountStatus: accountStatus ?? "unchanged" }, "student_profile");
       return json({ success: true });
     } catch (err) {
+      if (student?.profileId && student?.id) {
+        if (previousProfileForRollback) await supabase.from("profiles").update(previousProfileForRollback).eq("id", student.profileId);
+        if (previousStudentForRollback) await supabase.from("students").update(previousStudentForRollback).eq("id", student.id);
+        if (previousProfileForRollback?.email && student.email && String(previousProfileForRollback.email).trim().toLowerCase() !== String(student.email).trim().toLowerCase()) await supabase.auth.admin.updateUserById(student.profileId, { email: String(previousProfileForRollback.email) });
+      }
       return json({ error: err instanceof Error ? err.message : String(err) }, 400);
     }
   }

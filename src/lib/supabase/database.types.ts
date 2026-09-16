@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -7,30 +7,10 @@
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -79,16 +59,28 @@ export type Database = {
           },
         ]
       }
-      attendance_late_reason_options: {
-        Row: { id: string; code: string; default_label: string; sort_order: number; is_active: boolean; created_at: string; updated_at: string }
-        Insert: { id?: string; code: string; default_label: string; sort_order?: number; is_active?: boolean; created_at?: string; updated_at?: string }
-        Update: { id?: string; code?: string; default_label?: string; sort_order?: number; is_active?: boolean; created_at?: string; updated_at?: string }
-        Relationships: []
-      }
       attendance_late_reason_option_translations: {
-        Row: { option_id: string; locale: string; label: string; created_at: string; updated_at: string }
-        Insert: { option_id: string; locale: string; label: string; created_at?: string; updated_at?: string }
-        Update: { option_id?: string; locale?: string; label?: string; updated_at?: string }
+        Row: {
+          created_at: string
+          label: string
+          locale: string
+          option_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          label: string
+          locale: string
+          option_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          label?: string
+          locale?: string
+          option_id?: string
+          updated_at?: string
+        }
         Relationships: [
           {
             foreignKeyName: "attendance_late_reason_option_translations_option_id_fkey"
@@ -99,11 +91,42 @@ export type Database = {
           },
         ]
       }
+      attendance_late_reason_options: {
+        Row: {
+          code: string
+          created_at: string
+          default_label: string
+          id: string
+          is_active: boolean
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          default_label: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          default_label?: string
+          id?: string
+          is_active?: boolean
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       attendance_records: {
         Row: {
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
+          event_session_id: string
           id: string
           late_reason: string | null
           late_reason_category: string | null
@@ -113,7 +136,6 @@ export type Database = {
           recorded_at: string
           recorded_by: string | null
           remarks: string | null
-          event_session_id: string
           student_id: string
           time_in: string | null
           time_out: string | null
@@ -125,6 +147,7 @@ export type Database = {
           attendance_status: string
           checkout_verification_method?: string | null
           created_at?: string
+          event_session_id: string
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
@@ -134,7 +157,6 @@ export type Database = {
           recorded_at?: string
           recorded_by?: string | null
           remarks?: string | null
-          event_session_id: string
           student_id: string
           time_in?: string | null
           time_out?: string | null
@@ -146,6 +168,7 @@ export type Database = {
           attendance_status?: string
           checkout_verification_method?: string | null
           created_at?: string
+          event_session_id?: string
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
@@ -155,7 +178,6 @@ export type Database = {
           recorded_at?: string
           recorded_by?: string | null
           remarks?: string | null
-          event_session_id?: string
           student_id?: string
           time_in?: string | null
           time_out?: string | null
@@ -169,6 +191,13 @@ export type Database = {
             columns: ["event_session_id"]
             isOneToOne: false
             referencedRelation: "event_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_records_late_reason_option_id_fkey"
+            columns: ["late_reason_option_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_late_reason_options"
             referencedColumns: ["id"]
           },
           {
@@ -299,207 +328,6 @@ export type Database = {
           },
         ]
       }
-      attendance_sessions: {
-        Row: {
-          actual_end: string | null
-          actual_start: string | null
-          attendance_window_end_at: string | null
-          attendance_window_start_at: string | null
-          class_id: string | null
-          created_at: string
-          created_by: string
-          ended_reason: string | null
-          event_id: string | null
-          id: string
-          late_cutoff_at: string | null
-          mode: string
-          rescheduled_at: string | null
-          rescheduled_reason: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_archive_status: string | null
-          session_name: string
-          session_status: string
-          session_type: string
-          superseded_by: string | null
-          updated_at: string
-          venue: string
-        }
-        Insert: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          class_id?: string | null
-          created_at?: string
-          created_by: string
-          ended_reason?: string | null
-          event_id?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          rescheduled_at?: string | null
-          rescheduled_reason?: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_archive_status?: string | null
-          session_name: string
-          session_status?: string
-          session_type?: string
-          superseded_by?: string | null
-          updated_at?: string
-          venue: string
-        }
-        Update: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          class_id?: string | null
-          created_at?: string
-          created_by?: string
-          ended_reason?: string | null
-          event_id?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          rescheduled_at?: string | null
-          rescheduled_reason?: string | null
-          scheduled_end?: string
-          scheduled_start?: string
-          session_archive_status?: string | null
-          session_name?: string
-          session_status?: string
-          session_type?: string
-          superseded_by?: string | null
-          updated_at?: string
-          venue?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "attendance_sessions_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_sessions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_sessions_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "attendance_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      event_sessions: {
-        Row: {
-          actual_end: string | null
-          actual_start: string | null
-          attendance_window_end_at: string | null
-          attendance_window_start_at: string | null
-          created_at: string
-          created_by: string
-          ended_reason: string | null
-          event_id: string
-          id: string
-          late_cutoff_at: string | null
-          mode: string
-          rescheduled_at: string | null
-          rescheduled_reason: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_archive_status: string | null
-          session_name: string
-          session_status: string
-          superseded_by: string | null
-          updated_at: string
-          venue: string
-        }
-        Insert: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          created_at?: string
-          created_by: string
-          ended_reason?: string | null
-          event_id: string
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          rescheduled_at?: string | null
-          rescheduled_reason?: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_archive_status?: string | null
-          session_name: string
-          session_status?: string
-          superseded_by?: string | null
-          updated_at?: string
-          venue: string
-        }
-        Update: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          created_at?: string
-          created_by?: string
-          ended_reason?: string | null
-          event_id?: string
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          rescheduled_at?: string | null
-          rescheduled_reason?: string | null
-          scheduled_end?: string
-          scheduled_start?: string
-          session_archive_status?: string | null
-          session_name?: string
-          session_status?: string
-          superseded_by?: string | null
-          updated_at?: string
-          venue?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_sessions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_sessions_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_sessions_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "event_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       audit_logs: {
         Row: {
           action: string
@@ -570,6 +398,91 @@ export type Database = {
             columns: ["student_id"]
             isOneToOne: false
             referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_sessions: {
+        Row: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          class_id: string
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          room_id: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_date: string
+          session_name: string
+          session_status: string
+          updated_at: string
+        }
+        Insert: {
+          actual_end?: string | null
+          actual_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
+          class_id: string
+          created_at?: string
+          created_by: string
+          ended_reason?: string | null
+          id?: string
+          late_cutoff_at?: string | null
+          mode?: string
+          room_id?: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_date: string
+          session_name: string
+          session_status?: string
+          updated_at?: string
+        }
+        Update: {
+          actual_end?: string | null
+          actual_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
+          class_id?: string
+          created_at?: string
+          created_by?: string
+          ended_reason?: string | null
+          id?: string
+          late_cutoff_at?: string | null
+          mode?: string
+          room_id?: string | null
+          scheduled_end?: string
+          scheduled_start?: string
+          session_date?: string
+          session_name?: string
+          session_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_sessions_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_sessions_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
         ]
@@ -765,6 +678,7 @@ export type Database = {
           department_code: string
           department_name: string
           id: string
+          is_active: boolean
           updated_at: string
         }
         Insert: {
@@ -772,6 +686,7 @@ export type Database = {
           department_code: string
           department_name: string
           id?: string
+          is_active?: boolean
           updated_at?: string
         }
         Update: {
@@ -779,6 +694,7 @@ export type Database = {
           department_code?: string
           department_name?: string
           id?: string
+          is_active?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -788,18 +704,21 @@ export type Database = {
           category_name: string
           created_at: string
           id: string
+          is_active: boolean
           updated_at: string
         }
         Insert: {
           category_name: string
           created_at?: string
           id?: string
+          is_active?: boolean
           updated_at?: string
         }
         Update: {
           category_name?: string
           created_at?: string
           id?: string
+          is_active?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -811,15 +730,15 @@ export type Database = {
           created_at: string
           delivery_status: string
           error_message: string | null
-          event_code: string | null
+          event_code: string
           event_id: string
           event_revision: string
-          event_title: string | null
+          event_title: string
           html_body: string | null
           id: string
-          notification_type: string
-          next_attempt_at: string
           last_attempt_at: string | null
+          next_attempt_at: string
+          notification_type: string
           processing_started_at: string | null
           processing_token: string | null
           provider_message_id: string | null
@@ -834,15 +753,15 @@ export type Database = {
           created_at?: string
           delivery_status?: string
           error_message?: string | null
-          event_code?: string | null
+          event_code: string
           event_id: string
           event_revision: string
-          event_title?: string | null
+          event_title: string
           html_body?: string | null
           id?: string
-          notification_type: string
-          next_attempt_at?: string
           last_attempt_at?: string | null
+          next_attempt_at?: string
+          notification_type: string
           processing_started_at?: string | null
           processing_token?: string | null
           provider_message_id?: string | null
@@ -857,15 +776,15 @@ export type Database = {
           created_at?: string
           delivery_status?: string
           error_message?: string | null
-          event_code?: string | null
+          event_code?: string
           event_id?: string
           event_revision?: string
-          event_title?: string | null
+          event_title?: string
           html_body?: string | null
           id?: string
-          notification_type?: string
-          next_attempt_at?: string
           last_attempt_at?: string | null
+          next_attempt_at?: string
+          notification_type?: string
           processing_started_at?: string | null
           processing_token?: string | null
           provider_message_id?: string | null
@@ -988,6 +907,103 @@ export type Database = {
           },
         ]
       }
+      event_feedback_task_objectives: {
+        Row: {
+          objective_id: string
+          objective_order: number
+          objective_text: string
+          task_id: string
+        }
+        Insert: {
+          objective_id: string
+          objective_order: number
+          objective_text: string
+          task_id: string
+        }
+        Update: {
+          objective_id?: string
+          objective_order?: number
+          objective_text?: string
+          task_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_feedback_task_objectives_objective_id_fkey"
+            columns: ["objective_id"]
+            isOneToOne: false
+            referencedRelation: "event_objectives"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_feedback_task_objectives_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "event_feedback_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_feedback_tasks: {
+        Row: {
+          attendance_record_id: string
+          completed_at: string | null
+          created_at: string
+          due_at: string
+          event_id: string
+          expired_at: string | null
+          id: string
+          student_id: string
+          task_status: string
+          updated_at: string
+        }
+        Insert: {
+          attendance_record_id: string
+          completed_at?: string | null
+          created_at?: string
+          due_at: string
+          event_id: string
+          expired_at?: string | null
+          id?: string
+          student_id: string
+          task_status?: string
+          updated_at?: string
+        }
+        Update: {
+          attendance_record_id?: string
+          completed_at?: string | null
+          created_at?: string
+          due_at?: string
+          event_id?: string
+          expired_at?: string | null
+          id?: string
+          student_id?: string
+          task_status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_feedback_tasks_attendance_record_id_fkey"
+            columns: ["attendance_record_id"]
+            isOneToOne: true
+            referencedRelation: "attendance_records"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_feedback_tasks_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_feedback_tasks_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       event_objectives: {
         Row: {
           average_rating: number | null
@@ -996,6 +1012,7 @@ export type Database = {
           id: string
           objective_order: number
           objective_text: string
+          rating_count: number
           updated_at: string
         }
         Insert: {
@@ -1005,6 +1022,7 @@ export type Database = {
           id?: string
           objective_order: number
           objective_text: string
+          rating_count?: number
           updated_at?: string
         }
         Update: {
@@ -1014,6 +1032,7 @@ export type Database = {
           id?: string
           objective_order?: number
           objective_text?: string
+          rating_count?: number
           updated_at?: string
         }
         Relationships: [
@@ -1115,6 +1134,100 @@ export type Database = {
             columns: ["event_id"]
             isOneToOne: false
             referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_sessions: {
+        Row: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        Insert: {
+          actual_end?: string | null
+          actual_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
+          created_at?: string
+          created_by: string
+          ended_reason?: string | null
+          event_id: string
+          id?: string
+          late_cutoff_at?: string | null
+          mode?: string
+          rescheduled_at?: string | null
+          rescheduled_reason?: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status?: string | null
+          session_name: string
+          session_status?: string
+          superseded_by?: string | null
+          updated_at?: string
+          venue: string
+        }
+        Update: {
+          actual_end?: string | null
+          actual_start?: string | null
+          attendance_window_end_at?: string | null
+          attendance_window_start_at?: string | null
+          created_at?: string
+          created_by?: string
+          ended_reason?: string | null
+          event_id?: string
+          id?: string
+          late_cutoff_at?: string | null
+          mode?: string
+          rescheduled_at?: string | null
+          rescheduled_reason?: string | null
+          scheduled_end?: string
+          scheduled_start?: string
+          session_archive_status?: string | null
+          session_name?: string
+          session_status?: string
+          superseded_by?: string | null
+          updated_at?: string
+          venue?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_sessions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_sessions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "event_sessions_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "event_sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -1591,41 +1704,82 @@ export type Database = {
           },
         ]
       }
+      notification_preferences: {
+        Row: {
+          preferences: Json
+          profile_id: string
+          updated_at: string
+        }
+        Insert: {
+          preferences?: Json
+          profile_id: string
+          updated_at?: string
+        }
+        Update: {
+          preferences?: Json
+          profile_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_preferences_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           action_url: string | null
           created_at: string
+          dedupe_key: string | null
           id: string
           message: string
+          notification_code: string
           notification_status: string
           notification_type: string
           read_at: string | null
           recipient_id: string
           reference_id: string | null
+          related_type: string | null
+          requires_action: boolean
+          severity: string
           title: string
         }
         Insert: {
           action_url?: string | null
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           message: string
+          notification_code: string
           notification_status?: string
           notification_type: string
           read_at?: string | null
           recipient_id: string
           reference_id?: string | null
+          related_type?: string | null
+          requires_action?: boolean
+          severity?: string
           title: string
         }
         Update: {
           action_url?: string | null
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           message?: string
+          notification_code?: string
           notification_status?: string
           notification_type?: string
           read_at?: string | null
           recipient_id?: string
           reference_id?: string | null
+          related_type?: string | null
+          requires_action?: boolean
+          severity?: string
           title?: string
         }
         Relationships: [
@@ -1640,6 +1794,7 @@ export type Database = {
       }
       organizers: {
         Row: {
+          college_logo_path: string | null
           created_at: string
           department_id: string | null
           employee_id: string
@@ -1651,6 +1806,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          college_logo_path?: string | null
           created_at?: string
           department_id?: string | null
           employee_id: string
@@ -1662,6 +1818,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          college_logo_path?: string | null
           created_at?: string
           department_id?: string | null
           employee_id?: string
@@ -1750,6 +1907,7 @@ export type Database = {
           created_at: string
           department_id: string
           id: string
+          is_active: boolean
           program_code: string
           program_name: string
           updated_at: string
@@ -1758,6 +1916,7 @@ export type Database = {
           created_at?: string
           department_id: string
           id?: string
+          is_active?: boolean
           program_code: string
           program_name: string
           updated_at?: string
@@ -1766,6 +1925,7 @@ export type Database = {
           created_at?: string
           department_id?: string
           id?: string
+          is_active?: boolean
           program_code?: string
           program_name?: string
           updated_at?: string
@@ -1883,11 +2043,39 @@ export type Database = {
           },
         ]
       }
+      rooms: {
+        Row: {
+          building: string | null
+          capacity: number | null
+          created_at: string
+          id: string
+          room_code: string
+          updated_at: string
+        }
+        Insert: {
+          building?: string | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          room_code: string
+          updated_at?: string
+        }
+        Update: {
+          building?: string | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          room_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sections: {
         Row: {
           academic_year: string
           created_at: string
           id: string
+          is_active: boolean
           program_id: string
           section_name: string
           semester: string
@@ -1898,6 +2086,7 @@ export type Database = {
           academic_year: string
           created_at?: string
           id?: string
+          is_active?: boolean
           program_id: string
           section_name: string
           semester: string
@@ -1908,6 +2097,7 @@ export type Database = {
           academic_year?: string
           created_at?: string
           id?: string
+          is_active?: boolean
           program_id?: string
           section_name?: string
           semester?: string
@@ -2069,6 +2259,63 @@ export type Database = {
           },
         ]
       }
+      system_settings: {
+        Row: {
+          attendance_late_cutoff_minutes: number
+          created_at: string
+          current_school_year: string
+          current_semester_id: string | null
+          default_session_duration_minutes: number
+          id: string
+          institution_name: string
+          notification_preferences: Json
+          updated_at: string
+          updated_by: string | null
+          verification_policy: string
+        }
+        Insert: {
+          attendance_late_cutoff_minutes?: number
+          created_at?: string
+          current_school_year?: string
+          current_semester_id?: string | null
+          default_session_duration_minutes?: number
+          id?: string
+          institution_name?: string
+          notification_preferences?: Json
+          updated_at?: string
+          updated_by?: string | null
+          verification_policy?: string
+        }
+        Update: {
+          attendance_late_cutoff_minutes?: number
+          created_at?: string
+          current_school_year?: string
+          current_semester_id?: string | null
+          default_session_duration_minutes?: number
+          id?: string
+          institution_name?: string
+          notification_preferences?: Json
+          updated_at?: string
+          updated_by?: string | null
+          verification_policy?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "system_settings_current_semester_id_fkey"
+            columns: ["current_semester_id"]
+            isOneToOne: false
+            referencedRelation: "semesters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "system_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       verification_attempts: {
         Row: {
           accepted: boolean
@@ -2111,7 +2358,7 @@ export type Database = {
             foreignKeyName: "verification_attempts_event_session_id_fkey"
             columns: ["event_session_id"]
             isOneToOne: false
-            referencedRelation: "attendance_sessions"
+            referencedRelation: "event_sessions"
             referencedColumns: ["id"]
           },
           {
@@ -2142,20 +2389,80 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      generate_student_qr_credential: {
-        Args: Record<PropertyKey, never>
+      admin_list_credential_statuses: {
+        Args: never
+        Returns: {
+          facial_consent_recorded_at: string
+          facial_created_at: string
+          facial_enrolled_at: string
+          facial_id: string
+          facial_last_verified_at: string
+          facial_status: string
+          facial_updated_at: string
+          qr_created_at: string
+          qr_credential_status: string
+          qr_expires_at: string
+          qr_id: string
+          qr_issued_at: string
+          qr_last_successful_check_in_at: string
+          qr_revoked_at: string
+          qr_updated_at: string
+          student_id: string
+        }[]
+      }
+      admin_manage_catalog_entry: {
+        Args: { p_id?: string; p_table: string; p_values?: Json }
+        Returns: string
+      }
+      admin_recover_attendance_session: {
+        Args: { p_reason: string; p_session_id: string }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      admin_retry_email_job: {
+        Args: { p_job_id: string; p_reason: string; p_source: string }
+        Returns: Json
+      }
+      admin_run_data_consistency_check: {
+        Args: never
         Returns: {
           created_at: string
-          credential_status: string
-          expires_at: string | null
           id: string
-          issued_at: string
-          last_successful_check_in_at: string | null
-          revoked_at: string | null
-          student_id: string
-          token_hash: string
-          updated_at: string
-        }
+          message: string
+          reference_id: string
+          severity: string
+        }[]
+      }
+      admin_update_system_settings: {
+        Args: { p_changes: Json; p_settings_id: string }
+        Returns: undefined
       }
       cancel_organizer_event: {
         Args: { p_event_id: string; p_reason: string }
@@ -2203,6 +2510,25 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      claim_event_email_outbox_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          body: string
+          html_body: string
+          id: string
+          processing_token: string
+          recipient_email: string
+          subject: string
+        }[]
+      }
+      complete_event_email_outbox_delivery: {
+        Args: {
+          p_outbox_id: string
+          p_processing_token: string
+          p_provider_message_id?: string
+        }
+        Returns: undefined
       }
       complete_facial_enrollment: {
         Args: { p_enrollment_reference: string }
@@ -2318,20 +2644,62 @@ export type Database = {
           p_venue: string
           p_visibility: string
         }
-        Returns: Database["public"]["Tables"]["events"]["Row"]
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          college_office: string | null
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          fixed_priority: boolean
+          id: string
+          impact_score: number | null
+          institutional_category: string | null
+          last_rescheduled_at: string | null
+          number_of_pax: number | null
+          organizer_id: string
+          participation_status: string | null
+          predicted_turnout_percent: number | null
+          priority_level: string
+          priority_score: number
+          priority_tier: string
+          published_at: string | null
+          published_by: string | null
+          requested_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          target_group: string | null
+          title: string
+          updated_at: string
+          urgency_points: number
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
-      end_event_attendance_session: {
-        Args: { p_reason: string; p_session_id: string }
+      discard_empty_event_session: {
+        Args: { p_session_id: string }
         Returns: {
           actual_end: string | null
           actual_start: string | null
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
-          class_id: string | null
           created_at: string
           created_by: string
           ended_reason: string | null
-          event_id: string | null
+          event_id: string
           id: string
           late_cutoff_at: string | null
           mode: string
@@ -2342,17 +2710,57 @@ export type Database = {
           session_archive_status: string | null
           session_name: string
           session_status: string
-          session_type: string
           superseded_by: string | null
           updated_at: string
           venue: string
         }
         SetofOptions: {
           from: "*"
-          to: "attendance_sessions"
+          to: "event_sessions"
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      end_event_attendance_session: {
+        Args: { p_reason: string; p_session_id: string }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      expire_overdue_feedback_tasks: { Args: never; Returns: number }
+      fail_event_email_outbox_delivery: {
+        Args: {
+          p_error_message: string
+          p_outbox_id: string
+          p_processing_token: string
+        }
+        Returns: undefined
       }
       finalize_event_attendance_session: {
         Args: {
@@ -2365,11 +2773,10 @@ export type Database = {
           actual_start: string | null
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
-          class_id: string | null
           created_at: string
           created_by: string
           ended_reason: string | null
-          event_id: string | null
+          event_id: string
           id: string
           late_cutoff_at: string | null
           mode: string
@@ -2380,17 +2787,50 @@ export type Database = {
           session_archive_status: string | null
           session_name: string
           session_status: string
-          session_type: string
           superseded_by: string | null
           updated_at: string
           venue: string
         }
         SetofOptions: {
           from: "*"
-          to: "attendance_sessions"
+          to: "event_sessions"
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      generate_student_qr_credential: {
+        Args: never
+        Returns: {
+          created_at: string
+          credential_status: string
+          expires_at: string | null
+          id: string
+          issued_at: string
+          last_successful_check_in_at: string | null
+          revoked_at: string | null
+          student_id: string
+          token_hash: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "qr_credentials"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      get_conflicting_events: {
+        Args: never
+        Returns: {
+          conflicts_with: string[]
+          ends_at: string
+          event_code: string
+          event_id: string
+          impact_score: number
+          priority_level: string
+          starts_at: string
+          title: string
+        }[]
       }
       get_facial_descriptor_for_organizer: {
         Args: { p_event_session_id: string; p_student_id: string }
@@ -2413,6 +2853,14 @@ export type Database = {
           student_number: string
         }[]
       }
+      get_student_dashboard_summary: { Args: never; Returns: Json }
+      identify_event_participant_by_face: {
+        Args: { p_event_session_id: string; p_live_descriptor: Json }
+        Returns: {
+          similarity: number
+          student_id: string
+        }[]
+      }
       issue_qr_credential: {
         Args: { p_expires_at?: string; p_student_id: string }
         Returns: {
@@ -2433,6 +2881,12 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      list_student_finalized_event_years: {
+        Args: never
+        Returns: {
+          event_year: number
+        }[]
       }
       log_client_action: {
         Args: {
@@ -2475,15 +2929,16 @@ export type Database = {
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
+          event_session_id: string
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          late_reason_option_id: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
           recorded_by: string | null
           remarks: string | null
-          session_id: string
           student_id: string
           time_in: string | null
           time_out: string | null
@@ -2617,11 +3072,10 @@ export type Database = {
           actual_start: string | null
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
-          class_id: string | null
           created_at: string
           created_by: string
           ended_reason: string | null
-          event_id: string | null
+          event_id: string
           id: string
           late_cutoff_at: string | null
           mode: string
@@ -2632,14 +3086,13 @@ export type Database = {
           session_archive_status: string | null
           session_name: string
           session_status: string
-          session_type: string
           superseded_by: string | null
           updated_at: string
           venue: string
         }
         SetofOptions: {
           from: "*"
-          to: "attendance_sessions"
+          to: "event_sessions"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -2676,48 +3129,85 @@ export type Database = {
         }
         Returns: Json
       }
-      submit_late_reason: {
+      submit_feedback_task: {
         Args: {
-          p_attendance_record_id: string
-          p_late_reason_option_id: string
-          p_late_reason?: string
+          p_comment: string
+          p_ratings: Json
+          p_sentiment_label?: string
+          p_sentiment_score?: number
+          p_task_id: string
         }
-        Returns: {
-          attendance_status: string
-          checkout_verification_method: string | null
-          created_at: string
-          id: string
-          late_reason: string | null
-          late_reason_category: string | null
-          late_reason_option_id: string | null
-          local_attendance_uuid: string | null
-          minutes_late: number | null
-          recorded_at: string
-          recorded_by: string | null
-          remarks: string | null
-          session_id: string
-          student_id: string
-          time_in: string | null
-          time_out: string | null
-          updated_at: string
-          verification_attempt_id: string | null
-          verification_method: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "attendance_records"
-          isOneToOne: true
-          isSetofReturn: false
-        }
+        Returns: string
       }
-      get_student_dashboard_summary: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
-      list_student_finalized_event_years: {
-        Args: Record<PropertyKey, never>
-        Returns: { event_year: number }[]
-      }
+      submit_late_reason:
+        | {
+            Args: {
+              p_attendance_record_id: string
+              p_late_reason?: string
+              p_late_reason_category: string
+            }
+            Returns: {
+              attendance_status: string
+              checkout_verification_method: string | null
+              created_at: string
+              event_session_id: string
+              id: string
+              late_reason: string | null
+              late_reason_category: string | null
+              late_reason_option_id: string | null
+              local_attendance_uuid: string | null
+              minutes_late: number | null
+              recorded_at: string
+              recorded_by: string | null
+              remarks: string | null
+              student_id: string
+              time_in: string | null
+              time_out: string | null
+              updated_at: string
+              verification_attempt_id: string | null
+              verification_method: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "attendance_records"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              p_attendance_record_id: string
+              p_late_reason?: string
+              p_late_reason_option_id: string
+            }
+            Returns: {
+              attendance_status: string
+              checkout_verification_method: string | null
+              created_at: string
+              event_session_id: string
+              id: string
+              late_reason: string | null
+              late_reason_category: string | null
+              late_reason_option_id: string | null
+              local_attendance_uuid: string | null
+              minutes_late: number | null
+              recorded_at: string
+              recorded_by: string | null
+              remarks: string | null
+              student_id: string
+              time_in: string | null
+              time_out: string | null
+              updated_at: string
+              verification_attempt_id: string | null
+              verification_method: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "attendance_records"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
       sync_offline_event_attendance: {
         Args: {
           p_attendance_status: string
@@ -2735,15 +3225,16 @@ export type Database = {
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
+          event_session_id: string
           id: string
           late_reason: string | null
           late_reason_category: string | null
+          late_reason_option_id: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
           recorded_by: string | null
           remarks: string | null
-          session_id: string
           student_id: string
           time_in: string | null
           time_out: string | null
@@ -2758,118 +3249,65 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      update_organizer_event_metadata:
-        | {
-            Args: {
-              p_college_office?: string
-              p_event_id: string
-              p_number_of_pax?: number
-              p_requested_by?: string
-            }
-            Returns: {
-              approval_reason: string | null
-              approval_status: string
-              cancellation_reason: string | null
-              cancelled_at: string | null
-              cancelled_by: string | null
-              category_id: string
-              college_office: string | null
-              created_at: string
-              department_id: string | null
-              description: string | null
-              ends_at: string
-              event_code: string
-              event_status: string
-              fixed_priority: boolean
-              id: string
-              impact_score: number | null
-              institutional_category: string | null
-              last_rescheduled_at: string | null
-              number_of_pax: number | null
-              organizer_id: string
-              participation_status: string | null
-              predicted_turnout_percent: number | null
-              priority_level: string
-              priority_score: number
-              priority_tier: string
-              published_at: string | null
-              published_by: string | null
-              requested_by: string | null
-              reschedule_count: number | null
-              starts_at: string
-              target_group: string | null
-              title: string
-              updated_at: string
-              urgency_points: number
-              venue: string
-              visibility: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "events"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
-        | {
-            Args: {
-              p_college_office?: string
-              p_event_id: string
-              p_fixed_priority?: boolean
-              p_institutional_category?: string
-              p_number_of_pax?: number
-              p_participation_status?: string
-              p_priority_score?: number
-              p_priority_tier?: string
-              p_requested_by?: string
-              p_target_group?: string
-              p_urgency_points?: number
-            }
-            Returns: {
-              approval_reason: string | null
-              approval_status: string
-              cancellation_reason: string | null
-              cancelled_at: string | null
-              cancelled_by: string | null
-              category_id: string
-              college_office: string | null
-              created_at: string
-              department_id: string | null
-              description: string | null
-              ends_at: string
-              event_code: string
-              event_status: string
-              fixed_priority: boolean
-              id: string
-              impact_score: number | null
-              institutional_category: string | null
-              last_rescheduled_at: string | null
-              number_of_pax: number | null
-              organizer_id: string
-              participation_status: string | null
-              predicted_turnout_percent: number | null
-              priority_level: string
-              priority_score: number
-              priority_tier: string
-              published_at: string | null
-              published_by: string | null
-              requested_by: string | null
-              reschedule_count: number | null
-              starts_at: string
-              target_group: string | null
-              title: string
-              updated_at: string
-              urgency_points: number
-              venue: string
-              visibility: string
-            }
-            SetofOptions: {
-              from: "*"
-              to: "events"
-              isOneToOne: true
-              isSetofReturn: false
-            }
-          }
+      update_organizer_event_metadata: {
+        Args: {
+          p_college_office?: string
+          p_event_id: string
+          p_fixed_priority?: boolean
+          p_institutional_category?: string
+          p_number_of_pax?: number
+          p_participation_status?: string
+          p_priority_score?: number
+          p_priority_tier?: string
+          p_requested_by?: string
+          p_target_group?: string
+          p_urgency_points?: number
+        }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          college_office: string | null
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          fixed_priority: boolean
+          id: string
+          impact_score: number | null
+          institutional_category: string | null
+          last_rescheduled_at: string | null
+          number_of_pax: number | null
+          organizer_id: string
+          participation_status: string | null
+          predicted_turnout_percent: number | null
+          priority_level: string
+          priority_score: number
+          priority_tier: string
+          published_at: string | null
+          published_by: string | null
+          requested_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          target_group: string | null
+          title: string
+          updated_at: string
+          urgency_points: number
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
     }
     Enums: {
       [_ in never]: never
@@ -2888,12 +3326,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2917,11 +3355,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2942,11 +3380,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2967,11 +3405,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2984,11 +3422,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2998,11 +3436,7 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
 } as const
-

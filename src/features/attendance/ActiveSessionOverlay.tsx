@@ -4,6 +4,7 @@ import { Radio } from "lucide-react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceSessions, useEvents } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { hasAnyCapability } from "@/lib/auth/permissions";
 
 export function ActiveSessionOverlay() {
   const { session } = useDevelopmentSession();
@@ -19,7 +20,7 @@ export function ActiveSessionOverlay() {
   const eventsQuery = useEvents({ pageSize: 200 }, context);
 
   // Only show for organizers and admins
-  if (!session || (session.role !== "organizer" && session.role !== "admin")) {
+  if (!session || !hasAnyCapability(session.role, ["events.manage.owned", "attendance.manage.owned"])) {
     return null;
   }
 

@@ -2,17 +2,18 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { UserRole } from "@/types/roles";
-import { hasPermission, type Permission } from "@/lib/auth/permissions";
+import { hasAnyCapability, type Capability } from "@/lib/auth/permissions";
 
 type RoleRouteProps = {
   allowedRoles: UserRole[];
-  permission?: Permission;
+  permission?: Capability | readonly Capability[];
 };
 
 export function RoleRoute({ allowedRoles, permission }: RoleRouteProps) {
   const { session } = useDevelopmentSession();
 
-  if (!session || !allowedRoles.includes(session.role) || (permission && !hasPermission(session.role, permission))) {
+  const capabilities = permission ? (Array.isArray(permission) ? permission : [permission]) : [];
+  if (!session || !allowedRoles.includes(session.role) || (capabilities.length > 0 && !hasAnyCapability(session.role, capabilities))) {
     return <Navigate to={APP_ROUTES.accessDenied} replace />;
   }
 

@@ -22,6 +22,7 @@ import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 
 // Lets column defs pass a className through to PLPassDataGrid's <th>/<td>.
 // PLPassDataGrid must read column.columnDef.meta?.headerClassName /
@@ -666,7 +667,7 @@ export function EventRecordsPage() {
     if (!event) return;
 
     setCompletedModal(event);
-    navigate(APP_ROUTES.organizerRecords, { replace: true });
+    navigate(getWorkspaceRoute(location.pathname, APP_ROUTES.organizerRecords, APP_ROUTES.adminAttendance), { replace: true });
   }, [completedRows, location.search, navigate]);
 
 
@@ -798,7 +799,7 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-5 lg:space-y-6">
-      <PageHeader title="Event Records" description="Review completed events and attendance outcomes." />
+      <PageHeader title="Event Records" description={session?.role === "admin" ? "Review institution-wide completed events and attendance outcomes." : "Review your completed events and attendance outcomes."} />
 
       <section aria-label="Completed event summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <EventMetricCard title="Completed events" value={String(pastEventsStats.totalEvents)} icon={CalendarCheck} />
@@ -812,7 +813,7 @@ export function EventRecordsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold text-foreground">Completed events</h2>
+                <h2 className="text-lg font-semibold text-foreground">{session?.role === "admin" ? "Completed events" : "Your completed events"}</h2>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">Select an event to view its attendance record.</p>
             </div>

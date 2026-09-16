@@ -26,6 +26,8 @@ import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSe
 import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { hasCapability } from "@/lib/auth/permissions";
+import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -548,6 +550,10 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 export function EventManagementPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const workspaceRoute = useCallback(
+    (organizerRoute: string, adminRoute: string) => getWorkspaceRoute(location.pathname, organizerRoute, adminRoute),
+    [location.pathname]
+  );
   const { sessionId: sessionIdFromRoute } = useParams<{ sessionId?: string }>();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -612,6 +618,8 @@ export function EventManagementPage() {
   const autoCancelledEventIdsRef = useRef(new Set<string>());
 
   const { session } = useDevelopmentSession();
+  const isAdmin = session?.role === "admin";
+  const canManageOwnedEvents = session ? hasCapability(session.role, "events.manage.owned") : false;
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
@@ -633,6 +641,7 @@ export function EventManagementPage() {
 
   useEffect(() => {
     const checkUnstartedEvents = () => {
+      if (!canManageOwnedEvents) return;
       if (attendanceSessionsQuery.isLoading) return;
       const events = eventsQuery.data?.items ?? [];
       const today = dateKey(new Date());
@@ -665,7 +674,7 @@ export function EventManagementPage() {
     checkUnstartedEvents();
     const interval = window.setInterval(checkUnstartedEvents, 60_000);
     return () => window.clearInterval(interval);
-  }, [attendanceSessionsQuery.isLoading, cancelEventMutation, eventsQuery.data?.items, sessionsList]);
+  }, [attendanceSessionsQuery.isLoading, cancelEventMutation, eventsQuery.data?.items, canManageOwnedEvents, sessionsList]);
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
   const resolvedLiveSessionId = useMemo(
@@ -864,7 +873,7 @@ export function EventManagementPage() {
           toast.info("This attendance session is no longer active. Returned to Events.");
         }
         setHandledSessionRouteId(sessionIdFromQuery);
-        navigate(APP_ROUTES.organizerEvents, { replace: true });
+        navigate(workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), { replace: true });
       }
       return;
     }
@@ -880,15 +889,15 @@ export function EventManagementPage() {
       setManualInput("");
       setQrInput("");
     }
-  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, repositoryEvents, sessionIdFromQuery, sessionsList]);
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, liveSessionId, navigate, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
 
   // Keep the live workspace addressable as its own session view. This also
   // gives the floating session shortcut a reliable route to detect and hide.
   useEffect(() => {
     if (activeEvent && liveSessionId && !sessionIdFromQuery) {
-      navigate(APP_ROUTES.organizerLiveSession(liveSessionId), { replace: true });
+      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(liveSessionId), APP_ROUTES.adminLiveSession(liveSessionId)), { replace: true });
     }
-  }, [activeEvent, liveSessionId, navigate, sessionIdFromQuery]);
+  }, [activeEvent, liveSessionId, navigate, sessionIdFromQuery, workspaceRoute]);
 
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
@@ -1074,6 +1083,7 @@ export function EventManagementPage() {
   // hydrated from that same source so a phone-confirmed scan is visible to the
   // organizer immediately, including while the laptop is offline.
   useEffect(() => {
+    if (!canManageOwnedEvents) return;
     const api = desktopApi();
     if (!api || !activeEvent?.id || !activeScannerSessionId) return;
 
@@ -1119,7 +1129,7 @@ export function EventManagementPage() {
     const unsubscribe = api.onScannerStatus(() => { void refreshPhoneAttendance(); });
     const interval = window.setInterval(() => { void refreshPhoneAttendance(); }, 1000);
     return () => { current = false; unsubscribe(); window.clearInterval(interval); };
-  }, [activeEvent, activeScannerSessionId, refetchAttendanceRecords, studentsQuery.data?.items]);
+  }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, studentsQuery.data?.items]);
 
   const filterableEvents = useMemo(() => [...todayEvents, ...incomingEvents], [incomingEvents, todayEvents]);
   const filterOptions = useMemo(
@@ -1185,16 +1195,16 @@ export function EventManagementPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeTab, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
+  }, [activeTab, canManageOwnedEvents, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
   const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
   const selectedListTitle = activeTab === "today" ? "Today's events" : activeTab === "incoming" ? "Incoming events" : "Cancelled events";
 
   useEffect(() => {
     setHeaderOverride({
-      title: "Organizer Workspace",
+      title: isAdmin ? "Admin Workspace" : "Organizer Workspace",
       description: undefined
     });
-  }, [setHeaderOverride]);
+  }, [isAdmin, setHeaderOverride]);
 
   useEffect(() => {
     if (selectedEventForSession && !selectedEvents.some((event) => event.code === selectedEventForSession.code)) {
@@ -1275,7 +1285,7 @@ export function EventManagementPage() {
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
   setSelectedEventForSession(null);
-  navigate(APP_ROUTES.organizerLiveSession(startedSession.id), { replace: true });
+  navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSession.id), APP_ROUTES.adminLiveSession(startedSession.id)), { replace: true });
   if (desktopApi()) {
     try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
   }
@@ -1677,7 +1687,7 @@ export function EventManagementPage() {
     if (!activeEvent?.id) {
       return;
     }
-    navigate(`${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(activeEvent.id)}`);
+    navigate(`${workspaceRoute(`${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(activeEvent.id)}`, `${APP_ROUTES.adminAttendance}?event=${encodeURIComponent(activeEvent.id)}`)}`);
   }
 
   function exportReport(label: string, events = completedEvents) {
@@ -1748,7 +1758,7 @@ export function EventManagementPage() {
 
         return (
           <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 220 }}>
-              <Button
+              {canManageOwnedEvents ? <Button
                 type="button"
                 variant={ready ? "outline" : "default"}
                 size="sm"
@@ -1759,7 +1769,7 @@ export function EventManagementPage() {
                 onClick={() => void prepareOfflinePackage(data)}
               >
                 {preparation?.preparing ? "Preparing…" : ready ? "Refresh offline" : preparation?.error ? "Retry offline setup" : "Prepare offline"}
-              </Button>
+              </Button> : null}
               <Button
                 type="button"
                 variant="outline"
@@ -1768,7 +1778,7 @@ export function EventManagementPage() {
                 title="View More"
                 aria-label={`View ${data.code}`}
                 onClick={() => {
-                  if (data.id) navigate(APP_ROUTES.organizerEvent(data.id));
+                  if (data.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(data.id), APP_ROUTES.adminEvent(data.id)));
                 }}
               >
                 <Eye className="h-4 w-4" aria-hidden="true" />
@@ -1832,7 +1842,7 @@ export function EventManagementPage() {
             title={`Another event uses the same venue at the same time: ${conflictCodes}`}
             aria-label={`View schedule warning for ${row.original.code}`}
             onClick={() => {
-              if (row.original.id) navigate(APP_ROUTES.organizerEvent(row.original.id));
+              if (row.original.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(row.original.id), APP_ROUTES.adminEvent(row.original.id)));
             }}
           >
             <AlertTriangle className="h-4 w-4" aria-hidden="true" />
@@ -1870,7 +1880,7 @@ export function EventManagementPage() {
       filter: false,
       cellRenderer: ({ data }: { data: EventRecord }) => (
         <div className="flex justify-start">
-          <Button
+          {!canManageOwnedEvents ? <Button type="button" variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); if (data.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(data.id), APP_ROUTES.adminEvent(data.id))); }}>View</Button> : <Button
             type="button"
             variant="outline"
             size="sm"
@@ -1880,7 +1890,7 @@ export function EventManagementPage() {
             }}
           >
             Reschedule
-          </Button>
+          </Button>}
         </div>
       )
     } as ColDef<EventRecord>,
@@ -1977,12 +1987,12 @@ export function EventManagementPage() {
     );
   }
 
-  const isOpeningLiveSession = Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
+  const isOpeningLiveSession = canManageOwnedEvents && Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
 
   if (isOpeningLiveSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
-        <PageHeader title="Events" description="Manage events and start attendance sessions." />
+        <PageHeader title="Events" description={isAdmin ? "View institution-wide events and operational status." : "Manage events and start attendance sessions."} />
         <LoadingState label="Opening live attendance..." />
       </div>
     );
@@ -2004,11 +2014,11 @@ export function EventManagementPage() {
     <div className="space-y-6">
       <PageHeader
         title={activeEvent ? "Live attendance session" : "Events"}
-        description={activeEvent ? `Recording attendance for ${activeEvent.name}.` : "Find an event, prepare attendance, or open a live session."}
+        description={activeEvent ? `Recording attendance for ${activeEvent.name}.` : isAdmin ? "View institution-wide events, owners, schedules, and operational status." : "Find an event, prepare attendance, or open a live session."}
         actions={
-          !activeEvent ? (
+          !activeEvent && canManageOwnedEvents ? (
             <Button asChild>
-              <NavLink to={APP_ROUTES.organizerCreateEvent}>
+              <NavLink to={workspaceRoute(APP_ROUTES.organizerCreateEvent, APP_ROUTES.adminCreateEvent)}>
                 <span className="text-lg leading-none" aria-hidden="true">+</span>
                 Create event
               </NavLink>
@@ -2020,8 +2030,8 @@ export function EventManagementPage() {
       {!activeEvent ? <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-widest text-primary">Your event workspace</p>
-            <p className="mt-1 text-sm text-muted-foreground">Plan and track scheduled events.</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-primary">{isAdmin ? "Institution event workspace" : "Your event workspace"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{isAdmin ? "Review institution-wide schedules and operational status." : "Plan and track scheduled events."}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
@@ -2090,8 +2100,8 @@ export function EventManagementPage() {
                 <p className="mt-1 text-sm text-muted-foreground">{attendancePhase === "time_out" ? "Scan students who have already checked in." : "Students who check in after the late time are marked Late."}</p>
               </div>
               <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-background p-1">
-                <Button
-                  type="button"
+              <Button
+                type="button"
                   variant={captureMode === "QR Code" ? "default" : "outline"}
                   className="gap-2 rounded-lg shadow-none"
                   onClick={() => setCaptureMode("QR Code")}
@@ -2099,7 +2109,7 @@ export function EventManagementPage() {
                 >
                   <ScanLine className="h-4 w-4" aria-hidden="true" />
                   QR Code
-                </Button>
+              </Button>
                 <Button
                   type="button"
                   variant={captureMode === "Facial Recognition" ? "default" : "outline"}
@@ -2380,7 +2390,7 @@ export function EventManagementPage() {
               emptyTitle={activeTab === "today" ? "No events today" : activeTab === "incoming" ? "No incoming events" : "No cancelled events"}
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : activeTab === "incoming" ? "Future published events will appear here." : "Cancelled events will be recorded here for reference."}
               onRowClick={(event) => {
-                if (event.id) navigate(`${APP_ROUTES.organizerEvents}/${event.id}`);
+                if (event.id) navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${event.id}`, `${APP_ROUTES.adminEvents}/${event.id}`));
               }}
               rowHeight={44}
               headerHeight={40}
@@ -2450,7 +2460,7 @@ export function EventManagementPage() {
               onClick={() => {
                 const eventId = readinessEvent.id;
                 setReadinessEvent(null);
-                navigate(`${APP_ROUTES.organizerEvents}/${eventId}`);
+                navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${eventId}`, `${APP_ROUTES.adminEvents}/${eventId}`));
               }}
             >
               Manage participants
@@ -2576,7 +2586,7 @@ export function EventManagementPage() {
                     onClick={() => {
                       const eventId = startEvent.id;
                       setStartEvent(null);
-                      navigate(`${APP_ROUTES.organizerEvents}/${eventId}`);
+                      navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${eventId}`, `${APP_ROUTES.adminEvents}/${eventId}`));
                     }}
                   >
                     Manage participants
@@ -2680,12 +2690,14 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
 }
 
 function EventDetails({ event, status, conflicts = [], onStart, onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onStart?: (event: EventRecord) => void; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
+  const location = useLocation();
+  const workspaceRoute = (organizerRoute: string, adminRoute: string) => getWorkspaceRoute(location.pathname, organizerRoute, adminRoute);
   return (
     <div>
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-primary">Event Details</p>
           {event.id ? (
-            <a href={`/organizer/events/${event.id}`} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
+            <a href={workspaceRoute(`/organizer/events/${event.id}`, `/admin/events/${event.id}`)} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
             View Full Details →
             </a>
           ) : null}

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
+import { hasAnyCapability, type Capability } from "@/lib/auth/permissions";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { cn } from "@/lib/utils/cn";
 import type { NavigationItem } from "@/types/navigation";
@@ -41,7 +42,12 @@ export function RoleBasedSidebar({
   headerAction,
   onNavigate
 }: RoleBasedSidebarProps) {
-  const groups = groupedItems(ROLE_NAVIGATION[role] ?? []);
+  const visibleItems = (ROLE_NAVIGATION[role] ?? []).filter((item) => {
+    if (!item.capability) return true;
+    const capabilities = Array.isArray(item.capability) ? item.capability : [item.capability];
+    return hasAnyCapability(role, capabilities as readonly Capability[]);
+  });
+  const groups = groupedItems(visibleItems);
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
   const workspaceLabel = role === "admin" ? "Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;

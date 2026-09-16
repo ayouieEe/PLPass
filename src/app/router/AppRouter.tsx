@@ -14,8 +14,8 @@ import { RoleRoute } from "@/app/router/RoleRoute";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
-import { AdminAuditLogsPage } from "@/features/admin/pages/AdminPages";
+import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
+import { AdminDashboardPage, AdminAuditLogsPage, AdminReportsPage } from "@/features/admin/pages/AdminPages";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
 const OrganizerDashboardPage = lazy(() => import("@/features/organizer/pages/OrganizerDashboardPage").then((module) => ({ default: module.OrganizerDashboardPage })));
@@ -24,11 +24,13 @@ const CreateEventPage = lazy(() => import("@/features/organizer/pages/CreateEven
 const EventDetailsPage = lazy(() => import("@/features/organizer/pages/EventDetailsPage").then((module) => ({ default: module.EventDetailsPage })));
 const EventRecordsPage = lazy(() => import("@/features/organizer/pages/EventRecordsPage").then((module) => ({ default: module.EventRecordsPage })));
 const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/AuthenticationMethodsPage").then((module) => ({ default: module.AuthenticationMethodsPage })));
+const OrganizerReportsPage = lazy(() => import("@/features/organizer/pages/OrganizerReportsPage").then((module) => ({ default: module.OrganizerReportsPage })));
 const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
 const OrganizerCorrectionRequestsPage = lazy(() => import("@/features/organizer/pages/OrganizerCorrectionRequestsPage").then((module) => ({ default: module.OrganizerCorrectionRequestsPage })));
 const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/OrganizerAuditLogsPage").then((module) => ({ default: module.OrganizerAuditLogsPage })));
 const OrganizerPersonalSettingsPage = lazy(() => import("@/features/organizer/pages/OrganizerPersonalSettingsPage").then((module) => ({ default: module.OrganizerPersonalSettingsPage })));
 const OrganizerUserManagementPage = lazy(() => import("@/features/organizer/pages/OrganizerUserManagement").then((module) => ({ default: module.OrganizerUserManagementPage })));
+const AdminSystemHealthPage = lazy(() => import("@/features/admin/pages/AdminSystemHealthPage").then((module) => ({ default: module.AdminSystemHealthPage })));
 const StudentRootPage = lazy(() => import("@/features/student/pages/StudentRootPage").then((module) => ({ default: module.StudentRootPage })));
 const StudentDashboardPage = lazy(() => import("@/features/student/pages/StudentDashboardPage").then((module) => ({ default: module.StudentDashboardPage })));
 const StudentSchedulePage = lazy(() => import("@/features/student/pages/StudentSchedulePage").then((module) => ({ default: module.StudentSchedulePage })));
@@ -66,49 +68,81 @@ export function AppRouter() {
           <Route element={<RoleShellLayout />}>
             <Route path={APP_ROUTES.profile} element={<ProfilePage />} />
             <Route path={APP_ROUTES.notifications} element={<NotificationsPage />} />
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="events.read.owned" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="events.read.owned" />}>
               <Route path={APP_ROUTES.organizer} element={<OrganizerRootPage />} />
               <Route path={APP_ROUTES.organizerDashboard} element={<OrganizerDashboardPage />} />
               <Route path={APP_ROUTES.organizerEvents} element={<EventManagementPage />} />
               <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
               <Route path="/organizer/live-attendance/:sessionId" element={<EventManagementPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="events.create" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="events.create" />}>
               <Route path={APP_ROUTES.organizerCreateEvent} element={<CreateEventPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="attendance.read.owned" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="attendance.read.owned" />}>
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
-              <Route path={APP_ROUTES.organizerReports} element={<AuthenticationMethodsPage />} />
+              <Route path={APP_ROUTES.organizerReports} element={<OrganizerReportsPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="corrections.review.owned" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="credentials.use.owned_event" />}>
+              <Route path={APP_ROUTES.organizerCredentials} element={<AuthenticationMethodsPage />} />
+            </Route>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="corrections.review.owned" />}>
               <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="analytics.read.owned" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="analytics.read.owned" />}>
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} permission="audit.read.own" />}>
               <Route path={APP_ROUTES.organizerAuditLogs} element={<OrganizerAuditLogsPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="profile.manage.own" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="profile.manage.own" />}>
               <Route path={APP_ROUTES.organizerProfile} element={<AdminOrOrganizerProfilePage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="settings.manage.own" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="settings.manage.own" />}>
               <Route path={APP_ROUTES.organizerSettings} element={<AdminOrOrganizerSettingsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["admin"]} />}>
-              <Route path={APP_ROUTES.admin} element={<Navigate to={APP_ROUTES.organizerDashboard} replace />} />
-              <Route path={APP_ROUTES.adminDashboard} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminUsers} element={<OrganizerUserManagementPage />} />
-              <Route path={APP_ROUTES.adminEvents} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminAttendance} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminCorrections} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminCredentials} element={<AuthenticationMethodsPage />} />
-              <Route path={APP_ROUTES.adminReports} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminAnalytics} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminAuditLogs} element={<AdminAuditLogsPage />} />
-              <Route path={APP_ROUTES.adminCatalogs} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminSettings} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminProfile} element={<AdminOrOrganizerProfilePage />} />
+              <Route path={APP_ROUTES.admin} element={<Navigate to={APP_ROUTES.adminDashboard} replace />} />
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.health.read" />}>
+                <Route path={APP_ROUTES.adminDashboard} element={<AdminDashboardPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="users.read.all" />}>
+                <Route path={APP_ROUTES.adminUsers} element={<OrganizerUserManagementPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="events.read.all" />}>
+                <Route path={APP_ROUTES.adminEvents} element={<EventManagementPage />} />
+                <Route path={APP_ROUTES.adminEvents + "/:eventId"} element={<EventDetailsPage />} />
+              </Route>
+              <Route path={APP_ROUTES.adminCreateEvent} element={<AccessDeniedPage />} />
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="attendance.read.all" />}>
+                <Route path={APP_ROUTES.adminAttendance} element={<EventRecordsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="corrections.review.all" />}>
+                <Route path={APP_ROUTES.adminCorrections} element={<OrganizerCorrectionRequestsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission={["credentials.reset", "credentials.revoke"]} />}>
+                <Route path={APP_ROUTES.adminCredentials} element={<AuthenticationMethodsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="reports.read.all" />}>
+                <Route path={APP_ROUTES.adminReports} element={<AdminReportsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="analytics.read.all" />}>
+                <Route path={APP_ROUTES.adminAnalytics} element={<OrganizerAnalyticsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="audit.read.all" />}>
+                <Route path={APP_ROUTES.adminAuditLogs} element={<AdminAuditLogsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.catalog.manage" />}>
+                <Route path={APP_ROUTES.adminCatalogs} element={<AdminCatalogsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.settings.manage" />}>
+                <Route path={APP_ROUTES.adminSettings} element={<AdminSettingsPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.health.read" />}>
+                <Route path={APP_ROUTES.adminSystemHealth} element={<AdminSystemHealthPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["admin"]} permission="profile.manage.own" />}>
+                <Route path={APP_ROUTES.adminProfile} element={<AdminOrOrganizerProfilePage />} />
+              </Route>
               <Route path={APP_ROUTES.organizerUsers} element={<AccessDeniedPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>

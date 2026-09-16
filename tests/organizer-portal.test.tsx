@@ -313,12 +313,30 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
-  it("renders the organizer authentication methods route", async () => {
+  it("renders the organizer reports route", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Authentication Methods" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
+    expect(screen.getAllByText("Review reports generated for your events.").length).toBeGreaterThan(0);
+  });
+
+  it("renders admin reports and catalogs as functional workspaces", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/reports");
+    const reportsView = render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
+    expect(screen.getAllByText("Review generated reports across all scopes.").length).toBeGreaterThan(0);
+
+    reportsView.unmount();
+    setRoute("/admin/catalogs");
+    queryClient.clear();
+    const view = render(<App />);
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Manage catalogs")).toBeInTheDocument();
+    view.unmount();
   });
 
   it("renders authentication methods from the admin workspace", async () => {
@@ -328,6 +346,94 @@ describe("organizer UI flows", () => {
 
     expect(await screen.findByRole("heading", { name: "Authentication Methods" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Authentication Methods" })).toHaveAttribute("href", "/admin/credentials");
+  });
+
+  it("keeps organizer settings focused on personal workspace controls", async () => {
+    storeSession(organizerSession);
+    setRoute("/organizer/settings");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
+    expect(screen.getByText("College branding")).toBeInTheDocument();
+    expect(screen.queryByText("Academic structure")).not.toBeInTheDocument();
+    expect(screen.queryByText("Manage the configuration that controls PLPass operations.")).not.toBeInTheDocument();
+  });
+
+  it("keeps global configuration in the admin settings workspace", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/settings");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
+    expect(screen.getByText("Academic structure")).toBeInTheDocument();
+    expect(screen.getByText("Manage the configuration that controls PLPass operations.")).toBeInTheDocument();
+  });
+
+  it("exposes safe account management controls without sensitive secret access", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/users");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "User Management" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add Student" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bulk Add" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete user|show password|view password/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw biometric data/i)).not.toBeInTheDocument();
+  });
+
+  it("shows admin system health checks and recoverable failure states", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/system-health");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "System Health" })).toBeInTheDocument();
+    expect(screen.getByText("Supabase connectivity")).toBeInTheDocument();
+    expect(screen.getByText("Dean Summary report generation failed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recover session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run consistency check" })).toBeInTheDocument();
+  });
+
+  it("requires an action reason before an admin recovery operation", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/system-health");
+    render(<App />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a reason");
+  });
+
+  it("denies system health tools to organizers", async () => {
+    storeSession(organizerSession);
+    setRoute("/admin/system-health");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+  });
+
+  it("keeps the admin event list read-only", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/events");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /^Events$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Create event/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Prepare offline|Refresh offline|Retry offline/i })).not.toBeInTheDocument();
+    expect(screen.getByText("View institution-wide events, owners, schedules, and operational status.")).toBeInTheDocument();
+  });
+
+  it("hides normal event mutations from an admin event detail view", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/events/event-1");
+    render(<App />);
+
+    expect(await screen.findByText("Event Resources")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start session" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reschedule event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add participant" })).not.toBeInTheDocument();
+    expect(screen.getByText("Administrators can view event resources but cannot modify them from the event workspace.")).toBeInTheDocument();
   });
 
   it("renders the second organizer routes with isolated data and empty records", async () => {

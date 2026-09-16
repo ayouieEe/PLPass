@@ -40,11 +40,32 @@ async function dispatchQueuedEmails() {
   const { data, error } = await supabase.rpc("claim_event_email_outbox_batch", { p_limit: 25 });
   if (error) throw new Error(error.message);
 
+  const { data: settings } = await supabase
+    .from("system_settings")
+    .select("notification_preferences")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const notificationPreferences = settings?.notification_preferences && typeof settings.notification_preferences === "object"
+    ? settings.notification_preferences as Record<string, unknown>
+    : {};
+
   const rows = (data ?? []) as EventEmailRow[];
   let sent = 0;
   let failed = 0;
   for (const row of rows) {
     try {
+      const eventNotificationsEnabled = notificationPreferences.notificationEventsEnabled !== false;
+      if (!eventNotificationsEnabled) {
+        const { error: skipError } = await supabase
+          .from("event_email_outbox")
+          .update({ delivery_status: "skipped", error_message: "Suppressed by administrator notification policy.", processing_started_at: null, processing_token: null })
+          .eq("id", row.id)
+          .eq("processing_token", row.processing_token)
+          .eq("delivery_status", "processing");
+        if (skipError) throw new Error(skipError.message);
+        continue;
+      }
       const response = await fetch("https://api.brevo.com/v3/smtp/email", {
         method: "POST",
         headers: {
@@ -115,6 +136,19 @@ Deno.serve(async (request) => {
   if (!accessToken) return json({ error: "Authorization is required." }, 401);
   const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
   if (authError || !authData.user) return json({ error: "The signed-in user could not be verified." }, 401);
+
+  if (action === "health") {
+    const { data: adminProfile, error: adminProfileError } = await supabase
+      .from("profiles")
+      .select("id, role, account_status")
+      .eq("id", authData.user.id)
+      .eq("role", "admin")
+      .eq("account_status", "active")
+      .maybeSingle();
+    if (adminProfileError) return json({ error: "Health authorization could not be verified." }, 500);
+    if (!adminProfile) return json({ error: "Administrator access is required." }, 403);
+    return json({ ok: true, service: "send-event-emails" });
+  }
 
   const eventId = typeof requestBody.eventId === "string" ? requestBody.eventId.trim() : "";
   const retryOutboxId = typeof requestBody.outboxId === "string" ? requestBody.outboxId.trim() : "";

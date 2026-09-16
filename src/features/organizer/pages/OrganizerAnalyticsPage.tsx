@@ -510,6 +510,8 @@ export function OrganizerAnalyticsPage() {
   const [latePage, setLatePage] = useState(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedPdpFeature, setSelectedPdpFeature] = useState<string>("");
+  const { session } = useDevelopmentSession();
+  const isAdmin = session?.role === "admin";
   const scope = useOrganizerScope();
   const auditLogMutations = useAuditLogMutations(scope.context);
   const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
@@ -1135,7 +1137,7 @@ export function OrganizerAnalyticsPage() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="Analytics Insights"
-        description="Monitor attendance trends, turnout forecasts, and feedback sentiment across events."
+        description={isAdmin ? "Review institution-wide attendance trends, turnout forecasts, and feedback sentiment." : "Monitor attendance trends, turnout forecasts, and feedback sentiment across your events."}
         actions={
           <>
             <Button

@@ -1,7 +1,7 @@
 begin;
 
 -- 1. Create Academic Classes and Rosters
-create table public.classes (
+create table if not exists public.classes (
     id uuid primary key default gen_random_uuid(),
     faculty_id uuid not null references public.profiles(id) on delete cascade,
     program_id uuid not null references public.programs(id) on delete restrict,
@@ -18,7 +18,7 @@ create table public.classes (
     updated_at timestamptz not null default now()
 );
 
-create table public.class_rosters (
+create table if not exists public.class_rosters (
     id uuid primary key default gen_random_uuid(),
     class_id uuid not null references public.classes(id) on delete cascade,
     student_id uuid not null references public.students(id) on delete cascade,
@@ -29,7 +29,7 @@ create table public.class_rosters (
 -- 2. Alter Events (Columns already exist in previous migrations)
 
 -- 3. Create Faculty and Admin Profiles
-create table public.faculty_profiles (
+create table if not exists public.faculty_profiles (
     id uuid primary key default gen_random_uuid(),
     profile_id uuid not null references public.profiles(id) on delete cascade,
     department_id uuid not null references public.departments(id) on delete restrict,
@@ -40,7 +40,7 @@ create table public.faculty_profiles (
     updated_at timestamptz not null default now()
 );
 
-create table public.admin_profiles (
+create table if not exists public.admin_profiles (
     id uuid primary key default gen_random_uuid(),
     profile_id uuid not null references public.profiles(id) on delete cascade,
     department_id uuid not null references public.departments(id) on delete restrict,
@@ -50,33 +50,24 @@ create table public.admin_profiles (
     updated_at timestamptz not null default now()
 );
 
--- 4. Refactor event_sessions to attendance_sessions
-alter table public.event_sessions rename to attendance_sessions;
+-- The production application intentionally continues to use event_sessions.
+-- Do not rename it here: later migrations and the current repositories depend
+-- on that relation. Class attendance has its own class_sessions relation.
 
--- Alter constraints on attendance_sessions (rename constraints for consistency)
-alter table public.attendance_sessions 
-    alter column event_id drop not null,
-    add column class_id uuid references public.classes(id) on delete cascade,
-    add column session_type text not null default 'event' check (session_type in ('event', 'class')),
-    add constraint attendance_sessions_parent_check check (
-        (session_type = 'event' and event_id is not null and class_id is null) or
-        (session_type = 'class' and class_id is not null and event_id is null)
-    );
-
--- Also update attendance_records foreign key mapping if possible, though Postgres handles this automatically if foreign key isn't dropped.
--- Just strictly speaking, rename the column event_session_id to session_id in attendance_records
-alter table public.attendance_records rename column event_session_id to session_id;
-
--- 5. Enable RLS and setup default policies for new tables
+-- Enable RLS and setup default policies for new tables
 alter table public.classes enable row level security;
 alter table public.class_rosters enable row level security;
 alter table public.faculty_profiles enable row level security;
 alter table public.admin_profiles enable row level security;
 
 -- Setup basic read policies (Admins/Organizers read all, users read own)
+drop policy if exists classes_read_all on public.classes;
 create policy classes_read_all on public.classes for select to authenticated using (true);
+drop policy if exists class_rosters_read_all on public.class_rosters;
 create policy class_rosters_read_all on public.class_rosters for select to authenticated using (true);
+drop policy if exists faculty_profiles_read_all on public.faculty_profiles;
 create policy faculty_profiles_read_all on public.faculty_profiles for select to authenticated using (true);
+drop policy if exists admin_profiles_read_all on public.admin_profiles;
 create policy admin_profiles_read_all on public.admin_profiles for select to authenticated using (true);
 
 commit;

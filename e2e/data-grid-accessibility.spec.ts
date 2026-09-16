@@ -51,6 +51,29 @@ async function expectAccessibleGrid(page: Page, label: string, browserName: stri
   expect(await grid.evaluate((element) => element.contains(document.activeElement))).toBe(true);
 }
 
+test("admin accounts open the admin dashboard", async ({ page }) => {
+  await seedSession(page, "admin");
+  await page.goto("/admin");
+  await expect(page).toHaveURL(/\/admin\/dashboard$/u);
+  await expect(page.getByRole("heading", { name: "Admin Dashboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Dashboard", exact: true })).toHaveAttribute("href", "/admin/dashboard");
+  await expect(page.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("href", "/admin/events");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/admin/settings");
+  await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute("href", "/admin/profile");
+  await expect(page.getByText("Admin Workspace", { exact: true })).toBeVisible();
+});
+
+test("organizer accounts keep the organizer dashboard", async ({ page }) => {
+  await seedSession(page, "organizer");
+  await page.goto("/organizer/dashboard");
+  await expect(page).toHaveURL(/\/organizer\/dashboard$/u);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("href", "/organizer/events");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/organizer/settings");
+  await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute("href", "/organizer/profile");
+  await expect(page.getByRole("banner").getByText("Organizer Workspace", { exact: true })).toBeVisible();
+});
+
 test("admin student-account grid provides keyboard and screen-reader context", async ({ page, browserName }) => {
   const gridErrors: string[] = [];
   page.on("console", (message) => {
