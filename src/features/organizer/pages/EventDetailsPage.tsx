@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, ArrowLeft, BarChart3, CalendarCheck, CalendarDays, ChevronDown, ClipboardList, Clock3, Download, FileText, FileUp, Link2, MapPin, Play, Plus, Search, Users } from "lucide-react";
 import { useForm } from "react-hook-form";
-import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
+import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { z } from "zod";
@@ -30,6 +30,7 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
+import { hasCapability } from "@/lib/auth/permissions";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -78,6 +79,7 @@ import {
   uploadEventFileResource
 } from "@/features/organizer/lib/eventResources";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -278,22 +280,6 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
   }));
 }
 
-function EventScheduleCard({ event }: { event: Event }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{eventLabel(event)}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(event.startsAt)} {formatTime(event.startsAt)} - {formatTime(event.endsAt)} - {event.venue}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerEvent(event.id)}>View</NavLink>
-        </Button>
-      </div>
-    </article>
-  );
-}
-
 function PredictionCard({ prediction }: { prediction: MlPrediction }) {
   return (
     <article className="rounded-lg border bg-background p-3">
@@ -308,23 +294,6 @@ function PredictionCard({ prediction }: { prediction: MlPrediction }) {
   );
 }
 
-function SessionCard({ session }: { session: AttendanceSession }) {
-  return (
-    <article className="rounded-lg border bg-background p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium">{session.title}</p>
-          <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} {formatTime(session.startsAt)}</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerLiveSession(session.id)}>View session</NavLink>
-        </Button>
-      </div>
-    </article>
-  );
-
-}
-
 type ParticipantInvitationStatus = {
   id: string;
   recipientProfileId: string;
@@ -337,6 +306,11 @@ type ParticipantInvitationStatus = {
 export function EventDetailsPage() {
   const { eventId } = useParams();
   const scope = useOrganizerScope();
+  const { session } = useDevelopmentSession();
+  const isAdmin = session?.role === "admin";
+  const canManageOwnedEvents = session ? hasCapability(session.role, "events.manage.owned") : false;
+  const location = useLocation();
+  const workspaceRoute = (organizerRoute: string, adminRoute: string) => getWorkspaceRoute(location.pathname, organizerRoute, adminRoute);
   const navigate = useNavigate();
   const { setHeaderOverride } = useHeader();
   const [tab, setTab] = useState("participants");
@@ -515,8 +489,8 @@ export function EventDetailsPage() {
   const activeSession = sessions.find((session) => session.eventId === event.id && session.status === "active");
   const activeSessionRecordCount = activeSession ? recordsForSession(records, activeSession.id).length : 0;
   const existingSessionForDialog = sessionModalMode === "existing" ? activeSession : undefined;
-  const canManageParticipants = !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
-  const canChangeEvent = event.status !== "completed" && event.status !== "cancelled";
+  const canManageParticipants = canManageOwnedEvents && !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
+  const canChangeEvent = canManageOwnedEvents && event.status !== "completed" && event.status !== "cancelled";
   const earliestRescheduleDate = dateKey(new Date());
   const scheduleConflicts = (eventsQuery.data?.items ?? []).filter((otherEvent) => sharesSchedule(event, otherEvent));
   const counts = attendanceCounts(records);
@@ -579,7 +553,7 @@ export function EventDetailsPage() {
       });
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
-      navigate(`${APP_ROUTES.organizerEvents}?session=${encodeURIComponent(session.id)}`);
+      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(session.id), APP_ROUTES.adminLiveSession(session.id)));
     } catch {
       // The mutation displays the repository error in a toast.
     }
@@ -878,14 +852,14 @@ export function EventDetailsPage() {
     { id: "present", header: "Present count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).present },
     { id: "late", header: "Late count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).late },
     { id: "absent", header: "Absent count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).absent },
-    { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.organizerLiveSession(row.original.id)}>View session</NavLink></Button> }
+    { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(row.original.id), APP_ROUTES.adminLiveSession(row.original.id))}>View session</NavLink></Button> }
   ];
   return (
     <OrganizerFrame>
       <PageHeader
         eyebrow={
           <NavLink
-            to={APP_ROUTES.organizerEvents}
+            to={workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents)}
             className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
           >
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
@@ -893,7 +867,7 @@ export function EventDetailsPage() {
           </NavLink>
         }
         title={formatEventTitle(event.title)}
-        description="Manage this event, prepare attendance, and review participation."
+        description={isAdmin ? "View event details, owner, schedule, attendance summary, and audit context." : "Manage this event, prepare attendance, and review participation."}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             {canChangeEvent ? (
@@ -917,7 +891,7 @@ export function EventDetailsPage() {
               </div>
             </details>
             </div>
-            ) : event.status === "cancelled" ? (
+            ) : canManageOwnedEvents && event.status === "cancelled" ? (
             <div className="flex items-center gap-2">
             <Button type="button" size="sm" onClick={() => setIsRescheduleOpen(true)}>
               Reschedule event
@@ -935,8 +909,8 @@ export function EventDetailsPage() {
               <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold tracking-wide text-primary">{event.code}</span>
               <StatusBadge label={event.status} tone={statusTone(event.status)} />
             </div>
-            <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground">Ready to manage your event</h2>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Use the controls below to prepare attendees, share resources, and start attendance when the event begins.</p>
+            <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground">{isAdmin ? "Event operational overview" : "Ready to manage your event"}</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{isAdmin ? "Review ownership, schedule, participation, attendance status, and audit context for this event." : "Use the controls below to prepare attendees, share resources, and start attendance when the event begins."}</p>
           </div>
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 lg:min-w-[34rem]">
             <div className="rounded-xl border border-primary/10 bg-surface/80 p-3">
@@ -955,8 +929,10 @@ export function EventDetailsPage() {
         </div>
       </section>
 
-      <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
-      {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
+      {canManageOwnedEvents ? <>
+        <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
+        {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
+      </> : null}
       
       {/* Event Overview Stats */}
       <section aria-labelledby="event-summary-heading">
@@ -1045,7 +1021,7 @@ export function EventDetailsPage() {
                       <p className="text-xs text-muted-foreground">{formatDate(conflict.startsAt)} · {formatTime(conflict.startsAt)} – {formatTime(conflict.endsAt)}</p>
                     </div>
                     <Button asChild type="button" variant="outline" size="sm">
-                      <NavLink to={APP_ROUTES.organizerEvent(conflict.id)}>Review event</NavLink>
+                      <NavLink to={workspaceRoute(APP_ROUTES.organizerEvent(conflict.id), APP_ROUTES.adminEvent(conflict.id))}>Review event</NavLink>
                     </Button>
                   </div>
                 ))}
@@ -1100,7 +1076,7 @@ export function EventDetailsPage() {
 
         <div className="mt-5 border-t pt-4">
           <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p><p className="mt-1 text-xs text-muted-foreground">Choose the resource type first, then complete only the fields in that section.</p></div>
-          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {canManageOwnedEvents ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
               <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><Link2 className="h-4 w-4" aria-hidden="true" /></span><div><h4 className="text-sm font-semibold text-foreground">Add link</h4><p className="text-xs text-muted-foreground">Share a secure web resource.</p></div></div>
               <div className="mt-4 grid gap-3"><label className="grid gap-1.5 text-sm font-medium text-foreground">Link title<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceTitle} onChange={(inputEvent) => setResourceTitle(inputEvent.target.value)} placeholder="e.g. Workshop slides" aria-label="Link title" /></label><label className="grid gap-1.5 text-sm font-medium text-foreground">HTTPS link<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceUrl} onChange={(inputEvent) => setResourceUrl(inputEvent.target.value)} placeholder="https://..." aria-label="HTTPS link" /></label></div>
@@ -1112,7 +1088,7 @@ export function EventDetailsPage() {
               <p className="mt-2 text-xs text-muted-foreground">If blank, the uploaded filename is used.</p>
               <Button type="button" variant="outline" size="sm" className="mt-auto w-full" onClick={() => resourceFileInputRef.current?.click()} disabled={isSavingResource || resources.length >= MAX_EVENT_RESOURCES}><FileUp className="mr-1.5 h-4 w-4" aria-hidden="true" />Choose file</Button>
             </section>
-          </div>
+          </div> : <p className="mt-4 rounded-lg border border-dashed px-3 py-4 text-sm text-muted-foreground">Administrators can view event resources but cannot modify them from the event workspace.</p>}
         </div>
 
         <div className="mt-5">
@@ -1138,7 +1114,7 @@ export function EventDetailsPage() {
                       <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
                       {resource.externalUrl ? "Open" : "Download"}
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setResourcePendingRemoval(resource)}>Remove</Button>
+                    {canManageOwnedEvents ? <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setResourcePendingRemoval(resource)}>Remove</Button> : null}
                   </div>
                 </div>
               ))}
@@ -1294,7 +1270,7 @@ export function EventDetailsPage() {
         description={existingSessionForDialog ? "Continue this event's attendance, or discard it if it was started by mistake." : "Attendance starts now. The planned schedule stays unchanged."}
         size="sm"
         onClose={() => !mutations.createEventSessionMutation.isPending && setIsStartSessionOpen(false)}
-        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={`${APP_ROUTES.organizerEvents}?session=${encodeURIComponent(existingSessionForDialog.id)}`}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
+        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(existingSessionForDialog.id), APP_ROUTES.adminLiveSession(existingSessionForDialog.id))}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
       >
         <div className="space-y-4">
           <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">

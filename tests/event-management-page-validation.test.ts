@@ -65,7 +65,7 @@ describe("event page validation helpers", () => {
   it("keeps schedule navigation out of a live event workspace and clears stale sessions", () => {
     expect(eventManagementPage).toContain("{!activeEvent ? <section");
     expect(eventManagementPage).toContain("This attendance session is no longer active. Returned to Events.");
-    expect(eventManagementPage).toContain("navigate(APP_ROUTES.organizerLiveSession(liveSessionId), { replace: true })");
+    expect(eventManagementPage).toContain("navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(liveSessionId)");
   });
 
   it("uses one live-session workspace and hides the floating entry point there", () => {

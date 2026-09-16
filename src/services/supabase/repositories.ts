@@ -23,6 +23,10 @@ import type {
   StudentCredentialRepository,
   SubmitLateReasonInput,
   SubmitEventFeedbackInput,
+  SystemHealthRepository,
+  SystemHealthIssue,
+  SystemHealthSnapshot,
+  FailedNotificationJob,
   SystemSettingsRepository,
   UserManagementRepository
 } from "@/services/contracts";
@@ -632,38 +636,40 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     return pageResult(rows.items.map((row) => ({ id: String(row.id ?? ""), name: String(row.category_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
   async createOrUpdateDepartment(input, context) {
-    requireOrganizerContext(context);
-    const row = input.id
-      ? await updateRow("departments", input.id, { department_code: input.code.trim(), department_name: input.name.trim(), is_active: input.isActive ?? true })
-      : await insertRow("departments", { department_code: input.code.trim(), department_name: input.name.trim(), is_active: input.isActive ?? true });
-    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.department_updated" : "settings.department_created", targetType: "department", targetId: String(row.id), metadata: { code: input.code.trim(), name: input.name.trim() } }, context);
+    requireAdminContext(context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_manage_catalog_entry" as never, { p_table: "departments", p_id: input.id ?? null, p_values: { department_code: input.code.trim(), department_name: input.name.trim(), is_active: input.isActive ?? true } as Json } as never);
+    throwIfSupabaseError(error);
+    const row = await selectSingleRow("departments", String(data));
     return { id: String(row.id), code: String(row.department_code), name: String(row.department_name), isActive: row.is_active !== false };
   },
   async createOrUpdateProgram(input, context) {
-    requireOrganizerContext(context);
+    requireAdminContext(context);
     const values = { department_id: input.departmentId, program_code: input.code.trim(), program_name: input.name.trim(), is_active: input.isActive ?? true };
-    const row = input.id ? await updateRow("programs", input.id, values) : await insertRow("programs", values);
-    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.program_updated" : "settings.program_created", targetType: "program", targetId: String(row.id), metadata: values }, context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_manage_catalog_entry" as never, { p_table: "programs", p_id: input.id ?? null, p_values: values as Json } as never);
+    throwIfSupabaseError(error);
+    const row = await selectSingleRow("programs", String(data));
     return { id: String(row.id), departmentId: String(row.department_id), code: String(row.program_code), name: String(row.program_name), isActive: row.is_active !== false };
   },
   async createOrUpdateSection(input, context) {
-    requireOrganizerContext(context);
+    requireAdminContext(context);
     const values = { program_id: input.programId, section_name: input.name.trim(), year_level: input.yearLevel, academic_year: input.academicYear.trim(), semester: input.semester.trim(), is_active: input.isActive ?? true };
-    const row = input.id ? await updateRow("sections", input.id, values) : await insertRow("sections", values);
-    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.section_updated" : "settings.section_created", targetType: "section", targetId: String(row.id), metadata: values }, context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_manage_catalog_entry" as never, { p_table: "sections", p_id: input.id ?? null, p_values: values as Json } as never);
+    throwIfSupabaseError(error);
+    const row = await selectSingleRow("sections", String(data));
     return { id: String(row.id), programId: String(row.program_id), name: String(row.section_name), yearLevel: Number(row.year_level), academicYear: String(row.academic_year), semester: String(row.semester), isActive: row.is_active !== false };
   },
   async createOrUpdateEventCategory(input, context) {
-    requireOrganizerContext(context);
+    requireAdminContext(context);
     const values = { category_name: input.name.trim(), is_active: input.isActive ?? true };
-    const row = input.id ? await updateRow("event_categories", input.id, values) : await insertRow("event_categories", values);
-    await supabaseAuditLogRepository.logClientAction({ action: input.id ? "settings.category_updated" : "settings.category_created", targetType: "event_category", targetId: String(row.id), metadata: values }, context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_manage_catalog_entry" as never, { p_table: "event_categories", p_id: input.id ?? null, p_values: values as Json } as never);
+    throwIfSupabaseError(error);
+    const row = await selectSingleRow("event_categories", String(data));
     return { id: String(row.id), name: String(row.category_name), isActive: row.is_active !== false };
   },
   async setCatalogActive(table, id, isActive, context) {
-    requireOrganizerContext(context);
-    await updateRow(table, id, { is_active: isActive });
-    await supabaseAuditLogRepository.logClientAction({ action: `settings.${table}.status_changed`, targetType: table, targetId: id, metadata: { isActive } }, context);
+    requireAdminContext(context);
+    const { error } = await getSupabaseBrowserClient().rpc("admin_manage_catalog_entry" as never, { p_table: table, p_id: id, p_values: { is_active: isActive } as Json } as never);
+    throwIfSupabaseError(error);
   },
   async listClasses(query) {
     const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)", {});
@@ -1808,6 +1814,43 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
   async listStudentCredentialStatuses(context) {
     requireOrganizerContext(context);
     const client = getSupabaseBrowserClient();
+
+    if (context?.actorRole === "admin") {
+      const { data, error } = await client.rpc("admin_list_credential_statuses" as never);
+      throwIfSupabaseError(error);
+
+      return ((data ?? []) as unknown as Row[])
+        .map((row) => ({
+          studentId: String(row.student_id ?? ""),
+          qrCredential: row.qr_id
+            ? mapQrCredential({
+                id: row.qr_id,
+                student_id: row.student_id,
+                credential_status: row.qr_credential_status,
+                issued_at: row.qr_issued_at,
+                expires_at: row.qr_expires_at,
+                revoked_at: row.qr_revoked_at,
+                last_successful_check_in_at: row.qr_last_successful_check_in_at,
+                created_at: row.qr_created_at,
+                updated_at: row.qr_updated_at
+              } as Row)
+            : undefined,
+          facialProfile: row.facial_id
+            ? mapFacialProfile({
+                id: row.facial_id,
+                student_id: row.student_id,
+                facial_status: row.facial_status,
+                enrolled_at: row.facial_enrolled_at,
+                last_verified_at: row.facial_last_verified_at,
+                consent_recorded_at: row.facial_consent_recorded_at,
+                created_at: row.facial_created_at,
+                updated_at: row.facial_updated_at
+              } as Row)
+            : undefined
+        }))
+        .filter((status) => status.studentId);
+    }
+
     const [{ data: qrRows, error: qrError }, { data: facialRows, error: facialError }] = await Promise.all([
       client
         .from("qr_credentials")
@@ -2193,9 +2236,9 @@ export const supabaseAuditLogRepository: AuditLogRepository = {
     const { error } = await client.rpc("log_client_action", {
       p_action: input.action,
       p_target_type: input.targetType,
-      ...(input.targetId ? { p_target_id: input.targetId } : {}),
+      p_target_id: input.targetId ?? null,
       p_metadata: (input.metadata ?? {}) as Json
-    });
+    } as never);
     throwIfSupabaseError(error);
   }
 };
@@ -2252,6 +2295,10 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
       readerPolicy: String(preferences.readerPolicy ?? row.verification_policy ?? ""),
       credentialStatusPolicy: String(preferences.credentialStatusPolicy ?? ""),
       notificationPreferencePlaceholder: String(preferences.notificationPreferencePlaceholder ?? ""),
+      notificationEventsEnabled: preferences.notificationEventsEnabled !== false,
+      notificationCredentialsEnabled: preferences.notificationCredentialsEnabled !== false,
+      notificationCorrectionsEnabled: preferences.notificationCorrectionsEnabled !== false,
+      notificationRemindersEnabled: preferences.notificationRemindersEnabled !== false,
       eventApprovalRequired: preferences.eventApprovalRequired !== false,
       participantInvitationMode: preferences.participantInvitationMode === "email" || preferences.participantInvitationMode === "in_app" ? preferences.participantInvitationMode : "both",
       noStartReminderMinutes: Number(preferences.noStartReminderMinutes ?? 60),
@@ -2266,7 +2313,7 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
     };
   },
   async updateSettings(input, context): Promise<SystemSettings> {
-    requireOrganizerContext(context);
+    requireAdminContext(context);
     if (input.attendanceLateCutoffMinutes !== undefined && (input.attendanceLateCutoffMinutes < 0 || input.attendanceLateCutoffMinutes > 240)) {
       throw new RepositoryError("Late attendance cutoff must be between 0 and 240 minutes.", "VALIDATION_ERROR");
     }
@@ -2275,9 +2322,7 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
     }
     const current = await supabaseSystemSettingsRepository.getSettings(context);
     const client = getSupabaseBrowserClient();
-    const { data, error } = await client
-      .from("system_settings" as never)
-      .update({
+    const changes = {
         ...(input.institutionName !== undefined ? { institution_name: input.institutionName.trim() } : {}),
         ...(input.currentSchoolYear !== undefined ? { current_school_year: input.currentSchoolYear.trim() } : {}),
         ...(input.currentSemesterId !== undefined ? { current_semester_id: input.currentSemesterId || null } : {}),
@@ -2287,6 +2332,10 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
           readerPolicy: input.readerPolicy?.trim() || current.readerPolicy,
           credentialStatusPolicy: input.credentialStatusPolicy?.trim() || current.credentialStatusPolicy,
           notificationPreferencePlaceholder: input.notificationPreferencePlaceholder?.trim() || current.notificationPreferencePlaceholder,
+          notificationEventsEnabled: input.notificationEventsEnabled ?? current.notificationEventsEnabled,
+          notificationCredentialsEnabled: input.notificationCredentialsEnabled ?? current.notificationCredentialsEnabled,
+          notificationCorrectionsEnabled: input.notificationCorrectionsEnabled ?? current.notificationCorrectionsEnabled,
+          notificationRemindersEnabled: input.notificationRemindersEnabled ?? current.notificationRemindersEnabled,
           eventApprovalRequired: input.eventApprovalRequired ?? current.eventApprovalRequired,
           participantInvitationMode: input.participantInvitationMode ?? current.participantInvitationMode,
           noStartReminderMinutes: input.noStartReminderMinutes ?? current.noStartReminderMinutes,
@@ -2299,13 +2348,163 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
           sensitiveActionReasonRequired: input.sensitiveActionReasonRequired ?? current.sensitiveActionReasonRequired
         },
         verification_policy: input.readerPolicy?.trim() || current.readerPolicy
-      } as never)
-      .eq("id" as never, current.id)
-      .select("id, institution_name, current_school_year, current_semester_id, attendance_late_cutoff_minutes, default_session_duration_minutes, verification_policy, notification_preferences, updated_at")
-      .single();
+      } as Json;
+    const { error } = await client.rpc("admin_update_system_settings" as never, { p_settings_id: current.id, p_changes: changes } as never);
     throwIfSupabaseError(error);
-    void data;
     return supabaseSystemSettingsRepository.getSettings(context);
+  }
+};
+
+function requireAdminHealthContext(context?: { actorRole?: string }) {
+  if (context?.actorRole !== "admin") {
+    throw new RepositoryError("Only active administrators can use system troubleshooting tools.", "PERMISSION_DENIED");
+  }
+}
+
+function requireAdminContext(context?: { actorRole?: string }) {
+  if (context?.actorRole !== "admin") {
+    throw new RepositoryError("Only administrators can manage global configuration.", "PERMISSION_DENIED");
+  }
+}
+
+export const supabaseSystemHealthRepository: SystemHealthRepository = {
+  async getHealthSnapshot(context): Promise<SystemHealthSnapshot> {
+    requireAdminHealthContext(context);
+    const client = getSupabaseBrowserClient();
+    const checkedAt = new Date().toISOString();
+    const checks: SystemHealthSnapshot["checks"] = [];
+
+    const { data: settingsData, error: databaseError } = await client.from("system_settings" as never).select("id, institution_name, current_school_year, current_semester_id, updated_at").limit(1).maybeSingle();
+    const settingsRow = settingsData as unknown as Row | null;
+    checks.push({ key: "database", label: "Supabase connectivity", status: databaseError ? "failed" : "healthy", message: databaseError ? "The application data layer did not respond." : "The application data layer is responding.", checkedAt });
+    const configurationReady = Boolean(settingsRow?.institution_name && settingsRow?.current_school_year && settingsRow?.current_semester_id);
+    checks.push({ key: "configuration", label: "Configuration status", status: databaseError ? "failed" : configurationReady ? "healthy" : "degraded", message: databaseError ? "Configuration could not be checked." : configurationReady ? "Institution, school year, and semester configuration are present." : "Required institution or academic configuration is incomplete.", checkedAt });
+
+    const { data: authData, error: authError } = await client.auth.getUser();
+    checks.push({ key: "auth", label: "Authentication status", status: authError || !authData.user ? "failed" : "healthy", message: authError || !authData.user ? "The administrator session could not be verified." : "The administrator session is active.", checkedAt });
+
+    const { error: storageError } = await client.storage.from("branding-assets").list("", { limit: 1 });
+    checks.push({ key: "storage", label: "Storage availability", status: storageError ? "degraded" : "healthy", message: storageError ? "Configured storage could not be reached." : "Configured storage access is available.", checkedAt });
+
+    const functionName = import.meta.env.VITE_HEALTH_CHECK_FUNCTION_NAME || "send-event-emails";
+    const { error: functionError } = await client.functions.invoke(functionName, { body: { action: "health" } });
+    checks.push({ key: "edge-functions", label: "Edge Function availability", status: functionError ? "failed" : "healthy", message: functionError ? "The configured health-check function did not respond." : `The ${functionName} Edge Function is available.`, checkedAt });
+
+    const reports = await supabaseReportRepository.listReports({ pageIndex: 0, pageSize: 25 });
+    const recentErrors: SystemHealthIssue[] = reports.items.filter((report) => report.status === "failed").map((report) => ({ id: report.id, category: "application_error", severity: "critical", message: `${report.title} report generation failed.`, createdAt: report.generatedAt ?? checkedAt, referenceId: report.id }));
+    const stuckCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+    const { data: stuckRows, error: stuckError } = await client
+      .from("event_sessions")
+      .select("*")
+      .eq("session_status", "ongoing")
+      .lt("scheduled_end", stuckCutoff)
+      .order("scheduled_end", { ascending: true })
+      .limit(100);
+    throwIfSupabaseError(stuckError);
+    const stuckSessions = ((stuckRows ?? []) as Row[]).map((row) => mapAttendanceSession(row, "event"));
+
+    const eventEmailResult = await client
+      .from("event_email_outbox" as never)
+      .select("id, recipient_email, subject, delivery_status, error_message, created_at" as never)
+      .eq("delivery_status" as never, "failed")
+      .order("created_at" as never, { ascending: false })
+      .limit(50);
+    throwIfSupabaseError(eventEmailResult.error);
+    const requestEmailResult = await client
+      .from("request_email_outbox" as never)
+      .select("id, recipient_email, subject, delivery_status, error_message, created_at" as never)
+      .eq("delivery_status" as never, "failed")
+      .order("created_at" as never, { ascending: false })
+      .limit(50);
+    throwIfSupabaseError(requestEmailResult.error);
+    const [eventSentResult, requestSentResult] = await Promise.all([
+      client.from("event_email_outbox" as never).select("sent_at" as never).not("sent_at" as never, "is", null).order("sent_at" as never, { ascending: false }).limit(1),
+      client.from("request_email_outbox" as never).select("sent_at" as never).not("sent_at" as never, "is", null).order("sent_at" as never, { ascending: false }).limit(1)
+    ]);
+    throwIfSupabaseError(eventSentResult.error);
+    throwIfSupabaseError(requestSentResult.error);
+    const sentTimes = [...((eventSentResult.data ?? []) as unknown as Row[]), ...((requestSentResult.data ?? []) as unknown as Row[])]
+      .map((row) => String(row.sent_at ?? ""))
+      .filter(Boolean)
+      .sort()
+      .reverse();
+    const failedNotifications: FailedNotificationJob[] = [
+      ...((eventEmailResult.data ?? []) as unknown as Row[]).map((row) => ({ id: String(row.id), source: "event_email" as const, recipient: String(row.recipient_email ?? ""), channel: "email" as const, subject: String(row.subject ?? "Email delivery"), status: "failed" as const, lastError: String(row.error_message ?? "Email delivery failed."), updatedAt: String(row.created_at ?? checkedAt) })),
+      ...((requestEmailResult.data ?? []) as unknown as Row[]).map((row) => ({ id: String(row.id), source: "request_email" as const, recipient: String(row.recipient_email ?? ""), channel: "email" as const, subject: String(row.subject ?? "Request update"), status: "failed" as const, lastError: String(row.error_message ?? "Email delivery failed."), updatedAt: String(row.created_at ?? checkedAt) }))
+    ];
+    return { checks, recentErrors, failedNotifications, stuckSessions, consistencyIssues: [], lastSuccessfulEmailAt: sentTimes[0] ?? null };
+  },
+  async retryFailedNotification(input, context): Promise<FailedNotificationJob> {
+    requireAdminHealthContext(context);
+    if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
+    const client = getSupabaseBrowserClient();
+    if (!input.jobId) throw new RepositoryError("The failed notification id is invalid.", "VALIDATION_ERROR");
+    if (input.source !== "event_email" && input.source !== "request_email") throw new RepositoryError("The failed notification source is invalid.", "VALIDATION_ERROR");
+    const { data, error } = await client.rpc("admin_retry_email_job" as never, { p_job_id: input.jobId, p_source: input.source, p_reason: input.reason } as never);
+    throwIfSupabaseError(error);
+    if (!data) throw new RepositoryError("Only failed notification jobs can be retried.", "NOT_FOUND");
+    const row = data as unknown as Row;
+    const result: FailedNotificationJob = { id: String(row.id), source: input.source, recipient: String(row.recipient_email ?? ""), channel: "email", subject: String(row.subject ?? "Email delivery"), status: "retrying", lastError: "Queued for another delivery attempt.", updatedAt: String(row.created_at ?? new Date().toISOString()) };
+    return result;
+  },
+  async recoverAttendanceSession(input, context) {
+    requireAdminHealthContext(context);
+    if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
+    const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId, context);
+    if (session.status !== "active") throw new RepositoryError("Only active stuck sessions can be recovered.", "VALIDATION_ERROR");
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_recover_attendance_session" as never, { p_session_id: input.sessionId, p_reason: input.reason } as never);
+    throwIfSupabaseError(error);
+    return mapAttendanceSession(data as Row, "event");
+  },
+  async runDataConsistencyCheck(context) {
+    requireAdminHealthContext(context);
+    const client = getSupabaseBrowserClient();
+    const [eventsResult, organizersResult, sessionsResult, attendanceResult, profilesResult, studentsResult, programsResult, departmentsResult, sectionsResult] = await Promise.all([
+      client.from("events" as never).select("id, organizer_id, event_status" as never),
+      client.from("organizers" as never).select("id, profile_id" as never),
+      client.from("event_sessions" as never).select("id, event_id, session_status" as never),
+      client.from("attendance_records" as never).select("id, event_session_id, class_session_id, student_id" as never),
+      client.from("profiles" as never).select("id" as never),
+      client.from("students" as never).select("id, profile_id, program_id, department_id, section_id" as never),
+      client.from("programs" as never).select("id" as never),
+      client.from("departments" as never).select("id" as never),
+      client.from("sections" as never).select("id" as never)
+    ]);
+    [eventsResult, organizersResult, sessionsResult, attendanceResult, profilesResult, studentsResult, programsResult, departmentsResult, sectionsResult].forEach((result) => {
+      throwIfSupabaseError(result.error);
+    });
+    const events = (eventsResult.data ?? []) as unknown as Row[];
+    const organizers = (organizersResult.data ?? []) as unknown as Row[];
+    const sessions = (sessionsResult.data ?? []) as unknown as Row[];
+    const attendance = (attendanceResult.data ?? []) as unknown as Row[];
+    const classSessionsResult = await client.from("class_sessions" as never).select("id" as never);
+    const missingClassSessionsSchema = classSessionsResult.error?.code === "PGRST205";
+    if (classSessionsResult.error && !missingClassSessionsSchema) throwIfSupabaseError(classSessionsResult.error);
+    const profileIds = new Set((profilesResult.data ?? []).map((row) => String((row as Row).id)));
+    const eventIds = new Set(events.map((row) => String(row.id)));
+    const sessionIds = new Set(sessions.map((row) => String(row.id)));
+    const classSessionIds = new Set((classSessionsResult.data ?? []).map((row) => String((row as Row).id)));
+    const organizerIds = new Set(organizers.map((row) => String(row.id)));
+    const programIds = new Set((programsResult.data ?? []).map((row) => String((row as Row).id)));
+    const departmentIds = new Set((departmentsResult.data ?? []).map((row) => String((row as Row).id)));
+    const sectionIds = new Set((sectionsResult.data ?? []).map((row) => String((row as Row).id)));
+    const issues: SystemHealthIssue[] = [];
+    const addIssue = (id: string, message: string, referenceId?: string, severity: SystemHealthIssue["severity"] = "critical") => issues.push({ id, category: "consistency", severity, message, createdAt: new Date().toISOString(), referenceId });
+    if (missingClassSessionsSchema) addIssue("missing-class-sessions-schema", "The production database is missing the class_sessions table required for class attendance.", undefined, "critical");
+    events.filter((row) => !organizerIds.has(String(row.organizer_id))).forEach((row) => addIssue(`event-without-organizer-${row.id}`, "Event has no valid organizer record.", String(row.id)));
+    sessions.filter((row) => !eventIds.has(String(row.event_id))).forEach((row) => addIssue(`session-without-event-${row.id}`, "Attendance session has no valid event record.", String(row.id)));
+    attendance.filter((row) => (row.event_session_id && !sessionIds.has(String(row.event_session_id))) || (row.class_session_id && !classSessionIds.has(String(row.class_session_id)))).forEach((row) => addIssue(`attendance-without-session-${row.id}`, "Attendance record has no valid session record.", String(row.id)));
+    organizers.filter((row) => !profileIds.has(String(row.profile_id))).forEach((row) => addIssue(`organizer-without-profile-${row.id}`, "Organizer has no valid profile record.", String(row.id)));
+    studentsResult.data?.forEach((rawRow) => { const row = rawRow as Row; if (!profileIds.has(String(row.profile_id)) || !programIds.has(String(row.program_id)) || !departmentIds.has(String(row.department_id)) || !sectionIds.has(String(row.section_id))) addIssue(`student-without-relationship-${row.id}`, "Student is missing a profile or academic relationship.", String(row.id)); });
+    const duplicateKeys = new Set<string>();
+    attendance.forEach((row) => { if (row.event_session_id) { const key = `${row.event_session_id}:${row.student_id}`; if (duplicateKeys.has(key)) addIssue(`duplicate-attendance-${key}`, "Duplicate attendance records were found for a session and student.", String(row.event_session_id)); duplicateKeys.add(key); } });
+    events.filter((row) => row.event_status === "completed" && sessions.some((session) => String(session.event_id) === String(row.id) && session.session_status === "ongoing")).forEach((row) => addIssue(`event-state-mismatch-${row.id}`, "Event is marked completed while an attendance session is still ongoing.", String(row.id), "warning"));
+    try {
+      await supabaseAuditLogRepository.logClientAction({ action: "system.data_consistency_check", targetType: "system", metadata: { issueCount: issues.length, checks: ["event_organizers", "sessions_events", "attendance_sessions", "organizer_profiles", "student_relationships", "duplicate_attendance", "event_states"] } }, context);
+    } catch {
+      // A diagnostic result must remain available even if the audit endpoint is temporarily stale.
+    }
+    return issues;
   }
 };
 
@@ -2326,7 +2525,8 @@ export const supabaseRepositoryRegistry: RepositoryRegistry = {
   notifications: supabaseNotificationRepository,
   auditLogs: supabaseAuditLogRepository,
   analyticsMl: supabaseAnalyticsMlRepository,
-  systemSettings: supabaseSystemSettingsRepository
+  systemSettings: supabaseSystemSettingsRepository,
+  systemHealth: supabaseSystemHealthRepository
 };
 
 export function mapSupabaseRepositoryError(error: unknown) {

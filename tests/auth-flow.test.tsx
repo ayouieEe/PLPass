@@ -68,7 +68,7 @@ describe("mock authentication flow", () => {
     setRoute("/admin");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Admin Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
@@ -77,6 +77,14 @@ describe("mock authentication flow", () => {
   it("denies admin routes to an organizer", async () => {
     storeSession("organizer");
     setRoute("/admin/users");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+  });
+
+  it("keeps the organizer namespace inaccessible to admins", async () => {
+    storeSession("admin");
+    setRoute("/organizer/events");
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();

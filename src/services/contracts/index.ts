@@ -322,6 +322,10 @@ export type UpdateSystemSettingsInput = Partial<
     | "readerPolicy"
     | "credentialStatusPolicy"
     | "notificationPreferencePlaceholder"
+    | "notificationEventsEnabled"
+    | "notificationCredentialsEnabled"
+    | "notificationCorrectionsEnabled"
+    | "notificationRemindersEnabled"
     | "eventApprovalRequired"
     | "participantInvitationMode"
     | "noStartReminderMinutes"
@@ -486,6 +490,48 @@ export interface SystemSettingsRepository {
   updateSettings(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<SystemSettings>;
 }
 
+export type SystemHealthStatus = "healthy" | "degraded" | "failed" | "not_configured";
+export type SystemHealthCheck = {
+  key: string;
+  label: string;
+  status: SystemHealthStatus;
+  message: string;
+  checkedAt: string;
+};
+export type SystemHealthIssue = {
+  id: string;
+  category: "application_error" | "notification" | "consistency";
+  severity: "warning" | "critical";
+  message: string;
+  createdAt: string;
+  referenceId?: string;
+};
+export type FailedNotificationJob = {
+  id: string;
+  source: "event_email" | "request_email";
+  recipient: string;
+  channel: "email" | "in_app";
+  subject: string;
+  status: "failed" | "retrying" | "resolved";
+  lastError: string;
+  updatedAt: string;
+};
+export type SystemHealthSnapshot = {
+  checks: SystemHealthCheck[];
+  recentErrors: SystemHealthIssue[];
+  failedNotifications: FailedNotificationJob[];
+  stuckSessions: AttendanceSession[];
+  consistencyIssues: SystemHealthIssue[];
+  lastSuccessfulEmailAt: string | null;
+};
+
+export interface SystemHealthRepository {
+  getHealthSnapshot(context?: RepositoryContext): Promise<SystemHealthSnapshot>;
+  retryFailedNotification(input: { jobId: string; source: FailedNotificationJob["source"]; reason: string }, context?: RepositoryContext): Promise<FailedNotificationJob>;
+  recoverAttendanceSession(input: { sessionId: string; reason: string }, context?: RepositoryContext): Promise<AttendanceSession>;
+  runDataConsistencyCheck(context?: RepositoryContext): Promise<SystemHealthIssue[]>;
+}
+
 export type RepositoryRegistry = {
   authentication: AuthenticationRepository;
   userManagement: UserManagementRepository;
@@ -504,6 +550,7 @@ export type RepositoryRegistry = {
   auditLogs: AuditLogRepository;
   analyticsMl: AnalyticsMlRepository;
   systemSettings: SystemSettingsRepository;
+  systemHealth: SystemHealthRepository;
 };
 
 export type { RepositoryContext } from "@/services/repositoryUtils";

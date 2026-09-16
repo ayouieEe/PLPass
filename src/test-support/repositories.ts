@@ -51,6 +51,10 @@ import type {
   ReviewCorrectionRequestInput,
   ReviewCredentialRequestInput,
   StudentCredentialRepository,
+  FailedNotificationJob,
+  SystemHealthRepository,
+  SystemHealthIssue,
+  SystemHealthSnapshot,
   SystemSettingsRepository,
   UpdateSystemSettingsInput,
   UpdateOrganizerBrandingInput,
@@ -285,6 +289,18 @@ let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entr
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let notificationPreferencesState: Record<string, NotificationPreferences> = {};
 let systemSettingsState = { ...systemSettingsFixture };
+let failedNotificationState: FailedNotificationJob[] = [
+  {
+    id: "notification-job-1",
+    source: "event_email",
+    recipient: "admin.one@plpass.test",
+    channel: "email",
+    subject: "Dean Summary report failed",
+    status: "failed",
+    lastError: "Provider rejected the delivery request.",
+    updatedAt: "2026-06-26T08:05:00.000Z"
+  }
+];
 
 const developmentCredentialStudentIds: Record<string, string> = {
   "PLPASS-DEMO-1001": "student-1",
@@ -309,6 +325,18 @@ export function resetSimulatedRepositoryState() {
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   notificationPreferencesState = {};
   systemSettingsState = { ...systemSettingsFixture };
+  failedNotificationState = [
+    {
+      id: "notification-job-1",
+      source: "event_email",
+      recipient: "admin.one@plpass.test",
+      channel: "email",
+      subject: "Dean Summary report failed",
+      status: "failed",
+      lastError: "Provider rejected the delivery request.",
+      updatedAt: "2026-06-26T08:05:00.000Z"
+    }
+  ];
 }
 
 function addMinutes(value: string, minutes: number) {
@@ -1895,6 +1923,72 @@ export const simulatedSystemSettingsRepository: SystemSettingsRepository = {
   }
 };
 
+function requireHealthReason(reason: string) {
+  if (!reason.trim()) {
+    throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
+  }
+}
+
+export const simulatedSystemHealthRepository: SystemHealthRepository = {
+  async getHealthSnapshot(context): Promise<SystemHealthSnapshot> {
+    await beforeRead("systemHealth", context, ["admin"]);
+    const checkedAt = new Date().toISOString();
+    return {
+      checks: [
+        { key: "database", label: "Supabase connectivity", status: "healthy", message: "The application data layer is responding.", checkedAt },
+        { key: "auth", label: "Authentication status", status: "healthy", message: "The administrator session is active.", checkedAt },
+        { key: "storage", label: "Storage availability", status: "healthy", message: "Configured storage access is available.", checkedAt },
+        { key: "edge-functions", label: "Edge Function availability", status: "healthy", message: "The configured application functions are available.", checkedAt }
+      ],
+      recentErrors: reportFixtures.filter((report) => report.status === "failed").map((report) => ({
+        id: report.id,
+        category: "application_error",
+        severity: "critical",
+        message: `${report.title} report generation failed.`,
+        createdAt: report.generatedAt ?? "2026-06-26T08:00:00.000Z",
+        referenceId: report.id
+      })),
+      failedNotifications: failedNotificationState.filter((job) => job.status === "failed"),
+      stuckSessions: attendanceSessionState.filter((session) => session.status === "active" && new Date(session.endsAt ?? session.startsAt).getTime() < Date.now() - 30 * 60_000),
+      consistencyIssues: [],
+      lastSuccessfulEmailAt: "2026-09-16T08:00:00.000Z"
+    };
+  },
+  async retryFailedNotification(input, context) {
+    await beforeRead("systemHealth", context, ["admin"]);
+    requireHealthReason(input.reason);
+    const job = failedNotificationState.find((entry) => entry.id === input.jobId);
+    if (!job) throw new RepositoryError("The failed notification could not be found.", "NOT_FOUND");
+    if (job.source !== input.source) throw new RepositoryError("The failed notification source is invalid.", "VALIDATION_ERROR");
+    if (job.status !== "failed") throw new RepositoryError("Only failed notifications can be retried.", "VALIDATION_ERROR");
+    const updated = { ...job, status: "retrying" as const, updatedAt: new Date().toISOString() };
+    failedNotificationState = failedNotificationState.map((entry) => entry.id === job.id ? updated : entry);
+    addSafeAudit(contextOrDefault(context), "system.notification_retry", "notification_job", job.id, { reasonProvided: true });
+    return updated;
+  },
+  async recoverAttendanceSession(input, context) {
+    await beforeRead("systemHealth", context, ["admin"]);
+    requireHealthReason(input.reason);
+    const session = attendanceSessionState.find((entry) => entry.id === input.sessionId);
+    if (!session) throw new RepositoryError("The attendance session could not be found.", "NOT_FOUND");
+    if (session.status !== "active") throw new RepositoryError("Only active stuck sessions can be recovered.", "VALIDATION_ERROR");
+    const recovered = { ...session, status: "completed" as const, endsAt: new Date().toISOString() };
+    attendanceSessionState = attendanceSessionState.map((entry) => entry.id === session.id ? recovered : entry);
+    addSafeAudit(contextOrDefault(context), "system.attendance_session_recovered", "attendance_session", session.id, { reasonProvided: true });
+    return recovered;
+  },
+  async runDataConsistencyCheck(context) {
+    await beforeRead("systemHealth", context, ["admin"]);
+    const issues: SystemHealthIssue[] = [];
+    const duplicateRecords = attendanceRecordState.filter((record, index, records) => records.findIndex((entry) => entry.sessionId === record.sessionId && entry.studentId === record.studentId) !== index);
+    if (duplicateRecords.length) {
+      issues.push({ id: "consistency-duplicate-attendance", category: "consistency", severity: "critical", message: "Duplicate attendance records were found for a session and student.", createdAt: new Date().toISOString() });
+    }
+    addSafeAudit(contextOrDefault(context), "system.data_consistency_check", "system", "data", { issueCount: issues.length });
+    return issues;
+  }
+};
+
 export const simulatedRepositoryRegistry: RepositoryRegistry = {
   authentication: simulatedAuthenticationRepository,
   userManagement: simulatedUserManagementRepository,
@@ -1912,5 +2006,6 @@ export const simulatedRepositoryRegistry: RepositoryRegistry = {
   notifications: simulatedNotificationRepository,
   auditLogs: simulatedAuditLogRepository,
   analyticsMl: simulatedAnalyticsMlRepository,
-  systemSettings: simulatedSystemSettingsRepository
+  systemSettings: simulatedSystemSettingsRepository,
+  systemHealth: simulatedSystemHealthRepository
 };

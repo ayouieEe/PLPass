@@ -6,6 +6,7 @@ import { AlertCircle, Check, CheckCircle2, Download, FileSpreadsheet, FileText, 
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { hasCapability } from "@/lib/auth/permissions";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -455,6 +456,9 @@ function buildRequestsFromStore(state: OrganizerUiState): CorrectionRequest[] {
 
 export function OrganizerCorrectionRequestsPage() {
   const scope = useOrganizerScope();
+  const { session } = useDevelopmentSession();
+  const isAdmin = session?.role === "admin";
+  const canReviewOwnedCorrections = session ? hasCapability(session.role, "corrections.review.owned") : false;
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
@@ -649,7 +653,7 @@ export function OrganizerCorrectionRequestsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Correction Requests" description="Review and manage student attendance corrections and excused absence requests." />
+      <PageHeader title="Correction Requests" description={isAdmin ? "Review institution-wide attendance correction requests and support context." : "Review and manage correction requests for your events."} />
 
       <section className="space-y-4">
         <div className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm">
@@ -808,7 +812,7 @@ export function OrganizerCorrectionRequestsPage() {
               ) : null}
             </section>
 
-            {selectedRequest.status === "pending" ? (
+            {selectedRequest.status === "pending" && canReviewOwnedCorrections ? (
               <section className="mt-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
                 <h3 className="font-semibold">Organizer Decision</h3>
                 <div className="mt-4 space-y-3">
@@ -837,6 +841,7 @@ export function OrganizerCorrectionRequestsPage() {
             ) : (
               <section className="mt-5 rounded-xl border bg-background p-4">
                 <h3 className="font-semibold">Organizer Decision</h3>
+                {selectedRequest.status === "pending" && !canReviewOwnedCorrections ? <p className="mt-3 text-sm text-muted-foreground">Administrators can review correction details here. Approval and rejection remain controlled support actions.</p> : null}
                 <div className="mt-3 flex items-center gap-2">
                   <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${selectedRequest.decision === "approved" ? "border border-green-200 bg-green-50 text-green-700" : "border border-red-200 bg-red-50 text-red-700"}`}>
                     {selectedRequest.decision === "approved" ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}

@@ -3,7 +3,7 @@ import type { UserRole } from "@/types/roles";
 
 export function getAuthorizedHomePath(role: UserRole) {
   if (role === "admin") {
-    return APP_ROUTES.organizerDashboard;
+    return APP_ROUTES.adminDashboard;
   }
   if (role === "organizer") {
     return APP_ROUTES.organizerDashboard;
@@ -13,7 +13,7 @@ export function getAuthorizedHomePath(role: UserRole) {
 
 export function isPathAllowedForRole(pathname: string, role: UserRole) {
   if (pathname.startsWith("/organizer")) {
-    return role === "organizer" || role === "admin";
+    return role === "organizer";
   }
   if (pathname.startsWith("/admin")) {
     return role === "admin";
