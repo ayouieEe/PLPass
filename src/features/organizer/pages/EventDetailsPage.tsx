@@ -317,7 +317,7 @@ function SessionCard({ session }: { session: AttendanceSession }) {
           <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} {formatTime(session.startsAt)}</p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerSession(session.id)}>View session</NavLink>
+          <NavLink to={APP_ROUTES.organizerLiveSession(session.id)}>View session</NavLink>
         </Button>
       </div>
     </article>
@@ -878,7 +878,7 @@ export function EventDetailsPage() {
     { id: "present", header: "Present count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).present },
     { id: "late", header: "Late count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).late },
     { id: "absent", header: "Absent count", cell: ({ row }) => attendanceCounts(recordsForSession(records, row.original.id)).absent },
-    { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.organizerSession(row.original.id)}>View session</NavLink></Button> }
+    { id: "action", header: "View session", cell: ({ row }) => <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.organizerLiveSession(row.original.id)}>View session</NavLink></Button> }
   ];
   return (
     <OrganizerFrame>

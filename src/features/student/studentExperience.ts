@@ -109,7 +109,7 @@ export function ensureStudentIdentityReadiness(credentials?: StudentCredentialSt
 export function hasUsableQrCredential(readiness: StudentIdentityReadiness) {
   const status = readiness.qrStatus.toLowerCase();
   if (!readiness.qrCredentialId) return false;
-  if (status === "revoked" || status === "expired" || status === "inactive" || status === "blocked") return false;
+  if (status !== "activated" && status !== "active") return false;
   if (readiness.qrExpiry && new Date(readiness.qrExpiry).getTime() <= Date.now()) return false;
   return true;
 }
@@ -117,6 +117,8 @@ export function hasUsableQrCredential(readiness: StudentIdentityReadiness) {
 export function formatCredentialStatus(value: string | undefined) {
   const normalized = value?.replace(/_/g, " ").trim();
   if (!normalized) return "Not configured";
+  if (["inactive", "blocked", "revoked", "expired"].includes(normalized.toLowerCase())) return "Deactivated";
+  if (["active", "activated"].includes(normalized.toLowerCase())) return "Activated";
   return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 

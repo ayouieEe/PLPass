@@ -274,7 +274,7 @@ function SessionCard({ session }: { session: AttendanceSession }) {
           <p className="text-sm text-muted-foreground">{formatDate(session.startsAt)} {formatTime(session.startsAt)}</p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <NavLink to={APP_ROUTES.organizerSession(session.id)}>View session</NavLink>
+          <NavLink to={APP_ROUTES.organizerLiveSession(session.id)}>View session</NavLink>
         </Button>
       </div>
     </article>

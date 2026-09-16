@@ -43,18 +43,18 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
       breadcrumbs: [rolePrefix, "Event Management"]
     };
   }
+  if (pathname.startsWith("/organizer/live-attendance/")) {
+    return {
+      title: "Live Attendance Session",
+      description: "Record and monitor attendance during the active session.",
+      breadcrumbs: [rolePrefix, "Live Attendance"]
+    };
+  }
   if (pathname.startsWith("/organizer/events/")) {
     return {
       title: "Event Details",
       description: "Review event details, participants, and attendance sessions.",
       breadcrumbs: [rolePrefix, "Events", "Event Details"]
-    };
-  }
-  if (pathname.startsWith("/organizer/sessions/")) {
-    return {
-      title: "Event Attendance",
-      description: "Monitor check-ins during a live attendance session.",
-      breadcrumbs: [rolePrefix, "Sessions", "Live Attendance"]
     };
   }
   if (pathname === "/organizer/users") {

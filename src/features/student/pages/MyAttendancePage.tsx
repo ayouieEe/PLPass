@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   CalendarDays,
@@ -21,17 +21,17 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { PaginationControls } from "@/components/shared/PaginationControls";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useFinalizedEventYears, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useFinalizedEventYears, useStudentDashboardSummary, useStudentFeedbackTasks } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { cn } from "@/lib/utils/cn";
 import { optimizeImageForUpload } from "@/lib/utils/imageCompression";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import {
   buildStudentEventWorkflow,
   correctionRequestTypeLabels,
   eventFromStudentRecord,
   getCorrectionRequestTypes,
-  getStudentEventMetrics,
   getStudentEventRecords,
   statusTone,
   studentVisibleEvents,
@@ -43,9 +43,6 @@ import {
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
 const timeOnlyPattern = /^\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?$/i;
 const correctionProofMaxBytes = 5 * 1024 * 1024;
-const emojiRatings = [
-  { value: 1, emoji: "😞", label: "Needs improvement" }, { value: 2, emoji: "🙁", label: "Below expectations" }, { value: 3, emoji: "😐", label: "Okay" }, { value: 4, emoji: "🙂", label: "Good" }, { value: 5, emoji: "🤩", label: "Excellent" }
-];
 const acceptedCorrectionProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
 const correctionProofImageTypes = ["image/png", "image/jpeg", "image/webp"];
 
@@ -94,9 +91,10 @@ function formatFileSize(bytes: number) {
 }
 
 export function MyAttendancePage() {
+  const navigate = useNavigate();
   const scope = useStudentScope();
   const [searchParams] = useSearchParams();
-  const focusedRecordId = searchParams.get("focus");
+  const focusedEventId = searchParams.get("focus");
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
   const [yearFilter, setYearFilter] = useState("");
   const [recordsPage, setRecordsPage] = useState(0);
@@ -113,25 +111,15 @@ export function MyAttendancePage() {
     dateTo: yearFilter ? `${Number(yearFilter) + 1}-01-01T00:00:00+08:00` : undefined
   }, scope.context);
   const finalizedEventYearsQuery = useFinalizedEventYears(scope.context);
+  const summaryQuery = useStudentDashboardSummary(scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
-  const submitLateReasonMutation = useSubmitLateReasonMutation(scope.context);
-  const lateReasonOptionsQuery = useLateReasonOptions(undefined, scope.context);
-  const lateReasonOptions = lateReasonOptionsQuery.data ?? [];
-  const feedbackQuery = useStudentEventFeedback(scope.student?.id, scope.context);
   const feedbackTasksQuery = useStudentFeedbackTasks(scope.student?.id, scope.context);
   const [selectedRecord, setSelectedRecord] = useState<StudentEventRecord | null>(null);
-  const [lateReasonRecord, setLateReasonRecord] = useState<StudentEventRecord | null>(null);
-  const [selectedLateReasonCategory, setSelectedLateReasonCategory] = useState<string>("");
-  const [customLateReason, setCustomLateReason] = useState<string>("");
   const [search, setSearch] = useState("");
   const [requestType, setRequestType] = useState<CorrectionRequestType>("excused");
   const [explanation, setExplanation] = useState("");
-  const [feedbackRecord, setFeedbackRecord] = useState<StudentEventRecord | null>(null);
-  const [feedbackRatings, setFeedbackRatings] = useState<Record<string, number>>({});
-  const [feedbackComment, setFeedbackComment] = useState("");
-  const [feedbackStep, setFeedbackStep] = useState(0);
-  const [openedFocus, setOpenedFocus] = useState<string | null>(null);
   const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
+  const [focusedRecordOpened, setFocusedRecordOpened] = useState<string | null>(null);
   const [correctionFormOpen, setCorrectionFormOpen] = useState(false);
   const [correctionProofFile, setCorrectionProofFile] = useState<File | null>(null);
   const [correctionProofError, setCorrectionProofError] = useState("");
@@ -150,45 +138,18 @@ export function MyAttendancePage() {
   }, [search, yearFilter, statusFilter]);
 
   useEffect(() => {
-    if (!focusedRecordId || openedFocus === focusedRecordId || selectedRecord || !scope.student) {
-      return;
-    }
-
-    if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) {
-      return;
-    }
-
-    const nextRecords = getStudentEventRecords({
+    if (!focusedEventId || focusedRecordOpened === focusedEventId || !scope.student || eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) return;
+    const focusedRecord = getStudentEventRecords({
       studentId: scope.student.id,
       records: recordsQuery.data?.items ?? [],
       sessions: sessionsQuery.data?.items ?? [],
       events: studentVisibleEvents(eventsQuery.data?.items ?? [])
-    });
-    const matchingRecord = nextRecords.find(
-      (record) => record.eventId === focusedRecordId || record.id === focusedRecordId
-    );
-
-    if (!matchingRecord) {
-      return;
-    }
-
-    setRequestType(getDefaultRequestType(matchingRecord.status));
-    setExplanation("");
-    setCorrectionFormOpen(false);
-    setSelectedRecord(matchingRecord);
-    setOpenedFocus(focusedRecordId);
-  }, [
-    eventsQuery.data?.items,
-    eventsQuery.isLoading,
-    focusedRecordId,
-    openedFocus,
-    recordsQuery.data?.items,
-    recordsQuery.isLoading,
-    scope.student,
-    selectedRecord,
-    sessionsQuery.data?.items,
-    sessionsQuery.isLoading
-  ]);
+    }).find((record) => record.eventId === focusedEventId || record.id === focusedEventId);
+    if (!focusedRecord) return;
+    setRequestType(getDefaultRequestType(focusedRecord.status));
+    setSelectedRecord(focusedRecord);
+    setFocusedRecordOpened(focusedEventId);
+  }, [eventsQuery.data?.items, eventsQuery.isLoading, focusedEventId, focusedRecordOpened, recordsQuery.data?.items, recordsQuery.isLoading, scope.student, sessionsQuery.isLoading, sessionsQuery.data?.items]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -198,11 +159,11 @@ export function MyAttendancePage() {
     return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) {
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading || summaryQuery.isLoading) {
     return <LoadingState label="Loading attendance records" />;
   }
 
-  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError) {
+  if (eventsQuery.isError || sessionsQuery.isError || recordsQuery.isError || correctionsQuery.isError || summaryQuery.isError) {
     return <ErrorState title="Unable to load attendance records" message="Please try refreshing the page." />;
   }
 
@@ -222,23 +183,23 @@ export function MyAttendancePage() {
     const task = taskForRecord(record);
     return task?.status === "pending" && new Date(task.dueAt).getTime() > Date.now();
   };
-  const metrics = getStudentEventMetrics(records);
-  const attendedRecords = metrics.attendedRecords;
   const isFeedbackSubmitted = (record: StudentEventRecord) => taskForRecord(record)?.status === "completed";
   const needsLateReason = (record: StudentEventRecord) => record.status === "late" && !record.lateReason;
-  const needsFeedback = (record: StudentEventRecord) => (record.status === "present" || record.status === "late") && !needsLateReason(record) && !isFeedbackSubmitted(record);
   const isCompletedAttendedRecord = (record: StudentEventRecord) => (
     (record.status === "present" || record.status === "late")
     && !needsLateReason(record)
     && isFeedbackSubmitted(record)
   );
-  const pendingTaskRecords = attendedRecords.filter((record) => isTaskActionable(record) && (needsLateReason(record) || needsFeedback(record)));
+  const pendingTaskRecords = (summaryQuery.data?.tasks ?? [])
+    .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
+    .map((task) => records.find((record) => record.id === task.attendanceRecordId || record.eventId === task.eventId))
+    .filter((record): record is StudentEventRecord => Boolean(record));
   const finalizedRecords = records.filter((record) => (
     record.status === "absent"
     || record.status === "excused"
     || isCompletedAttendedRecord(record)
   ));
-  const pendingTaskCount = pendingTaskRecords.length;
+  const pendingTaskCount = summaryQuery.data?.pendingTaskCount ?? pendingTaskRecords.length;
   const yearOptions = (finalizedEventYearsQuery.data ?? []).map(String);
   const visibleRecords = finalizedRecords.filter((record) => {
     const term = search.trim().toLowerCase();
@@ -270,59 +231,12 @@ export function MyAttendancePage() {
     feedbackSubmitted: Boolean(selectedFeedbackSubmitted),
     correctionStatus: selectedCorrection?.status
   }) : undefined;
-  const feedbackTask = taskForRecord(feedbackRecord);
-  const feedbackObjectives = feedbackTask?.objectives ?? [];
-  const hasConfiguredObjectives = feedbackObjectives.length > 0;
-  const canSubmitFeedback = hasConfiguredObjectives && feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0);
-
-  async function submitLateReason() {
-    if (!lateReasonRecord || !selectedLateReasonCategory) return;
-    const selectedOption = lateReasonOptions.find((option) => option.id === selectedLateReasonCategory);
-    if (!selectedOption) return;
-    if (selectedOption.code === "other" && customLateReason.trim().length < 5) {
-      toast.error("Please provide a more detailed reason.");
-      return;
-    }
-    try {
-      await submitLateReasonMutation.mutateAsync({
-        attendanceRecordId: lateReasonRecord.id,
-        reasonOptionId: selectedOption.id,
-        customReason: customLateReason.trim() || undefined
-      });
-      if (selectedRecord?.eventId === lateReasonRecord.eventId) {
-        setSelectedRecord({ ...selectedRecord, lateReason: selectedOption.label, lateReasonCategory: selectedOption.label });
-      }
-      setLateReasonRecord(null);
-      setSelectedLateReasonCategory("");
-      setCustomLateReason("");
-      toast.success("Late reason submitted.");
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
-  }
-
   function openRecordDetails(record: StudentEventRecord) {
     setRequestType(getDefaultRequestType(record.status));
     setExplanation("");
     setCorrectionFormOpen(false);
     resetCorrectionProofFile();
     setSelectedRecord(record);
-  }
-
-  function openFeedbackDueRecord(record: StudentEventRecord) {
-    setFeedbackDueModalOpen(false);
-    openRecordDetails(record);
-  }
-
-  function openFeedback(record: StudentEventRecord) {
-    if (!taskForRecord(record) || taskForRecord(record)?.status !== "pending") {
-      toast.error("Feedback is not available for this attendance record.");
-      return;
-    }
-    setFeedbackRecord(record);
-    setFeedbackRatings({});
-    setFeedbackComment("");
-    setFeedbackStep(0);
   }
 
   function resetCorrectionProofFile() {
@@ -385,37 +299,6 @@ export function MyAttendancePage() {
       setCorrectionProofInputKey((key) => key + 1);
     } finally {
       if (selectionId === correctionProofSelectionId.current) setIsCompressingCorrectionProof(false);
-    }
-  }
-
-  async function submitFeedback() {
-    if (!feedbackRecord) return;
-    if (!feedbackTask || !hasConfiguredObjectives || !feedbackObjectives.every((objective) => feedbackRatings[objective.id] > 0)) {
-      toast.error("Please rate every event objective.");
-      return;
-    }
-    try {
-      await feedbackQuery.submitMutation.mutateAsync({
-        taskId: feedbackTask.id,
-        eventId: feedbackRecord.eventId,
-        studentId: student.id,
-        attendanceRecordId: feedbackRecord.id,
-        comment: feedbackComment,
-        ratings: feedbackObjectives.map((objective) => ({
-          objectiveId: objective.id,
-          rating: feedbackRatings[objective.id]
-        }))
-      });
-      if (selectedRecord?.eventId === feedbackRecord.eventId) {
-        setSelectedRecord({ ...selectedRecord, feedbackSubmitted: true });
-      }
-      setFeedbackRecord(null);
-      setFeedbackRatings({});
-      setFeedbackComment("");
-      setFeedbackStep(0);
-      toast.success("Event feedback submitted. Attendance is now complete.");
-    } catch (error) {
-      toast.error(getErrorMessage(error));
     }
   }
 
@@ -524,10 +407,10 @@ export function MyAttendancePage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold tracking-tight">Events by Year</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Finalized attendance outcomes appear here. Items that still need action stay in Pending Tasks.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Completed attendance outcomes appear here. Items that still need action appear in Pending Tasks.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusBadge label={`${finalizedRecords.length} finalized`} tone="info" />
+            <StatusBadge label={`${finalizedRecords.length} completed`} tone="info" />
             <StatusBadge label={`${pendingTaskCount} pending`} tone={pendingTaskCount ? "warning" : "muted"} />
           </div>
         </div>
@@ -631,7 +514,7 @@ export function MyAttendancePage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No finalized event records" description="Completed, absent, and excused event records will appear here." />
+            <EmptyState title="No completed event records" description="Completed, absent, and excused event records will appear here." />
           )}
         </div>
         <div className="mt-5 border-t pt-4">
@@ -649,41 +532,44 @@ export function MyAttendancePage() {
       <ModalShell
         open={feedbackDueModalOpen}
         title="Pending Tasks"
-        description="Complete these required actions before the attendance record appears in Events by Year."
+        description="Complete these required actions before the attendance record is added to completed events."
         size="lg"
         onClose={() => setFeedbackDueModalOpen(false)}
       >
-        {pendingTaskRecords.length ? (
+        {(summaryQuery.data?.tasks ?? []).length ? (
           <div className="space-y-3">
-            {pendingTaskRecords.map((record) => {
-              const task = taskForRecord(record);
-              const needsReason = needsLateReason(record);
+            {(summaryQuery.data?.tasks ?? [])
+              .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
+              .sort((first, second) => new Date(second.startsAt ?? 0).getTime() - new Date(first.startsAt ?? 0).getTime())
+              .map((task) => {
+              const needsReason = task.kind === "late_reason";
+              const eventId = task.eventId ?? task.attendanceRecordId ?? "";
 
               return (
-                <article key={record.id} className="rounded-2xl border bg-background p-4">
+                <article key={task.id} className="rounded-2xl border bg-background p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {record.eventCode} - {record.category}
+                        {task.code ?? "Attendance task"} - {task.category ?? "Event"}
                       </p>
-                      <h3 className="mt-1 text-base font-semibold tracking-tight">{record.eventName}</h3>
+                      <h3 className="mt-1 text-base font-semibold tracking-tight">{task.title}</h3>
                       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1.5">
                           <CalendarDays className="h-3.5 w-3.5 text-primary" />
-                          {formatRecordDate(record)}
+                          {formatDisplayDate(task.startsAt, "Date pending")}
                         </span>
                         <span className="flex items-center gap-1.5">
                           <Clock className="h-3.5 w-3.5 text-primary" />
-                          {formatRecordTime(record)}
+                          {formatDisplayTime(task.startsAt, "Time pending")}
                         </span>
                       </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
-                      <StatusBadge label={record.status} tone={statusTone(record.status)} />
+                      <StatusBadge label={task.status} tone={task.status === "late" ? "warning" : "success"} />
                       <span className="rounded-full bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
                         {needsReason ? "Needs late reason" : "Needs feedback"}
                       </span>
-                      {task ? (
+                      {task.dueAt ? (
                         <span
                           className="rounded-full bg-info/10 px-3 py-1 text-xs font-semibold text-info"
                         >
@@ -698,24 +584,36 @@ export function MyAttendancePage() {
                         ? "Submit the late reason before the deadline. Feedback will unlock after this step."
                         : "Answer the event feedback before the deadline to complete this attendance record."}
                     </p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => {
-                        if (needsReason) {
+                    <Button asChild size="sm">
+                      <NavLink
+                        to={APP_ROUTES.studentEvent(eventId)}
+                        onClick={(clickEvent) => {
+                          clickEvent.preventDefault();
                           setFeedbackDueModalOpen(false);
-                          setLateReasonRecord(record);
-                        } else {
-                          openFeedbackDueRecord(record);
-                        }
-                      }}
-                    >
-                      {needsReason ? "Submit Late Reason" : "Answer Feedback"}
+                          navigate(APP_ROUTES.studentEvent(eventId));
+                        }}
+                      >
+                        {needsReason ? "Submit Late Reason" : "Answer Feedback"}
+                      </NavLink>
                     </Button>
                   </div>
                 </article>
               );
-            })}
+              })}
+            {(summaryQuery.data?.tasks ?? []).filter((task) => task.kind === "correction").map((task) => (
+              <article key={task.id} className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold tracking-tight">Review rejected correction request</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">Check the organizer response, then submit a clearer request if needed.</p>
+                  </div>
+                  <StatusBadge label="Rejected" tone="danger" />
+                </div>
+                <div className="mt-4 flex justify-end border-t pt-4">
+                  <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.studentRequestHistory}>Open Request History</NavLink></Button>
+                </div>
+              </article>
+            ))}
           </div>
         ) : (
           <div className="rounded-2xl border border-success/20 bg-success/10 p-5">
@@ -776,8 +674,8 @@ export function MyAttendancePage() {
                       )}
                     </div>
                     {!selectedRecord.lateReason && isTaskActionable(selectedRecord) ? (
-                      <Button variant="outline" size="sm" onClick={() => setLateReasonRecord(selectedRecord)}>
-                        Submit Reason
+                      <Button asChild variant="outline" size="sm">
+                        <NavLink to={APP_ROUTES.studentEvent(selectedRecord.eventId)}>Submit Reason</NavLink>
                       </Button>
                     ) : null}
                   </div>
@@ -792,7 +690,7 @@ export function MyAttendancePage() {
                         Complete all required objectives by {formatDisplayDate(selectedFeedbackTask.dueAt)} {formatDisplayTime(selectedFeedbackTask.dueAt)} or this attendance will be changed to absent.
                       </p>
                     </div>
-                    <Button type="button" onClick={() => openFeedback(selectedRecord)}>
+                    <Button onClick={() => navigate(APP_ROUTES.studentEvent(selectedRecord.eventId))}>
                       <MessageSquareText className="h-4 w-4" />
                       Answer Feedback
                     </Button>
@@ -943,78 +841,6 @@ export function MyAttendancePage() {
         </ModalShell>
       ) : null}
 
-      {lateReasonRecord ? (
-        <ModalShell
-          open={Boolean(lateReasonRecord)}
-          title="Submit Late Reason"
-          description="Select the reason for your late Time In."
-          size="sm"
-          onClose={() => {
-            setLateReasonRecord(null);
-            setSelectedLateReasonCategory("");
-            setCustomLateReason("");
-          }}
-        >
-            <div className="grid gap-3">
-              {lateReasonOptionsQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading available reasons…</p> : null}
-              {lateReasonOptionsQuery.isError ? <p className="text-sm text-destructive">Late reasons are temporarily unavailable. Please try again.</p> : null}
-              <div className="grid gap-2">
-                {lateReasonOptions.map((reason) => (
-                  <Button 
-                    key={reason.id} 
-                    type="button" 
-                    variant={selectedLateReasonCategory === reason.id ? "default" : "outline"} 
-                    className="justify-start" 
-                    onClick={() => setSelectedLateReasonCategory(reason.id)}
-                  >
-                    {reason.label}
-                  </Button>
-                ))}
-              </div>
-              {selectedLateReasonCategory && (
-                <div className="mt-2 flex flex-col gap-2">
-                  <label className="text-sm font-medium">
-                    Additional Details {lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
-                  </label>
-                  <textarea
-                    className="w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px]"
-                    placeholder="Explain why you were late..."
-                    value={customLateReason}
-                    onChange={(e) => setCustomLateReason(e.target.value)}
-                  />
-                </div>
-              )}
-              {selectedLateReasonCategory && (
-                <div className="mt-2 flex justify-end">
-                  <Button 
-                    onClick={submitLateReason} 
-                    disabled={lateReasonOptionsQuery.isLoading || lateReasonOptionsQuery.isError || submitLateReasonMutation.isPending || (lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" && customLateReason.trim().length < 5)}
-                  >
-                    {submitLateReasonMutation.isPending ? "Submitting..." : "Submit Reason"}
-                  </Button>
-                </div>
-              )}
-            </div>
-        </ModalShell>
-      ) : null}
-
-      {feedbackRecord ? (
-        <ModalShell
-          open={Boolean(feedbackRecord)}
-          title="Event Feedback"
-          description={feedbackStep >= feedbackObjectives.length ? "Review your answers before submitting." : `Objective ${feedbackStep + 1} of ${feedbackObjectives.length}`}
-          size="lg"
-          onClose={() => { setFeedbackRecord(null); setFeedbackStep(0); }}
-        >
-          <div className="space-y-4">
-            {feedbackStep < feedbackObjectives.length ? (() => {
-              const objective = feedbackObjectives[feedbackStep];
-              return <div className="rounded-xl border bg-background p-5"><p className="text-base font-semibold">{objective.text}</p><div className="mt-5 grid grid-cols-5 gap-2">{emojiRatings.map((choice) => <button key={choice.value} type="button" aria-label={`${choice.value}: ${choice.label}`} onClick={() => { setFeedbackRatings((current) => ({ ...current, [objective.id]: choice.value })); setFeedbackStep((current) => Math.min(current + 1, feedbackObjectives.length)); }} className={`rounded-xl border p-2 ${feedbackRatings[objective.id] === choice.value ? "border-primary bg-primary/10" : "bg-surface"}`}><span className="block text-2xl">{choice.emoji}</span><span className="mt-1 block text-[10px] leading-tight text-muted-foreground">{choice.label}</span></button>)}</div></div>;
-            })() : <><div className="rounded-xl border bg-background p-4 text-sm"><p className="font-semibold">Your ratings</p><div className="mt-3 space-y-2">{feedbackObjectives.map((objective, index) => <p key={objective.id}>{index + 1}. {objective.text} <span className="font-medium">— {feedbackRatings[objective.id]}/5</span></p>)}</div></div><label className="space-y-1.5"><span className="text-sm font-medium">Comment (optional)</span><textarea className="plpass-field min-h-24 w-full rounded-lg border p-3 text-sm" value={feedbackComment} onChange={(event) => setFeedbackComment(event.target.value)} placeholder="Share anything useful about the event." /></label></>}
-            <div className="flex justify-between gap-3"><Button type="button" variant="outline" onClick={() => setFeedbackStep((current) => Math.max(0, current - 1))} disabled={feedbackStep === 0}>Back</Button>{feedbackStep >= feedbackObjectives.length ? <Button type="button" onClick={submitFeedback} disabled={feedbackQuery.submitMutation.isPending || !canSubmitFeedback}>{feedbackQuery.submitMutation.isPending ? "Submitting..." : "Submit Feedback"}</Button> : <p className="self-center text-xs text-muted-foreground">Choose a rating to continue</p>}</div>
-          </div>
-        </ModalShell>
-      ) : null}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import {
   authFailure,
   authTimeoutFailure,
   createSupabaseSessionReader,
+  isInvalidCredentialAuthError,
   missingAuthSessionFailure,
   resolveSupabaseSessionUser,
   shouldSignOutAfterAuthFailure,
@@ -235,7 +236,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       const nextSession = await withRequestTimeout(
         (async () => {
           const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) throw authFailure();
+          if (error) {
+            // Keep transport/provider errors intact; only normalize the
+            // explicit invalid-credentials response as a credential failure.
+            throw isInvalidCredentialAuthError(error) ? authFailure() : error;
+          }
           if (!data.session?.user) throw missingAuthSessionFailure();
           return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
             id: data.session.user.id,

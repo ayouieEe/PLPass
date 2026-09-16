@@ -51,7 +51,7 @@ import {
   mapStudent
 } from "@/lib/supabase/mappers";
 import { RepositoryError } from "@/services/repositoryUtils";
-import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
+import { extractQrCredentialId, extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import type {
   AdminProfile,
@@ -1259,12 +1259,40 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       return credentialScanResult(input, "Invalid Credential", occurredAt, "QR code is empty.", { failedAttempts: 1 });
     }
 
-    const { data: credential, error: credentialError } = await client
+    let { data: credential, error: credentialError } = await client
       .from("qr_credentials")
       .select("*")
       .eq("id", code)
       .maybeSingle();
     throwIfSupabaseError(credentialError);
+
+    // School IDs may carry the student's number instead of a PLPass credential ID.
+    // Resolve that number to the student's active PLPass credential so both QR
+    // formats remain subject to the same activation and event-enrollment checks.
+    if (!credential) {
+      const schoolNumber = extractSchoolStudentNumber(input.credentialCode);
+      if (schoolNumber) {
+        const { data: student, error: studentError } = await client
+          .from("students")
+          .select("id")
+          .eq("student_id", schoolNumber)
+          .maybeSingle();
+        throwIfSupabaseError(studentError);
+        if (student?.id) {
+          const fallback = await client
+            .from("qr_credentials")
+            .select("*")
+            .eq("student_id", student.id)
+            .eq("credential_status", "activated")
+            .order("issued_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          credential = fallback.data;
+          credentialError = fallback.error;
+          throwIfSupabaseError(credentialError);
+        }
+      }
+    }
 
     if (!credential) {
       await insertVerificationAttempt(input.sessionId, input.method, false, "invalid_qr", "QR credential was not found.", occurredAt);
@@ -2126,12 +2154,15 @@ export const supabaseNotificationRepository: NotificationRepository = {
 };
 
 export const supabaseAuditLogRepository: AuditLogRepository = {
-  async listAuditLogs(query) {
+  async listAuditLogs(query, context) {
     const listQuery = queryOrDefault(query);
     const from = listQuery.pageIndex * listQuery.pageSize;
     const to = from + listQuery.pageSize - 1;
     const client = getSupabaseBrowserClient();
     let builder = client.from("audit_logs").select("*", { count: "exact" });
+    if (context?.actorRole === "organizer") {
+      builder = builder.eq("actor_user_id", context.actorUserId);
+    }
     const search = listQuery.search?.trim().replace(/[,%()]/g, " ").replace(/\s+/g, " ");
     if (search) {
       const filters = [`action.ilike.*${search}*`, `target_type.ilike.*${search}*`];

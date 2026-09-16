@@ -290,6 +290,7 @@ export type AttendanceSession = {
   lateCutoffAt?: ISODateString;
   attendanceWindowStartAt?: ISODateString;
   attendanceWindowEndAt?: ISODateString;
+  createdAt?: ISODateString;
   createdByUserId: ID;
 };
 

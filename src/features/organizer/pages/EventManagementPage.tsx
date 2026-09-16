@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertTriangle, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -548,6 +548,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
 export function EventManagementPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { sessionId: sessionIdFromRoute } = useParams<{ sessionId?: string }>();
   const tabFromQuery = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab");
@@ -557,8 +558,8 @@ export function EventManagementPage() {
     return "today" as const;
   }, [location.search]);
   const sessionIdFromQuery = useMemo(
-    () => new URLSearchParams(location.search).get("session"),
-    [location.search]
+    () => sessionIdFromRoute ?? new URLSearchParams(location.search).get("session"),
+    [location.search, sessionIdFromRoute]
   );
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
   const { setHeaderOverride } = useHeader();
@@ -880,6 +881,15 @@ export function EventManagementPage() {
       setQrInput("");
     }
   }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, repositoryEvents, sessionIdFromQuery, sessionsList]);
+
+  // Keep the live workspace addressable as its own session view. This also
+  // gives the floating session shortcut a reliable route to detect and hide.
+  useEffect(() => {
+    if (activeEvent && liveSessionId && !sessionIdFromQuery) {
+      navigate(APP_ROUTES.organizerLiveSession(liveSessionId), { replace: true });
+    }
+  }, [activeEvent, liveSessionId, navigate, sessionIdFromQuery]);
+
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
     const now = Date.now();
@@ -1265,6 +1275,7 @@ export function EventManagementPage() {
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
   setSelectedEventForSession(null);
+  navigate(APP_ROUTES.organizerLiveSession(startedSession.id), { replace: true });
   if (desktopApi()) {
     try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
   }

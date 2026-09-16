@@ -10,8 +10,21 @@ let controls: Awaited<ReturnType<BrowserQRCodeReader["decodeFromVideoDevice"]>> 
 let busy = false;
 let socket: WebSocket | null = null;
 let startingCamera = false;
+let heartbeatTimer: number | null = null;
 const recentCredentials = new Map<string, number>();
 let capturePhase: "time_in" | "time_out" = "time_in";
+const scannerClientId = (() => {
+  const key = "plpass-scanner-client-id";
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    localStorage.setItem(key, created);
+    return created;
+  } catch {
+    return crypto.randomUUID();
+  }
+})();
 
 function show(html: string) { root.innerHTML = html; }
 function safe(text: string) { return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character); }
@@ -26,7 +39,10 @@ async function startScan() {
   result.className = "scan-status"; result.textContent = "Opening camera…";
   const reader = new BrowserQRCodeReader();
   try {
-    controls = await reader.decodeFromVideoDevice(undefined, video, async (qr) => {
+    controls = await reader.decodeFromConstraints({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    }, video, async (qr) => {
       if (!qr || busy) return;
       const credential = qr.getText();
       const now = Date.now();
@@ -53,17 +69,20 @@ async function join() {
   if (!joinToken) { show(`<section><h1>PLPass Scanner Station</h1><p>First join the organizer laptop’s Wi-Fi hotspot. Then use the setup link supplied by the organizer to trust its temporary certificate, and scan the current station invitation QR.</p><a class="button" href="/certificate.cer">Download temporary certificate</a><p class="small">After the event, remove the PLPass temporary certificate from this phone.</p></section>`); return; }
   show(`<main class="scanner-shell"><section class="scanner-card loading-card"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><p class="eyebrow">PLPass</p><h1>Connecting scanner</h1><p class="intro">Securely connecting to the attendance laptop…</p><div class="loading-line"><span></span></div></section></main>`);
   try {
-    const response = await fetch("/api/join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ joinToken }) });
+    const response = await fetch("/api/join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ joinToken, scannerId: scannerClientId }) });
     const body = await response.json() as { station?: { name: string }; stationToken?: string; capturePhase?: "time_in" | "time_out"; error?: string };
     if (!response.ok || !body.stationToken) throw new Error(body.error ?? "This invitation is no longer valid.");
     stationToken = body.stationToken;
     capturePhase = body.capturePhase ?? "time_in";
-    show(`<main class="scanner-shell"><section class="scanner-card"><header class="scanner-header"><div class="brand"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><span>PLPass</span></div><span class="connection"><i></i> Connected</span></header><div class="scanner-title"><p class="station-name">${safe(body.station?.name ?? "Scanner station")}</p><h1>Student attendance</h1><p id="phase" class="phase-badge">Recording ${phaseLabel()}</p></div><div class="camera-frame"><video id="camera" autoplay muted playsinline></video><div class="scan-guide" aria-hidden="true"><span></span><span></span><span></span><span></span></div><p class="camera-hint">Align the student QR within the frame</p></div><p id="result" class="scan-status" role="status">Start the camera to scan student ${phaseLabel()}.</p><button id="start" class="start-button"><span aria-hidden="true">▣</span> Start camera</button><footer class="scanner-footer"><span class="lock-icon" aria-hidden="true">⌑</span> Confirmed by the organizer laptop</footer></section></main>`);
+    show(`<main class="scanner-shell"><section class="scanner-card"><header class="scanner-header"><div class="brand"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><span>PLPass</span></div><span class="connection"><i></i> Connected</span></header><div class="scanner-title"><p class="station-name">${safe(body.station?.name ?? "Scanner station")}</p><h1>Student attendance</h1><p id="phase" class="phase-badge">Recording ${phaseLabel()}</p></div><div class="camera-frame"><video id="camera" class="scanner-camera" autoplay muted playsinline></video><div class="scan-guide" aria-hidden="true"><span></span><span></span><span></span><span></span></div><p class="camera-hint">Align the student QR within the frame</p></div><p id="result" class="scan-status" role="status">Start the camera to scan student ${phaseLabel()}.</p><button id="start" class="start-button"><span aria-hidden="true">▣</span> Start camera</button><footer class="scanner-footer"><span class="lock-icon" aria-hidden="true">⌑</span> Confirmed by the organizer laptop</footer></section></main>`);
     document.querySelector<HTMLButtonElement>("#start")?.addEventListener("click", () => void startScan());
     socket = new WebSocket(`wss://${location.host}/ws?token=${encodeURIComponent(stationToken)}`);
+    heartbeatTimer = window.setInterval(() => {
+      void fetch("/api/ping", { method: "POST", headers: { authorization: `Bearer ${stationToken}` } }).catch(() => undefined);
+    }, 10_000);
     socket.addEventListener("message", (event) => { try { const update = JSON.parse(String(event.data)) as { type?: string; status?: { capturePhase?: "time_in" | "time_out" } }; if (update.type === "status" && update.status?.capturePhase) { capturePhase = update.status.capturePhase; renderPhase(); } } catch { /* Ignore malformed status updates. */ } });
     socket.addEventListener("close", () => { controls?.stop(); const result = document.querySelector<HTMLParagraphElement>("#result"); if (result) { result.className = "scan-status error"; result.textContent = "Disconnected from the attendance laptop. Reconnect to its hotspot and ask the organizer for a new invitation."; } });
   } catch (error) { show(`<main class="scanner-shell"><section class="scanner-card error-card"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><p class="eyebrow">Scanner unavailable</p><h1>Could not connect</h1><p class="intro">${safe(error instanceof Error ? error.message : "Ask the organizer for a new scanner invitation.")}</p></section></main>`); }
 }
-window.addEventListener("pagehide", () => { controls?.stop(); socket?.close(); });
+window.addEventListener("pagehide", () => { controls?.stop(); socket?.close(); if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer); });
 void join();

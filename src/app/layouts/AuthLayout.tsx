@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 type AuthLayoutProps = {
   title: string;
   description?: string;
+  headerAction?: ReactNode;
   children: ReactNode;
 };
 
-export function AuthLayout({ title, description, children }: AuthLayoutProps) {
+export function AuthLayout({ title, description, headerAction, children }: AuthLayoutProps) {
   return (
     <main className="plpass-auth-scene relative grid min-h-screen place-items-center overflow-hidden bg-background px-4 py-8">
       <div className="plpass-auth-grid" aria-hidden="true" />
@@ -21,6 +22,7 @@ export function AuthLayout({ title, description, children }: AuthLayoutProps) {
           <p className="mt-1 text-sm text-muted-foreground">Event attendance workspace</p>
         </div>
         <div className="plpass-auth-card rounded-2xl border border-border/80 bg-surface/95 p-6 backdrop-blur md:p-7">
+          {headerAction ? <div className="mb-2">{headerAction}</div> : null}
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h1>
             {description ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p> : null}

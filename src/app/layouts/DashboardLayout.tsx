@@ -152,8 +152,8 @@ export function DashboardLayout({
 
   return (
     <div className={cn(
-      "fixed inset-0 overflow-hidden bg-background",
-      role === "student" && "student-bg-gradient font-sans text-[#4F5654] antialiased"
+      "fixed inset-0 overflow-hidden bg-background font-sans antialiased",
+      role === "student" && "student-bg-gradient text-[#4F5654]"
     )}>
       <a
         href="#main-content"

@@ -7,9 +7,9 @@ import { LocalAttendanceDatabase } from "../electron/localDatabase";
 import { MemoryScannerCertificateStore, ScannerCoordinator } from "../electron/scannerCoordinator";
 import type { PreparedEventPackage } from "@/features/offline/types";
 
-function eventPackage(): PreparedEventPackage {
+function eventPackage(attendance: PreparedEventPackage["attendance"] = []): PreparedEventPackage {
   const now = Date.now(); const start = new Date(now - 60_000).toISOString(); const end = new Date(now + 60 * 60_000).toISOString();
-  return { cacheVersion: 1, preparedAt: start, event: { id: "event-1", code: "EVT-1", title: "Prepared", status: "ongoing", startsAt: start, endsAt: end }, sessions: [{ id: "session-1", eventId: "event-1", title: "Main", venue: "Hall", status: "ongoing", startsAt: start, endsAt: end, lateCutoffAt: end }], participants: [{ studentId: "student-1", studentNumber: "2026-001", displayName: "Ada Student", participantStatus: "confirmed", qrIdentifier: "qr-1", faceEmbeddings: [] }], attendance: [] };
+  return { cacheVersion: 1, preparedAt: start, event: { id: "event-1", code: "EVT-1", title: "Prepared", status: "ongoing", startsAt: start, endsAt: end }, sessions: [{ id: "session-1", eventId: "event-1", title: "Main", venue: "Hall", status: "ongoing", startsAt: start, endsAt: end, lateCutoffAt: end }], participants: [{ studentId: "student-1", studentNumber: "2026-001", displayName: "Ada Student", participantStatus: "confirmed", qrIdentifier: "qr-1", faceEmbeddings: [] }], attendance };
 }
 function post(url: string, body: unknown, authorization?: string) {
   return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
@@ -51,7 +51,7 @@ describe("scanner coordinator", () => {
       const joinUrl = new URL(active.joinUrl); const sharedToken = joinUrl.searchParams.get("join");
       const bootstrap = await page(joinUrl.toString()); expect(bootstrap.status).toBe(200); expect(bootstrap.body).toContain("Download PLPass Scanner certificate"); expect(bootstrap.body).toContain("Open scanner");
       const secureBase = active.addresses[0];
-      const stations = await Promise.all(Array.from({ length: 5 }, () => post(`${secureBase}/api/join`, { joinToken: sharedToken })));
+      const stations = await Promise.all(Array.from({ length: 5 }, (_, index) => post(`${secureBase}/api/join`, { joinToken: sharedToken, scannerId: `phone-${index}` })));
       expect(stations.every((station) => station.status === 200)).toBe(true); const stationToken = String(stations[0].body.stationToken);
       const sixth = await post(`${secureBase}/api/join`, { joinToken: sharedToken }); expect(sixth.status).toBe(409);
       const scanUrl = `${secureBase}/api/scan`; const scan = await post(scanUrl, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "attempt-1" }, stationToken);
@@ -63,6 +63,24 @@ describe("scanner coordinator", () => {
       expect(secondScan.body.message).toBe("Time In was already recorded.");
       expect(store.listPending()).toHaveLength(1);
       expect(store.listPending()[0].timeOut).toBeUndefined();
+    } finally { await coordinator.stop(); }
+  });
+
+  it("reuses one station when the same phone rejoins and acknowledges a cached check-in", async () => {
+    const store = new LocalAttendanceDatabase(new DatabaseSync(":memory:"));
+    const now = new Date().toISOString();
+    store.prepareEvent(eventPackage([{ sessionId: "session-1", studentId: "student-1", attendanceStatus: "present", timeIn: now }]));
+    const coordinator = new ScannerCoordinator(store, path.resolve(process.cwd(), "dist"), () => {});
+    try {
+      const active = await coordinator.start("event-1", "session-1");
+      const joinUrl = new URL(active.joinUrl ?? ""); const sharedToken = joinUrl.searchParams.get("join"); const base = active.addresses[0];
+      const first = await post(`${base}/api/join`, { joinToken: sharedToken, scannerId: "same-phone" });
+      const second = await post(`${base}/api/join`, { joinToken: sharedToken, scannerId: "same-phone" });
+      expect(first.body.stationToken).toBe(second.body.stationToken);
+      expect((await coordinator.getStatus()).stations).toHaveLength(1);
+      const scan = await post(`${base}/api/scan`, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "cached-checkin" }, String(first.body.stationToken));
+      expect(scan.body.action).toBe("already_recorded");
+      expect(scan.body.message).toBe("Time In was already recorded.");
     } finally { await coordinator.stop(); }
   });
 });

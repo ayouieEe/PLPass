@@ -12,7 +12,6 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useCredentialRequests, useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
-import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 
 type FacialStatus = "Activated" | "Damaged" | "Inactive" | "Missing";
@@ -30,9 +29,7 @@ type QrRow = {
 };
 
 function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
-  const value = student?.credentialId
-    ? buildStudentQrPayload(student.studentNumber, student.credentialId)
-    : "";
+  const value = student?.credentialId ? student.studentNumber : "";
   const qrDataUrl = useQrCredentialDataUrl(student?.status === "Active", value);
 
   return (

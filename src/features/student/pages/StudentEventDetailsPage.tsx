@@ -178,13 +178,26 @@ export function StudentEventDetailsPage() {
 
   if (scope.isLoading) return <LoadingState label="Loading student workspace" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
-  if (eventQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) return <LoadingState label="Loading event details" />;
+  if (eventQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || correctionsQuery.isLoading) {
+    return <LoadingState label="Loading event details" />;
+  }
   const student = scope.student;
-  if (eventQuery.isError || !eventQuery.data) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
+  if (eventQuery.isError || !eventQuery.data) {
+    return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
+  }
 
   const event = eventQuery.data;
   if (!event) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
-  if (event.status !== "approved" && event.status !== "completed") {
+  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
+  const eventSessionIds = new Set(
+    (sessionsQuery.data?.items ?? [])
+      .filter((session) => session.eventId === event.id)
+      .map((session) => session.id)
+  );
+  const hasAttendanceContext = eventSessionIds.size > 0
+    || (recordsQuery.data?.items ?? []).some((record) => eventSessionIds.has(record.sessionId));
+  const effectiveEventStatus = event.status === "pending" && eventSession?.status === "completed" ? "completed" : event.status;
+  if (effectiveEventStatus !== "approved" && effectiveEventStatus !== "completed" && !hasAttendanceContext) {
     return <ErrorState title="Event unavailable" message="This event is not published for students." />;
   }
   const feedbackObjectives = objectivesQuery.data ?? [];
@@ -200,7 +213,6 @@ export function StudentEventDetailsPage() {
   const correction = (correctionsQuery.data?.items ?? []).find((request) => request.eventId === event.id);
   const feedbackTask = (feedbackTasksQuery.data ?? []).find((task) => task.attendanceRecordId === currentRecord?.id);
   const feedbackSubmitted = feedbackTask?.status === "completed";
-  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
   const workflow = buildStudentEventWorkflow({
     event,
     session: eventSession,
@@ -212,7 +224,7 @@ export function StudentEventDetailsPage() {
   const allObjectivesRated = taskObjectives.length > 0 && taskObjectives.every((objective) => ratings[objective.id] > 0);
   const feedbackTaskIsActionable = feedbackTask?.status === "pending" && new Date(feedbackTask.dueAt).getTime() > Date.now();
   const feedbackReady = feedbackTaskIsActionable && !workflow.requiresLateReason;
-  const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason && feedbackTaskIsActionable);
+  const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason);
   const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
   const eventResources = resourcesQuery.data?.items ?? [];
 

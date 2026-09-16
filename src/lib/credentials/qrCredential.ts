@@ -1,5 +1,7 @@
-export function buildStudentQrPayload(studentNumber: string, credentialId: string) {
-  return `PLPASS-QR:${studentNumber.trim()}:${credentialId.trim()}`;
+export function buildStudentQrPayload(studentNumber: string) {
+  // The school ID and PLPass must identify the student with the same value.
+  // The credential record is validated separately during scanning.
+  return studentNumber.trim();
 }
 
 export function extractQrCredentialId(rawCode: string) {
@@ -10,4 +12,8 @@ export function extractQrCredentialId(rawCode: string) {
     .filter(Boolean);
 
   return parts.length ? parts[parts.length - 1] : normalized;
+}
+
+export function extractSchoolStudentNumber(rawCode: string) {
+  return rawCode.match(/\b\d{2}-\d{5}\b/)?.[0] ?? "";
 }
