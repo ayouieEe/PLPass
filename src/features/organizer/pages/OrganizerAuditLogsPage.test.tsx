@@ -129,6 +129,20 @@ describe("OrganizerAuditLogsPage UI component tests", () => {
     });
   });
 
+  it("opens the export report modal from the organizer audit logs page", async () => {
+    storeSession(organizerSession);
+    setRoute("/organizer/audit-logs");
+    render(<App />);
+    const user = userEvent.setup();
+
+    expect(await screen.findByRole("heading", { name: /^audit logs$/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /export/i }));
+
+    expect(await screen.findByRole("dialog", { name: /export audit report/i })).toBeInTheDocument();
+    expect(screen.getByText(/audit activity directory/i)).toBeInTheDocument();
+  });
+
   it("opens log details modal when 'View details' button is clicked", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/audit-logs");

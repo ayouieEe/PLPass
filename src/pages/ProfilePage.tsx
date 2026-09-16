@@ -30,6 +30,22 @@ function getNameById<T extends Program | Department>(items: T[] | undefined, id:
   return items?.find((item) => item.id === id)?.name;
 }
 
+function formatEmploymentStatus(value?: string | null) {
+  switch (value) {
+    case "active":
+    case "full_time":
+      return "Full-time";
+    case "part_time":
+      return "Part-time";
+    case "on_leave":
+      return "On leave";
+    case "separated":
+      return "Separated";
+    default:
+      return value ?? "Not available";
+  }
+}
+
 function ProfileField({ label, value }: ProfileFieldProps) {
   return (
     <div className="rounded-md border bg-surface p-3">
@@ -124,7 +140,7 @@ export function ProfilePage() {
       { label: "Employee ID", value: profile?.employeeNumber },
       { label: "Department", value: getNameById(departments, profile?.departmentId) },
       { label: "Position", value: profile?.position },
-      { label: "Employment status", value: profile?.employmentStatus },
+      { label: "Employment status", value: formatEmploymentStatus(profile?.employmentStatus) },
     );
   }
 
@@ -176,7 +192,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="space-y-8 p-1 font-sans">
+    <div className="space-y-4 p-1 font-sans">
       <PageHeader
         eyebrow="Account"
         title="Profile"
@@ -188,35 +204,35 @@ export function ProfilePage() {
           </Button>
         }
       />
-      <div className="grid items-start gap-6 lg:grid-cols-3">
+      <div className="grid items-start gap-4 lg:grid-cols-3">
         <div className="lg:sticky lg:top-6 lg:self-start">
-          <div className="student-glass-card flex h-fit flex-col items-center space-y-4 p-6 text-center shadow-sm">
+          <div className="student-glass-card flex h-fit flex-col items-center space-y-3 p-4 text-center shadow-sm">
             <div className="relative">
-              <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
+              <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
                 <img src={avatarUrl} alt="Profile avatar" className="h-full w-full object-cover" />
               </div>
-              <label className="absolute bottom-1 right-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition hover:scale-105" aria-label="Change profile picture">
-                <Camera className="h-4.5 w-4.5" />
+              <label className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition hover:scale-105" aria-label="Change profile picture">
+                <Camera className="h-4 w-4" />
                 <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={handleAvatarChange} disabled={isUploadingAvatar} />
               </label>
             </div>
             <div className="min-w-0">
-              <h3 className="text-lg font-bold text-foreground">{user.displayName}</h3>
+              <h3 className="text-base font-bold text-foreground">{user.displayName}</h3>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">JPG, PNG, or WebP up to 2 MB.</p>
+              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">JPG, PNG, or WebP up to 2 MB.</p>
             </div>
-            <div className="w-full border-t border-border pt-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
+            <div className="w-full border-t border-border pt-3">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[11px] font-semibold capitalize text-success">
                 {session.role} Role
               </span>
             </div>
           </div>
         </div>
 
-        <div className="space-y-6 lg:col-span-2">
-          <div className="student-glass-card space-y-4 p-6 shadow-sm">
-            <h3 className="flex items-center gap-2 font-semibold text-foreground"><User className="h-5 w-5 text-primary" />Account Information</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="student-glass-card space-y-4 p-4 shadow-sm">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><User className="h-4 w-4 text-primary" />Account Information</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
               <ProfileField label="Name" value={user.displayName} />
               <ProfileField label="Email" value={user.email} />
               {fields.slice(2).map((field) => <ProfileField key={field.label} label={field.label} value={field.value} />)}
@@ -224,8 +240,8 @@ export function ProfilePage() {
             </div>
           </div>
 
-          <div className="student-glass-card space-y-4 p-6 shadow-sm">
-            <h3 className="flex items-center gap-2 font-semibold text-foreground"><ShieldAlert className="h-5 w-5 text-primary" />Account Security</h3>
+          <div className="student-glass-card space-y-4 p-4 shadow-sm">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground"><ShieldAlert className="h-4 w-4 text-primary" />Account Security</h3>
             <ChangePasswordForm email={user.email} />
             <p className="text-sm text-muted-foreground">Forgot your password? Use the “Forgot password?” link on the sign-in page.</p>
           </div>

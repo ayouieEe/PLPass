@@ -79,16 +79,40 @@ function buildCsvString(headers: string[], rows: (string | number)[][]): string 
   return [headerLine, ...dataLines].join("\r\n");
 }
 
-function downloadFile(content: Blob | string, filename: string, mimeType: string) {
+export function triggerDownload(content: Blob | string, filename: string, mimeType = "application/octet-stream") {
   const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+
+  const clickAnchor = (url: string) => {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    return url;
+  };
+
+  if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    const url = URL.createObjectURL(blob);
+    clickAnchor(url);
+    window.setTimeout(() => {
+      if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(url);
+      }
+    }, 1500);
+    return url;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    clickAnchor(String(reader.result ?? ""));
+  };
+  reader.readAsDataURL(blob);
+  return "data:application/octet-stream;base64,";
+}
+
+function downloadFile(content: Blob | string, filename: string, mimeType: string) {
+  triggerDownload(content, filename, mimeType);
 }
 
 function todayLabel(): string {

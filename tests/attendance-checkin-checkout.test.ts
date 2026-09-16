@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { supabaseAttendanceSessionRepository } from "@/services/supabase/repositories";
-import { resolveLateStudentManualState, resolveManualAttendanceLookup } from "@/features/organizer/utils/eventManagement";
+import { canProcessAttendanceAction, getMissingTimeOutRows, requiresOpenTimeOutBeforeSessionEnd, resolveLateStudentManualState, resolveManualAttendanceLookup, resolveStudentIdentityLookup } from "@/features/organizer/utils/eventManagement";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import type { AttendanceScanInput, ManualAttendanceInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -262,6 +262,40 @@ describe("Attendance Check-In/Check-Out Logic", () => {
       expect(result.isLateLocked).toBe(false);
       expect(result.lockedStatus).toBe("present");
       expect(result.lockedLateReason).toBe("");
+    });
+
+    it("accepts a student ID or name from the QR scanner input", () => {
+      const byStudentId = resolveStudentIdentityLookup("2026-0001", [
+        { id: "student-1", studentNumber: "2026-0001", fullName: "Sofia Nicole Angeles Manuel" }
+      ]);
+      const byStudentName = resolveStudentIdentityLookup("Sofia Nicole Angeles Manuel", [
+        { id: "student-1", studentNumber: "2026-0001", fullName: "Sofia Nicole Angeles Manuel" }
+      ]);
+
+      expect(byStudentId.isValid).toBe(true);
+      expect(byStudentId.matchedStudentId).toBe("student-1");
+      expect(byStudentName.isValid).toBe(true);
+      expect(byStudentName.matchedStudentId).toBe("student-1");
+    });
+
+    it("blocks new time-ins while the time-out phase is already open", () => {
+      expect(canProcessAttendanceAction("time_out", undefined)).toBe(false);
+      expect(canProcessAttendanceAction("time_out", { checkOutAt: null })).toBe(true);
+      expect(canProcessAttendanceAction("time_out", { checkOutAt: "2026-09-17T10:00:00.000Z" })).toBe(false);
+      expect(canProcessAttendanceAction("time_in", undefined)).toBe(true);
+      expect(canProcessAttendanceAction("time_in", { checkOutAt: null })).toBe(false);
+    });
+
+    it("requires the organizer to open time out before ending the session and keeps reminder rows for missing check-outs", () => {
+      const rows = [
+        { studentId: "student-1", checkInAt: "2026-09-17T09:00:00.000Z", checkOutAt: null },
+        { studentId: "student-2", checkInAt: "2026-09-17T09:05:00.000Z", checkOutAt: "2026-09-17T09:06:00.000Z" }
+      ];
+
+      expect(requiresOpenTimeOutBeforeSessionEnd("time_in", rows)).toBe(true);
+      expect(requiresOpenTimeOutBeforeSessionEnd("time_out", rows)).toBe(false);
+      expect(getMissingTimeOutRows(rows)).toHaveLength(1);
+      expect(getMissingTimeOutRows(rows)[0]?.studentId).toBe("student-1");
     });
 
     it("rejects an invalid student ID or name lookup with a formal validation result", () => {

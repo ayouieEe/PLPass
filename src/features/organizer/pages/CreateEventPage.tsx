@@ -544,6 +544,23 @@ export function CreateEventPage() {
   }, [hasUnsavedProgress, isPublishingEvent]);
 
   useEffect(() => {
+    const handleFloatingLiveSessionClick = (event: Event) => {
+      const customEvent = event as CustomEvent<{ nextPath?: string }>;
+      const nextPath = customEvent.detail?.nextPath;
+      if (!nextPath || (location.pathname !== APP_ROUTES.organizerCreateEvent && location.pathname !== APP_ROUTES.adminCreateEvent)) return;
+      if (!hasUnsavedProgress || isPublishingEvent) {
+        navigate(nextPath);
+        return;
+      }
+
+      setPendingExitTo(nextPath);
+    };
+
+    window.addEventListener("plpass:leave-create-event-confirm", handleFloatingLiveSessionClick);
+    return () => window.removeEventListener("plpass:leave-create-event-confirm", handleFloatingLiveSessionClick);
+  }, [hasUnsavedProgress, isPublishingEvent, location.pathname, navigate]);
+
+  useEffect(() => {
     if (!hasUnsavedProgress || isPublishingEvent) return;
     const currentPath = `${location.pathname}${location.search}${location.hash}`;
 

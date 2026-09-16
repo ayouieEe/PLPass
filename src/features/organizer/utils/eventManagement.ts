@@ -56,8 +56,13 @@ function isPastDate(dateString: string) {
   return new Date(`${dateString}T00:00:00`) < today;
 }
 
-function hasAttendanceSession(eventId: string | undefined, eventDate: string, sessions: Array<{ eventId?: string; date?: string }>) {
-  return Boolean(eventId && sessions.some((session) => session.eventId === eventId && session.date === eventDate));
+function hasAttendanceSession(eventId: string | undefined, _eventDate: string, sessions: Array<{ eventId?: string; status?: string; date?: string }>) {
+  return Boolean(eventId && sessions.some((session) => {
+    const matchesEvent = String(session.eventId ?? "") === String(eventId);
+    const status = String(session.status ?? "").toLowerCase();
+    const isActiveSession = status === "active" || status === "ongoing";
+    return matchesEvent && isActiveSession;
+  }));
 }
 
 export function hasValidEventSchedule(event: Pick<EventRecord, "date" | "startTime" | "endTime">) {
@@ -74,10 +79,11 @@ export function shouldDisplayInEventTab(
     activeEventCode?: string;
     cancelledCodes: string[];
     completedCodes: Set<string>;
-    sessionsList: Array<{ eventId?: string; date?: string }>;
+    sessionsList: Array<{ eventId?: string; status?: string; date?: string }>;
   }
 ) {
   if (options.activeEventCode === event.code || options.cancelledCodes.includes(event.code) || options.completedCodes.has(event.code) || !hasValidEventSchedule(event)) return false;
+  if (hasAttendanceSession(event.id, event.date, options.sessionsList)) return false;
   if (tab === "today") return event.status === "today" || isTodayEvent(event);
   if (isPastDate(event.date) && !hasAttendanceSession(event.id, event.date, options.sessionsList)) return false;
   return event.status === "incoming" || !isTodayEvent(event);
@@ -97,6 +103,36 @@ export function resolveManualAttendanceLookup(input: string, students: Array<{ i
   if (!input.trim()) return { isValid: false, matchedStudentId: null };
   const matchedStudentId = resolveStudentLookupId(input, students);
   return { isValid: matchedStudentId !== null, matchedStudentId };
+}
+
+const minimumTimeOutIntervalMs = 60_000;
+
+function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
+  return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
+}
+
+export function canProcessAttendanceAction(attendancePhase: "time_in" | "time_out", existingRow?: { checkOutAt?: string | null } | null) {
+  if (attendancePhase === "time_out") {
+    return Boolean(existingRow && !existingRow.checkOutAt);
+  }
+  return !existingRow;
+}
+
+export function getMissingTimeOutRows<T extends { checkInAt?: string; checkOutAt?: string | null }>(rows: T[]) {
+  return rows.filter((row) => Boolean(row.checkInAt) && (!row.checkOutAt || !canRecordTimeOut(row.checkInAt ?? "", row.checkOutAt)));
+}
+
+export function requiresOpenTimeOutBeforeSessionEnd<T extends { checkInAt?: string; checkOutAt?: string | null }>(attendancePhase: "time_in" | "time_out", rows: T[]) {
+  if (attendancePhase !== "time_in") return false;
+  return getMissingTimeOutRows(rows).length > 0;
+}
+
+export function resolveStudentIdentityLookup(input: string, students: Array<{ id: string; studentNumber?: string; fullName?: string; formattedName?: string; userId?: string }>) {
+  if (!input.trim()) return { isValid: false, matchedStudentId: null };
+  const query = normalizeStudentLookup(input);
+  if (!query) return { isValid: false, matchedStudentId: null };
+  const matchedStudent = students.find((student) => [student.id, student.userId ?? "", student.studentNumber ?? "", student.fullName ?? "", student.formattedName ?? ""].some((value) => normalizeStudentLookup(value) === query));
+  return { isValid: matchedStudent !== undefined, matchedStudentId: matchedStudent?.id ?? null };
 }
 
 export function resolveLateStudentManualState({ manualInput, students, activeRows }: {

@@ -61,7 +61,7 @@ export class LocalAttendanceDatabase {
     if (!row) return null;
     return { studentId: String(row.student_id), studentNumber: String(row.student_number), displayName: String(row.display_name), participantStatus: String(row.participant_status), qrIdentifier: value(row, "qr_identifier"), faceEmbeddings: JSON.parse(String(row.face_embeddings_json ?? "[]")) as number[][] };
   }
-  identifyQr(eventId: string, qr: string) { return this.participant(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed' AND (qr_identifier=? OR lower(student_number)=lower(?))").get(eventId, qr, qr.trim()) as SqlRow | undefined); }
+  identifyQr(eventId: string, qr: string) { return this.participant(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed' AND (qr_identifier=? OR lower(student_number)=lower(?) OR lower(display_name)=lower(?))").get(eventId, qr, qr.trim(), qr.trim()) as SqlRow | undefined); }
   getAttendanceState(sessionId: string, studentId: string) {
     const row = this.db.prepare("SELECT time_in, time_out FROM cached_attendance_state WHERE session_id=? AND student_id=?").get(sessionId, studentId) as SqlRow | undefined;
     return row ? { timeIn: value(row, "time_in"), timeOut: value(row, "time_out") } : null;

@@ -155,6 +155,9 @@ function generateMockTurnout(id: string): number {
 
 function mapEventStatus(row: Row): EventStatus {
   const eventStatus = stringValue(row, ["event_status", "status"], "pending");
+  if (eventStatus === "ongoing" || eventStatus === "active") {
+    return "ongoing";
+  }
   if (eventStatus === "completed" || eventStatus === "cancelled") {
     return eventStatus;
   }

@@ -309,19 +309,17 @@ function ReportExportModal({
 }) {
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
   const [statusFilter, setStatusFilter] = useState(activeStatusFilter === "All" ? "all" : activeStatusFilter);
-  const [exportSearch, setExportSearch] = useState(activeSearch);
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const filteredQr = qrRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
-  const filteredFacial = facialRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
+  const filteredQr = qrRows.filter((r) => (!activeSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(activeSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
+  const filteredFacial = facialRows.filter((r) => (!activeSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(activeSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
   const count = reportType === "qr" ? filteredQr.length : filteredFacial.length;
 
   function handleResetFilters() {
     setStatusFilter("all");
-    setExportSearch("");
   }
 
   async function handleExport() {
@@ -493,10 +491,6 @@ function ReportExportModal({
               </button>
             </div>
 
-            <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search students</label>
-              <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Name or student ID" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
-            </div>
             <div>
               <label className="text-[11px] font-semibold text-slate-600 block mb-1">Status</label>
               <select

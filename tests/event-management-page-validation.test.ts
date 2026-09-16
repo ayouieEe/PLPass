@@ -9,11 +9,17 @@ import {
 import { dateKey } from "@/lib/utils/date";
 
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
+const eventDetailsPage = readFileSync("src/features/organizer/pages/EventDetailsPage.tsx", "utf8");
 const appRouter = readFileSync("src/app/router/AppRouter.tsx", "utf8");
+const createEventPage = readFileSync("src/features/organizer/pages/CreateEventPage.tsx", "utf8");
 const activeSessionOverlay = readFileSync("src/features/attendance/ActiveSessionOverlay.tsx", "utf8");
 const routes = readFileSync("src/lib/constants/routes.ts", "utf8");
 const attendanceStartMigration = readFileSync(
   "supabase/migrations/20260909113720_allow_owned_events_to_start_attendance_without_approval.sql",
+  "utf8"
+);
+const cancelledEventRescheduleMigration = readFileSync(
+  "supabase/migrations/20260916190652_allow_cancelled_events_to_be_rescheduled.sql",
   "utf8"
 );
 
@@ -48,6 +54,63 @@ describe("event page validation helpers", () => {
     })).toBe(false);
   });
 
+  it("hides an event from the startable list when an ongoing session is already attached to it", () => {
+    const event = {
+      id: "evt-1",
+      code: "EVT-1",
+      name: "Active Event",
+      category: "General",
+      venue: "AVR 1",
+      date: "2026-08-10",
+      startTime: "02:00",
+      endTime: "04:00",
+      status: "incoming",
+      priorityLevel: "Flexible",
+      impactScore: null,
+      predictedTurnout: "0%",
+      objectives: []
+    } satisfies EventRecord;
+
+    expect(shouldDisplayInEventTab(event, "incoming", {
+      activeEventCode: undefined,
+      cancelledCodes: [],
+      completedCodes: new Set(),
+      sessionsList: [{ eventId: "evt-1", status: "active" }]
+    })).toBe(false);
+    expect(shouldDisplayInEventTab(event, "today", {
+      activeEventCode: undefined,
+      cancelledCodes: [],
+      completedCodes: new Set(),
+      sessionsList: [{ eventId: "evt-1", status: "active" }]
+    })).toBe(false);
+  });
+
+  it("uses the active session label when an event already has an ongoing session", () => {
+    expect(eventDetailsPage).toContain("Open active session");
+  });
+
+  it("applies the priority dropdown filter to the currently selected event tab", () => {
+    expect(eventManagementPage).toContain(".filter((event) => matchesEventFilters(event, eventFilters))");
+    expect(eventManagementPage).toContain("[activeTab, cancelledEvents, eventFilters, incomingEvents, todayEvents]");
+  });
+
+  it("requires an incoming event to be rescheduled to today before attendance can start", () => {
+    expect(eventManagementPage).toContain("function isScheduledForToday");
+    expect(eventManagementPage).toContain("Reschedule it to today before starting attendance.");
+    expect(eventManagementPage).toContain('activeTab === "incoming" ? incomingColumnsWithActions');
+    expect(eventDetailsPage).toContain("const canStartSession = Boolean(activeSession) || isScheduledToday;");
+    expect(eventDetailsPage).toContain("Reschedule this event to today first.");
+    expect(eventDetailsPage).toContain("Attendance is unavailable until the event day");
+  });
+
+  it("restores a cancelled event to the scheduled lifecycle when it is rescheduled", () => {
+    expect(cancelledEventRescheduleMigration).toContain("if v_event.event_status = 'completed' then");
+    expect(cancelledEventRescheduleMigration).toContain("event_status = case when v_was_cancelled then 'scheduled'");
+    expect(cancelledEventRescheduleMigration).toContain("cancellation_reason = case when v_was_cancelled then null");
+    expect(cancelledEventRescheduleMigration).toContain("event.reinstated_and_rescheduled");
+    expect(cancelledEventRescheduleMigration).toContain("grant execute on function public.reschedule_organizer_event");
+  });
+
   it("keeps the Philippine calendar date when ISO timestamps are stored in UTC", () => {
     expect(dateKey("2026-08-30T16:00:00.000Z")).toBe("2026-08-31");
     expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
@@ -63,7 +126,15 @@ describe("event page validation helpers", () => {
   });
 
   it("keeps schedule navigation out of a live event workspace and clears stale sessions", () => {
-    expect(eventManagementPage).toContain("{!activeEvent ? <section");
+    expect(eventManagementPage).toContain("{!isLiveWorkspace ? <section");
+    expect(eventManagementPage).toContain('eyebrow={isLiveWorkspace && activeEvent ? (');
+    expect(eventManagementPage).toContain("Back to events");
+    expect(eventManagementPage).toContain("function returnToEvents()");
+    expect(eventManagementPage).toContain("onClick={returnToEvents}");
+    expect(eventManagementPage).toContain("const isLiveWorkspace = Boolean(activeEvent && sessionIdFromQuery);");
+    expect(eventManagementPage).toContain("location.pathname !== eventsRoute");
+    expect(eventManagementPage).toContain("returningToEventsRef.current = true;");
+    expect(eventManagementPage).toContain("if (returningToEventsRef.current) return;");
     expect(eventManagementPage).toContain("This attendance session is no longer active. Returned to Events.");
     expect(eventManagementPage).toContain("navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(liveSessionId)");
   });
@@ -80,6 +151,13 @@ describe("event page validation helpers", () => {
     expect(activeSessionOverlay).toContain("right.createdAt ?? right.attendanceWindowStartAt ?? right.startsAt");
     expect(activeSessionOverlay).toContain("APP_ROUTES.organizerLiveSession(activeSession.id)");
     expect(activeSessionOverlay).toContain("APP_ROUTES.organizerLiveSession(activeSession.id)");
+    expect(activeSessionOverlay).not.toContain("setIsConfirmOpen(true)");
+    expect(activeSessionOverlay).not.toContain("Open live session?");
+    expect(activeSessionOverlay).toContain("plpass:leave-create-event-confirm");
+    expect(createEventPage).toContain("plpass:leave-create-event-confirm");
+    expect(createEventPage).toContain("setPendingExitTo(nextPath)");
+    expect(activeSessionOverlay).toContain("onPointerDown={handlePointerDown}");
+    expect(activeSessionOverlay).toContain("Drag to reposition. Click to return to the live session.");
   });
 
   it("allows an organizer to start an owned active event without approval", () => {

@@ -13,7 +13,7 @@ export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 export const SESSION_STATUSES = ["draft", "active", "completed", "cancelled"] as const;
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
-export const EVENT_STATUSES = ["pending", "approved", "rejected", "completed", "cancelled"] as const;
+export const EVENT_STATUSES = ["pending", "approved", "ongoing", "rejected", "completed", "cancelled"] as const;
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 export type PriorityLevel = "Time-Sensitive" | "Business-Critical" | "Flexible";
 

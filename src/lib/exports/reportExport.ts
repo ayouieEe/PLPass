@@ -1075,12 +1075,30 @@ export async function exportReportXlsx(options: ReportExportOptions) {
 
   const buffer = await workbook.xlsx.writeBuffer();
   const blob = new Blob([new Uint8Array(buffer)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${safeReportFileName(options.fileName)}.xlsx`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+
+  const clickAnchor = (url: string) => {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${safeReportFileName(options.fileName)}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+  };
+
+  if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    const url = URL.createObjectURL(blob);
+    clickAnchor(url);
+    window.setTimeout(() => {
+      if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(url);
+      }
+    }, 1500);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    clickAnchor(String(reader.result ?? ""));
+  };
+  reader.readAsDataURL(blob);
 }

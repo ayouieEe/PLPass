@@ -494,6 +494,10 @@ export function EventDetailsPage() {
   const canManageParticipants = canManageOwnedEvents && !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
   const canChangeEvent = canManageOwnedEvents && event.status !== "completed" && event.status !== "cancelled";
   const earliestRescheduleDate = dateKey(new Date());
+  const isScheduledToday = dateKey(event.startsAt) === earliestRescheduleDate;
+  // Existing sessions remain accessible. New sessions may only begin on the
+  // event's scheduled calendar day.
+  const canStartSession = Boolean(activeSession) || isScheduledToday;
   const scheduleConflicts = (eventsQuery.data?.items ?? []).filter((otherEvent) => sharesSchedule(event, otherEvent));
   const counts = attendanceCounts(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
@@ -543,6 +547,11 @@ export function EventDetailsPage() {
   }
 
   async function startAttendanceSession() {
+    if (!isScheduledToday) {
+      setIsStartSessionOpen(false);
+      toast.error("Attendance can only start for an event scheduled today. Reschedule this event to today first.");
+      return;
+    }
     try {
       const session = await mutations.createEventSessionMutation.mutateAsync({
         eventId: event.id,
@@ -874,14 +883,14 @@ export function EventDetailsPage() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             {canChangeEvent ? (
             <div className="flex items-center gap-2">
-            <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
+            {canStartSession ? <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
               setSessionModalMode(activeSession ? "existing" : "start");
               if (!activeSession) setLateCutoffMinutes(15);
               setIsStartSessionOpen(true);
             }}>
               <Play className="h-4 w-4" aria-hidden="true" />
-              Start session
-            </Button>
+              {activeSession ? "Open active session" : "Start session"}
+            </Button> : null}
             <details className="relative">
               <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-input bg-surface px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
                 More actions
@@ -913,6 +922,17 @@ export function EventDetailsPage() {
             </div>
             <h2 className="mt-3 text-lg font-semibold tracking-tight text-foreground">{isAdmin ? "Event operational overview" : "Ready to manage your event"}</h2>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{isAdmin ? "Review ownership, schedule, participation, attendance status, and audit context for this event." : "Use the controls below to prepare attendees, share resources, and start attendance when the event begins."}</p>
+            {canChangeEvent && !canStartSession ? (
+              <div className="mt-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-semibold">Attendance is unavailable until the event day</p>
+                  <p className="mt-0.5 text-amber-900/80">This event is scheduled for {formatDate(event.startsAt)}. Reschedule it to today to start a live session.</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" className="shrink-0 border-amber-300 bg-background" onClick={() => setIsRescheduleOpen(true)}>
+                  Reschedule event
+                </Button>
+              </div>
+            ) : null}
           </div>
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 lg:min-w-[34rem]">
             <div className="rounded-xl border border-primary/10 bg-surface/80 p-3">

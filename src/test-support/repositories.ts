@@ -1163,6 +1163,7 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     const updated: Event = {
       ...event,
       venue: input.venue || event.venue,
+      ...(event.status === "cancelled" ? { status: "approved" as const, cancellationReason: undefined } : {}),
       startsAt: input.date && input.startTime 
         ? `${input.date}T${input.startTime}:00.000Z` 
         : event.startsAt,

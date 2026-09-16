@@ -42,22 +42,22 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 max-w-md space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       <p className="text-sm text-muted-foreground">Use at least 8 characters. Changing your password signs out other devices.</p>
       <div className="space-y-1.5">
-        <label htmlFor="current-password" className="text-xs font-semibold text-foreground">Current password</label>
-        <input id="current-password" autoComplete="current-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+        <label htmlFor="current-password" className="text-sm font-semibold text-foreground">Current password</label>
+        <input id="current-password" autoComplete="current-password" type="password" className="h-11 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
       </div>
       <div className="space-y-1.5">
-        <label htmlFor="new-password" className="text-xs font-semibold text-foreground">New password</label>
-        <input id="new-password" autoComplete="new-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <label htmlFor="new-password" className="text-sm font-semibold text-foreground">New password</label>
+        <input id="new-password" autoComplete="new-password" type="password" className="h-11 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={password} onChange={(event) => setPassword(event.target.value)} />
         <p className="text-xs text-muted-foreground">{passwordRequirementsMessage}</p>
       </div>
       <div className="space-y-1.5">
-        <label htmlFor="confirm-new-password" className="text-xs font-semibold text-foreground">Confirm new password</label>
-        <input id="confirm-new-password" autoComplete="new-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+        <label htmlFor="confirm-new-password" className="text-sm font-semibold text-foreground">Confirm new password</label>
+        <input id="confirm-new-password" autoComplete="new-password" type="password" className="h-11 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
       </div>
-      <Button type="submit" disabled={submitting} className="mt-2 px-6">{submitting ? "Updating..." : "Update password"}</Button>
+      <Button type="submit" disabled={submitting} className="mt-1 h-12 rounded-xl bg-emerald-700 px-6 text-base font-semibold text-white hover:bg-emerald-800">{submitting ? "Updating..." : "Update password"}</Button>
     </form>
   );
 }

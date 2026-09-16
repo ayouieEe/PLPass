@@ -22,6 +22,22 @@ function getNameById<T extends Department>(items: T[] | undefined, id: string | 
   return items?.find((item) => item.id === id)?.name ?? "N/A";
 }
 
+function formatEmploymentStatus(value?: string | null) {
+  switch (value) {
+    case "active":
+    case "full_time":
+      return "Full-time";
+    case "part_time":
+      return "Part-time";
+    case "on_leave":
+      return "On leave";
+    case "separated":
+      return "Separated";
+    default:
+      return value ?? "N/A";
+  }
+}
+
 function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
   return (
     <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-4 transition-all">
@@ -170,58 +186,59 @@ export function OrganizerProfilePage() {
 
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-4 font-sans">
       <PageHeader title="Profile" description="Manage your organizer account settings and view profile information." />
 
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="flex flex-col items-center space-y-4 rounded-2xl border border-border bg-card/40 p-6 text-center shadow-sm">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="flex flex-col items-center space-y-3 rounded-2xl border border-border bg-card/40 p-4 text-center shadow-sm">
           <div className="group relative">
-            <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
+            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
               <img src={avatarUrl} alt="Organizer Avatar" className="h-full w-full object-cover" />
             </div>
-            <label className="absolute bottom-1 right-1 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105">
+            <label className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-primary text-primary-foreground shadow-md transition-transform hover:scale-105">
               <Camera className="h-4 w-4" />
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatarChange} disabled={isUploadingAvatar} className="hidden" />
             </label>
           </div>
 
           <div>
-            <h3 className="text-lg font-bold text-foreground">{user.displayName}</h3>
+            <h3 className="text-base font-bold text-foreground">{user.displayName}</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">{user.email}</p>
           </div>
 
-          <div className="w-full border-t border-border pt-4">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
+          <div className="w-full border-t border-border pt-3">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[11px] font-semibold capitalize text-success">
               Organizer Role
             </span>
           </div>
         </div>
 
-        <div className="space-y-6 lg:col-span-2">
-          <div className="rounded-2xl border border-border bg-card/40 p-6 shadow-sm">
-            <h3 className="flex items-center gap-2 font-semibold text-foreground">
-              <User className="h-5 w-5 text-primary" />
+        <div className="space-y-4 lg:col-span-2">
+          <div className="rounded-2xl border border-border bg-card/40 p-4 shadow-sm">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <User className="h-4 w-4 text-primary" />
               Profile information
             </h3>
 
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <ProfileField label="Full Name" value={user.displayName} icon={User} />
               <ProfileField label="Email Address" value={user.email} icon={Mail} />
               <ProfileField label="Employee ID" value={organizer.employeeNumber} icon={ShieldAlert} />
               <ProfileField label="Department" value={departmentDisplayName} icon={ShieldAlert} />
               <ProfileField label="Position" value={organizer.position} icon={ShieldAlert} />
-              <ProfileField label="Employment Status" value={organizer.employmentStatus} icon={ShieldAlert} />
+              <ProfileField label="Employment Status" value={formatEmploymentStatus(organizer.employmentStatus)} icon={ShieldAlert} />
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border bg-card/40 p-6 shadow-sm">
-            <h3 className="flex items-center gap-2 font-semibold text-foreground">
-              <Key className="h-5 w-5 text-primary" />
+          <div className="rounded-2xl border border-border bg-card/40 p-4 shadow-sm">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Key className="h-4 w-4 text-primary" />
               Change password
             </h3>
 
-            <ChangePasswordForm email={organizerEmail} onChanged={recordPasswordChange} />
+            <div className="mt-3">
+              <ChangePasswordForm email={organizerEmail} onChanged={recordPasswordChange} />
+            </div>
           </div>
         </div>
       </div>

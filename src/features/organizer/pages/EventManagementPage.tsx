@@ -3,7 +3,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Camera, Eye, FileDown, Filter, Play, ScanLine, Search, Square, X, XCircle } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -33,10 +33,14 @@ import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import type { Event } from "@/types/domain";
 import {
+  canProcessAttendanceAction,
+  getMissingTimeOutRows,
   hasValidEventSchedule,
   isTodayEvent,
+  requiresOpenTimeOutBeforeSessionEnd,
   resolveLateStudentManualState,
   resolveManualAttendanceLookup,
+  resolveStudentIdentityLookup,
   shouldDisplayInEventTab,
   type AttendanceStatus,
   type EventRecord,
@@ -87,6 +91,12 @@ type EventOfflinePreparation = {
 };
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
+
+// This intentionally uses the stored calendar date, rather than the broader
+// list helper, so only an event actually scheduled today can start attendance.
+function isScheduledForToday(event: Pick<EventRecord, "date">) {
+  return event.date === dateKey(new Date());
+}
 
 type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
@@ -590,6 +600,7 @@ export function EventManagementPage() {
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
+  const [timeOutRequiredOpen, setTimeOutRequiredOpen] = useState(false);
   const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
@@ -613,6 +624,7 @@ export function EventManagementPage() {
   const facialStreamRef = useRef<MediaStream | null>(null);
   const previousManualStudentIdRef = useRef<string | null>(null);
   const hydratedSessionIdRef = useRef<string | null>(null);
+  const returningToEventsRef = useRef(false);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
   const notifiedEventCodesRef = useRef(new Set<string>());
   const autoCancelledEventIdsRef = useRef(new Set<string>());
@@ -852,8 +864,15 @@ export function EventManagementPage() {
   useEffect(() => {
     if (!sessionIdFromQuery) {
       setHandledSessionRouteId(null);
+      // The Events route is now settled. A later overlay click may hydrate a
+      // live session normally, but never restore the one we just left.
+      returningToEventsRef.current = false;
       return;
     }
+
+    // Navigation updates and effects do not necessarily commit in the same
+    // frame. Ignore the old query value while Back to events is in progress.
+    if (returningToEventsRef.current) return;
 
     const requestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
     const requestedEvent = requestedSession
@@ -893,11 +912,14 @@ export function EventManagementPage() {
 
   // Keep the live workspace addressable as its own session view. This also
   // gives the floating session shortcut a reliable route to detect and hide.
+  // Do not redirect when the organizer deliberately returned to the Events
+  // list; the floating ongoing-session control is the way back from there.
   useEffect(() => {
-    if (activeEvent && liveSessionId && !sessionIdFromQuery) {
+    const eventsRoute = workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents);
+    if (!returningToEventsRef.current && activeEvent && liveSessionId && !sessionIdFromQuery && location.pathname !== eventsRoute) {
       navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(liveSessionId), APP_ROUTES.adminLiveSession(liveSessionId)), { replace: true });
     }
-  }, [activeEvent, liveSessionId, navigate, sessionIdFromQuery, workspaceRoute]);
+  }, [activeEvent, liveSessionId, location.pathname, navigate, sessionIdFromQuery, workspaceRoute]);
 
   const readinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
@@ -1023,7 +1045,7 @@ export function EventManagementPage() {
   // capture time; the extra check is only a recovery safeguard for an old,
   // already-saved invalid value so End Session can still complete safely.
   const missingTimeOutRows = useMemo(
-    () => activeRows.filter((row) => !row.checkOutAt || !canRecordTimeOut(row.checkInAt, row.checkOutAt)),
+    () => getMissingTimeOutRows(activeRows),
     [activeRows]
   );
   const activeAttendanceSession = useMemo(
@@ -1140,8 +1162,9 @@ export function EventManagementPage() {
     [filterableEvents]
   );
   const selectedEvents = useMemo(
-    () => (activeTab === "today" ? todayEvents : activeTab === "incoming" ? incomingEvents : cancelledEvents),
-    [activeTab, cancelledEvents, incomingEvents, todayEvents]
+    () => (activeTab === "today" ? todayEvents : activeTab === "incoming" ? incomingEvents : cancelledEvents)
+      .filter((event) => matchesEventFilters(event, eventFilters)),
+    [activeTab, cancelledEvents, eventFilters, incomingEvents, todayEvents]
   );
   const prepareOfflinePackage = useCallback(async (event: EventRecord) => {
     const eventId = event.id;
@@ -1213,6 +1236,11 @@ export function EventManagementPage() {
   }, [selectedEventForSession, selectedEvents]);
 
   function openStartSession(event: EventRecord) {
+    if (!isScheduledForToday(event)) {
+      toast.error("This event is scheduled for a future date. Reschedule it to today before starting attendance.");
+      setEditEvent(event);
+      return;
+    }
     setStartEvent(event);
     setSessionForm({
       venue: event.venue,
@@ -1222,6 +1250,20 @@ export function EventManagementPage() {
       method: defaultAttendanceMethod,
       lateCutoffMinutes: 15
     });
+  }
+
+  function returnToEvents() {
+    // Keep the server session running, but leave its local workspace so the
+    // organizer returns to the main Events list. The active-session indicator
+    // remains available there for reopening it.
+    returningToEventsRef.current = true;
+    setFacialCameraOpen(false);
+    setFacialStatus("");
+    setCaptureMode(null);
+    setActiveRows([]);
+    setActiveEvent(null);
+    setLiveSessionId(null);
+    navigate(workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents));
   }
 
   async function cancelEvent(event: EventRecord) {
@@ -1237,8 +1279,16 @@ export function EventManagementPage() {
   }
 
  async function startSession() {
-  if (!startEvent?.id) {
+  const eventToStart = startEvent;
+  if (!eventToStart?.id) {
     toast.error("Only events synced from Supabase can start a live session.");
+    return;
+  }
+
+  if (!isScheduledForToday(eventToStart)) {
+    setStartEvent(null);
+    setEditEvent(eventToStart);
+    toast.error("Attendance can only start for an event scheduled today. Reschedule this event to today first.");
     return;
   }
 
@@ -1257,11 +1307,6 @@ export function EventManagementPage() {
     return;
   }
 
-  const eventToStart = startEvent;
-  if (!eventToStart.id) {
-    toast.error("This event is missing an ID and cannot start an attendance session.");
-    return;
-  }
   let startedSession;
   try {
     startedSession = await createEventSessionMutation.mutateAsync({
@@ -1300,6 +1345,11 @@ export function EventManagementPage() {
 }
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
+  if (requiresOpenTimeOutBeforeSessionEnd(attendancePhase, activeRows)) {
+    setTimeOutRequiredOpen(true);
+    toast.warning("Open Time Out first so students can complete their check-out records.");
+    return;
+  }
   if (isEndingAfterScheduledTime && endSessionReason.trim().length < 5) {
     toast.error("Provide a short reason for ending after the scheduled time.");
     return;
@@ -1359,7 +1409,7 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
+}, [activeEvent, activeRows, attendancePhase, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -1377,6 +1427,12 @@ export function EventManagementPage() {
   function focusQrInput() {
     window.requestAnimationFrame(() => qrInputRef.current?.focus());
   }
+
+  useEffect(() => {
+    if (captureMode === "QR Code") {
+      focusQrInput();
+    }
+  }, [captureMode, attendancePhase, activeEvent?.id]);
 
   function openLiveFacialVerification() {
     if (!resolvedLiveSessionId) {
@@ -1425,6 +1481,19 @@ export function EventManagementPage() {
       }
 
       const occurredAt = new Date().toISOString();
+      const existing = activeRows.find((row) => row.studentId === bestMatch.candidate.student_id);
+      if (attendancePhase === "time_out") {
+        if (!existing) {
+          setFacialStatus("Time Out is open. Students must check in before they can be marked out.");
+          toast.warning("Time Out is open. Students must check in before they can be marked out.");
+          return;
+        }
+        if (!canProcessAttendanceAction(attendancePhase, existing)) {
+          setFacialStatus(`${existing.studentName} already has a Time In and Time Out.`);
+          toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
+          return;
+        }
+      }
       const { data: attendance, error: attendanceError } = await client.rpc("record_live_facial_attendance", {
         p_event_session_id: sessionId,
         p_student_id: bestMatch.candidate.student_id,
@@ -1447,7 +1516,7 @@ export function EventManagementPage() {
           if (action === "checked_out") {
             if (!existing) return current;
             return current.map((row) => row.studentId === bestMatch.candidate.student_id
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition" }
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition", attendanceStatus: row.attendanceStatus === "late" ? "late" : "present" }
               : row);
           }
           if (existing) {
@@ -1496,6 +1565,14 @@ export function EventManagementPage() {
       if (!sessionId) throw new Error("The active attendance session could not be found.");
       const student = await identifyOfflineStudent(eventId, "qr", qrInput);
       if (!student) throw new Error("This QR code is not available in the prepared offline event package.");
+      const existing = activeRows.find((row) => row.studentId === student.studentId);
+      if (attendancePhase === "time_out") {
+        if (!existing || !canProcessAttendanceAction(attendancePhase, existing)) {
+          throw new Error("Time Out is open. Students must check in before they can be marked out.");
+        }
+      } else if (attendancePhase === "time_in" && existing) {
+        throw new Error(`${existing.studentName} already has a Time In.`);
+      }
       const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString() });
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, student)));
       toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} recorded offline`, { description: local.safeMessage });
@@ -1514,15 +1591,36 @@ export function EventManagementPage() {
       }
       const credentialId = extractQrCredentialId(qrInput);
       const client = getSupabaseBrowserClient();
-      const { data: credential, error: credentialError } = await client
+      const identityLookup = resolveStudentIdentityLookup(qrInput, studentsQuery.data?.items ?? []);
+      let credential: { id: string; student_id: string; credential_status: string; revoked_at?: string | null; expires_at?: string | null } | null = null;
+      let credentialError: unknown = null;
+
+      const { data: directCredential, error: directCredentialError } = await client
         .from("qr_credentials")
         .select("id, student_id, credential_status, revoked_at, expires_at")
         .eq("id", credentialId)
         .maybeSingle();
 
+      credential = directCredential as typeof credential;
+      credentialError = directCredentialError;
+
+      if (!credential && identityLookup.isValid && identityLookup.matchedStudentId) {
+        const { data: studentCredential, error: studentCredentialError } = await client
+          .from("qr_credentials")
+          .select("id, student_id, credential_status, revoked_at, expires_at")
+          .eq("student_id", identityLookup.matchedStudentId)
+          .eq("credential_status", "activated")
+          .order("issued_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        credential = studentCredential as typeof credential;
+        credentialError = studentCredentialError;
+      }
+
       if (credentialError) throw credentialError;
       if (!credential || credential.credential_status !== "activated" || credential.revoked_at || (credential.expires_at && new Date(credential.expires_at).getTime() <= Date.now())) {
-        toast.error("Invalid or inactive student QR code.");
+        toast.error("Invalid or inactive student QR code, student ID, or name.");
         return;
       }
 
@@ -1545,13 +1643,15 @@ export function EventManagementPage() {
         toast.warning(`${existing.studentName} already has a Time In.`);
         return;
       }
-      if (attendancePhase === "time_out" && !existing) {
-        toast.warning("No Time In is recorded for this student.");
-        return;
-      }
-      if (existing?.checkOutAt) {
-        toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
-        return;
+      if (attendancePhase === "time_out") {
+        if (!existing) {
+          toast.warning("Time Out is open. Students must check in before they can be marked out.");
+          return;
+        }
+        if (!canProcessAttendanceAction(attendancePhase, existing)) {
+          toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
+          return;
+        }
       }
 
       const occurredAt = new Date().toISOString();
@@ -1565,7 +1665,13 @@ export function EventManagementPage() {
         if (currentRow) {
           return current.map((row) =>
             row.studentId === studentId
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
+              ? {
+                  ...row,
+                  checkOutAt: occurredAt,
+                  checkOutTime: formatLocalTime(occurredAt),
+                  attendanceMethod: "QR Code",
+                  attendanceStatus: row.attendanceStatus === "late" || (activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt)) ? "late" : "present"
+                }
               : row
           );
         }
@@ -1580,7 +1686,9 @@ export function EventManagementPage() {
             attendanceMethod: "QR Code",
             checkInAt: occurredAt,
             checkInTime: formatLocalTime(occurredAt),
-              attendanceStatus: activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt) ? "late" : "present"
+            checkOutAt: occurredAt,
+            checkOutTime: formatLocalTime(occurredAt),
+            attendanceStatus: activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt) ? "late" : "present"
           }
         ];
       });
@@ -1638,7 +1746,16 @@ export function EventManagementPage() {
     const resolvedStudentId = lookupResult.matchedStudentId;
     const existingAttendanceRow = activeRows.find((row) => row.studentId === resolvedStudentId);
     if (attendancePhase === "time_in" && existingAttendanceRow) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In.`); return; }
-    if (attendancePhase === "time_out" && !existingAttendanceRow) { toast.warning("No Time In is recorded for this student."); return; }
+    if (attendancePhase === "time_out") {
+      if (!existingAttendanceRow) {
+        toast.warning("Time Out is open. Students must check in before they can be marked out.");
+        return;
+      }
+      if (!canProcessAttendanceAction(attendancePhase, existingAttendanceRow)) {
+        toast.warning(`${existingAttendanceRow.studentName} already has a Time In and Time Out.`);
+        return;
+      }
+    }
     const isCheckout = attendancePhase === "time_out";
     const resolvedStatus: ManualAttendanceStatus = isCheckout
       ? existingAttendanceRow?.attendanceStatus === "late" ? "late" : "present"
@@ -1655,7 +1772,13 @@ export function EventManagementPage() {
       if (existing) {
         return current.map((row) =>
           row.studentId === resolvedStudentId
-            ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt) }
+            ? {
+                ...row,
+                checkOutAt: occurredAt,
+                checkOutTime: formatLocalTime(occurredAt),
+                attendanceMethod: "Manual",
+                attendanceStatus: row.attendanceStatus === "late" || resolvedStatus === "late" ? "late" : "present"
+              }
             : row
         );
       }
@@ -1670,6 +1793,8 @@ export function EventManagementPage() {
           attendanceMethod: "Manual",
           checkInAt: occurredAt,
           checkInTime: formatLocalTime(occurredAt),
+          checkOutAt: occurredAt,
+          checkOutTime: formatLocalTime(occurredAt),
           attendanceStatus: resolvedStatus
         }
       ];
@@ -1746,29 +1871,21 @@ export function EventManagementPage() {
       sortable: false,
       filter: false,
       cellRenderer: ({ data }: { data: EventRecord }) => {
-        const preparation = data.id ? offlinePreparationByEventId.get(data.id) : undefined;
-        const ready = preparation?.packageStatus === "READY";
-        const label = preparation?.preparing
-          ? "Preparing…"
-          : ready
-            ? "Refresh offline package"
-            : preparation?.error
-              ? "Retry preparation"
-              : "Prepare for Offline Use";
-
         return (
           <div className="flex items-center gap-2 whitespace-nowrap" style={{ minWidth: 220 }}>
               {canManageOwnedEvents ? <Button
                 type="button"
-                variant={ready ? "outline" : "default"}
+                variant="outline"
                 size="sm"
                 className="h-9 rounded-lg px-3"
-                title={label}
-                aria-label={`${label} for ${data.code}`}
-                disabled={preparation?.preparing || !data.id}
-                onClick={() => void prepareOfflinePackage(data)}
+                title="Reschedule this event to start attendance on another day"
+                aria-label={`Reschedule ${data.code}`}
+                onClick={(clickEvent) => {
+                  clickEvent.stopPropagation();
+                  setEditEvent(data);
+                }}
               >
-                {preparation?.preparing ? "Preparing…" : ready ? "Refresh offline" : preparation?.error ? "Retry offline setup" : "Prepare offline"}
+                Reschedule
               </Button> : null}
               <Button
                 type="button"
@@ -1777,7 +1894,8 @@ export function EventManagementPage() {
                 className="h-9 rounded-lg px-3"
                 title="View More"
                 aria-label={`View ${data.code}`}
-                onClick={() => {
+                onClick={(clickEvent) => {
+                  clickEvent.stopPropagation();
                   if (data.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(data.id), APP_ROUTES.adminEvent(data.id)));
                 }}
               >
@@ -1988,6 +2106,10 @@ export function EventManagementPage() {
   }
 
   const isOpeningLiveSession = canManageOwnedEvents && Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
+  // The URL determines which workspace is shown. This prevents a stale local
+  // event object from keeping the live view open after Back to events removes
+  // the session route parameter.
+  const isLiveWorkspace = Boolean(activeEvent && sessionIdFromQuery);
 
   if (isOpeningLiveSession) {
     return (
@@ -2013,10 +2135,20 @@ export function EventManagementPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={activeEvent ? "Live attendance session" : "Events"}
-        description={activeEvent ? `Recording attendance for ${activeEvent.name}.` : isAdmin ? "View institution-wide events, owners, schedules, and operational status." : "Find an event, prepare attendance, or open a live session."}
+        eyebrow={isLiveWorkspace && activeEvent ? (
+          <button
+            type="button"
+            onClick={returnToEvents}
+            className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Back to events
+          </button>
+        ) : undefined}
+        title={isLiveWorkspace ? "Live attendance session" : "Events"}
+        description={isLiveWorkspace && activeEvent ? `Recording attendance for ${activeEvent.name}.` : isAdmin ? "View institution-wide events, owners, schedules, and operational status." : "Find an event, prepare attendance, or open a live session."}
         actions={
-          !activeEvent && canManageOwnedEvents ? (
+          !isLiveWorkspace && canManageOwnedEvents ? (
             <Button asChild>
               <NavLink to={workspaceRoute(APP_ROUTES.organizerCreateEvent, APP_ROUTES.adminCreateEvent)}>
                 <span className="text-lg leading-none" aria-hidden="true">+</span>
@@ -2027,7 +2159,7 @@ export function EventManagementPage() {
         }
       />
 
-      {!activeEvent ? <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
+      {!isLiveWorkspace ? <section className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/[0.08] via-surface to-surface p-4 shadow-sm md:p-5" aria-label="Event workspace overview">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">{isAdmin ? "Institution event workspace" : "Your event workspace"}</p>
@@ -2060,7 +2192,7 @@ export function EventManagementPage() {
         </div>
       </section> : null}
 
-      {activeEvent ? (
+      {isLiveWorkspace && activeEvent ? (
         // The original Live Session workspace stays inside Event Management.
         // Advanced QR and facial camera tools open only when requested.
         <>
@@ -2078,7 +2210,14 @@ export function EventManagementPage() {
             </div>
             <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:flex-nowrap">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
-              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
+              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => {
+                if (requiresOpenTimeOutBeforeSessionEnd(attendancePhase, activeRows)) {
+                  setTimeOutRequiredOpen(true);
+                  return;
+                }
+                setEndSessionReason("");
+                setEndSessionConfirmOpen(true);
+              }}>
                 <Square className="h-4 w-4" aria-hidden="true" />
                 {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
               </Button>
@@ -2142,13 +2281,13 @@ export function EventManagementPage() {
                           </span>
                           <div>
                             <p className="font-semibold text-foreground">Scan student QR</p>
-                            <p className="mt-0.5 text-sm text-muted-foreground">Scan the student&apos;s PLPass QR code to record {attendancePhase === "time_out" ? "Time Out" : "Time In"}.</p>
+                            <p className="mt-0.5 text-sm text-muted-foreground">Scan or type the student&apos;s ID, name, or PLPass QR code to record {attendancePhase === "time_out" ? "Time Out" : "Time In"}.</p>
                           </div>
                       </div>
 
                       <div className="border-t border-border pt-4">
                         <label className="block text-sm font-semibold text-foreground" htmlFor="student-qr-scan">Scanner input</label>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        <div className="mt-3">
                         <input
                           id="student-qr-scan"
                           ref={qrInputRef}
@@ -2160,15 +2299,11 @@ export function EventManagementPage() {
                               void submitQrAttendance();
                             }
                           }}
-                          placeholder="Waiting for a student QR scan…"
+                          placeholder="Waiting for a student ID, name, or QR scan…"
                           aria-label="Student QR scan input"
-                          className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          className="h-11 w-full rounded-lg border border-border bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
                           disabled={isQrProcessing}
                         />
-                        <Button type="button" className="h-11 shrink-0 rounded-lg px-6" onClick={focusQrInput} disabled={isQrProcessing}>
-                          <ScanLine className="h-4 w-4" aria-hidden="true" />
-                          Focus scanner input
-                        </Button>
                         </div>
                       </div>
 
@@ -2386,7 +2521,7 @@ export function EventManagementPage() {
             <PLPassDataGrid
               label={selectedListTitle}
               data={selectedEvents}
-              columns={activeTab === "cancelled" ? cancelledColumns : incomingColumns}
+              columns={activeTab === "cancelled" ? cancelledColumns : activeTab === "incoming" ? incomingColumnsWithActions : incomingColumns}
               emptyTitle={activeTab === "today" ? "No events today" : activeTab === "incoming" ? "No incoming events" : "No cancelled events"}
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : activeTab === "incoming" ? "Future published events will appear here." : "Cancelled events will be recorded here for reference."}
               onRowClick={(event) => {
@@ -2606,8 +2741,20 @@ export function EventManagementPage() {
         </ModalFrame>
       ) : null}
 
+      <ConfirmModal
+        open={timeOutRequiredOpen}
+        title="Open Time Out first"
+        description="This session is still in Time In mode. Open Time Out before ending the session so students can complete their check-out records."
+        confirmLabel="Open Time Out"
+        cancelLabel="Keep session open"
+        onCancel={() => setTimeOutRequiredOpen(false)}
+        onConfirm={() => {
+          setTimeOutRequiredOpen(false);
+          setTimeOutConfirmOpen(true);
+        }}
+      />
       <ConfirmModal open={timeOutConfirmOpen} title="Open Time Out" description="The live session stays open. Connected phone scanners will immediately record Time Out only." confirmLabel="Open Time Out" onCancel={() => setTimeOutConfirmOpen(false)} onConfirm={() => { setTimeOutConfirmOpen(false); void openTimeOut(); }} />
-      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={isEndingAfterScheduledTime ? "This session continued past its scheduled end. Provide a short reason before saving the actual end time." : missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. You may end the session; their Time Out will remain blank.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => { setEndSessionConfirmOpen(false); setEndSessionReason(""); }} onConfirm={() => void endSession()}>
+      <ConfirmModal open={endSessionConfirmOpen} title="End attendance session" description={isEndingAfterScheduledTime ? "This session continued past its scheduled end. Provide a short reason before saving the actual end time." : missingTimeOutRows.length ? `${missingTimeOutRows.length} student${missingTimeOutRows.length === 1 ? " has" : "s have"} Time In but no Time Out. Please review and complete the remaining Time Out entries before ending the session.` : "All recorded students have Time Out. End this attendance session?"} confirmLabel="End session" tone="danger" onCancel={() => { setEndSessionConfirmOpen(false); setEndSessionReason(""); }} onConfirm={() => void endSession()}>
         {missingTimeOutRows.length ? <p className="text-sm text-muted-foreground">Missing Time Out: {missingTimeOutRows.slice(0, 8).map((row) => row.studentName).join(", ")}{missingTimeOutRows.length > 8 ? "…" : ""}</p> : null}
         {isEndingAfterScheduledTime ? <label className="mt-4 grid gap-2 text-sm font-medium text-foreground">Reason for ending late<textarea className="min-h-20 rounded-lg border bg-background px-3 py-2 text-sm font-normal" value={endSessionReason} onChange={(event) => setEndSessionReason(event.target.value)} placeholder="For example: The program started late due to venue setup." /></label> : null}
       </ConfirmModal>

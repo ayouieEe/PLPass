@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw } from "lucide-react";
+import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw, CheckCircle2, FileText, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -30,8 +31,204 @@ import {
   type AuditLogFilters
 } from "../utils/auditLogUtils";
 
+function AuditLogsExportModal({
+  isOpen,
+  onClose,
+  logs,
+  onExport,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  logs: AuditLog[];
+  onExport: (reportType: "directory" | "summary", format: "xlsx" | "pdf") => Promise<void> | void;
+}) {
+  const [reportType, setReportType] = useState<"directory" | "summary">("directory");
+  const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [isExportLoading, setIsExportLoading] = useState(false);
+
+  if (!isOpen) return null;
+
+  const count = logs.length;
+
+  async function handleExport() {
+    setIsExportLoading(true);
+    try {
+      await onExport(reportType, exportFormat);
+    } finally {
+      setIsExportLoading(false);
+      onClose();
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={onClose}>
+      <section
+        className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-xs">
+              <Download className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
+                Export Audit Report
+              </h2>
+              <p className="text-xs text-slate-500 font-medium">Select the report type and download format.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/60 bg-white text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close export modal"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
+              1. Report Content
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setReportType("directory")}
+                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+                  reportType === "directory"
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
+                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${reportType === "directory" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  {reportType === "directory" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Selected
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Audit Activity Directory</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Full log details, user actions, and affected targets.</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportType("summary")}
+                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+                  reportType === "summary"
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
+                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className={`p-2 rounded-lg ${reportType === "summary" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                    <FileSpreadsheet className="h-4 w-4" />
+                  </div>
+                  {reportType === "summary" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
+                      Selected
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Summary Overview</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Condensed audit activity for quick review and sharing.</p>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
+              2. Download Format
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setExportFormat("xlsx")}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                  exportFormat === "xlsx"
+                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
+                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+                  <FileSpreadsheet className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setExportFormat("pdf")}
+                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
+                  exportFormat === "pdf"
+                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
+                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
+                  <FileText className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
+                  <p className="text-[10px] text-slate-500 font-normal">Printable PDF report</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {count} records selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={count === 0 || isExportLoading}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 export function OrganizerAuditLogsPage() {
   const { session } = useDevelopmentSession();
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Filters state
   const [search, setSearch] = useState("");
@@ -161,24 +358,38 @@ export function OrganizerAuditLogsPage() {
     return { name: "Deleted account", role: "User", identifier: userId ? `ID ${userId.slice(0, 8)}` : undefined };
   }
 
-  async function exportAuditLogs(format: "xlsx" | "pdf" = "xlsx") {
+  async function exportAuditLogs(reportType: "directory" | "summary" = "directory", format: "xlsx" | "pdf" = "xlsx") {
+    const rows = filteredLogs.map((log) => {
+      const actor = getActorInfo(log.actorUserId);
+      const target = getAuditTargetInfo(log, lookups);
+      return {
+        "Date & Time": `${formatDisplayDate(log.timestamp)} ${formatDisplayTime(log.timestamp)}`,
+        "Action": formatAuditAction(log.action),
+        "Action Code": log.action,
+        "User": actor.name,
+        "User Role": actor.role,
+        "Target Name": target.name,
+        "Target Category": target.badge,
+        "Target Reference": target.reference ?? "—",
+        "Target ID": log.targetId ?? "—"
+      };
+    });
+
+    const summaryRows = filteredLogs.map((log) => {
+      const actor = getActorInfo(log.actorUserId);
+      const target = getAuditTargetInfo(log, lookups);
+      return {
+        "Date & Time": `${formatDisplayDate(log.timestamp)} ${formatDisplayTime(log.timestamp)}`,
+        "Action": formatAuditAction(log.action),
+        "User": actor.name,
+        "Target": target.name,
+        "Target Category": target.badge
+      };
+    });
+
     await exportTabularReport(
       `Audit Logs ${format.toUpperCase()}`,
-      filteredLogs.map((log) => {
-        const actor = getActorInfo(log.actorUserId);
-        const target = getAuditTargetInfo(log, lookups);
-        return {
-          "Date & Time": `${formatDisplayDate(log.timestamp)} ${formatDisplayTime(log.timestamp)}`,
-          "Action": formatAuditAction(log.action),
-          "Action Code": log.action,
-          "User": actor.name,
-          "User Role": actor.role,
-          "Target Name": target.name,
-          "Target Category": target.badge,
-          "Target Reference": target.reference ?? "—",
-          "Target ID": log.targetId ?? "—"
-        };
-      })
+      reportType === "summary" ? summaryRows : rows
     );
     toast.success(`Audit Logs ${format.toUpperCase()} downloaded.`);
   }
@@ -271,16 +482,12 @@ export function OrganizerAuditLogsPage() {
               </span>
               <Button
                 type="button"
-                onClick={() => void exportAuditLogs("xlsx")}
+                onClick={() => setIsExportModalOpen(true)}
                 disabled={!filteredLogs.length}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                XLSX
-              </Button>
-              <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
-                <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                PDF
+                Export
               </Button>
             </div>
           </div>
@@ -409,6 +616,15 @@ export function OrganizerAuditLogsPage() {
           />
         )}
       </section>
+
+      <AuditLogsExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        logs={filteredLogs}
+        onExport={async (reportType, format) => {
+          await exportAuditLogs(reportType, format);
+        }}
+      />
 
       {/* View Details Modal */}
       {selectedLog ? (
