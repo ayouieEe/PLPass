@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { NavLink, useSearchParams } from "react-router-dom";
+import { NavLink, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   CalendarDays,
@@ -91,8 +91,10 @@ function formatFileSize(bytes: number) {
 }
 
 export function MyAttendancePage() {
+  const navigate = useNavigate();
   const scope = useStudentScope();
   const [searchParams] = useSearchParams();
+  const focusedEventId = searchParams.get("focus");
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
   const [yearFilter, setYearFilter] = useState("");
   const [recordsPage, setRecordsPage] = useState(0);
@@ -117,6 +119,7 @@ export function MyAttendancePage() {
   const [requestType, setRequestType] = useState<CorrectionRequestType>("excused");
   const [explanation, setExplanation] = useState("");
   const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
+  const [focusedRecordOpened, setFocusedRecordOpened] = useState<string | null>(null);
   const [correctionFormOpen, setCorrectionFormOpen] = useState(false);
   const [correctionProofFile, setCorrectionProofFile] = useState<File | null>(null);
   const [correctionProofError, setCorrectionProofError] = useState("");
@@ -133,6 +136,20 @@ export function MyAttendancePage() {
   useEffect(() => {
     setRecordsPage(0);
   }, [search, yearFilter, statusFilter]);
+
+  useEffect(() => {
+    if (!focusedEventId || focusedRecordOpened === focusedEventId || !scope.student || eventsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading) return;
+    const focusedRecord = getStudentEventRecords({
+      studentId: scope.student.id,
+      records: recordsQuery.data?.items ?? [],
+      sessions: sessionsQuery.data?.items ?? [],
+      events: studentVisibleEvents(eventsQuery.data?.items ?? [])
+    }).find((record) => record.eventId === focusedEventId || record.id === focusedEventId);
+    if (!focusedRecord) return;
+    setRequestType(getDefaultRequestType(focusedRecord.status));
+    setSelectedRecord(focusedRecord);
+    setFocusedRecordOpened(focusedEventId);
+  }, [eventsQuery.data?.items, eventsQuery.isLoading, focusedEventId, focusedRecordOpened, recordsQuery.data?.items, recordsQuery.isLoading, scope.student, sessionsQuery.isLoading, sessionsQuery.data?.items]);
 
   if (scope.isLoading) {
     return <LoadingState label="Loading student workspace" />;
@@ -521,7 +538,10 @@ export function MyAttendancePage() {
       >
         {(summaryQuery.data?.tasks ?? []).length ? (
           <div className="space-y-3">
-            {(summaryQuery.data?.tasks ?? []).filter((task) => task.kind === "late_reason" || task.kind === "feedback").map((task) => {
+            {(summaryQuery.data?.tasks ?? [])
+              .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
+              .sort((first, second) => new Date(second.startsAt ?? 0).getTime() - new Date(first.startsAt ?? 0).getTime())
+              .map((task) => {
               const needsReason = task.kind === "late_reason";
               const eventId = task.eventId ?? task.attendanceRecordId ?? "";
 
@@ -565,14 +585,21 @@ export function MyAttendancePage() {
                         : "Answer the event feedback before the deadline to complete this attendance record."}
                     </p>
                     <Button asChild size="sm">
-                      <NavLink to={APP_ROUTES.studentEvent(eventId)}>
-                      {needsReason ? "Submit Late Reason" : "Answer Feedback"}
+                      <NavLink
+                        to={APP_ROUTES.studentEvent(eventId)}
+                        onClick={(clickEvent) => {
+                          clickEvent.preventDefault();
+                          setFeedbackDueModalOpen(false);
+                          navigate(APP_ROUTES.studentEvent(eventId));
+                        }}
+                      >
+                        {needsReason ? "Submit Late Reason" : "Answer Feedback"}
                       </NavLink>
                     </Button>
                   </div>
                 </article>
               );
-            })}
+              })}
             {(summaryQuery.data?.tasks ?? []).filter((task) => task.kind === "correction").map((task) => (
               <article key={task.id} className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -663,11 +690,9 @@ export function MyAttendancePage() {
                         Complete all required objectives by {formatDisplayDate(selectedFeedbackTask.dueAt)} {formatDisplayTime(selectedFeedbackTask.dueAt)} or this attendance will be changed to absent.
                       </p>
                     </div>
-                    <Button asChild>
-                      <NavLink to={APP_ROUTES.studentEvent(selectedRecord.eventId)}>
-                        <MessageSquareText className="h-4 w-4" />
-                        Answer Feedback
-                      </NavLink>
+                    <Button onClick={() => navigate(APP_ROUTES.studentEvent(selectedRecord.eventId))}>
+                      <MessageSquareText className="h-4 w-4" />
+                      Answer Feedback
                     </Button>
                   </div>
                 </div>

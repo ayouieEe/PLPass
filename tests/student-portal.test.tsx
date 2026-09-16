@@ -33,6 +33,7 @@ function storeSession(value: string) {
 }
 
 afterEach(() => {
+  cleanup();
   window.localStorage.clear();
   queryClient.clear();
   developmentErrorToggle.reset();
