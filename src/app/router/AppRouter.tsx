@@ -15,13 +15,13 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
+import { AdminAuditLogsPage } from "@/features/admin/pages/AdminPages";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
 const OrganizerDashboardPage = lazy(() => import("@/features/organizer/pages/OrganizerDashboardPage").then((module) => ({ default: module.OrganizerDashboardPage })));
 const EventManagementPage = lazy(() => import("@/features/organizer/pages/EventManagementPage").then((module) => ({ default: module.EventManagementPage })));
 const CreateEventPage = lazy(() => import("@/features/organizer/pages/CreateEventPage").then((module) => ({ default: module.CreateEventPage })));
 const EventDetailsPage = lazy(() => import("@/features/organizer/pages/EventDetailsPage").then((module) => ({ default: module.EventDetailsPage })));
-const EventAttendancePage = lazy(() => import("@/features/organizer/pages/EventAttendancePage").then((module) => ({ default: module.EventAttendancePage })));
 const EventRecordsPage = lazy(() => import("@/features/organizer/pages/EventRecordsPage").then((module) => ({ default: module.EventRecordsPage })));
 const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/AuthenticationMethodsPage").then((module) => ({ default: module.AuthenticationMethodsPage })));
 const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
@@ -71,7 +71,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerDashboard} element={<OrganizerDashboardPage />} />
               <Route path={APP_ROUTES.organizerEvents} element={<EventManagementPage />} />
               <Route path="/organizer/events/:eventId" element={<EventDetailsPage />} />
-              <Route path="/organizer/sessions/:sessionId" element={<EventAttendancePage />} />
+              <Route path="/organizer/live-attendance/:sessionId" element={<EventManagementPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="events.create" />}>
               <Route path={APP_ROUTES.organizerCreateEvent} element={<CreateEventPage />} />
@@ -86,7 +86,7 @@ export function AppRouter() {
             <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="analytics.read.owned" />}>
               <Route path={APP_ROUTES.organizerAnalytics} element={<OrganizerAnalyticsPage />} />
             </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="audit.read.own" />}>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="audit.read.own" />}>
               <Route path={APP_ROUTES.organizerAuditLogs} element={<OrganizerAuditLogsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer", "admin"]} permission="profile.manage.own" />}>
@@ -105,7 +105,7 @@ export function AppRouter() {
               <Route path={APP_ROUTES.adminCredentials} element={<AuthenticationMethodsPage />} />
               <Route path={APP_ROUTES.adminReports} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminAnalytics} element={<AccessDeniedPage />} />
-              <Route path={APP_ROUTES.adminAuditLogs} element={<AccessDeniedPage />} />
+              <Route path={APP_ROUTES.adminAuditLogs} element={<AdminAuditLogsPage />} />
               <Route path={APP_ROUTES.adminCatalogs} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminSettings} element={<AccessDeniedPage />} />
               <Route path={APP_ROUTES.adminProfile} element={<AdminOrOrganizerProfilePage />} />

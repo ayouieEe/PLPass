@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AuthWeakPasswordError } from "@supabase/auth-js";
-import { authFailure, authTimeoutFailure, SupabaseAuthResolutionError, toSafeAuthErrorMessage } from "@/app/providers/supabaseSessionResolver";
+import { authFailure, authTimeoutFailure, isInvalidCredentialAuthError, SupabaseAuthResolutionError, toSafeAuthErrorMessage } from "@/app/providers/supabaseSessionResolver";
 import { forgotPasswordErrorMessage, newPasswordSchema, passwordChangeErrorMessage, passwordResetErrorMessage, passwordSchema } from "@/lib/auth/passwords";
 
 describe("password management safeguards", () => {
@@ -33,5 +33,12 @@ describe("password management safeguards", () => {
     expect(passwordResetErrorMessage(new AuthWeakPasswordError("weak", 400, ["characters"]))).toMatch(/character type required/i);
     expect(passwordResetErrorMessage(new AuthWeakPasswordError("weak", 400, ["length"]))).toMatch(/minimum set in Supabase/i);
     expect(passwordResetErrorMessage(new AuthWeakPasswordError("weak", 400, ["pwned"]))).toMatch(/known data breach/i);
+  });
+
+  it("distinguishes transport failures from invalid credentials", () => {
+    expect(isInvalidCredentialAuthError(new Error("Invalid login credentials"))).toBe(true);
+    expect(isInvalidCredentialAuthError(new Error("Failed to fetch"))).toBe(false);
+    expect(toSafeAuthErrorMessage(new Error("Failed to fetch"))).toBe("We couldn't connect to PLPass. Check your internet connection and try again.");
+    expect(toSafeAuthErrorMessage(new Error("Email not confirmed"))).toBe("Please verify your email address before signing in.");
   });
 });

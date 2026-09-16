@@ -198,7 +198,7 @@ export function StudentProfilePage() {
   }
 
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-8 p-1 font-sans">
       <PageHeader
         title="Profile"
         description="Manage your student details and attendance access."

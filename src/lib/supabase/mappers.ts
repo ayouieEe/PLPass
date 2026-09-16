@@ -433,6 +433,7 @@ export function mapAttendanceSession(row: Row, type: AttendanceSessionType): Att
     lateCutoffAt: optionalString(row, ["late_cutoff_at"]),
     attendanceWindowStartAt: optionalString(row, ["attendance_window_start_at", "attendance_window_start", "scheduled_start"]),
     attendanceWindowEndAt: optionalString(row, ["attendance_window_end_at", "attendance_window_end", "scheduled_end"]),
+    createdAt: optionalString(row, ["created_at"]),
     createdByUserId: stringValue(row, ["created_by", "created_by_user_id"])
   };
 }

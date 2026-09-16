@@ -194,8 +194,8 @@ export function OrganizerAuditLogsPage() {
         return (
           <div className="flex flex-col justify-center h-full gap-0.5">
             <h1 className="sr-only">Audit Logs</h1>
-            <span className="font-semibold text-xs text-foreground whitespace-nowrap leading-tight">{date}</span>
-            <span className="text-[11px] text-muted-foreground whitespace-nowrap leading-tight">{time}</span>
+            <span className="whitespace-nowrap text-sm font-semibold leading-tight text-foreground">{date}</span>
+            <span className="whitespace-nowrap text-xs leading-tight text-muted-foreground">{time}</span>
           </div>
         );
       }
@@ -212,8 +212,8 @@ export function OrganizerAuditLogsPage() {
               {initials}
             </div>
             <div className="flex flex-col justify-center min-w-0">
-              <span className="font-semibold text-xs text-foreground whitespace-nowrap truncate">{actor.name}</span>
-              <span className="text-[11px] text-muted-foreground capitalize leading-tight">{actor.role}{actor.identifier ? ` · ${actor.identifier}` : ""}</span>
+              <span className="truncate whitespace-nowrap text-sm font-semibold text-foreground">{actor.name}</span>
+              <span className="text-xs capitalize leading-tight text-muted-foreground">{actor.role}{actor.identifier ? ` · ${actor.identifier}` : ""}</span>
             </div>
           </div>
         );
@@ -226,7 +226,7 @@ export function OrganizerAuditLogsPage() {
         const formattedAction = formatAuditAction(row.original.action);
         return (
           <div className="flex items-center h-full">
-            <span className="font-bold text-xs text-foreground leading-tight">{formattedAction}</span>
+            <span className="text-sm font-semibold leading-tight text-foreground">{formattedAction}</span>
           </div>
         );
       }
@@ -237,10 +237,9 @@ export function OrganizerAuditLogsPage() {
       cell: ({ row }) => {
         const target = getAuditTargetInfo(row.original, lookups);
         return (
-          <div className="flex flex-col justify-center gap-1 h-full min-w-0">
-            <span className="font-semibold text-xs text-foreground truncate max-w-[240px] leading-tight">{target.name}</span>
-            {target.reference ? <span className="text-[11px] text-muted-foreground truncate max-w-[240px] leading-tight">{target.reference}</span> : null}
-            <span className="inline-flex items-center w-fit rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary leading-none">
+          <div className="flex h-full min-w-0 items-center gap-2">
+            <span className="min-w-0 max-w-[240px] truncate text-sm font-semibold leading-tight text-foreground">{target.name}</span>
+            <span className="inline-flex shrink-0 items-center rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-xs font-semibold leading-none text-primary">
               {target.badge}
             </span>
           </div>
@@ -250,7 +249,7 @@ export function OrganizerAuditLogsPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans text-sm">
       <PageHeader title="Audit Logs" description="Review system activity, credential issuance, and administrative actions." />
 
       <section className="space-y-4">
@@ -479,7 +478,6 @@ export function OrganizerAuditLogsPage() {
                     </h3>
                     <div className="space-y-1 text-xs">
                       <div><strong className="text-muted-foreground">Name / Title:</strong> <span className="font-medium text-foreground">{target.name}</span></div>
-                      <div><strong className="text-muted-foreground">Category:</strong> <span className="font-medium text-foreground">{target.badge}</span></div>
                       {target.reference ? <div><strong className="text-muted-foreground">Reference:</strong> <span className="font-medium text-foreground">{target.reference}</span></div> : null}
                     </div>
                   </div>

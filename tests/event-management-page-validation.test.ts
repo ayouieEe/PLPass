@@ -9,6 +9,9 @@ import {
 import { dateKey } from "@/lib/utils/date";
 
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
+const appRouter = readFileSync("src/app/router/AppRouter.tsx", "utf8");
+const activeSessionOverlay = readFileSync("src/features/attendance/ActiveSessionOverlay.tsx", "utf8");
+const routes = readFileSync("src/lib/constants/routes.ts", "utf8");
 const attendanceStartMigration = readFileSync(
   "supabase/migrations/20260909113720_allow_owned_events_to_start_attendance_without_approval.sql",
   "utf8"
@@ -62,6 +65,21 @@ describe("event page validation helpers", () => {
   it("keeps schedule navigation out of a live event workspace and clears stale sessions", () => {
     expect(eventManagementPage).toContain("{!activeEvent ? <section");
     expect(eventManagementPage).toContain("This attendance session is no longer active. Returned to Events.");
+    expect(eventManagementPage).toContain("navigate(APP_ROUTES.organizerLiveSession(liveSessionId), { replace: true })");
+  });
+
+  it("uses one live-session workspace and hides the floating entry point there", () => {
+    expect(appRouter).not.toContain("EventAttendancePage");
+    expect(appRouter).not.toContain("/organizer/sessions/:sessionId");
+    expect(appRouter).toContain("/organizer/live-attendance/:sessionId");
+    expect(routes).toContain("organizerLiveSession");
+    expect(activeSessionOverlay).toContain('location.pathname === APP_ROUTES.organizerEvents && currentSessionId');
+    expect(activeSessionOverlay).toContain('event.status === "cancelled" || event.status === "completed"');
+    expect(activeSessionOverlay).toContain("Session status is the organizer's source of truth");
+    expect(activeSessionOverlay).toContain("left.createdAt ?? left.attendanceWindowStartAt ?? left.startsAt");
+    expect(activeSessionOverlay).toContain("right.createdAt ?? right.attendanceWindowStartAt ?? right.startsAt");
+    expect(activeSessionOverlay).toContain("APP_ROUTES.organizerLiveSession(activeSession.id)");
+    expect(activeSessionOverlay).toContain("APP_ROUTES.organizerLiveSession(activeSession.id)");
   });
 
   it("allows an organizer to start an owned active event without approval", () => {

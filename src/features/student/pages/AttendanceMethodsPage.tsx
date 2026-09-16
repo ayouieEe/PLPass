@@ -12,7 +12,6 @@ import {
   Lock,
   Paperclip,
   QrCode,
-  RefreshCw,
   ShieldCheck,
   UploadCloud,
   X,
@@ -29,7 +28,6 @@ import { Button } from "@/components/ui/button";
 import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import { extractFaceDescriptorFromFile } from "@/lib/biometrics/humanFace";
-import { buildStudentQrPayload } from "@/lib/credentials/qrCredential";
 import { cn } from "@/lib/utils/cn";
 import {
   ensureStudentIdentityReadiness,
@@ -179,6 +177,15 @@ export function AttendanceMethodsPage() {
     };
   }, [showFaceEnrollment, faceEnrollmentFile, faceCameraRestartKey]);
 
+  const qrProvisionAttempted = useRef(false);
+  useEffect(() => {
+    if (!scope.student || credentialStatusQuery.isLoading || credentialStatusQuery.isError || credentialStatusQuery.data?.qrCredential?.id || qrProvisionAttempted.current) return;
+    qrProvisionAttempted.current = true;
+    void credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: scope.student.id })
+      .then(() => credentialStatusQuery.refetch())
+      .catch(() => undefined);
+  }, [credentialMutations.issueQrCredentialMutation, credentialStatusQuery, scope.student]);
+
   if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
   if (credentialRequestsQuery.isLoading) return <LoadingState label="Loading attendance method requests" />;
@@ -188,7 +195,6 @@ export function AttendanceMethodsPage() {
 
   const student = scope.student;
   const studentCredentialRequests = (credentialRequestsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
-  const pendingQrIssue = studentCredentialRequests.some((request) => request.credentialType === "qr" && request.status === "pending");
   const pendingFacialRequest = studentCredentialRequests.some((request) => request.credentialType === "facial" && request.status === "pending");
   const approvedFacialReEnrollment = studentCredentialRequests.some((request) =>
     request.credentialType === "facial" && request.requestType === "re_enrollment" && request.status === "approved"
@@ -196,21 +202,17 @@ export function AttendanceMethodsPage() {
   const identityReadiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
   const hasQrCredential = hasUsableQrCredential(identityReadiness);
   // A support request must not make a valid credential look unusable. The QR
-  // remains scannable until it is explicitly regenerated, revoked, or expires.
-  const qrStatus = hasQrCredential
-    ? pendingQrIssue
-      ? `${formatCredentialStatus(identityReadiness.qrStatus)} · issue report pending`
-      : formatCredentialStatus(identityReadiness.qrStatus)
-    : pendingQrIssue
-      ? "Issue pending"
-      : "Not configured";
+  // remains scannable until it is deactivated or expires.
+  const qrStatus = hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Preparing";
   const facialStatus = pendingFacialRequest
     ? "Request pending"
     : approvedFacialReEnrollment
       ? "Re-enrollment approved"
       : formatCredentialStatus(identityReadiness.faceStatus);
   const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
-  const qrScanCode = identityReadiness.qrCredentialId ? buildStudentQrPayload(student.studentNumber, identityReadiness.qrCredentialId) : "";
+  // The displayed QR must carry the same identity as the school-ID QR.
+  // Credential activation is still checked by the scanner/server.
+  const qrScanCode = hasQrCredential ? student.studentNumber : "";
   const qrDownloadFileName = `plpass-qr-${student.studentNumber}.png`;
 
   async function handleIssueSubmit(values: IssueReportFormValues) {
@@ -226,16 +228,6 @@ export function AttendanceMethodsPage() {
       issueForm.reset();
       resetIssueProofFile();
       setShowIssueReport(false);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
-  }
-
-  async function handleGenerateQr() {
-    try {
-      await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.id });
-      await credentialStatusQuery.refetch();
-      toast.success(hasQrCredential ? "QR credential regenerated." : "QR credential generated.");
     } catch (error) {
       toast.error(getErrorMessage(error));
     }
@@ -445,7 +437,7 @@ export function AttendanceMethodsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : pendingQrIssue ? "warning" : "muted"} />
+                <StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : "muted"} />
                 <StatusBadge label={`Face - ${facialStatus}`} tone={pendingFacialRequest ? "warning" : identityReadiness.faceEnrolled ? "success" : "muted"} />
               </div>
             </div>
@@ -460,7 +452,7 @@ export function AttendanceMethodsPage() {
                       Use this for Time In and Time Out scans when attending onsite events.
                     </p>
                   </div>
-                   <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : pendingQrIssue ? "warning" : "muted"} />
+                   <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : "muted"} />
                 </div>
 
                 <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-5 text-center">
@@ -469,19 +461,8 @@ export function AttendanceMethodsPage() {
                     Student No. {student.studentNumber}
                   </p>
                   <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-                    {hasQrCredential ? "Ready for organizer scanning." : "Generate your QR credential to use for onsite attendance."}
+                    {hasQrCredential ? "Ready for organizer scanning." : "Preparing your QR credential…"}
                   </p>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => void handleGenerateQr()}
-                      disabled={credentialMutations.issueQrCredentialMutation.isPending}
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                      {credentialMutations.issueQrCredentialMutation.isPending ? "Generating…" : hasQrCredential ? "Regenerate QR" : "Generate QR"}
-                    </Button>
-                  </div>
                 </div>
               </div>
 

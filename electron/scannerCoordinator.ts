@@ -25,7 +25,7 @@ export class MemoryScannerCertificateStore implements ScannerCertificateStore {
   async clear() { this.root = null; }
 }
 
-type ActiveStation = ScannerStation & { token: string };
+type ActiveStation = ScannerStation & { token: string; clientId: string; socket?: WebSocket };
 
 const json = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -64,7 +64,17 @@ export class ScannerCoordinator {
       const url = new URL(request.url ?? "/", "https://scanner.local");
       const station = this.stationFromToken(url.searchParams.get("token") ?? "");
       if (!station) return socket.close(1008, "Unauthorized scanner station");
-      socket.on("close", () => this.publish());
+      station.socket = socket;
+      station.lastSeenAt = new Date().toISOString();
+      socket.on("close", () => {
+        // A reload can replace the station socket before the old socket emits
+        // close. Only remove the station if this is still its active socket.
+        if (station.socket === socket) {
+          station.socket = undefined;
+          this.stations.delete(station.id);
+          this.publish();
+        }
+      });
       socket.on("error", () => socket.close());
       this.send(socket, { type: "status", status: this.publicStatus() });
     });
@@ -133,8 +143,10 @@ export class ScannerCoordinator {
     return {
       ...this.status,
       stations: [...this.stations.values()].map((station) => {
-        const { token, ...publicStation } = station;
+        const { token, clientId, socket, ...publicStation } = station;
         void token;
+        void clientId;
+        void socket;
         return publicStation;
       })
     };
@@ -149,11 +161,24 @@ export class ScannerCoordinator {
       const url = new URL(request.url ?? "/", "https://scanner.local");
       if (request.method === "GET" && url.pathname === "/scanner") return this.page(response, "scanner.html");
       if (request.method === "POST" && url.pathname === "/api/join") {
-        const input = await this.body(request) as { joinToken?: string };
+        const input = await this.body(request) as { joinToken?: string; scannerId?: string };
         if (!input.joinToken || input.joinToken !== this.joinToken || Date.now() > this.joinExpiresAt) return json(response, 401, { error: "This scanner session is no longer active. Scan the organizer's current Join scanner stations QR." });
+        const scannerId = input.scannerId?.trim();
+        const existing = scannerId ? [...this.stations.values()].find((station) => station.clientId === scannerId) : undefined;
+        if (existing) {
+          existing.lastSeenAt = new Date().toISOString();
+          return json(response, 200, { station: { id: existing.id, name: existing.name }, stationToken: existing.token, sessionId: this.sessionId, capturePhase: this.capturePhase });
+        }
         if (this.stations.size >= 5) return json(response, 409, { error: "All five scanner stations are already connected. Ask the organizer to remove a station before joining." });
-        const station: ActiveStation = { id: randomUUID(), name: `Scanner ${this.stations.size + 1}`, token: token(), joinedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
+        const station: ActiveStation = { id: randomUUID(), clientId: scannerId || randomUUID(), name: `Scanner ${this.stations.size + 1}`, token: token(), joinedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
         this.stations.set(station.id, station); this.publish(); return json(response, 200, { station: { id: station.id, name: station.name }, stationToken: station.token, sessionId: this.sessionId, capturePhase: this.capturePhase });
+      }
+      if (request.method === "POST" && url.pathname === "/api/ping") {
+        const auth = request.headers.authorization?.replace(/^Bearer\s+/i, "") ?? "";
+        const station = this.stationFromToken(auth);
+        if (!station) return json(response, 401, { error: "Scanner station is no longer connected. Rejoin from the organizer session QR." });
+        station.lastSeenAt = new Date().toISOString();
+        return json(response, 200, { ok: true, capturePhase: this.capturePhase });
       }
       if (request.method === "POST" && url.pathname === "/api/scan") {
         const auth = request.headers.authorization?.replace(/^Bearer\s+/i, "") ?? ""; const station = this.stationFromToken(auth);
@@ -164,7 +189,14 @@ export class ScannerCoordinator {
         station.lastSeenAt = new Date().toISOString(); station.lastScanAt = station.lastSeenAt;
         const credentialId = input.credentialCode.trim().replace(/^PLPASS-QR:/i, "").split(":").filter(Boolean).pop()?.trim() ?? "";
         const student = this.store.identifyQr(this.eventId, credentialId);
-        const result = !student ? { accepted: false, message: "Invalid or ineligible student QR credential." } : (() => {
+        const cachedAttendance = student ? this.store.getAttendanceState(this.sessionId, student.studentId) : null;
+        const result = !student ? { accepted: false, message: "Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
+          accepted: false,
+          action: "already_recorded" as const,
+          message: "Time In was already recorded.",
+          studentName: student.displayName,
+          studentNumber: student.studentNumber
+        } : (() => {
           try { const attendance = this.capturePhase === "time_in" ? this.store.recordScannerCheckIn({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString(), deviceId: station.id }) : this.store.recordScannerCheckOut({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString(), deviceId: station.id }); const label = this.capturePhase === "time_in" ? "Time In" : "Time Out"; return { accepted: attendance.action !== "already_recorded", action: attendance.action, message: attendance.action === "already_recorded" ? `${label} was already recorded.` : attendance.safeMessage, studentName: student.displayName, studentNumber: student.studentNumber }; } catch (error) { return { accepted: false, message: error instanceof Error ? error.message : "Attendance could not be recorded." }; }
         })();
         this.attempts.set(input.scanAttemptId, result); if (this.attempts.size > 500) this.attempts.delete(this.attempts.keys().next().value as string);

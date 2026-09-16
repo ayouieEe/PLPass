@@ -146,7 +146,8 @@ describe("mock authentication flow", () => {
 
     expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
     expect(screen.getByText(/currently signed in as Student 01/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue to workspace" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue to workspace" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
   it("confirms a successful password reset on the login page", async () => {
@@ -227,7 +228,11 @@ describe("shared user pages", () => {
     await user.clear(screen.getByLabelText("Email"));
     await user.type(screen.getByLabelText("Email"), "unknown@example.test");
     await user.click(screen.getByRole("button", { name: "Send reset link" }));
-    expect(await screen.findByText("If there is a PLPass account for that email, a reset link is on its way. Check your inbox and spam folder.")).toBeInTheDocument();
+    expect(await screen.findByText("Check your email")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText(/Check Gmail for a message from PLPass, including your Spam and Promotions folders/i)).toBeInTheDocument();
+    expect(screen.getByText(/from:PLPass/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^back$/i })).toBeInTheDocument();
   });
 
   it("validates the new password before saving a recovery reset", async () => {

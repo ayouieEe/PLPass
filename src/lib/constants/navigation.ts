@@ -25,8 +25,8 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Settings", path: APP_ROUTES.organizerSettings, icon: Settings, group: "Account" },
     { label: "Profile", path: APP_ROUTES.organizerProfile, icon: UserCircle, group: "Account" }
   ],
-  // Admins use the same workspace controls as organizers. The repositories and
-  // RLS policies decide whether those controls return owned or global data.
+  // Admins have a separate centralized audit-log route. Organizer audit logs
+  // remain scoped to the currently signed-in organizer.
   admin: [
     { label: "Dashboard", path: APP_ROUTES.organizerDashboard, icon: LayoutDashboard, group: "Overview" },
     { label: "Users", path: APP_ROUTES.adminUsers, icon: UserCircle, group: "Administration" },
@@ -36,7 +36,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Event Records", path: APP_ROUTES.organizerRecords, icon: UserCheck, group: "Events" },
     { label: "Correction Requests", path: APP_ROUTES.organizerCorrections, icon: AlertCircle, group: "Attendance" },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights" },
-    { label: "Audit Logs", path: APP_ROUTES.organizerAuditLogs, icon: ClipboardList, group: "Account" },
+    { label: "Audit Logs", path: APP_ROUTES.adminAuditLogs, icon: ClipboardList, group: "Account" },
     { label: "Settings", path: APP_ROUTES.organizerSettings, icon: Settings, group: "Account" },
     { label: "Profile", path: APP_ROUTES.organizerProfile, icon: UserCircle, group: "Account" }
   ],

@@ -69,10 +69,7 @@ export function LoginPage() {
       {isSessionRestored && session ? (
         <div className="mb-4 rounded-xl border border-primary/20 bg-highlight-soft p-3 text-sm">
           <p className="font-medium">You are currently signed in as {session.displayName}.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => redirectAfterSignIn(session.role)}>Continue to workspace</Button>
-            <Button type="button" size="sm" variant="outline" onClick={logout}>Sign out</Button>
-          </div>
+          <Button type="button" className="mt-3" size="sm" variant="outline" onClick={logout}>Sign out</Button>
         </div>
       ) : null}
       {locationState?.passwordReset ? <div className="mb-4 rounded-xl border border-success/30 bg-success-muted p-3 text-sm" role="status">Password updated. Sign in with your new password.</div> : null}

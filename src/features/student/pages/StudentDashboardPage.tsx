@@ -588,7 +588,7 @@ export function StudentDashboardPage() {
                 </div>
                 <div className="mt-4 flex justify-end border-t pt-4">
                   <Button asChild size="sm">
-                    <NavLink to={`${APP_ROUTES.studentAttendance}?status=late-reason-required&focus=${encodeURIComponent(task.eventId ?? task.attendanceRecordId ?? "")}`}>
+                    <NavLink to={APP_ROUTES.studentEvent(task.eventId ?? task.attendanceRecordId ?? "")}>
                       Submit Late Reason
                       <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                     </NavLink>
@@ -598,7 +598,7 @@ export function StudentDashboardPage() {
             ))}
 
             {pendingFeedbackTasks.map((task) => {
-              const target = `${APP_ROUTES.studentAttendance}?status=feedback-due&focus=${encodeURIComponent(task.eventId ?? task.attendanceRecordId ?? "")}`;
+              const target = APP_ROUTES.studentEvent(task.eventId ?? task.attendanceRecordId ?? "");
 
               return (
                 <article key={task.id} className="rounded-2xl border bg-background p-4">

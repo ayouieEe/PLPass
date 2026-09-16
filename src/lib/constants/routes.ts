@@ -32,7 +32,7 @@ export const APP_ROUTES = {
   organizerSettings: "/organizer/settings",
   organizerAuditLogs: "/organizer/audit-logs",
   organizerEvent: (eventId: string) => `/organizer/events/${eventId}`,
-  organizerSession: (sessionId: string) => `/organizer/sessions/${sessionId}`,
+  organizerLiveSession: (sessionId: string) => `/organizer/events?session=${encodeURIComponent(sessionId)}`,
   student: "/student",
   studentDashboard: "/student/dashboard",
   studentSchedule: "/student/schedule",

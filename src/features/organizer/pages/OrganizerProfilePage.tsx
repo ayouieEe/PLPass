@@ -170,7 +170,7 @@ export function OrganizerProfilePage() {
 
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       <PageHeader title="Profile" description="Manage your organizer account settings and view profile information." />
 
 

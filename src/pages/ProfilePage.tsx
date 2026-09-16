@@ -176,7 +176,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="space-y-8 p-1">
+    <div className="space-y-8 p-1 font-sans">
       <PageHeader
         eyebrow="Account"
         title="Profile"

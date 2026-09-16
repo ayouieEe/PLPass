@@ -153,7 +153,30 @@ export function toSafeAuthErrorMessage(error: unknown) {
   if (error instanceof Error && error.message.toLowerCase().includes("configuration")) {
     return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
   }
+  const rawMessage = error instanceof Error ? error.message.toLowerCase() : "";
+  if (
+    rawMessage.includes("failed to fetch") ||
+    rawMessage.includes("networkerror") ||
+    rawMessage.includes("network error") ||
+    rawMessage.includes("offline") ||
+    rawMessage.includes("econnrefused") ||
+    rawMessage.includes("socket hang up")
+  ) {
+    return "We couldn't connect to PLPass. Check your internet connection and try again.";
+  }
+  if (rawMessage.includes("email not confirmed")) {
+    return "Please verify your email address before signing in.";
+  }
+  if (rawMessage.includes("rate limit") || rawMessage.includes("too many requests") || rawMessage.includes("429")) {
+    return "Too many sign-in attempts. Please wait a moment and try again.";
+  }
   return "PLPass sign-in is temporarily unavailable. Please try again later.";
+}
+
+export function isInvalidCredentialAuthError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = "message" in error && typeof error.message === "string" ? error.message.toLowerCase() : "";
+  return message.includes("invalid login credentials") || message === "invalid credentials";
 }
 
 export function shouldSignOutAfterAuthFailure(error: unknown) {
