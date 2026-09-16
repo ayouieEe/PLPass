@@ -160,12 +160,16 @@ app.whenReady().then(() => {
   protocol.handle("plpass", (request) => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
     const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
-    const targetPath = path.resolve(rendererDirectory, relativePath);
+    const requestedPath = path.resolve(rendererDirectory, relativePath);
 
-    if (!targetPath.startsWith(`${rendererDirectory}${path.sep}`) && targetPath !== path.join(rendererDirectory, "index.html")) {
+    if (!requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && requestedPath !== path.join(rendererDirectory, "index.html")) {
       return new Response("Not found", { status: 404 });
     }
 
+    // React Router owns client-side routes such as /forgot-password. Those
+    // paths are not physical files in the packaged renderer, so serve the
+    // SPA entry point when a requested asset does not exist.
+    const targetPath = existsSync(requestedPath) ? requestedPath : path.join(rendererDirectory, "index.html");
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
