@@ -305,8 +305,9 @@ export function CorrectionRequestsPage() {
             />
 
             <div>
-              <label className="block text-xs font-semibold text-foreground mb-1.5">Event Name</label>
+              <label htmlFor="correction-event-name" className="mb-1.5 block text-xs font-semibold text-foreground">Event Name</label>
               <input
+                id="correction-event-name"
                 type="text"
                 readOnly
                 {...form.register("name")}

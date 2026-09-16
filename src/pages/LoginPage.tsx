@@ -17,7 +17,7 @@ type LocationState = {
 };
 
 export function LoginPage() {
-  const { session, signInWithPassword, isSessionRestored, authError, logout } = useDevelopmentSession();
+  const { signInWithPassword, authError } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -66,12 +66,6 @@ export function LoginPage() {
 
   return (
     <AuthLayout title="Sign in to PLPass" description="Use your PLPass account to open your assigned workspace.">
-      {isSessionRestored && session ? (
-        <div className="mb-4 rounded-xl border border-primary/20 bg-highlight-soft p-3 text-sm">
-          <p className="font-medium">You are currently signed in as {session.displayName}.</p>
-          <Button type="button" className="mt-3" size="sm" variant="outline" onClick={logout}>Sign out</Button>
-        </div>
-      ) : null}
       {locationState?.passwordReset ? <div className="mb-4 rounded-xl border border-success/30 bg-success-muted p-3 text-sm" role="status">Password updated. Sign in with your new password.</div> : null}
       {displayError ? <div className="mb-4 rounded-xl border border-danger/30 bg-danger-muted p-3 text-sm text-danger" role="alert">{displayError}</div> : null}
       <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); void handleSignIn(); }}>

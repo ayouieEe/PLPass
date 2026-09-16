@@ -45,6 +45,7 @@ test("student correction success remains available as an inline status", async (
   const recordTrigger = page.getByRole("button", { name: "Related Attendance Record" });
   await recordTrigger.click();
   await page.getByRole("option", { name: /Business Forum.*absent/i }).click();
+  await expect(page.getByLabel("Event Name")).toHaveValue("Business Forum");
   await page.getByLabel("Reason & Explanation").fill("I attended the event but my attendance was not recorded correctly.");
 
   await page.getByRole("button", { name: "Submit correction request" }).click();

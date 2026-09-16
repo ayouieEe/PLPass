@@ -56,13 +56,13 @@ function getNameById<T extends Program | Department>(items: T[] | undefined, id:
 
 function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-4 transition-all">
+    <div className="flex min-h-24 w-full items-start gap-3 overflow-hidden rounded-2xl border border-border bg-card/40 p-4 transition-all">
       <div className="h-10 w-10 shrink-0 bg-primary/20 rounded-xl flex items-center justify-center text-primary">
         <Icon className="h-5 w-5" />
       </div>
-      <div className="min-w-0">
-        <span className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">{label}</span>
-        <p className="mt-0.5 font-semibold text-sm text-foreground truncate">{value ?? "N/A"}</p>
+      <div className="min-w-0 flex-1">
+        <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
+        <p className="mt-0.5 break-words text-sm font-semibold leading-5 text-foreground">{value ?? "N/A"}</p>
       </div>
     </div>
   );
@@ -198,12 +198,12 @@ export function StudentProfilePage() {
   }
 
   return (
-    <div className="space-y-8 p-1 font-sans">
+    <div className="space-y-6 p-0 font-sans sm:space-y-8 sm:p-1">
       <PageHeader
         title="Profile"
         description="Manage your student details and attendance access."
         actions={
-          <Button variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
+          <Button variant="outline" onClick={handleLogout} className="student-btn-secondary w-full gap-2 px-6 sm:w-auto">
             <LogOut className="h-4 w-4" />
             <span>Logout</span>
           </Button>
@@ -221,7 +221,7 @@ export function StudentProfilePage() {
 
       <div className="grid items-start gap-6 lg:grid-cols-3">
         <div className="lg:sticky lg:top-6 lg:self-start">
-          <div className="student-glass-card flex h-fit flex-col items-center space-y-4 p-6 text-center shadow-sm">
+          <div className="student-glass-card flex h-fit flex-col items-center space-y-4 p-4 text-center shadow-sm sm:p-6">
             <div className="relative">
               <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border-4 border-primary/20 bg-secondary shadow-inner">
                 <img
@@ -237,7 +237,7 @@ export function StudentProfilePage() {
             </div>
 
             <div className="min-w-0">
-              <h3 className="text-lg font-bold text-foreground">{user.displayName}</h3>
+              <h3 className="break-words text-lg font-bold text-foreground">{user.displayName}</h3>
               <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 JPG, PNG, or WebP up to 2 MB.
@@ -252,8 +252,8 @@ export function StudentProfilePage() {
           </div>
         </div>
 
-        <div className="space-y-6 lg:col-span-2">
-          <div className="student-glass-card p-6 space-y-4 shadow-sm">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
+          <div className="student-glass-card space-y-4 p-4 shadow-sm sm:p-6">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <User className="h-5 w-5 text-primary" />
               Student Information
@@ -272,7 +272,7 @@ export function StudentProfilePage() {
             </div>
           </div>
 
-          <div className="student-glass-card p-6 space-y-4 shadow-sm">
+          <div className="student-glass-card space-y-4 p-4 shadow-sm sm:p-6">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <ShieldAlert className="h-5 w-5 text-primary" />
               Attendance Readiness & Statistics
@@ -286,7 +286,7 @@ export function StudentProfilePage() {
             </div>
           </div>
 
-          <div className="student-glass-card p-6 space-y-4 shadow-sm">
+          <div className="student-glass-card space-y-4 p-4 shadow-sm sm:p-6">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-primary" />
               Account Security

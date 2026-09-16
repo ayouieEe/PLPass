@@ -80,12 +80,12 @@ function FeedbackModal({
     >
         <div className="space-y-5">
           {!isReview && objective ? (
-            <div className="rounded-xl border bg-background p-5">
+            <div className="rounded-xl border bg-background p-4 sm:p-5">
               <p className="text-base font-semibold leading-snug">{objective.text}</p>
-              <div className="mt-5 grid grid-cols-5 gap-2" aria-label="Choose a rating">
+              <div className="mt-5 grid grid-cols-2 gap-2 min-[420px]:grid-cols-5" aria-label="Choose a rating">
                 {emojiRatings.map((choice) => (
-                  <button key={choice.value} type="button" onClick={() => onRate(objective.id, choice.value)} aria-label={`${choice.value}: ${choice.label}`} className={`rounded-xl border p-2 text-center transition hover:border-primary ${ratings[objective.id] === choice.value ? "border-primary bg-primary/10" : "bg-surface"}`}>
-                    <span className="block text-2xl">{choice.emoji}</span><span className="mt-1 block text-[10px] leading-tight text-muted-foreground">{choice.label}</span>
+                  <button key={choice.value} type="button" onClick={() => onRate(objective.id, choice.value)} aria-label={`${choice.value}: ${choice.label}`} className={`min-h-20 rounded-xl border p-2 text-center transition hover:border-primary ${ratings[objective.id] === choice.value ? "border-primary bg-primary/10" : "bg-surface"}`}>
+                    <span className="block text-2xl">{choice.emoji}</span><span className="mt-1 block break-words text-[10px] leading-tight text-muted-foreground">{choice.label}</span>
                   </button>
                 ))}
               </div>
@@ -104,7 +104,7 @@ function FeedbackModal({
               placeholder="What stood out about this event?"
             />
           </div>}
-          <div className="flex justify-between gap-3"><Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>{isReview ? <Button onClick={onSubmit} disabled={!canSubmit}><MessageSquareText className="mr-2 h-4 w-4" />Submit Feedback</Button> : <p className="self-center text-xs text-muted-foreground">Choose a rating to continue</p>}</div>
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between"><Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>{isReview ? <Button onClick={onSubmit} disabled={!canSubmit}><MessageSquareText className="mr-2 h-4 w-4" />Submit Feedback</Button> : <p className="text-xs text-muted-foreground sm:self-center">Choose a rating to continue</p>}</div>
         </div>
     </ModalShell>
   );
