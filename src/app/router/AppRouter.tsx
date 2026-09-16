@@ -82,6 +82,9 @@ export function AppRouter() {
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
               <Route path={APP_ROUTES.organizerReports} element={<OrganizerReportsPage />} />
             </Route>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="credentials.use.owned_event" />}>
+              <Route path={APP_ROUTES.organizerCredentials} element={<AuthenticationMethodsPage />} />
+            </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} permission="corrections.review.owned" />}>
               <Route path={APP_ROUTES.organizerCorrections} element={<OrganizerCorrectionRequestsPage />} />
             </Route>

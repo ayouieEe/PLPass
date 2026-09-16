@@ -28,6 +28,7 @@ export const APP_ROUTES = {
   organizerUsers: "/organizer/users",
   organizerRecords: "/organizer/records",
   organizerReports: "/organizer/reports",
+  organizerCredentials: "/organizer/credentials",
   organizerAnalytics: "/organizer/analytics",
   organizerCorrections: "/organizer/corrections",
   organizerProfile: "/organizer/profile",

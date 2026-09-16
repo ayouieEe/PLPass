@@ -19,6 +19,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Events", path: APP_ROUTES.organizerEvents, icon: ClipboardList, group: "Events", capability: ["events.read.owned", "events.read.all"] },
     { label: "Create Event", path: APP_ROUTES.organizerCreateEvent, icon: CalendarCheck, group: "Events", capability: "events.create" },
     { label: "Event Records", path: APP_ROUTES.organizerRecords, icon: UserCheck, group: "Events", capability: ["attendance.read.owned", "attendance.read.all"] },
+    { label: "Authentication Methods", path: APP_ROUTES.organizerCredentials, icon: ShieldCheck, group: "Attendance", capability: "credentials.use.owned_event" },
     { label: "Correction Requests", path: APP_ROUTES.organizerCorrections, icon: AlertCircle, group: "Attendance", capability: ["corrections.review.owned", "corrections.review.all"] },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights", capability: ["analytics.read.owned", "analytics.read.all"] },
     { label: "Audit Logs", path: APP_ROUTES.organizerAuditLogs, icon: ClipboardList, group: "Account", capability: "audit.read.own" },

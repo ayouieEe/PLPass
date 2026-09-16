@@ -96,7 +96,7 @@ test.describe("organizer critical journeys", () => {
     await page.getByRole("button", { name: "Continue to participants" }).click();
     await expect(page.getByText("Event title is required")).toBeVisible();
 
-    await page.goto("/organizer/reports");
+    await page.goto("/organizer/credentials");
     await expect(page.getByText("Student 01").first()).toBeVisible();
     await page.getByRole("grid", { name: "Student QR Credentials" }).locator(".ag-row").first().click();
     await expect(page.getByRole("dialog", { name: /qr credential details/i })).toBeVisible();
