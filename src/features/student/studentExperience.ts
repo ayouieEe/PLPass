@@ -66,7 +66,7 @@ export type StudentEventWorkflow = {
   timeline: { label: string; status: "done" | "current" | "locked" }[];
 };
 
-export type StudentRequestKind = "attendance_correction" | "authentication_issue" | "face_reenrollment";
+export type StudentRequestKind = "attendance_correction" | "authentication_issue";
 
 export function useStudentScope(): StudentScope {
   const { session } = useDevelopmentSession();
@@ -116,10 +116,7 @@ export function hasUsableQrCredential(readiness: StudentIdentityReadiness) {
 
 export function formatCredentialStatus(value: string | undefined) {
   const normalized = value?.replace(/_/g, " ").trim();
-  if (!normalized) return "Not configured";
-  if (["inactive", "blocked", "revoked", "expired"].includes(normalized.toLowerCase())) return "Deactivated";
-  if (["active", "activated"].includes(normalized.toLowerCase())) return "Activated";
-  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return normalized?.toLowerCase() === "active" || normalized?.toLowerCase() === "activated" ? "Active" : "Pending";
 }
 
 export function emptyStudentIdentityReadiness(): StudentIdentityReadiness {

@@ -4,7 +4,7 @@ import { BarChart3, CalendarDays, ClipboardList, Settings, ShieldCheck, Users, t
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAcademicCatalog, useAuditLogs, useAttendanceRecords, useCorrectionRequests, useEvents, useReports, useUsers } from "@/hooks/useRepositoryQueries";
+import { useAcademicCatalog, useAuditLogs, useAttendanceRecords, useEvents, useReports, useUsers } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
 function useAdminContext() {
@@ -17,12 +17,11 @@ export function AdminDashboardPage() {
   const users = useUsers({ pageSize: 1 }, context);
   const events = useEvents({ pageSize: 1 }, context);
   const records = useAttendanceRecords({ pageSize: 1 }, context);
-  const corrections = useCorrectionRequests({ pageSize: 1 }, context);
   const cards: Array<{ label: string; value?: number; path: string; icon: LucideIcon }> = [
     { label: "Users", value: users.data?.total, path: APP_ROUTES.adminUsers, icon: Users },
     { label: "Events", value: events.data?.total, path: APP_ROUTES.adminEvents, icon: CalendarDays },
     { label: "Attendance Records", value: records.data?.total, path: APP_ROUTES.adminAttendance, icon: ClipboardList },
-    { label: "Correction Requests", value: corrections.data?.total, path: APP_ROUTES.adminCorrections, icon: ShieldCheck }
+    { label: "System Health", path: APP_ROUTES.adminSystemHealth, icon: ShieldCheck }
   ];
   return <div className="space-y-5">
     <PageHeader title="Admin Dashboard" description="Institution-wide operational overview and administration." />
@@ -37,18 +36,17 @@ export function AdminDashboardPage() {
   </div>;
 }
 
-type AdminResourcePageProps = { title: string; description: string; kind: "users" | "events" | "records" | "corrections" | "reports" | "audit" | "catalog" };
+type AdminResourcePageProps = { title: string; description: string; kind: "users" | "events" | "records" | "reports" | "audit" | "catalog" };
 
 export function AdminResourcePage({ title, description, kind }: AdminResourcePageProps) {
   const context = useAdminContext();
   const users = useUsers({ pageSize: 10 }, context);
   const events = useEvents({ pageSize: 10 }, context);
   const records = useAttendanceRecords({ pageSize: 10 }, context);
-  const corrections = useCorrectionRequests({ pageSize: 10 }, context);
   const reports = useReports({ pageSize: 10 }, context);
   const audit = useAuditLogs({ pageSize: 10 }, context);
   const catalog = useAcademicCatalog({ pageSize: 10 }, context);
-  const result = kind === "users" ? users.data : kind === "events" ? events.data : kind === "records" ? records.data : kind === "corrections" ? corrections.data : kind === "reports" ? reports.data : kind === "audit" ? audit.data : catalog.departments.data;
+  const result = kind === "users" ? users.data : kind === "events" ? events.data : kind === "records" ? records.data : kind === "reports" ? reports.data : kind === "audit" ? audit.data : catalog.departments.data;
   const items = result?.items ?? [];
   return <div className="space-y-5"><PageHeader title={title} description={description} /><section className="rounded-lg border bg-surface p-5 shadow-sm"><p className="text-sm text-muted-foreground">{result ? `${result.total.toLocaleString()} records available to administrators.` : "Loading administrative data…"}</p>{result && !items.length ? <div className="mt-5"><EmptyState title="No records found" description="There are no records available for this section yet." /></div> : <div className="mt-5 space-y-2">{items.map((item, index) => <div key={String((item as { id?: string }).id ?? index)} className="rounded-md border bg-background px-4 py-3 text-sm">{String((item as { title?: string; displayName?: string; action?: string; code?: string }).title ?? (item as { displayName?: string }).displayName ?? (item as { action?: string }).action ?? (item as { code?: string }).code ?? `Record ${index + 1}`)}</div>)}</div>}</section></div>;
 }
@@ -56,7 +54,6 @@ export function AdminResourcePage({ title, description, kind }: AdminResourcePag
 export const AdminUsersPage = () => <AdminResourcePage kind="users" title="Users" description="Manage Student, Organizer, and Admin accounts." />;
 export const AdminEventsPage = () => <AdminResourcePage kind="events" title="Events" description="View and manage all events and approvals." />;
 export const AdminAttendancePage = () => <AdminResourcePage kind="records" title="Attendance Records" description="Review attendance sessions and records across all events." />;
-export const AdminCorrectionsPage = () => <AdminResourcePage kind="corrections" title="Correction Requests" description="Review correction requests across the institution." />;
 export const AdminReportsPage = () => <AdminResourcePage kind="reports" title="Reports" description="Review generated reports across all scopes." />;
 export const AdminAuditLogsPage = () => <AdminResourcePage kind="audit" title="Audit Logs" description="Review all system activity and administrative actions." />;
 export const AdminCatalogsPage = () => <AdminResourcePage kind="catalog" title="Academic Catalogs" description="Manage departments, programs, sections, semesters, and event categories." />;

@@ -4,10 +4,10 @@ export const CAPABILITIES = [
   "users.read.all", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke",
   "events.create", "events.read.owned", "events.manage.owned", "events.read.all",
   "attendance.read.owned", "attendance.manage.owned", "attendance.read.all",
-  "corrections.review.owned", "corrections.review.all", "analytics.read.owned", "analytics.read.all",
+  "corrections.review.owned", "analytics.read.owned", "analytics.read.all",
   "reports.read.owned", "reports.read.all", "credentials.use.owned_event", "credentials.reset", "credentials.revoke",
   "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
-  "system.data_check.run", "system.cache.refresh", "attendance.session.recover", "attendance.correction.override",
+  "system.data_check.run", "system.cache.refresh", "attendance.session.recover",
   "audit.read.own", "audit.read.all", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own"
 ] as const;
 
@@ -21,9 +21,9 @@ const organizerCapabilities = [
 
 const adminCapabilities = [
   "users.read.all", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke",
-  "events.read.all", "attendance.read.all", "corrections.review.all", "analytics.read.all", "reports.read.all",
+  "events.read.all", "attendance.read.all", "analytics.read.all", "reports.read.all",
   "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
-  "system.data_check.run", "system.cache.refresh", "attendance.session.recover", "attendance.correction.override",
+  "system.data_check.run", "system.cache.refresh", "attendance.session.recover",
   "credentials.reset", "credentials.revoke", "audit.read.all", "audit.export", "profile.manage.own", "notifications.read.own"
 ] as const satisfies readonly Capability[];
 

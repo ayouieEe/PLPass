@@ -87,7 +87,12 @@ function profileDisplayName(row: Row) {
   if (explicitName) {
     return explicitName;
   }
-  const nameParts = [stringValue(row, ["first_name"]), stringValue(row, ["middle_name"]), stringValue(row, ["last_name"])].filter(Boolean);
+  const nameParts = [
+    stringValue(row, ["first_name"]),
+    stringValue(row, ["middle_name"]),
+    stringValue(row, ["last_name"]),
+    stringValue(row, ["name_extension"])
+  ].filter(Boolean);
   return nameParts.length ? nameParts.join(" ") : stringValue(row, ["email"], "PLPass User");
 }
 
@@ -208,6 +213,7 @@ export function mapProfileToUser(row: Row): User {
     role: stringValue(row, ["role"], "student") as UserRole,
     email: stringValue(row, ["email"]),
     displayName: profileDisplayName(row),
+    nameExtension: optionalString(row, ["name_extension"]),
     avatarUrl: optionalString(row, ["avatar_url", "profile_picture"]),
     isActive: !["inactive", "suspended"].includes(stringValue(row, ["account_status"], "active")),
     createdAt: stringValue(row, ["created_at"], new Date().toISOString())
@@ -222,14 +228,15 @@ export function mapStudent(row: Row): Student {
   const firstName = profile ? stringValue(profile, ["first_name"]) : "";
   const middleName = profile ? stringValue(profile, ["middle_name"]) : "";
   const lastName = profile ? stringValue(profile, ["last_name"]) : "";
+  const nameExtension = profile ? stringValue(profile, ["name_extension"]) : "";
 
   const middleInitial = middleName.trim() ? `${middleName.trim().charAt(0).toUpperCase()}.` : "";
   const formattedName = lastName && firstName
-    ? `${lastName}, ${firstName}${middleInitial ? " " + middleInitial : ""}`
-    : [firstName, middleName, lastName].filter(Boolean).join(" ");
+    ? `${lastName}, ${firstName}${middleInitial ? " " + middleInitial : ""}${nameExtension ? " " + nameExtension : ""}`
+    : [firstName, middleName, lastName, nameExtension].filter(Boolean).join(" ");
 
   const fullName = profile
-    ? [firstName, middleName, lastName].filter(Boolean).join(" ")
+    ? [firstName, middleName, lastName, nameExtension].filter(Boolean).join(" ")
     : "";
 
   const base = {
@@ -247,6 +254,7 @@ export function mapStudent(row: Row): Student {
     firstName: firstName || undefined,
     middleName: middleName || undefined,
     lastName: lastName || undefined,
+    nameExtension: nameExtension || undefined,
     formattedName: formattedName || undefined,
     fullName: fullName || undefined,
     email: profile ? optionalString(profile, ["email"]) : undefined

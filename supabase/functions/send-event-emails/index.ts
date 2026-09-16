@@ -29,6 +29,14 @@ type EventEmailRow = {
   processing_token: string;
 };
 
+type RequestEmailRow = {
+  id: string;
+  recipient_email: string;
+  subject: string;
+  body: string;
+  processing_token: string;
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -113,6 +121,58 @@ async function dispatchQueuedEmails() {
   return { processed: rows.length, sent, failed };
 }
 
+async function dispatchQueuedRequestEmails() {
+  const { data, error } = await supabase.rpc("claim_request_email_outbox_batch", { p_limit: 25 });
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as RequestEmailRow[];
+  let sent = 0;
+  let failed = 0;
+  for (const row of rows) {
+    try {
+      const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: { "api-key": brevoApiKey ?? "", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender: { email: brevoFromEmail, name: brevoFromName },
+          replyTo: { email: brevoFromEmail, name: brevoFromName },
+          to: [{ email: row.recipient_email }],
+          subject: row.subject,
+          textContent: row.body
+        })
+      });
+
+      if (response.ok) {
+        const responseBody = await response.json().catch(() => ({}));
+        const { error: completeError } = await supabase.rpc("complete_request_email_outbox_delivery", {
+          p_outbox_id: row.id,
+          p_processing_token: row.processing_token,
+          p_provider_message_id: typeof responseBody.messageId === "string" ? responseBody.messageId : undefined
+        });
+        if (completeError) throw new Error(completeError.message);
+        sent += 1;
+      } else {
+        const errorMessage = (await response.text()).slice(0, 1000);
+        await supabase.rpc("fail_request_email_outbox_delivery", {
+          p_outbox_id: row.id,
+          p_processing_token: row.processing_token,
+          p_error_message: errorMessage || `Email provider returned ${response.status}.`
+        });
+        failed += 1;
+      }
+    } catch (error) {
+      await supabase.rpc("fail_request_email_outbox_delivery", {
+        p_outbox_id: row.id,
+        p_processing_token: row.processing_token,
+        p_error_message: error instanceof Error ? error.message : "Email delivery failed."
+      });
+      failed += 1;
+    }
+  }
+
+  return { processed: rows.length, sent, failed };
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (request.method !== "POST") return json({ error: "Only POST requests are supported." }, 405);
@@ -126,7 +186,14 @@ Deno.serve(async (request) => {
     if (!isWorker) return json({ error: "Worker authorization is required." }, 403);
     if (!brevoApiKey || !brevoFromEmail) return json({ error: "Email provider credentials are not configured." }, 500);
     try {
-      return json(await dispatchQueuedEmails());
+      const [eventEmails, requestEmails] = await Promise.all([dispatchQueuedEmails(), dispatchQueuedRequestEmails()]);
+      return json({
+        processed: eventEmails.processed + requestEmails.processed,
+        sent: eventEmails.sent + requestEmails.sent,
+        failed: eventEmails.failed + requestEmails.failed,
+        eventEmails,
+        requestEmails
+      });
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "Email dispatch failed." }, 500);
     }

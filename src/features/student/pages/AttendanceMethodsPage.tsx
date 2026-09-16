@@ -41,11 +41,6 @@ const issueReportSchema = z.object({
 });
 type IssueReportFormValues = z.infer<typeof issueReportSchema>;
 
-const changeRequestSchema = z.object({
-  reason: z.string().min(10, "Tell the organizer why you need to re-enroll.")
-});
-type ChangeRequestFormValues = z.infer<typeof changeRequestSchema>;
-
 const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
 const issueProofMaxBytes = 5 * 1024 * 1024;
 const acceptedIssueProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
@@ -96,7 +91,6 @@ export function AttendanceMethodsPage() {
   const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
-  const [showChangeRequest, setShowChangeRequest] = useState(false);
   const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
   const [showIssueReport, setShowIssueReport] = useState(false);
   const [issueProofFile, setIssueProofFile] = useState<File | null>(null);
@@ -118,11 +112,6 @@ export function AttendanceMethodsPage() {
     resolver: zodResolver(issueReportSchema),
     defaultValues: { issueDescription: "" }
   });
-  const changeRequestForm = useForm<ChangeRequestFormValues>({
-    resolver: zodResolver(changeRequestSchema),
-    defaultValues: { reason: "" }
-  });
-
   useEffect(() => {
     let cancelled = false;
 
@@ -194,21 +183,12 @@ export function AttendanceMethodsPage() {
   if (credentialStatusQuery.isError) return <ErrorState title="Unable to load attendance access" message="Please refresh the page. If this continues, ask an organizer to verify your attendance manually." />;
 
   const student = scope.student;
-  const studentCredentialRequests = (credentialRequestsQuery.data?.items ?? []).filter((request) => request.studentId === student.id);
-  const pendingFacialRequest = studentCredentialRequests.some((request) => request.credentialType === "facial" && request.status === "pending");
-  const approvedFacialReEnrollment = studentCredentialRequests.some((request) =>
-    request.credentialType === "facial" && request.requestType === "re_enrollment" && request.status === "approved"
-  );
   const identityReadiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
   const hasQrCredential = hasUsableQrCredential(identityReadiness);
   // A support request must not make a valid credential look unusable. The QR
   // remains scannable until it is deactivated or expires.
-  const qrStatus = hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Preparing";
-  const facialStatus = pendingFacialRequest
-    ? "Request pending"
-    : approvedFacialReEnrollment
-      ? "Re-enrollment approved"
-      : formatCredentialStatus(identityReadiness.faceStatus);
+  const qrStatus = hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Pending";
+  const facialStatus = identityReadiness.faceEnrolled ? "Active" : "Pending";
   const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
   // The displayed QR must carry the same identity as the school-ID QR.
   // Credential activation is still checked by the scanner/server.
@@ -383,22 +363,6 @@ export function AttendanceMethodsPage() {
     }
   }
 
-  async function handleChangeRequestSubmit(values: ChangeRequestFormValues) {
-    try {
-      await credentialRequestsQuery.createMutation.mutateAsync({
-        studentId: student.id,
-        credentialType: "facial",
-        requestType: "re_enrollment",
-        reason: values.reason
-      });
-      toast.success("Facial review request sent.");
-      changeRequestForm.reset();
-      setShowChangeRequest(false);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
-    }
-  }
-
   const verificationSteps: Array<{ icon: LucideIcon; label: string; tag: string; description: string }> = [
     { icon: QrCode, label: "QR", tag: "Primary", description: "The normal method for Time In and Time Out during onsite events." },
     { icon: Camera, label: "Facial", tag: "Backup", description: "Used by organizers only when QR scanning cannot be completed." },
@@ -438,7 +402,7 @@ export function AttendanceMethodsPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : "muted"} />
-                <StatusBadge label={`Face - ${facialStatus}`} tone={pendingFacialRequest ? "warning" : identityReadiness.faceEnrolled ? "success" : "muted"} />
+                <StatusBadge label={`Face - ${facialStatus}`} tone={identityReadiness.faceEnrolled ? "success" : "muted"} />
               </div>
             </div>
 
@@ -476,21 +440,21 @@ export function AttendanceMethodsPage() {
                     </p>
                   </div>
                   <div className="shrink-0 self-start sm:self-start">
-                    <StatusBadge label={facialStatus} tone={pendingFacialRequest ? "warning" : identityReadiness.faceEnrolled ? "success" : "muted"} />
+                    <StatusBadge label={facialStatus} tone={identityReadiness.faceEnrolled ? "success" : "muted"} />
                   </div>
                 </div>
 
                 <div className="mt-5 flex flex-1 flex-col rounded-xl border bg-background p-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      {pendingFacialRequest || identityReadiness.faceEnrolled ? <CheckCircle2 className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
+                      {identityReadiness.faceEnrolled ? <CheckCircle2 className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
                     </div>
                     <div>
-                      <p className="font-semibold">{identityReadiness.faceEnrolled ? "Facial backup ready" : pendingFacialRequest ? "Organizer review requested" : "Facial backup not set up"}</p>
+                      <p className="font-semibold">{identityReadiness.faceEnrolled ? "Facial backup ready" : "Facial backup not set up"}</p>
                       <p className="text-sm text-muted-foreground">
                         {identityReadiness.faceEnrolled
                           ? `Your facial backup is active${identityReadiness.faceEnrolledDate ? ` since ${new Date(identityReadiness.faceEnrolledDate).toLocaleDateString()}` : ""}.`
-                          : pendingFacialRequest ? "Your request is waiting for organizer review." : "Ask an organizer or admin if you need backup verification."}
+                          : "Ask an organizer or administrator to help you complete your one-time backup enrollment."}
                       </p>
                     </div>
                   </div>
@@ -500,33 +464,17 @@ export function AttendanceMethodsPage() {
                       <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-muted-foreground">
-                          {identityReadiness.faceEnrolled ? "Re-enrollment requires organizer approval" : "One-time student enrollment"}
+                          {identityReadiness.faceEnrolled ? "One-time student enrollment complete" : "One-time student enrollment"}
                         </p>
                         <p className="mt-0.5 text-sm text-muted-foreground">
                           {identityReadiness.faceEnrolled
-                            ? "Your face is already enrolled. Submit a re-enrollment request only if it needs to be changed."
+                            ? "Your face is already enrolled. Facial enrollment cannot be repeated or replaced."
                             : "Follow the three quick camera prompts. Each capture is saved automatically."}
                         </p>
-                        {pendingFacialRequest ? (
-                          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-success">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Request sent - awaiting organizer review.
-                          </p>
-                        ) : null}
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {!identityReadiness.faceEnrolled && !pendingFacialRequest ? (
+                          {!identityReadiness.faceEnrolled ? (
                             <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
                               Enroll face
-                            </Button>
-                          ) : null}
-                          {identityReadiness.faceEnrolled && approvedFacialReEnrollment ? (
-                            <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
-                              Enroll face
-                            </Button>
-                          ) : null}
-                          {identityReadiness.faceEnrolled && !pendingFacialRequest && !approvedFacialReEnrollment ? (
-                            <Button type="button" variant="outline" size="sm" onClick={() => setShowChangeRequest(true)}>
-                              Request re-enrollment
                             </Button>
                           ) : null}
                         </div>
@@ -585,7 +533,7 @@ export function AttendanceMethodsPage() {
       <ModalShell
         open={showFaceEnrollment}
         title="Enroll facial backup"
-        description="Capture one clear, front-facing photo. Future changes require a re-enrollment request."
+        description="Capture one clear, front-facing photo. Facial enrollment is a one-time process."
         size="md"
         onClose={() => {
           setShowFaceEnrollment(false);
@@ -703,49 +651,6 @@ export function AttendanceMethodsPage() {
             </Button>
           </div>
         </div>
-      </ModalShell>
-
-      <ModalShell
-        open={showChangeRequest}
-        title="Request facial re-enrollment"
-        description="Use this when your enrolled face record needs to be changed or reset by an organizer."
-        size="md"
-        onClose={() => {
-          setShowChangeRequest(false);
-          changeRequestForm.clearErrors();
-        }}
-      >
-        <form onSubmit={changeRequestForm.handleSubmit(handleChangeRequestSubmit)} className="space-y-4">
-          <label className="block">
-            <span className="text-sm font-semibold">Reason for re-enrollment</span>
-            <textarea
-              {...changeRequestForm.register("reason")}
-              aria-invalid={Boolean(changeRequestForm.formState.errors.reason)}
-              aria-describedby={changeRequestForm.formState.errors.reason ? "facial-reenrollment-reason-error" : undefined}
-              className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm"
-              placeholder="Example: My facial backup needs to be updated because my previous photo is unclear."
-            />
-          </label>
-          {changeRequestForm.formState.errors.reason ? (
-            <p id="facial-reenrollment-reason-error" role="alert" className="text-sm text-danger">{changeRequestForm.formState.errors.reason.message}</p>
-          ) : null}
-
-          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setShowChangeRequest(false);
-                changeRequestForm.clearErrors();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={credentialRequestsQuery.createMutation.isPending}>
-              {credentialRequestsQuery.createMutation.isPending ? "Sending..." : "Submit request"}
-            </Button>
-          </div>
-        </form>
       </ModalShell>
 
       <ModalShell

@@ -14,6 +14,7 @@ import type {
   CreateOrganizerInput,
   UpdateOrganizerInput,
   CreateAdminInput,
+  UpdateAdminInput,
   UpdateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
@@ -443,6 +444,8 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
       queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] }),
       queryClient.invalidateQueries({ queryKey: ["attendanceSession"] }),
       queryClient.invalidateQueries({ queryKey: ["attendanceAttempts"] }),
+      queryClient.invalidateQueries({ queryKey: ["studentCredentialStatus"] }),
+      queryClient.invalidateQueries({ queryKey: ["studentCredentialStatuses"] }),
       queryClient.invalidateQueries({ queryKey: ["auditLogs"] }),
       queryClient.invalidateQueries({ queryKey: ["mlPredictions"] })
     ]);
@@ -522,7 +525,10 @@ export function useNfcTapAttempts(query?: Partial<ListQuery>, _context?: Reposit
   });
 }
 
-export function useCorrectionRequests(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useCorrectionRequests(
+  query?: Partial<ListQuery>,
+  context?: RepositoryContext
+) {
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();
   const listQueryResult = useQuery({
@@ -840,6 +846,21 @@ export function useAdminAccountMutation(context?: RepositoryContext) {
       await queryClient.invalidateQueries({ queryKey: ["users"] });
       await queryClient.invalidateQueries({ queryKey: ["adminProfiles"] });
       toast.success("Admin account created successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+}
+
+export function useUpdateAdminAccountMutation(context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateAdminInput) => repositories.userManagement.updateAdmin(input, context),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["users"] }),
+        queryClient.invalidateQueries({ queryKey: ["adminProfiles"] })
+      ]);
+      toast.success("Admin account updated successfully.");
     },
     onError: (error: unknown) => toast.error(getErrorMessage(error))
   });

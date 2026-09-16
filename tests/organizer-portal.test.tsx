@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "@/app/App";
 import { queryClient } from "@/app/providers/queryClient";
 import { CompletedEventModal } from "@/features/organizer/pages/EventRecordsPage";
-import { organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/test-support/testHelpers";
+import { adminTestContext, organizerTestContext, organizerTwoTestContext, studentTestContext } from "@/test-support/testHelpers";
 import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
 import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import { repositories } from "@/services/repositories";
@@ -95,6 +95,8 @@ describe("organizer route access", () => {
     expect(await screen.findByRole("heading", { name: /^Dashboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "organizer navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
+    expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
+    expect(within(screen.getByRole("main")).queryByText("Correction Requests")).not.toBeInTheDocument();
   });
 
   it("renders the analytics insights workspace with detailed sections", async () => {
@@ -143,6 +145,19 @@ describe("organizer route access", () => {
 });
 
 describe("organizer repository scoping and workflows", () => {
+  it("denies administrators correction-request reads and review actions", async () => {
+    await expect(
+      repositories.correctionRequests.listCorrectionRequests({ pageIndex: 0, pageSize: 20 }, adminTestContext)
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+
+    await expect(
+      repositories.correctionRequests.reviewCorrectionRequest(
+        { requestId: "correction-3", status: "approved" },
+        adminTestContext
+      )
+    ).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
   it("lists only events owned by the signed-in organizer", async () => {
     const events = await repositories.eventManagement.listEvents({ pageIndex: 0, pageSize: 20 }, organizerTestContext);
 
@@ -381,6 +396,31 @@ describe("organizer UI flows", () => {
     expect(screen.queryByText(/raw biometric data/i)).not.toBeInTheDocument();
   });
 
+  it("uses extension and catalog-backed section options when adding a student", async () => {
+    const user = userEvent.setup();
+    storeSession(adminSession);
+    setRoute("/admin/users");
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add Student" }));
+    expect(await screen.findByRole("heading", { name: "Add student" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Extension Name (Optional)" })).toHaveTextContent("Jr.");
+
+    const section = screen.getByRole("combobox", { name: "Section" });
+    expect(section).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Department" }), "dept-ccs");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Program" }), "program-bsit");
+    expect(section).toBeEnabled();
+    expect(section).toHaveTextContent("A");
+    expect(section).toHaveTextContent("B");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Extension Name (Optional)" }), "Jr.");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByRole("heading", { name: "Discard student details?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.getByRole("heading", { name: "Add student" })).toBeInTheDocument();
+  });
+
   it("shows admin system health checks and recoverable failure states", async () => {
     storeSession(adminSession);
     setRoute("/admin/system-health");
@@ -390,18 +430,31 @@ describe("organizer UI flows", () => {
     expect(screen.getByText("Supabase connectivity")).toBeInTheDocument();
     expect(screen.getByText("Dean Summary report generation failed.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Recover session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finish event" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run consistency check" })).toBeInTheDocument();
   });
 
-  it("requires an action reason before an admin recovery operation", async () => {
+  it("runs a data consistency check without requiring a recovery reason", async () => {
+    storeSession(adminSession);
+    setRoute("/admin/system-health");
+    render(<App />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Run consistency check" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Data consistency check completed");
+  });
+
+  it("asks for a reason inside the recovery action", async () => {
     storeSession(adminSession);
     setRoute("/admin/system-health");
     render(<App />);
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Retry" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Enter a reason");
+    expect(screen.getByRole("dialog")).toHaveTextContent("Retry notification");
+    expect(screen.getByRole("textbox", { name: "Why are you doing this?" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: /Confirm retry notification/i }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Enter a reason");
   });
 
   it("denies system health tools to organizers", async () => {

@@ -20,7 +20,7 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Create Event", path: APP_ROUTES.organizerCreateEvent, icon: CalendarCheck, group: "Events", capability: "events.create" },
     { label: "Event Records", path: APP_ROUTES.organizerRecords, icon: UserCheck, group: "Events", capability: ["attendance.read.owned", "attendance.read.all"] },
     { label: "Authentication Methods", path: APP_ROUTES.organizerCredentials, icon: ShieldCheck, group: "Attendance", capability: "credentials.use.owned_event" },
-    { label: "Correction Requests", path: APP_ROUTES.organizerCorrections, icon: AlertCircle, group: "Attendance", capability: ["corrections.review.owned", "corrections.review.all"] },
+    { label: "Correction Requests", path: APP_ROUTES.organizerCorrections, icon: AlertCircle, group: "Attendance", capability: "corrections.review.owned" },
     { label: "Analytics Insights", path: APP_ROUTES.organizerAnalytics, icon: BarChart3, group: "Insights", capability: ["analytics.read.owned", "analytics.read.all"] },
     { label: "Audit Logs", path: APP_ROUTES.organizerAuditLogs, icon: ClipboardList, group: "Account", capability: "audit.read.own" },
     { label: "Settings", path: APP_ROUTES.organizerSettings, icon: Settings, group: "Account", capability: "settings.manage.own" },
@@ -30,11 +30,10 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
   // remain scoped to the currently signed-in organizer.
   admin: [
     { label: "Dashboard", path: APP_ROUTES.adminDashboard, icon: LayoutDashboard, group: "Overview", capability: "system.health.read" },
-    { label: "Users", path: APP_ROUTES.adminUsers, icon: UserCircle, group: "Administration", capability: "users.read.all" },
+    { label: "User Management", path: APP_ROUTES.adminUsers, icon: UserCircle, group: "Administration", capability: "users.read.all" },
     { label: "Authentication Methods", path: APP_ROUTES.adminCredentials, icon: ShieldCheck, group: "Administration", capability: ["credentials.reset", "credentials.revoke"] },
     { label: "Events", path: APP_ROUTES.adminEvents, icon: ClipboardList, group: "Events", capability: "events.read.all" },
     { label: "Event Records", path: APP_ROUTES.adminAttendance, icon: UserCheck, group: "Events", capability: "attendance.read.all" },
-    { label: "Correction Requests", path: APP_ROUTES.adminCorrections, icon: AlertCircle, group: "Attendance", capability: "corrections.review.all" },
     { label: "Analytics Insights", path: APP_ROUTES.adminAnalytics, icon: BarChart3, group: "Insights", capability: "analytics.read.all" },
     { label: "Audit Logs", path: APP_ROUTES.adminAuditLogs, icon: ClipboardList, group: "Account", capability: "audit.read.all" },
     { label: "System Health", path: APP_ROUTES.adminSystemHealth, icon: ShieldCheck, group: "Account", capability: "system.health.read" },

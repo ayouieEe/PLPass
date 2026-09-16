@@ -15,6 +15,7 @@ import {
   organizerProfileFixtures,
   programFixtures,
   reportFixtures,
+  sectionFixtures,
   semesterFixtures,
   studentFixtures,
   systemSettingsFixture,
@@ -630,7 +631,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
-      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+      nameExtension: input.nameExtension,
+      fullName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" ")
     };
     studentFixtures.push(newStudent);
     return newStudent;
@@ -648,7 +650,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       departmentId: input.departmentId,
       yearLevel: input.yearLevel,
       section: input.sectionId,
-      fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+      nameExtension: input.nameExtension,
+      fullName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" ")
     };
     const index = studentFixtures.findIndex(s => s.id === input.id);
     if (index !== -1) {
@@ -659,7 +662,13 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
   async bulkCreateStudents(inputs, context) {
     await beforeRead("userManagement", context, ["admin"]);
     let success = 0;
-    for (const input of inputs) {
+    const errors: Array<{ row: number; email: string; studentNumber: string; error: string }> = [];
+    const existingStudentNumbers = new Set(studentFixtures.map((student) => student.studentNumber));
+    for (const [index, input] of inputs.entries()) {
+      if (existingStudentNumbers.has(input.studentNumber)) {
+        errors.push({ row: index + 2, email: input.email, studentNumber: input.studentNumber, error: `Student ID "${input.studentNumber}" already exists.` });
+        continue;
+      }
       const newStudent: Student = {
         id: `student-simulated-${Date.now()}-${success}`,
         userId: `user-simulated-${Date.now()}-${success}`,
@@ -674,12 +683,14 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
         firstName: input.firstName,
         middleName: input.middleName,
         lastName: input.lastName,
-        fullName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" ")
+        nameExtension: input.nameExtension,
+        fullName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" ")
       };
       studentFixtures.push(newStudent);
+      existingStudentNumbers.add(input.studentNumber);
       success++;
     }
-    return { success, failed: 0 };
+    return { success, failed: errors.length, errors };
   },
   async listFacultyProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin", "faculty", "student"]);
@@ -779,6 +790,16 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     adminProfileFixtures.push(profile);
     return profile;
   },
+  async updateAdmin(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const adminIndex = adminProfileFixtures.findIndex((profile) => profile.id === input.id && profile.userId === input.profileId);
+    const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "admin");
+    if (adminIndex === -1 || userIndex === -1) throw new RepositoryError("Admin account not found.", "NOT_FOUND");
+    const updated = { ...adminProfileFixtures[adminIndex], departmentId: input.departmentId, officeName: input.officeName };
+    adminProfileFixtures[adminIndex] = updated;
+    userFixtures[userIndex] = { ...userFixtures[userIndex], email: input.email, displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: input.accountStatus === "active" };
+    return updated;
+  },
   async bulkCreateOrganizers(inputs, context) {
     await beforeRead("userManagement", context, ["admin"]);
     inputs.forEach((input, index) => {
@@ -859,6 +880,18 @@ export const simulatedAcademicManagementRepository: AcademicManagementRepository
       query
     );
   },
+  async listSections(query, context) {
+    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
+    return paginateOrThrowEmpty(
+      sectionFixtures.filter(
+        (section) =>
+          matchesSearch([section.name, section.academicYear, section.semester], query?.search) &&
+          (!query?.programId || section.programId === query.programId) &&
+          (!query?.yearLevel || section.yearLevel === query.yearLevel)
+      ),
+      query
+    );
+  },
   async listClasses(query, context) {
     await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
@@ -886,7 +919,7 @@ export const simulatedAcademicManagementRepository: AcademicManagementRepository
   },
   async setCatalogActive(table, id, isActive, context) {
     await beforeRead("academicManagement", context, ["admin", "organizer"]);
-    const items = table === "departments" ? departmentFixtures : table === "programs" ? programFixtures : [];
+    const items: Array<{ id: string; isActive: boolean }> = table === "departments" ? departmentFixtures : table === "programs" ? programFixtures : table === "sections" ? sectionFixtures : [];
     if (!items.length) {
       throw new RepositoryError(`${table} catalog management is unavailable in the development repository.`, "NOT_FOUND");
     }
@@ -1488,7 +1521,7 @@ export const simulatedAttendanceAttemptRepository: AttendanceAttemptRepository =
 
 export const simulatedCorrectionRequestRepository: CorrectionRequestRepository = {
   async listCorrectionRequests(query, context) {
-    await beforeRead("correctionRequests", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("correctionRequests", context, ["faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const allowedClassIds = currentContext.actorRole === "faculty" ? facultyClassIds(currentContext) : undefined;
     const allowedEventIds = currentContext.actorRole === "organizer" ? organizerEventIds(currentContext) : undefined;
@@ -1561,7 +1594,7 @@ export const simulatedCorrectionRequestRepository: CorrectionRequestRepository =
     return created;
   },
   async reviewCorrectionRequest(input: ReviewCorrectionRequestInput, context) {
-    await beforeRead("correctionRequests", context, ["faculty", "organizer", "admin"]);
+    await beforeRead("correctionRequests", context, ["faculty", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (input.status === "rejected" && !input.reason?.trim()) {
       throw new RepositoryError("A rejection reason is required.", "VALIDATION_ERROR");
@@ -1976,6 +2009,17 @@ export const simulatedSystemHealthRepository: SystemHealthRepository = {
     attendanceSessionState = attendanceSessionState.map((entry) => entry.id === session.id ? recovered : entry);
     addSafeAudit(contextOrDefault(context), "system.attendance_session_recovered", "attendance_session", session.id, { reasonProvided: true });
     return recovered;
+  },
+  async finishEvent(input, context) {
+    await beforeRead("systemHealth", context, ["admin"]);
+    requireHealthReason(input.reason);
+    const event = eventState.find((entry) => entry.id === input.eventId);
+    if (!event) throw new RepositoryError("The event could not be found.", "NOT_FOUND");
+    const updated = { ...event, status: "completed" as const };
+    eventState = eventState.map((entry) => entry.id === input.eventId ? updated : entry);
+    attendanceSessionState = attendanceSessionState.map((entry) => entry.eventId === input.eventId && entry.status === "active" ? { ...entry, status: "completed" as const, endsAt: new Date().toISOString() } : entry);
+    addSafeAudit(contextOrDefault(context), "system.event_finished", "event", input.eventId, { reasonProvided: true });
+    return updated;
   },
   async runDataConsistencyCheck(context) {
     await beforeRead("systemHealth", context, ["admin"]);

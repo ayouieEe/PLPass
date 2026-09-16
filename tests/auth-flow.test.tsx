@@ -70,8 +70,32 @@ describe("mock authentication flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Admin Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Users" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "User Management" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
+    expect(screen.getByText("Registered Students")).toBeInTheDocument();
+    expect(await screen.findByText("Healthy")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "System Health" }).some((link) => link.getAttribute("href") === "/admin/system-health")).toBe(true);
+    expect(screen.queryByRole("link", { name: "Create Event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Correction Requests" })).not.toBeInTheDocument();
+  });
+
+  it("does not expose correction requests to an admin", async () => {
+    storeSession("admin");
+    setRoute("/admin/corrections");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+  });
+
+  it("removes correction workflow controls from admin settings", async () => {
+    storeSession("admin");
+    setRoute("/admin/settings");
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Settings" });
+    await userEvent.click(screen.getByRole("tab", { name: /notifications/i }));
+    expect(screen.queryByRole("switch", { name: "Correction request updates" })).not.toBeInTheDocument();
   });
 
   it("denies admin routes to an organizer", async () => {

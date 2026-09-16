@@ -36,7 +36,8 @@ const ACTION_EXACT_MAP: Record<string, string> = {
   "user.invited": "User invited",
   "user.updated": "User profile updated",
   "user.role_updated": "User role updated",
-  "audit_log.reverted": "Audit action reverted"
+  "audit_log.reverted": "Audit action reverted",
+  "audit_log.reviewed": "Audit action reviewed"
 };
 
 export function formatAuditAction(action: string | undefined | null): string {
@@ -224,7 +225,17 @@ export interface AuditLogFilters {
   customStartDate?: string;
   customEndDate?: string;
   actorUserId?: string;
-  actionCategory?: "all" | "credentials" | "events" | "attendance" | "correction" | "user";
+  actionCategory?: "all" | "credentials" | "events" | "attendance" | "correction" | "user" | "system";
+}
+
+function auditActionCategory(log: AuditLog): NonNullable<AuditLogFilters["actionCategory"]> {
+  const value = `${log.action} ${log.targetType}`.toLowerCase();
+  if (/(correction|attendance_request)/.test(value)) return "correction";
+  if (/(attendance|session|check[-_ ]?in|check[-_ ]?out)/.test(value)) return "attendance";
+  if (/(credential|qr|facial|verification)/.test(value)) return "credentials";
+  if (/(event|objective|feedback|resource)/.test(value)) return "events";
+  if (/(user|profile|organizer|admin|student)/.test(value)) return "user";
+  return "system";
 }
 
 export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, lookups?: AuditTargetLookups): AuditLog[] {
@@ -288,12 +299,7 @@ export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, look
 
     // 4. Action Category filter
     if (filters.actionCategory && filters.actionCategory !== "all") {
-      const actionLower = log.action.toLowerCase();
-      if (filters.actionCategory === "credentials" && !actionLower.includes("credential")) return false;
-      if (filters.actionCategory === "events" && !actionLower.includes("event")) return false;
-      if (filters.actionCategory === "attendance" && !actionLower.includes("session") && !actionLower.includes("attendance")) return false;
-      if (filters.actionCategory === "correction" && !actionLower.includes("correction")) return false;
-      if (filters.actionCategory === "user" && !actionLower.includes("user")) return false;
+      if (auditActionCategory(log) !== filters.actionCategory) return false;
     }
 
     return true;

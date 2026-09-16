@@ -16,6 +16,7 @@ import type {
   OrganizerProfile,
   Program,
   Report,
+  Section,
   Semester,
   Student,
   SystemSettings,
@@ -62,6 +63,14 @@ export const semesterFixtures: Semester[] = [
   { id: "sem-2026-1", label: "First Semester", schoolYear: "2026-2027", startsAt: "2026-06-01", endsAt: "2026-10-31", isActive: true },
   { id: "sem-2026-midyear", label: "Midyear Semester", schoolYear: "2026-2027", startsAt: "2026-11-01", endsAt: "2027-01-31", isActive: false },
   { id: "sem-2026-2", label: "Second Semester", schoolYear: "2026-2027", startsAt: "2027-02-01", endsAt: "2027-06-30", isActive: false }
+];
+
+export const sectionFixtures: Section[] = [
+  { id: "section-bsit-1a", programId: "program-bsit", name: "A", yearLevel: 1, academicYear: "2026-2027", semester: "First Semester", isActive: true },
+  { id: "section-bsit-1b", programId: "program-bsit", name: "B", yearLevel: 1, academicYear: "2026-2027", semester: "First Semester", isActive: true },
+  { id: "section-bsit-2a", programId: "program-bsit", name: "A", yearLevel: 2, academicYear: "2026-2027", semester: "First Semester", isActive: true },
+  { id: "section-bscs-1a", programId: "program-bscs", name: "A", yearLevel: 1, academicYear: "2026-2027", semester: "First Semester", isActive: true },
+  { id: "section-bsa-1a", programId: "program-bsa", name: "A", yearLevel: 1, academicYear: "2026-2027", semester: "First Semester", isActive: true }
 ];
 
 export const studentFixtures: Student[] = Array.from({ length: 12 }, (_, index) => {
@@ -254,6 +263,7 @@ export const plpassFixtures = {
   adminProfiles: adminProfileFixtures,
   departments: departmentFixtures,
   programs: programFixtures,
+  sections: sectionFixtures,
   semesters: semesterFixtures,
   classes: classFixtures,
   classRosters: classRosterFixtures,

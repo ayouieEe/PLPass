@@ -15,7 +15,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
-import { AdminDashboardPage, AdminAuditLogsPage, AdminReportsPage } from "@/features/admin/pages/AdminPages";
+import { AdminReportsPage } from "@/features/admin/pages/AdminPages";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
 const OrganizerDashboardPage = lazy(() => import("@/features/organizer/pages/OrganizerDashboardPage").then((module) => ({ default: module.OrganizerDashboardPage })));
@@ -103,7 +103,7 @@ export function AppRouter() {
             <Route element={<RoleRoute allowedRoles={["admin"]} />}>
               <Route path={APP_ROUTES.admin} element={<Navigate to={APP_ROUTES.adminDashboard} replace />} />
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.health.read" />}>
-                <Route path={APP_ROUTES.adminDashboard} element={<AdminDashboardPage />} />
+                <Route path={APP_ROUTES.adminDashboard} element={<OrganizerDashboardPage workspace="admin" />} />
               </Route>
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="users.read.all" />}>
                 <Route path={APP_ROUTES.adminUsers} element={<OrganizerUserManagementPage />} />
@@ -116,9 +116,6 @@ export function AppRouter() {
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="attendance.read.all" />}>
                 <Route path={APP_ROUTES.adminAttendance} element={<EventRecordsPage />} />
               </Route>
-              <Route element={<RoleRoute allowedRoles={["admin"]} permission="corrections.review.all" />}>
-                <Route path={APP_ROUTES.adminCorrections} element={<OrganizerCorrectionRequestsPage />} />
-              </Route>
               <Route element={<RoleRoute allowedRoles={["admin"]} permission={["credentials.reset", "credentials.revoke"]} />}>
                 <Route path={APP_ROUTES.adminCredentials} element={<AuthenticationMethodsPage />} />
               </Route>
@@ -129,7 +126,7 @@ export function AppRouter() {
                 <Route path={APP_ROUTES.adminAnalytics} element={<OrganizerAnalyticsPage />} />
               </Route>
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="audit.read.all" />}>
-                <Route path={APP_ROUTES.adminAuditLogs} element={<AdminAuditLogsPage />} />
+                <Route path={APP_ROUTES.adminAuditLogs} element={<OrganizerAuditLogsPage />} />
               </Route>
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="system.catalog.manage" />}>
                 <Route path={APP_ROUTES.adminCatalogs} element={<AdminCatalogsPage />} />

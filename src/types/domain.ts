@@ -27,6 +27,7 @@ export type User = {
   role: UserRole;
   email: string;
   displayName: string;
+  nameExtension?: string;
   avatarUrl?: string;
   isActive: boolean;
   createdAt: ISODateString;
@@ -47,6 +48,7 @@ export type Student = {
   firstName?: string;
   middleName?: string;
   lastName?: string;
+  nameExtension?: string;
   formattedName?: string;
   email?: string;
   createdAt: ISODateString;
@@ -339,7 +341,7 @@ export type CredentialRequest = {
   id: ID;
   studentId: ID;
   credentialType: "qr" | "facial";
-  requestType: "replacement" | "re_enrollment" | "technical_issue";
+  requestType: "replacement" | "technical_issue";
   reason: string;
   status: CredentialRequestStatus;
   requestedAt: ISODateString;

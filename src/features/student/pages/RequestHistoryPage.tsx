@@ -48,7 +48,7 @@ function statusTone(status: CorrectionRequestStatus | CredentialRequestStatus) {
 function typeLabel(type: StudentRequestKind) {
   if (type === "attendance_correction") return "Correction Request";
   if (type === "authentication_issue") return "Attendance Issue";
-  return "Facial Review";
+  return "Attendance Issue";
 }
 
 function submittedTime(value: string) {
@@ -149,9 +149,9 @@ export function RequestHistoryPage() {
     .map((request) => ({
       id: request.id,
       submittedAt: request.requestedAt,
-      type: request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue",
-      typeLabel: typeLabel(request.requestType === "re_enrollment" ? "face_reenrollment" : "authentication_issue"),
-      title: request.requestType === "re_enrollment" ? "Facial review request" : "Attendance issue report",
+      type: "authentication_issue",
+      typeLabel: typeLabel("authentication_issue"),
+      title: "Attendance issue report",
       description: request.reason,
       status: request.status,
       reference: request.credentialType === "facial" ? "Facial Recognition" : "Attendance Methods",
@@ -231,7 +231,6 @@ export function RequestHistoryPage() {
               <option value="">All request types</option>
               <option value="attendance_correction">Correction requests</option>
               <option value="authentication_issue">Attendance issues</option>
-              <option value="face_reenrollment">Facial reviews</option>
             </select>
           </label>
           <label className="relative flex h-11 items-center">

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState, useEffect } from "react";
+import { type ReactNode, useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
@@ -31,11 +31,12 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus } from "@/lib/credentials/status";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
-  useCorrectionRequests,
   useOrganizerProfiles,
   useEvents,
   useUsers,
@@ -44,12 +45,12 @@ import {
   useStudents,
   useAuditLogMutations,
   useStudentMutations
-  ,useOrganizerAccountMutation, useUpdateOrganizerAccountMutation, useBulkOrganizerAccountMutation, useAdminAccountMutation, useAdminProfiles
+  ,useOrganizerAccountMutation, useUpdateOrganizerAccountMutation, useBulkOrganizerAccountMutation, useAdminAccountMutation, useUpdateAdminAccountMutation, useAdminProfiles
 } from "@/hooks/useRepositoryQueries";
 import Papa from "papaparse";
 import { downloadStudentCsvTemplate } from "@/features/organizer/utils/csvTemplate";
 import type { CreateAdminInput, CreateOrganizerInput, CreateStudentInput, UpdateOrganizerInput, UpdateStudentInput } from "@/services/contracts";
-import type { OrganizerProfile, Student, User } from "@/types/domain";
+import type { AdminProfile, OrganizerProfile, Section, Student, User } from "@/types/domain";
 import { exportReportPdf, exportReportXlsx } from "@/lib/exports/reportExport";
 
 function useOrganizerScope() {
@@ -69,9 +70,20 @@ function useOrganizerScope() {
 }
 
 type StudentStatus = "Active" | "Deactivated";
-type CredentialStatus = "Ready" | "Needs Review" | "Missing" | "Generated" | "Regeneration Requested" | "Activated" | "Inactive" | "Damaged";
-type CorrectionStatus = "Pending" | "Approved" | "Rejected";
-
+type CredentialStatus = CredentialDisplayStatus;
+const studentNameExtensions = ["Jr.", "Sr.", "II", "III", "IV", "V"] as const;
+const emptyStudentForm: CreateStudentInput = {
+  studentNumber: "",
+  email: "",
+  firstName: "",
+  middleName: "",
+  lastName: "",
+  nameExtension: undefined,
+  programId: "",
+  departmentId: "",
+  sectionId: "",
+  yearLevel: 1
+};
 type ParticipationRecord = {
   eventCode: string;
   eventTitle: string;
@@ -80,12 +92,6 @@ type ParticipationRecord = {
   method: "QR" | "Facial" | "Manual";
 };
 
-type CorrectionRequest = {
-  id: string;
-  eventCode: string;
-  type: string;
-  status: CorrectionStatus;
-};
 type StudentAccount = {
   id: string;
   studentId: string;
@@ -99,9 +105,8 @@ type StudentAccount = {
   attendanceRate: number | null;
   eventsJoined: number;
   qrStatus: CredentialStatus;
-  facialStatus: CredentialStatus;
+  facialStatus: "Active" | "Deactivated";
   participationHistory: ParticipationRecord[];
-  correctionRequests: CorrectionRequest[];
 };
 type OrganizerDirectoryRow = {
   id: string;
@@ -131,17 +136,17 @@ function formatDate(date: string) {
   }).format(new Date(`${date}T00:00:00`));
 }
 
-function statusClass(status: StudentStatus | CredentialStatus | CorrectionStatus | ParticipationRecord["status"]) {
-  if (status === "Active" || status === "Ready" || status === "Approved" || status === "Present") {
+function statusClass(status: StudentStatus | CredentialStatus | ParticipationRecord["status"]) {
+  if (status === "Active" || status === "Present") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
-  if (status === "Pending" || status === "Late" || status === "Needs Review") {
+  if (status === "Late" || status === "Pending") {
     return "border-amber-200 bg-amber-50 text-amber-700";
   }
   return "border-red-200 bg-red-50 text-red-700";
 }
 
-function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | CorrectionStatus | ParticipationRecord["status"] }) {
+function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | ParticipationRecord["status"] }) {
   return (
     <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${statusClass(value)}`}>
       {value}
@@ -173,6 +178,10 @@ function MetricCard({
       </div>
     </article>
   );
+}
+
+function NameExtensionSelect({ value, onChange, id }: { value?: string; onChange: (value: string) => void; id: string }) {
+  return <label className="text-sm font-medium" htmlFor={id}>Extension Name (Optional)<select id={id} className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={value ?? ""} onChange={(event) => onChange(event.target.value)}><option value="">No extension</option>{studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}</select></label>;
 }
 function ExportButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick?: () => void }) {
   return (
@@ -242,16 +251,12 @@ function ProfileCardTile({
 function StudentDetailModal({
   student,
   onClose,
-  onApproveCorrection,
-  onRejectCorrection,
   onEdit,
   onToggleAccountStatus,
   isStatusUpdating
 }: {
   student: StudentAccount | undefined;
   onClose: () => void;
-  onApproveCorrection: (requestId: string) => void;
-  onRejectCorrection: (requestId: string) => void;
   onEdit?: (studentId: string) => void;
   onToggleAccountStatus?: (studentId: string, nextStatus: "active" | "inactive") => void;
   isStatusUpdating?: boolean;
@@ -328,7 +333,7 @@ function StudentDetailModal({
         </div>
 
         <div className="max-h-[calc(86vh-97px)] overflow-y-auto bg-muted/20 px-5 pb-8 pt-5 sm:px-6 sm:pt-6">
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <DetailTile label="Account status">
               <StatusBadge value={student.status} />
             </DetailTile>
@@ -341,7 +346,6 @@ function StudentDetailModal({
               </div>
             </DetailTile>
             <DetailTile label="Event participation">{student.eventsJoined} events joined</DetailTile>
-            <DetailTile label="Correction requests">{student.correctionRequests.length} filed</DetailTile>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -420,50 +424,6 @@ function StudentDetailModal({
                 </div>
               </section>
 
-              <section className="rounded-lg border bg-background p-4">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-                  <h3 className="font-semibold text-foreground">Correction Requests</h3>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {student.correctionRequests.length ? (
-                    student.correctionRequests.map((request) => (
-                      <article key={request.id} className="rounded-md border bg-surface p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-medium text-foreground">{request.id}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{request.eventCode}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{request.type}</p>
-                          </div>
-                          <StatusBadge value={request.status} />
-                        </div>
-                        {request.status === "Pending" ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => onApproveCorrection(request.id)}
-                              className="h-8 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onRejectCorrection(request.id)}
-                              className="h-8 rounded-md border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-100"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ) : null}
-                      </article>
-                    ))
-                  ) : (
-                    <p className="rounded-md border bg-surface p-3 text-sm text-muted-foreground">
-                      No correction requests for this student.
-                    </p>
-                  )}
-                </div>
-              </section>
             </div>
           </div>
         </div>
@@ -557,8 +517,7 @@ function ReportExportModal({
         attendanceRate: s.attendanceRate ?? 0,
         eventsJoined: s.eventsJoined,
         qrStatus: s.qrStatus,
-        facialStatus: s.facialStatus,
-        correctionRequests: s.correctionRequests.length
+        facialStatus: s.facialStatus
       }));
 
       if (exportFormat === "xlsx") {
@@ -576,8 +535,7 @@ function ReportExportModal({
         yearLevel: s.yearLevel,
         section: s.section,
         attendanceRate: s.attendanceRate ?? 0,
-        eventsJoined: s.eventsJoined,
-        correctionRequests: s.correctionRequests.length
+        eventsJoined: s.eventsJoined
       }));
 
       if (exportFormat === "xlsx") {
@@ -716,10 +674,6 @@ function ReportExportModal({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search students</label>
-                <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Name, email, student ID, program, or section" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
-              </div>
               <div>
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Program</label>
                 <select
@@ -860,26 +814,38 @@ function AddStudentModal({
   onClose,
   mutations,
   programs,
-  departments
+  departments,
+  sections
 }: {
   isOpen: boolean;
   onClose: () => void;
   mutations: ReturnType<typeof useStudentMutations>;
   programs: { id: string; code: string; departmentId: string }[];
   departments: { id: string; code: string }[];
+  sections: Section[];
 }) {
-  const [formData, setFormData] = useState<CreateStudentInput>({
-    studentNumber: "",
-    email: "",
-    firstName: "",
-    middleName: "",
-    lastName: "",
-    programId: "",
-    departmentId: "",
-    sectionId: "",
-    yearLevel: 1
-  });
+  const [formData, setFormData] = useState<CreateStudentInput>(() => ({ ...emptyStudentForm }));
   const [isLoading, setIsLoading] = useState(false);
+  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
+  const availableSections = sections.filter(
+    (section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel
+  );
+  const isDirty = JSON.stringify(formData) !== JSON.stringify(emptyStudentForm);
+
+  function resetAndClose() {
+    setFormData({ ...emptyStudentForm });
+    setIsDiscardConfirmOpen(false);
+    onClose();
+  }
+
+  function requestClose() {
+    if (isLoading) return;
+    if (isDirty) {
+      setIsDiscardConfirmOpen(true);
+      return;
+    }
+    resetAndClose();
+  }
 
   if (!isOpen) return null;
 
@@ -889,7 +855,7 @@ function AddStudentModal({
     try {
       await mutations.createStudentMutation.mutateAsync(formData);
       toast.success("Student added successfully");
-      onClose();
+      resetAndClose();
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -898,14 +864,15 @@ function AddStudentModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+    <>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={requestClose}>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UserPlus className="h-5 w-5" aria-hidden="true" /></span>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Add student</h2></div>
           </div>
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close add student modal">
+          <button type="button" onClick={requestClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close add student modal">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -925,6 +892,13 @@ function AddStudentModal({
             <input type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: e.target.value })} />
           </div>
           <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-name-extension">Extension Name (Optional)</label>
+            <select id="student-name-extension" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as CreateStudentInput["nameExtension"] })}>
+              <option value="">No extension</option>
+              {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Student Number</label>
             <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.studentNumber} onChange={(e) => setFormData({ ...formData, studentNumber: e.target.value })} />
           </div>
@@ -934,8 +908,8 @@ function AddStudentModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
-              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-department">Department</label>
+              <select id="student-department" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
                 <option value="">Select Department</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code}</option>
@@ -943,8 +917,8 @@ function AddStudentModal({
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Program</label>
-              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-program">Program</label>
+              <select id="student-program" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value, sectionId: "" })}>
                 <option value="">Select Program</option>
                 {programs.filter(p => !formData.departmentId || p.departmentId === formData.departmentId).map((p) => (
                   <option key={p.id} value={p.id}>{p.code}</option>
@@ -954,23 +928,39 @@ function AddStudentModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Year Level</label>
-              <input required type="number" min="1" max="5" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel || ""} onChange={(e) => { const v = parseInt(e.target.value, 10); setFormData({ ...formData, yearLevel: isNaN(v) ? 0 : v }); }} />
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-year-level">Year Level</label>
+              <select id="student-year-level" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel} onChange={(e) => setFormData({ ...formData, yearLevel: Number(e.target.value), sectionId: "" })}>
+                {[1, 2, 3, 4, 5].map((yearLevel) => <option key={yearLevel} value={yearLevel}>{yearLevel}</option>)}
+              </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Section</label>
-              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })} />
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-section">Section</label>
+              <select id="student-section" required disabled={!formData.programId || availableSections.length === 0} className="h-9 w-full rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}>
+                <option value="">{!formData.programId ? "Select a program first" : availableSections.length ? "Select Section" : "No sections available"}</option>
+                {availableSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
+              </select>
             </div>
           </div>
           <div className="pt-4 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
+            <button type="button" onClick={requestClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
             <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
               {isLoading ? "Saving..." : "Save Student"}
             </button>
           </div>
         </form>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal
+      open={isDiscardConfirmOpen}
+      title="Discard student details?"
+      description="Your unsaved student account details will be lost."
+      confirmLabel="Discard changes"
+      cancelLabel="Keep editing"
+      tone="danger"
+      onConfirm={resetAndClose}
+      onCancel={() => setIsDiscardConfirmOpen(false)}
+    />
+    </>,
     document.body
   );
 }
@@ -1048,18 +1038,66 @@ function OrganizerDirectory({ organizers, users, onAdd }: { organizers: Array<{ 
   return <section className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer accounts</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{organizers.length} accounts</span></div><p className="mt-1 text-sm text-muted-foreground">All organizer accounts are displayed here after they are created.</p></div><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button></div><div className="mt-5 overflow-x-auto rounded-xl border"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground"><tr><th className="px-4 py-3">Organizer</th><th className="px-4 py-3">Email</th><th className="px-4 py-3">Employee ID</th><th className="px-4 py-3">College / department</th><th className="px-4 py-3">Position</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-border/70">{organizers.map((organizer) => { const account = users.find((user) => user.id === organizer.userId); return <tr key={organizer.id} className="hover:bg-primary/5"><td className="px-4 py-3 font-medium">{account?.displayName || "Unnamed organizer"}</td><td className="px-4 py-3 text-muted-foreground">{account?.email || "—"}</td><td className="px-4 py-3">{organizer.employeeNumber}</td><td className="px-4 py-3">{organizer.organizationName}</td><td className="px-4 py-3 text-muted-foreground">{organizer.position}</td><td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${account?.isActive && organizer.employmentStatus === "active" ? "bg-emerald-500/10 text-emerald-700" : "bg-red-500/10 text-red-700"}`}>{account?.isActive && organizer.employmentStatus === "active" ? "Active" : "Inactive"}</span></td></tr>; })}</tbody></table>{organizers.length === 0 ? <p className="p-8 text-center text-sm text-muted-foreground">No organizer accounts found.</p> : null}</div></section>;
 }
 
-function AdminDirectory({ users, onAdd }: { users: Array<{ id: string; displayName: string; email: string; isActive: boolean; role: string }>; onAdd: () => void }) {
-  const admins = users.filter((user) => user.role === "admin");
+function AdminDirectory({ users, adminProfiles, onAdd, onEdit }: { users: Array<{ id: string; displayName: string; email: string; isActive: boolean; role: string }>; adminProfiles: AdminProfile[]; onAdd: () => void; onEdit: (adminId: string) => void }) {
+  const admins = users.filter((user) => user.role === "admin" && adminProfiles.some((profile) => profile.userId === user.id));
   const columns = useMemo<ColDef<{ id: string; name: string; email: string; status: string }>[]>(() => [
     { headerName: "Admin", field: "name", minWidth: 240, pinned: "left", flex: 1 },
     { headerName: "Email", field: "email", minWidth: 260, flex: 1.2 },
     { headerName: "Status", field: "status", minWidth: 140, cellRenderer: ({ value }: ICellRendererParams) => <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">{value}</span> }
   ], []);
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Admin directory</h2><p className="mt-1 text-sm text-muted-foreground">Manage administrator accounts with institution-wide access.</p></div><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Admin</button></div><PLPassDataGrid label="Admin accounts" data={admins.map((user) => ({ id: user.id, name: user.displayName, email: user.email, status: user.isActive ? "Active" : "Inactive" }))} columns={columns} emptyTitle="No admin accounts" emptyDescription="Create an admin account to give another user administrator access." enableColumnVisibility hideHeader /></div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Admin directory</h2><p className="mt-1 text-sm text-muted-foreground">Manage administrator accounts with institution-wide access.</p></div><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Admin</button></div><PLPassDataGrid label="Admin accounts" data={admins.map((user) => ({ id: adminProfiles.find((profile) => profile.userId === user.id)?.id ?? user.id, name: user.displayName, email: user.email, status: user.isActive ? "Active" : "Inactive" }))} columns={columns} emptyTitle="No admin accounts" emptyDescription="Create an admin account to give another user administrator access." enableColumnVisibility hideHeader onRowClick={(row) => onEdit(row.id)} /></div>;
+}
+
+function OrganizerExportChoiceModal({ isOpen, onClose, rows }: { isOpen: boolean; onClose: () => void; rows: Array<Record<string, string | number>> }) {
+  if (!isOpen) return null;
+  const fileName = `plpass-organizer-directory-${new Date().toISOString().slice(0, 10)}`;
+  const exportFormat = async (format: "xlsx" | "pdf") => {
+    const options = { title: "PLPass Organizer Directory Report", rows, fileName };
+    if (format === "pdf") await exportReportPdf(options);
+    else await exportReportXlsx(options);
+    onClose();
+  };
+  return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-sm rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer directory</p><h2 className="text-lg font-semibold">Export report</h2></div><button type="button" onClick={onClose} aria-label="Close export dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><p className="mt-3 text-sm text-muted-foreground">Choose a file format for the organizer directory.</p><div className="mt-5 grid gap-2 sm:grid-cols-2"><button type="button" onClick={() => void exportFormat("pdf")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-3 text-sm font-semibold text-white"><FileText className="h-4 w-4" />PDF</button><button type="button" onClick={() => void exportFormat("xlsx")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><FileSpreadsheet className="h-4 w-4" />XLSX</button></div></div></div>, document.body);
+}
+
+function OrganizerDirectoryConsistent({ organizers, users, events, onAdd, onBulkAdd, onEdit }: { organizers: OrganizerProfile[]; users: User[]; events: Array<{ organizerId: string }>; onAdd: () => void; onBulkAdd: () => void; onEdit: (organizerId: string) => void }) {
+  const [query, setQuery] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const normalizedQuery = query.trim().toLowerCase();
+  const rows = organizers.filter((organizer) => {
+    const user = users.find((item) => item.id === organizer.userId);
+    return !normalizedQuery || `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.organizationName} ${organizer.position}`.toLowerCase().includes(normalizedQuery);
+  });
+  const exportRows = rows.map((organizer) => {
+    const user = users.find((item) => item.id === organizer.userId);
+    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, "College / Department": organizer.organizationName, Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
+  });
+  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button><button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, college..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", field: "organizationName", minWidth: 200, flex: 1 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
+}
+
+function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation }: { isOpen: boolean; onClose: () => void; admin: AdminProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateAdminAccountMutation> }) {
+  const emptyForm: import("@/services/contracts").UpdateAdminInput = { id: "", profileId: "", email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: "", departmentId: "", officeName: "", accountStatus: "active" };
+  const [form, setForm] = useState(emptyForm);
+  const [initialForm, setInitialForm] = useState(emptyForm);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !admin || !user) return;
+    const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts.shift() ?? "";
+    const lastName = parts.pop() ?? "";
+    const next = { id: admin.id, profileId: admin.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as typeof emptyForm.nameExtension, employeeNumber: admin.employeeNumber, departmentId: admin.departmentId, officeName: admin.officeName, accountStatus: user.isActive ? "active" as const : "inactive" as const };
+    setForm(next); setInitialForm(next);
+  }, [isOpen, admin, user]);
+  if (!isOpen || !admin || !user) return null;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
+  const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
+  const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<><div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4" onClick={requestClose}><div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 className="text-lg font-semibold">Edit admin</h2></div><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Middle name<input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1 h-10 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">Office<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium sm:col-span-2">Account access<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={requestClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
 }
 
 function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
-  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
+  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
   if (!isOpen) return null;
   const update = (key: keyof CreateAdminInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -1068,7 +1106,7 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
 }
 
 function AddAdminModal({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
-  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
+  const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", officeName: "" });
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
   if (!isOpen) return null;
   const update = (key: keyof CreateAdminInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -1076,8 +1114,8 @@ function AddAdminModal({ isOpen, onClose, mutation, departments, generatedEmploy
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 className="text-lg font-semibold">Add admin</h2></div><button type="button" onClick={onClose} aria-label="Close add admin dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Admin ID<input required inputMode="numeric" pattern="[0-9]{3,}" placeholder="001" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.employeeNumber} onChange={(event) => update("employeeNumber", formatEmployeeIdInput(event.target.value))} onBlur={() => update("employeeNumber", form.employeeNumber.padStart(3, "0"))} /><span className="mt-1 block text-xs text-muted-foreground">Use 001, 002, 003…</span></label><label className="text-sm font-medium">Office<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">A secure invitation will be sent to the administrator's email. No password is exposed to the admin creating the account.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div></form></div></div>, document.body);
 }
 
-function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
-  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", employeeNumber: generatedEmployeeId, departmentId: "", organizationName: "", position: "Organizer" });
+function AddOrganizerModalLegacy({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
+  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", organizationName: "", position: "Organizer" });
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
   if (!isOpen) return null;
   const update = (key: keyof CreateOrganizerInput, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -1085,30 +1123,181 @@ function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEm
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Add organizer</h2></div><button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted" aria-label="Close add organizer dialog"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Assigned automatically when the account is created.</span></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">College / department<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.organizationName} onChange={(event) => update("organizationName", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">A secure invitation will be sent to the organizer's email. The employee ID is only an identifier, never a password.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div></form></div></div>, document.body);
 }
 
-function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mutation }: { isOpen: boolean; onClose: () => void; organizer: OrganizerProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateOrganizerAccountMutation> }) {
-  const [form, setForm] = useState<UpdateOrganizerInput>({ id: "", profileId: "", email: "", firstName: "", middleName: "", lastName: "", departmentId: "", organizationName: "", position: "", accountStatus: "active", employmentStatus: "active" });
+function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
+  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", organizationName: "", position: "Organizer" });
+  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
+  if (!isOpen) return null;
+  const update = <Key extends keyof CreateOrganizerInput>(key: Key, value: CreateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync({ ...form, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Add organizer</h2></div><button type="button" onClick={onClose} aria-label="Close add organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">A secure invitation will be sent to the organizer's email. The employee ID is an identifier, never a password.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div></form></div></div>, document.body);
+}
+
+function EditOrganizerModalLegacy({ isOpen, onClose, organizer, user, departments, mutation }: { isOpen: boolean; onClose: () => void; organizer: OrganizerProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateOrganizerAccountMutation> }) {
+  const emptyForm: UpdateOrganizerInput = { id: "", profileId: "", email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, departmentId: "", organizationName: "", position: "", accountStatus: "active", employmentStatus: "active" };
+  const [form, setForm] = useState<UpdateOrganizerInput>(emptyForm);
+  const [initialForm, setInitialForm] = useState<UpdateOrganizerInput>(emptyForm);
+  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !organizer || !user) return;
     const nameParts = user.displayName.trim().split(/\s+/).filter(Boolean);
     const firstName = nameParts.shift() ?? "";
     const lastName = nameParts.length ? nameParts.pop() ?? "" : "";
-    setForm({ id: organizer.id, profileId: organizer.userId, email: user.email, firstName, middleName: nameParts.join(" "), lastName, departmentId: organizer.departmentId ?? "", organizationName: organizer.organizationName, position: organizer.position, accountStatus: user.isActive ? "active" : "inactive", employmentStatus: organizer.employmentStatus });
+    const nextForm: UpdateOrganizerInput = { id: organizer.id, profileId: organizer.userId, email: user.email, firstName, middleName: nameParts.join(" "), lastName, nameExtension: user.nameExtension as UpdateOrganizerInput["nameExtension"], departmentId: organizer.departmentId ?? "", organizationName: organizer.organizationName, position: organizer.position, accountStatus: user.isActive ? "active" : "inactive", employmentStatus: organizer.employmentStatus };
+    setForm(nextForm);
+    setInitialForm(nextForm);
   }, [isOpen, organizer, user]);
 
   if (!isOpen || !organizer || !user) return null;
   const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: value }));
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); onClose(); } catch { /* mutation presents the safe error */ } };
+  const isDirty = JSON.stringify(form) !== JSON.stringify(initialForm);
+  const requestClose = () => {
+    if (mutation.isPending) return;
+    if (isDirty) setIsDiscardConfirmOpen(true);
+    else onClose();
+  };
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
 
-  return createPortal(<div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground"><Edit className="h-5 w-5" /></span><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Edit organizer</h2></div></div><button type="button" onClick={onClose} aria-label="Close edit organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Employee IDs stay fixed, like student numbers.</span></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">College / department<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.organizationName} onChange={(event) => update("organizationName", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Account access<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label><label className="text-sm font-medium">Employment status<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Active</option><option value="part_time">Part time</option><option value="on_leave">On leave</option><option value="separated">Separated</option></select></label><div className="flex justify-end gap-2 pt-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div>, document.body);
+  return createPortal(<><div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={requestClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground"><Edit className="h-5 w-5" /></span><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Edit organizer</h2></div></div><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><NameExtensionSelect value={form.nameExtension} id="edit-organizer-name-extension" onChange={(value) => update("nameExtension", (value || undefined) as UpdateOrganizerInput["nameExtension"])} /><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Employee IDs stay fixed, like student numbers.</span></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">College / department<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.organizationName} onChange={(event) => update("organizationName", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Account access<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label><label className="text-sm font-medium">Employment status<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Active</option><option value="part_time">Part time</option><option value="on_leave">On leave</option><option value="separated">Separated</option></select></label><div className="flex justify-end gap-2 pt-2 sm:col-span-2"><button type="button" onClick={requestClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={isDiscardConfirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setIsDiscardConfirmOpen(false); onClose(); }} onCancel={() => setIsDiscardConfirmOpen(false)} /></>, document.body);
 }
 
-function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useBulkOrganizerAccountMutation> }) {
+function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mutation }: { isOpen: boolean; onClose: () => void; organizer: OrganizerProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateOrganizerAccountMutation> }) {
+  const emptyForm: UpdateOrganizerInput = { id: "", profileId: "", email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, departmentId: "", organizationName: "", position: "", accountStatus: "active", employmentStatus: "active" };
+  const [form, setForm] = useState<UpdateOrganizerInput>(emptyForm);
+  const [initialForm, setInitialForm] = useState<UpdateOrganizerInput>(emptyForm);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  useEffect(() => {
+    if (!isOpen || !organizer || !user) return;
+    const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts.shift() ?? "";
+    const lastName = parts.pop() ?? "";
+    const next = { id: organizer.id, profileId: organizer.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as UpdateOrganizerInput["nameExtension"], departmentId: organizer.departmentId ?? "", organizationName: organizer.organizationName, position: organizer.position, accountStatus: user.isActive ? "active" as const : "inactive" as const, employmentStatus: organizer.employmentStatus === "part_time" ? "part_time" as const : "active" as const };
+    setForm(next); setInitialForm(next);
+  }, [isOpen, organizer, user]);
+  if (!isOpen || !organizer || !user) return null;
+  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
+  const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
+  const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<><div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4" onClick={requestClose}><div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Edit organizer</h2></div><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Middle name<input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1 h-10 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Account Status<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option><option value="suspended">Suspended</option></select></label><label className="text-sm font-medium">Employment status<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={requestClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
+}
+
+function BulkAddOrganizerModalLegacy({ isOpen, onClose, mutation }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useBulkOrganizerAccountMutation> }) {
   const [error, setError] = useState("");
   const downloadTemplate = () => { const csv = "First Name,Middle Name,Last Name,Email,College/Department,Position\nJuan,,Dela Cruz,juan@example.com,Student Affairs,Events Coordinator\n"; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const link = document.createElement("a"); link.href = url; link.download = "organizer-accounts-template.csv"; link.click(); URL.revokeObjectURL(url); };
   const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.currentTarget.files?.[0]; if (!file) return; setError(""); Papa.parse<Record<string, string>>(file, { header: true, skipEmptyLines: true, complete: async (results) => { try { const required = ["First Name", "Last Name", "Email", "College/Department", "Position"]; const missing = required.filter((key) => !results.meta.fields?.includes(key)); if (missing.length) throw new Error(`Missing columns: ${missing.join(", ")}`); const inputs = results.data.map((row, index) => { const missingRow = required.find((key) => !row[key]?.trim()); if (missingRow) throw new Error(`Row ${index + 2}: ${missingRow} is required.`); return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), email: row.Email.trim(), employeeNumber: "", organizationName: row["College/Department"].trim(), position: row.Position.trim() }; }); const duplicateEmail = new Set(inputs.map((input) => input.email.toLowerCase())).size !== inputs.length; if (duplicateEmail) throw new Error("The CSV contains duplicate email addresses."); const result = await mutation.mutateAsync(inputs); if (result.failed) setError(`${result.success} created, ${result.failed} failed. ${result.errors.map((item) => `Row ${item.row}: ${item.error}`).join(" ")}`); else onClose(); } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); } }, error: () => setError("The CSV file could not be read.") }); };
   if (!isOpen) return null;
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer accounts</p><h2 className="text-lg font-semibold">Bulk add organizers</h2></div><button type="button" onClick={onClose} aria-label="Close bulk organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button></div><div className="space-y-5 p-6"><div className="rounded-xl border bg-muted/30 p-4 text-sm"><p className="font-semibold">Use the CSV template</p><p className="mt-1 text-muted-foreground">Each organizer receives a secure invitation email. Employee IDs are identifiers only. Employee IDs are generated automatically during import.</p><button type="button" onClick={downloadTemplate} className="mt-3 inline-flex items-center gap-2 font-semibold text-primary hover:underline"><FileDown className="h-4 w-4" />Download template</button></div>{error ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}<label className="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 p-8 text-center hover:bg-primary/10"><UploadCloud className="h-8 w-8 text-primary" /><span className="mt-2 text-sm font-semibold">Choose CSV file</span><span className="mt-1 text-xs text-muted-foreground">Invitation emails are sent after each account is created.</span><input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleUpload} disabled={mutation.isPending} /></label><div className="flex justify-end"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Close</button></div></div></div></div>, document.body);
+}
+
+function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useBulkOrganizerAccountMutation> }) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedFile(null);
+      setFileError("");
+      setIsLoading(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setFileError("");
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setSelectedFile(null);
+      setFileError("Please choose a CSV file.");
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const removeSelectedFile = () => {
+    setSelectedFile(null);
+    setFileError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleUpload = () => {
+    if (!selectedFile) return;
+    setFileError("");
+    setIsLoading(true);
+    Papa.parse<Record<string, string>>(selectedFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          if (results.errors.length) throw new Error("The CSV could not be read. Please use the provided template.");
+          const required = ["First Name", "Last Name", "Email", "College/Department", "Position"];
+          const missing = required.filter((key) => !results.meta.fields?.includes(key));
+          if (missing.length) throw new Error("The CSV headers do not match the provided template.");
+          const inputs = results.data.map((row, index) => {
+            const missingField = required.find((key) => !row[key]?.trim());
+            if (missingField) throw new Error(`Row ${index + 2}: Complete all required fields.`);
+            return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), email: row.Email.trim(), employeeNumber: "", organizationName: row["College/Department"].trim(), position: row.Position.trim() };
+          });
+          if (!inputs.length) throw new Error("The CSV has no organizer records.");
+          const duplicateEmail = new Set(inputs.map((input) => input.email.toLowerCase())).size !== inputs.length;
+          if (duplicateEmail) throw new Error("The CSV contains duplicate email addresses.");
+          const result = await mutation.mutateAsync(inputs);
+          if (result.failed > 0) {
+            setFileError(`${result.success} organizer account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed. Please correct the failed rows and try again.`);
+          } else {
+            toast.success(`Successfully imported ${result.success} organizer account${result.success === 1 ? "" : "s"}.`);
+            onClose();
+          }
+        } catch (error) {
+          const message = getErrorMessage(error);
+          setFileError(/^(Row \d+: Complete|The CSV |Please choose )/i.test(message) ? message : "The organizer accounts could not be imported. Please check the CSV and try again.");
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      error: () => {
+        setFileError("The CSV could not be read. Please use the provided template.");
+        setIsLoading(false);
+      }
+    });
+  };
+
+  const downloadTemplate = () => {
+    const csv = "First Name,Middle Name,Last Name,Email,College/Department,Position\nJuan,,Dela Cruz,juan@example.com,Student Affairs,Events Coordinator\n";
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "organizer-accounts-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
+          <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UploadCloud className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Organizer accounts</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Bulk import</h2></div></div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close bulk organizer import modal"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-6 bg-muted/20 p-6">
+          <div className="rounded-xl border bg-white p-4 text-sm text-slate-600"><p className="mb-3 font-semibold">Instructions:</p><ol className="list-decimal space-y-1 pl-4"><li>Download the template file.</li><li>Fill in organizer details exactly matching the headers.</li><li>Upload the completed CSV file below.</li></ol><button type="button" onClick={downloadTemplate} className="mt-4 flex items-center gap-2 font-medium text-primary hover:underline"><FileDown className="h-4 w-4" />Download Template</button></div>
+          {fileError ? <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{fileError}</div> : null}
+          <div className="space-y-3">
+            {selectedFile ? <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"><span className="min-w-0 truncate font-medium">{selectedFile.name}</span><button type="button" onClick={removeSelectedFile} disabled={isLoading} className="shrink-0 font-semibold underline disabled:opacity-50">Remove</button></div> : null}
+            <div className="flex flex-col items-center gap-2">
+              <label className={`flex min-h-12 w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-center transition hover:bg-slate-50 ${isLoading ? "pointer-events-none opacity-50" : ""}`}><UploadCloud className="h-5 w-5 text-slate-400" /><span className="text-xs font-medium text-slate-600">{isLoading ? "Processing..." : selectedFile ? "Choose another CSV" : "Choose CSV file"}</span><input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileSelect} disabled={isLoading} /></label>
+              <button type="button" onClick={handleUpload} disabled={!selectedFile || isLoading} className="inline-flex min-h-12 w-full max-w-xs items-center justify-center rounded-lg bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"><UploadCloud className="mr-1.5 h-3.5 w-3.5" />{isLoading ? "Uploading..." : "Upload file"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function EditStudentModal({
@@ -1117,6 +1306,7 @@ function EditStudentModal({
   mutations,
   programs,
   departments,
+  sections,
   student,
   onSuccess
 }: {
@@ -1125,6 +1315,7 @@ function EditStudentModal({
   mutations: ReturnType<typeof useStudentMutations>;
   programs: { id: string; code: string; departmentId: string }[];
   departments: { id: string; code: string }[];
+  sections: Section[];
   student: Student | undefined;
   onSuccess: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
@@ -1135,6 +1326,7 @@ function EditStudentModal({
     firstName: "",
     middleName: "",
     lastName: "",
+    nameExtension: undefined,
     programId: "",
     departmentId: "",
     sectionId: "",
@@ -1152,16 +1344,32 @@ function EditStudentModal({
         firstName: student.firstName || "",
         middleName: student.middleName || "",
         lastName: student.lastName || "",
+        nameExtension: student.nameExtension as UpdateStudentInput["nameExtension"],
         programId: student.programId || "",
         departmentId: student.departmentId || "",
-        sectionId: student.section || "",
+        sectionId: sections.find((section) => section.programId === student.programId && section.yearLevel === (student.yearLevel || 1) && section.name === student.section)?.id || student.section || "",
         yearLevel: student.yearLevel || 1,
         accountStatus: student.accountStatus ?? "active"
       });
     }
-  }, [student]);
+  }, [sections, student]);
+  const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
 
   if (!isOpen) return null;
+
+  const originalSectionId = sections.find((section) => section.programId === student?.programId && section.yearLevel === (student?.yearLevel || 1) && section.name === student?.section)?.id || student?.section || "";
+  const isDirty = Boolean(student && (
+    formData.email !== (student.email || "") || formData.firstName !== (student.firstName || "") ||
+    formData.middleName !== (student.middleName || "") || formData.lastName !== (student.lastName || "") ||
+    formData.nameExtension !== student.nameExtension || formData.programId !== (student.programId || "") ||
+    formData.departmentId !== (student.departmentId || "") || formData.sectionId !== originalSectionId ||
+    formData.yearLevel !== (student.yearLevel || 1) || formData.accountStatus !== (student.accountStatus ?? "active")
+  ));
+  const requestClose = () => {
+    if (isLoading) return;
+    if (isDirty) setIsDiscardConfirmOpen(true);
+    else onClose();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1179,14 +1387,15 @@ function EditStudentModal({
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+    <>
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={requestClose}>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Edit className="h-5 w-5" aria-hidden="true" /></span>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Edit student</h2></div>
           </div>
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close edit student modal">
+          <button type="button" onClick={requestClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close edit student modal">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -1206,13 +1415,20 @@ function EditStudentModal({
             <input type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: e.target.value })} />
           </div>
           <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="edit-student-name-extension">Extension Name (Optional)</label>
+            <select id="edit-student-name-extension" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as UpdateStudentInput["nameExtension"] })}>
+              <option value="">No extension</option>
+              {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
             <input required type="email" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
-              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "" })}>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
                 <option value="">Select Department</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code}</option>
@@ -1221,7 +1437,7 @@ function EditStudentModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Program</label>
-              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value })}>
+              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value, sectionId: "" })}>
                 <option value="">Select Program</option>
                 {programs.filter(p => !formData.departmentId || p.departmentId === formData.departmentId).map((p) => (
                   <option key={p.id} value={p.id}>{p.code}</option>
@@ -1232,22 +1448,29 @@ function EditStudentModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Year Level</label>
-              <input required type="number" min="1" max="5" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel || ""} onChange={(e) => { const v = parseInt(e.target.value, 10); setFormData({ ...formData, yearLevel: isNaN(v) ? 0 : v }); }} />
+              <select required id="edit-student-year-level" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel} onChange={(e) => setFormData({ ...formData, yearLevel: Number(e.target.value), sectionId: "" })}>
+                {[1, 2, 3, 4, 5].map((yearLevel) => <option key={yearLevel} value={yearLevel}>{yearLevel}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Section</label>
-              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })} />
+              <select required id="edit-student-section" disabled={!formData.programId || sections.filter((section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel).length === 0} className="h-9 w-full rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}>
+                <option value="">{!formData.programId ? "Select a program first" : sections.filter((section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel).length ? "Select Section" : "No sections available"}</option>
+                {sections.filter((section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel).map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
+              </select>
             </div>
           </div>
           <div className="pt-4 flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
+            <button type="button" onClick={requestClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
             <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
               {isLoading ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </form>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal open={isDiscardConfirmOpen} title="Discard student changes?" description="Your unsaved student profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setIsDiscardConfirmOpen(false); onClose(); }} onCancel={() => setIsDiscardConfirmOpen(false)} />
+    </>,
     document.body
   );
 }
@@ -1267,27 +1490,55 @@ function BulkAddStudentModal({
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const [fileError, setFileError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedFile(null);
+      setFileError("");
+      setIsLoading(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileError("");
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setSelectedFile(null);
+      setFileError("Please choose a CSV file.");
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const removeSelectedFile = () => {
+    setSelectedFile(null);
+    setFileError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleFileUpload = () => {
+    if (!selectedFile) return;
     setIsLoading(true);
 
-    Papa.parse(file, {
+    Papa.parse(selectedFile, {
       header: true,
       skipEmptyLines: true,
       complete: async (results: Papa.ParseResult<Record<string, string>>) => {
         try {
+          if (results.errors.length) throw new Error("The CSV could not be read. Please use the provided template.");
           const parsedData = results.data as Record<string, string>[];
-          const inputs: CreateStudentInput[] = parsedData.map(row => {
+          if (!parsedData.length) throw new Error("The CSV has no student records.");
+          const inputs: CreateStudentInput[] = parsedData.map((row, index) => {
             const dept = departments.find(d => d.code === row["Department Code"]);
             const prog = programs.find(p => p.code === row["Program Code"]);
             if (!dept || !prog) {
-              throw new Error(`Invalid department or program code for student ${row["Student Number"]}`);
+              throw new Error(`Row ${index + 2}: Check the Program Code and Department Code.`);
             }
             return {
               studentNumber: row["Student Number"],
@@ -1302,20 +1553,41 @@ function BulkAddStudentModal({
             };
           });
 
-          await mutations.bulkCreateStudentsMutation.mutateAsync(inputs);
-          toast.success(`Successfully imported ${inputs.length} students`);
-          onClose();
+          const result = await mutations.bulkCreateStudentsMutation.mutateAsync(inputs);
+          if (result.failed > 0) {
+            const errorDetails = result.errors
+              .slice(0, 3)
+              .map((item) => `${item.row ? `Row ${item.row}: ` : ""}${conciseImportError(item.error, item.studentNumber)}`)
+              .join(" ");
+            const summary = `${result.success} student account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed.${errorDetails ? ` ${errorDetails}` : ""}`;
+            setFileError(summary);
+            toast.warning(`${result.success} added successfully; ${result.failed} failed.`);
+          } else {
+            toast.success(`Successfully imported ${result.success} student account${result.success === 1 ? "" : "s"}.`);
+            onClose();
+          }
         } catch (error) {
-          setFileError(getErrorMessage(error));
+          const errorMessage = getErrorMessage(error);
+          const isUserFriendlyMessage = /^(Row \d+: Check the Program Code and Department Code\.|The CSV |Please choose )/i.test(errorMessage);
+          setFileError(isUserFriendlyMessage ? errorMessage : conciseImportError(errorMessage));
         } finally {
           setIsLoading(false);
         }
       },
       error: () => {
-        setFileError("Error reading the CSV file.");
+        setFileError("The CSV could not be read. Please use the provided template.");
         setIsLoading(false);
       }
     });
+  };
+
+  const conciseImportError = (error: string, studentNumber?: string) => {
+    if (/student id|student_id|duplicate key/i.test(error)) {
+      return studentNumber ? `Student ID "${studentNumber}" already exists.` : "Student ID already exists.";
+    }
+    if (/email.*already|already.*email/i.test(error)) return "Email address is already registered.";
+    if (/section.*(duplicate|already exists)/i.test(error)) return "Section already exists.";
+    return "This row could not be imported.";
   };
 
   return createPortal(
@@ -1350,12 +1622,23 @@ function BulkAddStudentModal({
           </div>
         )}
 
-        <div className="flex justify-center">
-          <label className={`cursor-pointer rounded-lg border-2 border-dashed p-6 text-center transition hover:bg-slate-50 ${isLoading ? "opacity-50 pointer-events-none" : ""}`}>
-            <UploadCloud className="mx-auto h-8 w-8 text-slate-400 mb-2" />
-            <span className="text-sm font-medium text-slate-600">{isLoading ? "Processing..." : "Click to select CSV file"}</span>
-            <input type="file" accept=".csv" className="hidden" onChange={handleFileUpload} disabled={isLoading} />
-          </label>
+        <div className="space-y-3">
+          {selectedFile ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              <span className="min-w-0 truncate font-medium">{selectedFile.name}</span>
+              <button type="button" onClick={removeSelectedFile} disabled={isLoading} className="shrink-0 font-semibold underline disabled:opacity-50">Remove</button>
+            </div>
+          ) : null}
+          <div className="flex flex-col items-center gap-2">
+            <label className={`flex min-h-12 w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-center transition hover:bg-slate-50 ${isLoading ? "pointer-events-none opacity-50" : ""}`}>
+              <UploadCloud className="h-5 w-5 text-slate-400" />
+              <span className="text-xs font-medium text-slate-600">{isLoading ? "Processing..." : selectedFile ? "Choose another CSV" : "Choose CSV file"}</span>
+              <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileSelect} disabled={isLoading} />
+            </label>
+            <button type="button" onClick={handleFileUpload} disabled={!selectedFile || isLoading} className="inline-flex min-h-12 w-full max-w-xs items-center justify-center rounded-lg bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
+              <UploadCloud className="mr-1.5 h-3.5 w-3.5" />{isLoading ? "Uploading..." : "Upload file"}
+            </button>
+          </div>
         </div>
         </div>
       </div>
@@ -1369,7 +1652,6 @@ export function OrganizerUserManagementPage() {
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
   const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
-  const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, scope.context);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
@@ -1378,6 +1660,7 @@ export function OrganizerUserManagementPage() {
   const updateOrganizerMutation = useUpdateOrganizerAccountMutation(scope.context);
   const bulkOrganizerMutation = useBulkOrganizerAccountMutation(scope.context);
   const adminMutation = useAdminAccountMutation(scope.context);
+  const updateAdminMutation = useUpdateAdminAccountMutation(scope.context);
   const organizersQuery = useOrganizerProfiles({ pageSize: 100 }, scope.context);
   const usersQuery = useUsers({ pageSize: 100 }, scope.context);
   const adminProfilesQuery = useAdminProfiles({ pageSize: 100 }, scope.context);
@@ -1391,6 +1674,8 @@ export function OrganizerUserManagementPage() {
   const [isAddOrganizerModalOpen, setIsAddOrganizerModalOpen] = useState(false);
   const [isBulkOrganizerModalOpen, setIsBulkOrganizerModalOpen] = useState(false);
   const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
+  const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
+  const [isEditAdminModalOpen, setIsEditAdminModalOpen] = useState(false);
   const [selectedOrganizerId, setSelectedOrganizerId] = useState<string | null>(null);
   const [isEditOrganizerModalOpen, setIsEditOrganizerModalOpen] = useState(false);
 
@@ -1400,6 +1685,8 @@ export function OrganizerUserManagementPage() {
 
   const selectedOrganizer = organizersQuery.data?.items.find((organizer) => organizer.id === selectedOrganizerId);
   const selectedOrganizerUser = usersQuery.data?.items.find((user) => user.id === selectedOrganizer?.userId);
+  const selectedAdmin = adminProfilesQuery.data?.items.find((admin) => admin.id === selectedAdminId);
+  const selectedAdminUser = usersQuery.data?.items.find((user) => user.id === selectedAdmin?.userId);
 
   const studentAccounts = useMemo<StudentAccount[]>(() => {
     const rawStudents = studentsQuery.data?.items ?? [];
@@ -1411,21 +1698,10 @@ export function OrganizerUserManagementPage() {
       const attendedCount = studentRecords.filter((r) => r.status === "present" || r.status === "late").length;
       const rate = studentRecords.length > 0 ? Math.round((attendedCount / studentRecords.length) * 100) : null;
 
-      const studentCorrections = (correctionRequestsQuery.data?.items ?? [])
-        .filter((r) => r.studentId === student.id)
-        .map((r) => ({
-          id: r.id,
-          eventCode: r.eventId ?? "EVT",
-          type: r.requestedStatus === "excused" ? "Excuse" : "Correction",
-          status: (r.status === "approved" ? "Approved" : r.status === "rejected" ? "Rejected" : "Pending") as CorrectionStatus
-        }));
-
       const programCode = student.programCode || programsMap.get(student.programId) || "BSIT";
       const credentials = credentialMap.get(student.id);
       const qrCredential = credentials?.qrCredential;
       const facialProfile = credentials?.facialProfile;
-      const qrExpired = Boolean(qrCredential?.expiresAt && new Date(qrCredential.expiresAt).getTime() <= Date.now());
-
       return {
         id: student.id,
         studentId: student.studentNumber,
@@ -1438,15 +1714,14 @@ export function OrganizerUserManagementPage() {
         status: student.accountStatus === "active" && student.status === "enrolled" ? ("Active" as StudentStatus) : ("Deactivated" as StudentStatus),
         attendanceRate: rate,
         eventsJoined: attendedCount,
-        qrStatus: (!qrCredential ? "Missing" : qrExpired || qrCredential.revokedAt || qrCredential.status !== "activated" ? "Inactive" : "Ready") as CredentialStatus,
-        facialStatus: (!facialProfile ? "Missing" : facialProfile.status === "activated" ? "Ready" : facialProfile.status === "inactive" ? "Inactive" : "Needs Review") as CredentialStatus,
-        participationHistory: [],
-        correctionRequests: studentCorrections
+        qrStatus: getQrCredentialDisplayStatus(qrCredential),
+        facialStatus: getFacialCredentialDisplayStatus(facialProfile),
+        participationHistory: []
       };
     });
 
     return dbAccounts;
-  }, [studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, correctionRequestsQuery.data?.items, credentialStatusesQuery.data]);
+  }, [studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, credentialStatusesQuery.data]);
   const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -1478,7 +1753,6 @@ export function OrganizerUserManagementPage() {
   const sections = useMemo(() => Array.from(new Set(studentAccounts.map((student) => student.section))), [studentAccounts]);
   const studentsWithRate = studentAccounts.filter((s) => s.attendanceRate !== null);
   const averageAttendance = studentsWithRate.length ? Math.round(studentsWithRate.reduce((sum, student) => sum + (student.attendanceRate ?? 0), 0) / studentsWithRate.length) : 0;
-  const totalCorrectionRequests = studentAccounts.reduce((sum, student) => sum + student.correctionRequests.length, 0);
 
   async function regenerateQrCredential(studentId: string) {
     try {
@@ -1529,21 +1803,6 @@ export function OrganizerUserManagementPage() {
     }
   }
 
-  async function approveCorrection(requestId: string) {
-    await correctionRequestsQuery.reviewMutation.mutateAsync({
-      requestId,
-      status: "approved",
-      reason: "Approved from organizer user management."
-    });
-  }
-
-  async function rejectCorrection(requestId: string) {
-    await correctionRequestsQuery.reviewMutation.mutateAsync({
-      requestId,
-      status: "rejected",
-      reason: "Rejected from organizer user management."
-    });
-  }
   const studentColumns = useMemo<ColDef<StudentAccount>[]>(
     () => [
       {
@@ -1639,23 +1898,16 @@ export function OrganizerUserManagementPage() {
             </div>
           ) : null
       },
-      {
-        headerName: "Requests",
-        colId: "requests",
-        minWidth: 120,
-        valueGetter: ({ data }) => data?.correctionRequests.length ?? 0,
-        valueFormatter: ({ value }) => `${value ?? 0} filed`
-      },
     ],
     []
   );
 
   return (
     <div className="space-y-6">
-      <PageHeader title="User Management" description="Manage student accounts, track participation, and handle requests." />
+      <PageHeader title="User Management" description="Manage student accounts and track participation." />
 
       {activeTab === "students" ? <>
-      <section aria-label="Student account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Student account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <MetricCard title="Student Accounts" value={studentAccounts.length.toString()} detail="Accounts in scope" icon={Users} />
         <MetricCard
           title="Active Accounts"
@@ -1664,7 +1916,6 @@ export function OrganizerUserManagementPage() {
           icon={UserRoundCheck}
         />
         <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Average rate" icon={BadgeCheck} />
-        <MetricCard title="Correction Requests" value={totalCorrectionRequests.toString()} detail="Filed requests" icon={ClipboardList} />
       </section>
       <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
       <div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6">
@@ -1793,27 +2044,24 @@ export function OrganizerUserManagementPage() {
         )}
       </section>
       </> : activeTab === "organizers" ? <>
-        <section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard title="Organizer Accounts" value={`${organizersQuery.data?.items.length ?? 0}`} detail="Accounts in scope" icon={Users} />
-          <MetricCard title="Active Accounts" value={`${organizersQuery.data?.items.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length ?? 0}`} detail="Currently active" icon={UserRoundCheck} />
-          <MetricCard title="Inactive Accounts" value={`${Math.max(0, (organizersQuery.data?.items.length ?? 0) - (organizersQuery.data?.items.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length ?? 0))}`} detail="Require attention" icon={ShieldCheck} />
+          <MetricCard title="Active Organizers" value={`${organizersQuery.data?.items.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length ?? 0}`} detail={`${Math.max(0, (organizersQuery.data?.items.length ?? 0) - (organizersQuery.data?.items.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length ?? 0))} deactivated`} icon={UserRoundCheck} />
           <MetricCard title="Events Managed" value={`${eventsQuery.data?.items.length ?? 0}`} detail="Across all organizers" icon={CalendarCheck} />
         </section>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
-        <div className="[&>div>section:first-child]:hidden">
-          <OrganizerDirectoryPaginated organizers={organizersQuery.data?.items ?? []} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} />
+        <div className="organizer-directory-page">
+          <OrganizerDirectoryConsistent organizers={organizersQuery.data?.items ?? []} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} />
         </div>
       </> : <>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
-        <AdminDirectory users={usersQuery.data?.items ?? []} onAdd={() => setIsAddAdminModalOpen(true)} />
+        <AdminDirectory users={usersQuery.data?.items ?? []} adminProfiles={adminProfilesQuery.data?.items ?? []} onAdd={() => setIsAddAdminModalOpen(true)} onEdit={(adminId) => { setSelectedAdminId(adminId); setIsEditAdminModalOpen(true); }} />
       </>}
 
       {activeTab === "students" ? <>
       <StudentDetailModal
         student={isStudentModalOpen ? selectedStudent : undefined}
         onClose={() => setIsStudentModalOpen(false)}
-        onApproveCorrection={approveCorrection}
-        onRejectCorrection={rejectCorrection}
         onToggleAccountStatus={toggleStudentAccountStatus}
         isStatusUpdating={statusUpdatingStudentId === selectedStudent?.id}
         onEdit={(id) => {
@@ -1845,6 +2093,7 @@ export function OrganizerUserManagementPage() {
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
+        sections={academicCatalog.sections.data?.items ?? []}
       />
       <BulkAddStudentModal
         isOpen={isBulkAddModalOpen}
@@ -1859,6 +2108,7 @@ export function OrganizerUserManagementPage() {
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
+        sections={academicCatalog.sections.data?.items ?? []}
         student={rawStudent}
         onSuccess={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
@@ -1873,6 +2123,7 @@ export function OrganizerUserManagementPage() {
       <EditOrganizerModal isOpen={isEditOrganizerModalOpen} onClose={() => setIsEditOrganizerModalOpen(false)} organizer={selectedOrganizer} user={selectedOrganizerUser} departments={academicCatalog.departments.data?.items ?? []} mutation={updateOrganizerMutation} />
       <BulkAddOrganizerModal isOpen={isBulkOrganizerModalOpen} onClose={() => setIsBulkOrganizerModalOpen(false)} mutation={bulkOrganizerMutation} />
       <AddAdminModalAutomatic isOpen={isAddAdminModalOpen} onClose={() => setIsAddAdminModalOpen(false)} mutation={adminMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(adminProfilesQuery.data?.items ?? [], "A")} />
+      <EditAdminModal isOpen={isEditAdminModalOpen} onClose={() => setIsEditAdminModalOpen(false)} admin={selectedAdmin} user={selectedAdminUser} departments={academicCatalog.departments.data?.items ?? []} mutation={updateAdminMutation} />
     </div>
   );
 }

@@ -12,7 +12,6 @@ export const APP_ROUTES = {
   adminEvents: "/admin/events",
   adminCreateEvent: "/admin/events/create",
   adminAttendance: "/admin/attendance",
-  adminCorrections: "/admin/corrections",
   adminCredentials: "/admin/credentials",
   adminReports: "/admin/reports",
   adminAnalytics: "/admin/analytics",

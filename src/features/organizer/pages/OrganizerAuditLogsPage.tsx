@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw } from "lucide-react";
+import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -52,7 +52,9 @@ export function OrganizerAuditLogsPage() {
 
   // Queries
   const queryParams = useMemo(
-    () => ({ pageSize: 200, sortBy: "created_at", sortDirection: "desc" as const }),
+    // Keep the centralized audit viewer useful beyond the default first page.
+    // AG Grid handles presentation paging after the complete server page loads.
+    () => ({ pageSize: 1000, sortBy: "created_at", sortDirection: "desc" as const }),
     []
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
@@ -113,6 +115,7 @@ export function OrganizerAuditLogsPage() {
   const isFiltered =
     Boolean(search) ||
     datePreset !== "all" ||
+    Boolean(customStartDate || customEndDate) ||
     actorUserId !== "all" ||
     actionCategory !== "all";
 
@@ -125,22 +128,22 @@ export function OrganizerAuditLogsPage() {
     setActionCategory("all");
   }
 
-  async function revertAuditLog() {
-    if (!selectedLog || selectedLog.action === "audit_log.reverted") return;
+  async function markAuditLogReviewed() {
+    if (!selectedLog || selectedLog.action === "audit_log.reviewed") return;
     setIsReverting(true);
     try {
       await auditLogMutations.logActionMutation.mutateAsync({
-        action: "audit_log.reverted",
+        action: "audit_log.reviewed",
         targetType: "audit_log",
         targetId: selectedLog.id,
         metadata: {
-          revertedAction: selectedLog.action,
-          revertedTargetType: selectedLog.targetType,
-          revertedTargetId: selectedLog.targetId ?? null,
-          revertedAt: new Date().toISOString()
+          reviewedAction: selectedLog.action,
+          reviewedTargetType: selectedLog.targetType,
+          reviewedTargetId: selectedLog.targetId ?? null,
+          reviewedAt: new Date().toISOString()
         }
       });
-      toast.success("Revert action recorded in Audit Logs.");
+      toast.success("Review recorded in Audit Logs.");
       setSelectedLog(null);
     } finally {
       setIsReverting(false);
@@ -250,7 +253,7 @@ export function OrganizerAuditLogsPage() {
 
   return (
     <div className="space-y-6 font-sans text-sm">
-      <PageHeader title="Audit Logs" description="Review system activity, credential issuance, and administrative actions." />
+      <PageHeader title="Audit Logs" description={session?.role === "admin" ? "Centralized record of system activity, credential issuance, and administrative actions." : "Review activity recorded by your account."} />
 
       <section className="space-y-4">
         {/* Search and Filters Bar */}
@@ -281,6 +284,16 @@ export function OrganizerAuditLogsPage() {
               <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 PDF
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void auditLogsQuery.refetch()}
+                disabled={auditLogsQuery.isFetching}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${auditLogsQuery.isFetching ? "animate-spin" : ""}`} aria-hidden="true" />
+                Refresh
               </Button>
             </div>
           </div>
@@ -358,6 +371,7 @@ export function OrganizerAuditLogsPage() {
                 <option value="attendance">Attendance & Sessions</option>
                 <option value="correction">Correction Requests</option>
                 <option value="user">User Management</option>
+                <option value="system">System & Other</option>
               </select>
             </div>
           </div>
@@ -423,10 +437,10 @@ export function OrganizerAuditLogsPage() {
               <Button
                 type="button"
                 variant="destructive"
-                disabled={isReverting || selectedLog.action === "audit_log.reverted"}
-                onClick={revertAuditLog}
+                disabled={isReverting || selectedLog.action === "audit_log.reviewed"}
+                onClick={markAuditLogReviewed}
               >
-                {isReverting ? "Recording..." : "Revert action"}
+                {isReverting ? "Recording..." : "Mark as reviewed"}
               </Button>
               <Button type="button" variant="secondary" onClick={() => setSelectedLog(null)}>Close</Button>
             </div>

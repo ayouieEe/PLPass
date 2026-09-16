@@ -118,7 +118,7 @@ export function isNonBlockingAuditLoggingError(error: unknown): boolean {
 
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
-const studentReadSelect = "*, profiles(first_name, middle_name, last_name, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
+const studentReadSelect = "*, profiles(first_name, middle_name, last_name, name_extension, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 const facialEnrollmentBucket = "facial-enrollments";
@@ -464,7 +464,11 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     
-    return { success: data?.success || 0, failed: data?.failed || 0 };
+    return {
+      success: Number(data?.success ?? 0),
+      failed: Number(data?.failed ?? 0),
+      errors: Array.isArray(data?.errors) ? data.errors : []
+    };
   },
   async listFacultyProfiles(query) {
     const rows = await selectRowsFiltered("faculty_profiles", query, "*, profiles(*)", {});
@@ -540,6 +544,16 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number),
       departmentId: String(row.department_id), officeName: String(row.office_name)
     };
+  },
+  async updateAdmin(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can update admin accounts.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", { body: { action: "update-admin", admin: input } });
+    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("id", input.id).single();
+    throwIfSupabaseError(fetchError);
+    return { id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number), departmentId: String(row.department_id), officeName: String(row.office_name) };
   },
   async bulkCreateOrganizers(inputs, context) {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
@@ -1396,6 +1410,10 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
           studentId,
           qrCredentialId: String(credentialRow.id ?? "")
         });
+        await updateRow("qr_credentials", String(credentialRow.id ?? ""), {
+          last_successful_check_in_at: occurredAt,
+          updated_at: new Date().toISOString()
+        });
         
         return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
           attendanceRecord: updatedRecord,
@@ -1616,6 +1634,9 @@ export const supabaseAttendanceAttemptRepository: AttendanceAttemptRepository = 
 
 export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = {
   async listCorrectionRequests(query, context) {
+    if (context?.actorRole === "admin") {
+      throw new RepositoryError("Administrators cannot access correction requests.", "PERMISSION_DENIED");
+    }
     const studentId = context?.actorRole === "student"
       ? await currentStudentIdForProfile(context.actorUserId)
       : undefined;
@@ -2456,55 +2477,26 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
     throwIfSupabaseError(error);
     return mapAttendanceSession(data as Row, "event");
   },
+  async finishEvent(input, context) {
+    requireAdminHealthContext(context);
+    if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_finish_event" as never, { p_event_id: input.eventId, p_reason: input.reason } as never);
+    throwIfSupabaseError(error);
+    return mapEvent(data as Row);
+  },
   async runDataConsistencyCheck(context) {
     requireAdminHealthContext(context);
     const client = getSupabaseBrowserClient();
-    const [eventsResult, organizersResult, sessionsResult, attendanceResult, profilesResult, studentsResult, programsResult, departmentsResult, sectionsResult] = await Promise.all([
-      client.from("events" as never).select("id, organizer_id, event_status" as never),
-      client.from("organizers" as never).select("id, profile_id" as never),
-      client.from("event_sessions" as never).select("id, event_id, session_status" as never),
-      client.from("attendance_records" as never).select("id, event_session_id, class_session_id, student_id" as never),
-      client.from("profiles" as never).select("id" as never),
-      client.from("students" as never).select("id, profile_id, program_id, department_id, section_id" as never),
-      client.from("programs" as never).select("id" as never),
-      client.from("departments" as never).select("id" as never),
-      client.from("sections" as never).select("id" as never)
-    ]);
-    [eventsResult, organizersResult, sessionsResult, attendanceResult, profilesResult, studentsResult, programsResult, departmentsResult, sectionsResult].forEach((result) => {
-      throwIfSupabaseError(result.error);
-    });
-    const events = (eventsResult.data ?? []) as unknown as Row[];
-    const organizers = (organizersResult.data ?? []) as unknown as Row[];
-    const sessions = (sessionsResult.data ?? []) as unknown as Row[];
-    const attendance = (attendanceResult.data ?? []) as unknown as Row[];
-    const classSessionsResult = await client.from("class_sessions" as never).select("id" as never);
-    const missingClassSessionsSchema = classSessionsResult.error?.code === "PGRST205";
-    if (classSessionsResult.error && !missingClassSessionsSchema) throwIfSupabaseError(classSessionsResult.error);
-    const profileIds = new Set((profilesResult.data ?? []).map((row) => String((row as Row).id)));
-    const eventIds = new Set(events.map((row) => String(row.id)));
-    const sessionIds = new Set(sessions.map((row) => String(row.id)));
-    const classSessionIds = new Set((classSessionsResult.data ?? []).map((row) => String((row as Row).id)));
-    const organizerIds = new Set(organizers.map((row) => String(row.id)));
-    const programIds = new Set((programsResult.data ?? []).map((row) => String((row as Row).id)));
-    const departmentIds = new Set((departmentsResult.data ?? []).map((row) => String((row as Row).id)));
-    const sectionIds = new Set((sectionsResult.data ?? []).map((row) => String((row as Row).id)));
-    const issues: SystemHealthIssue[] = [];
-    const addIssue = (id: string, message: string, referenceId?: string, severity: SystemHealthIssue["severity"] = "critical") => issues.push({ id, category: "consistency", severity, message, createdAt: new Date().toISOString(), referenceId });
-    if (missingClassSessionsSchema) addIssue("missing-class-sessions-schema", "The production database is missing the class_sessions table required for class attendance.", undefined, "critical");
-    events.filter((row) => !organizerIds.has(String(row.organizer_id))).forEach((row) => addIssue(`event-without-organizer-${row.id}`, "Event has no valid organizer record.", String(row.id)));
-    sessions.filter((row) => !eventIds.has(String(row.event_id))).forEach((row) => addIssue(`session-without-event-${row.id}`, "Attendance session has no valid event record.", String(row.id)));
-    attendance.filter((row) => (row.event_session_id && !sessionIds.has(String(row.event_session_id))) || (row.class_session_id && !classSessionIds.has(String(row.class_session_id)))).forEach((row) => addIssue(`attendance-without-session-${row.id}`, "Attendance record has no valid session record.", String(row.id)));
-    organizers.filter((row) => !profileIds.has(String(row.profile_id))).forEach((row) => addIssue(`organizer-without-profile-${row.id}`, "Organizer has no valid profile record.", String(row.id)));
-    studentsResult.data?.forEach((rawRow) => { const row = rawRow as Row; if (!profileIds.has(String(row.profile_id)) || !programIds.has(String(row.program_id)) || !departmentIds.has(String(row.department_id)) || !sectionIds.has(String(row.section_id))) addIssue(`student-without-relationship-${row.id}`, "Student is missing a profile or academic relationship.", String(row.id)); });
-    const duplicateKeys = new Set<string>();
-    attendance.forEach((row) => { if (row.event_session_id) { const key = `${row.event_session_id}:${row.student_id}`; if (duplicateKeys.has(key)) addIssue(`duplicate-attendance-${key}`, "Duplicate attendance records were found for a session and student.", String(row.event_session_id)); duplicateKeys.add(key); } });
-    events.filter((row) => row.event_status === "completed" && sessions.some((session) => String(session.event_id) === String(row.id) && session.session_status === "ongoing")).forEach((row) => addIssue(`event-state-mismatch-${row.id}`, "Event is marked completed while an attendance session is still ongoing.", String(row.id), "warning"));
-    try {
-      await supabaseAuditLogRepository.logClientAction({ action: "system.data_consistency_check", targetType: "system", metadata: { issueCount: issues.length, checks: ["event_organizers", "sessions_events", "attendance_sessions", "organizer_profiles", "student_relationships", "duplicate_attendance", "event_states"] } }, context);
-    } catch {
-      // A diagnostic result must remain available even if the audit endpoint is temporarily stale.
-    }
-    return issues;
+    const { data, error } = await client.rpc("admin_run_data_consistency_check" as never);
+    throwIfSupabaseError(error);
+    return ((data ?? []) as unknown as Row[]).map((row) => ({
+      id: String(row.id ?? ""),
+      category: "consistency" as const,
+      severity: String(row.severity ?? "critical") as SystemHealthIssue["severity"],
+      message: String(row.message ?? "Consistency issue detected."),
+      createdAt: String(row.created_at ?? new Date().toISOString()),
+      referenceId: row.reference_id ? String(row.reference_id) : undefined
+    }));
   }
 };
 

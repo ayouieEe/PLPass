@@ -20,7 +20,6 @@ export type ExportStudentRow = {
   eventsJoined: number;
   qrStatus: string;
   facialStatus: string;
-  correctionRequests: number;
 };
 
 export type ExportParticipationRow = {
@@ -31,7 +30,6 @@ export type ExportParticipationRow = {
   section: string;
   attendanceRate: number;
   eventsJoined: number;
-  correctionRequests: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -111,8 +109,7 @@ export async function exportStudentListXlsx(students: ExportStudentRow[]) {
     "Attendance Rate (%)",
     "Events Joined",
     "QR Credential",
-    "Facial Credential",
-    "Correction Requests"
+    "Facial Credential"
   ];
 
   const rows = students.map((s) => [
@@ -126,15 +123,14 @@ export async function exportStudentListXlsx(students: ExportStudentRow[]) {
     s.attendanceRate,
     s.eventsJoined,
     s.qrStatus,
-    s.facialStatus,
-    s.correctionRequests
+    s.facialStatus
   ]);
 
   await exportReportXlsx({ title: "Student List Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `student-list-${todayLabel()}` });
 }
 
 export async function exportStudentListPdf(students: ExportStudentRow[]) {
-  await exportReportPdf({ title: "Student List Report", fileName: `student-list-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, Email: s.email, Status: s.status, Attendance: `${s.attendanceRate}%`, Events: s.eventsJoined, QR: s.qrStatus, Facial: s.facialStatus, Requests: s.correctionRequests })) });
+  await exportReportPdf({ title: "Student List Report", fileName: `student-list-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, Email: s.email, Status: s.status, Attendance: `${s.attendanceRate}%`, Events: s.eventsJoined, QR: s.qrStatus, Facial: s.facialStatus })) });
 }
 
 // ---------------------------------------------------------------------------
@@ -149,8 +145,7 @@ export async function exportParticipationHistoryXlsx(students: ExportParticipati
     "Year Level",
     "Section",
     "Attendance Rate (%)",
-    "Events Joined",
-    "Correction Requests Filed"
+    "Events Joined"
   ];
 
   const rows = students.map((s) => [
@@ -160,15 +155,14 @@ export async function exportParticipationHistoryXlsx(students: ExportParticipati
     s.yearLevel,
     s.section,
     s.attendanceRate,
-    s.eventsJoined,
-    s.correctionRequests
+    s.eventsJoined
   ]);
 
   await exportReportXlsx({ title: "Participation History Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `participation-history-${todayLabel()}` });
 }
 
 export async function exportParticipationHistoryPdf(students: ExportParticipationRow[]) {
-  await exportReportPdf({ title: "Participation History Report", fileName: `participation-history-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, "Attendance Rate": `${s.attendanceRate}%`, "Events Joined": s.eventsJoined, "Correction Requests Filed": s.correctionRequests })) });
+  await exportReportPdf({ title: "Participation History Report", fileName: `participation-history-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, "Attendance Rate": `${s.attendanceRate}%`, "Events Joined": s.eventsJoined })) });
 }
 
 // ---------------------------------------------------------------------------

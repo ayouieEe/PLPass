@@ -16,6 +16,7 @@ describe("role capabilities", () => {
     expect(hasCapability("admin", "events.create")).toBe(false);
     expect(hasCapability("admin", "events.manage.owned")).toBe(false);
     expect(hasCapability("admin", "attendance.manage.owned")).toBe(false);
+    expect(hasCapability("admin", "corrections.review.owned")).toBe(false);
   });
 
   it("keeps organizer capabilities scoped to owned operations", () => {

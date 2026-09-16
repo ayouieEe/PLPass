@@ -22,7 +22,7 @@ Record tester, role, device, browser, date, environment, result, evidence, and i
 - Open pending feedback and late-reason tasks.
 - Submit a valid late reason and event feedback in the required order.
 - Submit attendance corrections and issue reports; verify validation and history updates.
-- Use QR readiness and facial enrollment/re-enrollment flows.
+- Use QR readiness and the one-time facial enrollment flow.
 - Deny camera permission and confirm the fallback remains understandable and usable.
 - Verify responsive navigation, keyboard access, zoom/reflow, and readable contrast.
 - Confirm organizer routes and another student's records are inaccessible.

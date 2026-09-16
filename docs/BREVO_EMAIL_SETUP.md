@@ -46,15 +46,3 @@ control that decision. The Supabase Auth password-reset sender is configured
 separately under Authentication > SMTP Settings.
 
 Failed sends are marked `failed` with the provider response in `error_message`. Review and retry them only after correcting the provider or recipient issue.
-
-## Rollback
-
-To temporarily return to SendGrid, set:
-
-```text
-EMAIL_PROVIDER=sendgrid
-SENDGRID_API_KEY=<existing SendGrid API key>
-SENDGRID_FROM_EMAIL=<verified sender email>
-```
-
-Then redeploy the function. No database or frontend changes are required for the provider switch.

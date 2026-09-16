@@ -13,7 +13,6 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/admin/users") return { title: "Users", description: "Manage Student, Organizer, and Admin accounts.", breadcrumbs: ["Admin", "Users"] };
   if (pathname === "/admin/events") return { title: "Events", description: "View and manage all events and approvals.", breadcrumbs: ["Admin", "Events"] };
   if (pathname === "/admin/attendance") return { title: "Attendance Records", description: "Review attendance across all events.", breadcrumbs: ["Admin", "Attendance"] };
-  if (pathname === "/admin/corrections") return { title: "Correction Requests", description: "Review correction requests across the institution.", breadcrumbs: ["Admin", "Corrections"] };
   if (pathname === "/admin/credentials") return { title: "Authentication Methods", description: "Manage QR codes and facial recognition credentials for all students.", breadcrumbs: ["Admin", "Authentication Methods"] };
   if (pathname === "/admin/reports") return { title: "Reports", description: "Review generated reports across all scopes.", breadcrumbs: ["Admin", "Reports"] };
   if (pathname === "/admin/analytics") return { title: "Analytics", description: "Review institution-wide analytics.", breadcrumbs: ["Admin", "Analytics"] };

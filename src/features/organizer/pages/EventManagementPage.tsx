@@ -1131,11 +1131,18 @@ export function EventManagementPage() {
     return () => { current = false; unsubscribe(); window.clearInterval(interval); };
   }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, studentsQuery.data?.items]);
 
-  const filterableEvents = useMemo(() => [...todayEvents, ...incomingEvents], [incomingEvents, todayEvents]);
+  // Filter options are global to the Events workspace. Build them from every
+  // loaded event so switching between Today, Incoming, and Cancelled never
+  // removes a venue or category from the available choices.
+  const filterableEvents = useMemo(
+    () => (eventsQuery.data?.items ?? []).map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? [])),
+    [eventsQuery.data?.items, objectivesByEventId]
+  );
   const filterOptions = useMemo(
     () => ({
       venues: [...new Set(filterableEvents.map((event) => event.venue).filter(Boolean))].sort(),
-      categories: [...new Set(filterableEvents.map((event) => event.category).filter(Boolean))].sort()
+      categories: [...new Set(filterableEvents.map((event) => event.category).filter(Boolean))].sort(),
+      priorities: Object.keys(PRIORITY_RANK) as PriorityLevel[]
     }),
     [filterableEvents]
   );
@@ -2376,7 +2383,7 @@ export function EventManagementPage() {
                   onChange={(event) => setEventFilters((current) => ({ ...current, priority: event.target.value as EventFilters["priority"] }))}
                 >
                   <option value="all">All priorities</option>
-                  {Object.keys(PRIORITY_RANK).map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                  {filterOptions.priorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                 </select>
               </label>
             </div>

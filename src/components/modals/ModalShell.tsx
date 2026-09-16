@@ -76,7 +76,7 @@ export function ModalShell({ open, title, description, children, footer, size = 
   }
 
   const modal = (
-    <div className="fixed inset-0 z-[9999] grid h-dvh place-items-center bg-foreground/45 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[11000] grid h-dvh place-items-center bg-foreground/45 p-4 backdrop-blur-sm" onClick={onClose}>
       <section
         ref={dialogRef}
         className={cn(

@@ -97,13 +97,11 @@ Deno.serve(async (request) => {
     .eq("id", authData.user.id)
     .single();
 
-  const { data: adminProfile, error: adminProfileError } = await supabase
-    .from("admin_profiles")
-    .select("profile_id")
-    .eq("profile_id", authData.user.id)
-    .maybeSingle();
-
-  if (profileError || adminProfileError || !profile || !adminProfile || profile.role !== "admin" || profile.account_status !== "active") {
+  // The active admin role on profiles is the authoritative authorization
+  // record. admin_profiles stores admin metadata and must not be a second
+  // authorization gate, otherwise a metadata lookup failure can lock out a
+  // valid administrator from repairing user accounts.
+  if (profileError || !profile || profile.role !== "admin" || profile.account_status !== "active") {
     return json({ error: "Access denied. Only administrators can manage users." }, 403);
   }
 
@@ -117,13 +115,15 @@ Deno.serve(async (request) => {
     let success = 0;
     const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
     for (const [index, organizer] of organizers.entries()) {
-      const { email, firstName, middleName, lastName, departmentId, organizationName, position } = organizer ?? {};
+      const { email, firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer ?? {};
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       try {
         if (!email || !firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
+        if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) throw new Error("The selected name extension is not valid.");
         const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
-        const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+        const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
         const userId = user.id;
-        const { error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "organizer", account_status: "active" });
+        const { error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: "organizer", account_status: "active" });
         if (profileError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileError.message); }
         const { error: organizerError } = await supabase.from("organizers").insert({ profile_id: userId, employee_id: employeeNumber, department_id: departmentId || null, organization_name: organizationName, position, organizer_status: "active" });
         if (organizerError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(organizerError.message); }
@@ -140,16 +140,18 @@ Deno.serve(async (request) => {
   if (action === "create-organizer") {
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
-    const { email, firstName, middleName, lastName, departmentId, organizationName, position } = organizer;
+      const { email, firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer;
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     if (!email || !firstName || !lastName || !organizationName || !position) {
       return json({ error: "Please complete all required organizer information." }, 400);
     }
+    if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
       const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
-      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
       const userId = user.id;
       const { error: profileInsertError } = await supabase.from("profiles").upsert({
-        id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName,
+        id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null,
         role: "organizer", account_status: "active"
       });
       if (profileInsertError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileInsertError.message); }
@@ -170,13 +172,15 @@ Deno.serve(async (request) => {
   if (action === "create-admin") {
     const admin = requestBody.admin;
     if (!admin) return json({ error: "No admin provided." }, 400);
-    const { email, firstName, middleName, lastName, departmentId, officeName } = admin;
+    const { email, firstName, middleName, lastName, nameExtension, departmentId, officeName } = admin;
+    const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     if (!email || !firstName || !lastName || !departmentId || !officeName) return json({ error: "Please complete all required admin information." }, 400);
+    if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
       const employeeNumber = await nextEmployeeId(supabase, "admin_profiles", "employee_number", "A");
-      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName });
+      const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
       const userId = user.id;
-      const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, role: "admin", account_status: "active" });
+      const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: "admin", account_status: "active" });
       if (profileInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(profileInsertError.message); }
       const { error: adminInsertError } = await supabase.from("admin_profiles").insert({ profile_id: userId, employee_number: employeeNumber, department_id: departmentId, office_name: officeName });
       if (adminInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(adminInsertError.message); }
@@ -186,11 +190,48 @@ Deno.serve(async (request) => {
     } catch (err) { return json({ error: err instanceof Error ? err.message : String(err) }, 400); }
   }
 
+  if (action === "update-admin") {
+    const admin = requestBody.admin;
+    if (!admin) return json({ error: "No admin provided." }, 400);
+    try {
+      const { id, profileId, email, firstName, middleName, lastName, nameExtension, departmentId, officeName, accountStatus } = admin;
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
+      if (!id || !profileId || !email || !firstName || !lastName || !departmentId || !officeName) return json({ error: "Please complete all required admin information before saving." }, 400);
+      if (!["active", "inactive", "suspended"].includes(accountStatus)) return json({ error: "The selected account access status is not valid." }, 400);
+      if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
+
+      const { data: existingProfile, error: profileLoadError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, name_extension, account_status, role").eq("id", profileId).maybeSingle();
+      const { data: existingAdmin, error: adminLoadError } = await supabase.from("admin_profiles").select("department_id, office_name").eq("id", id).eq("profile_id", profileId).maybeSingle();
+      if (profileLoadError || !existingProfile || existingProfile.role !== "admin") return json({ error: "The administrator profile could not be found." }, 404);
+      if (adminLoadError || !existingAdmin) return json({ error: "The administrator account could not be found." }, 404);
+
+      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      try {
+        if (emailChanged) {
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
+          if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
+        }
+        const { error: profileUpdateError } = await supabase.from("profiles").update({ email, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus }).eq("id", profileId).eq("role", "admin");
+        if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
+        const { error: adminUpdateError } = await supabase.from("admin_profiles").update({ department_id: departmentId, office_name: officeName }).eq("id", id).eq("profile_id", profileId);
+        if (adminUpdateError) throw new Error(`Admin update failed: ${adminUpdateError.message}`);
+        await recordAdminAudit(supabase, authData.user.id, profileId, "user.admin_updated", { email, adminId: id, accountStatus }, "admin_profile");
+      } catch (operationError) {
+        await supabase.from("profiles").update({ email: existingProfile.email, first_name: existingProfile.first_name, middle_name: existingProfile.middle_name, last_name: existingProfile.last_name, name_extension: existingProfile.name_extension, account_status: existingProfile.account_status }).eq("id", profileId);
+        await supabase.from("admin_profiles").update(existingAdmin).eq("id", id).eq("profile_id", profileId);
+        if (emailChanged) await supabase.auth.admin.updateUserById(profileId, { email: existingProfile.email });
+        throw operationError;
+      }
+      return json({ success: true });
+    } catch (err) { return json({ error: err instanceof Error ? err.message : String(err) }, 400); }
+  }
+
   if (action === "update-organizer") {
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
     try {
-      const { id, profileId, email, firstName, middleName, lastName, departmentId, organizationName, position, accountStatus, employmentStatus } = organizer;
+      const { id, profileId, email, firstName, middleName, lastName, nameExtension, departmentId, organizationName, position, accountStatus, employmentStatus } = organizer;
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       if (!id || !profileId || !email || !firstName || !lastName || !organizationName || !position) {
         return json({ error: "Please complete all required organizer information before saving." }, 400);
       }
@@ -200,10 +241,11 @@ Deno.serve(async (request) => {
       if (!["active", "part_time", "on_leave", "separated"].includes(employmentStatus)) {
         return json({ error: "The selected employment status is not valid." }, 400);
       }
+      if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
 
       const { data: existingProfile, error: profileLoadError } = await supabase
         .from("profiles")
-        .select("email, first_name, middle_name, last_name, account_status, role")
+        .select("email, first_name, middle_name, last_name, name_extension, account_status, role")
         .eq("id", profileId)
         .maybeSingle();
       if (profileLoadError) throw new Error(`Could not load the organizer profile: ${profileLoadError.message}`);
@@ -223,7 +265,7 @@ Deno.serve(async (request) => {
           if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
         }
         const { error: profileUpdateError } = await supabase.from("profiles").update({
-          email, first_name: firstName, middle_name: middleName || null, last_name: lastName, account_status: accountStatus
+          email, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus
         }).eq("id", profileId).eq("role", "organizer");
         if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
         const { error: organizerUpdateError } = await supabase.from("organizers").update({
@@ -232,7 +274,7 @@ Deno.serve(async (request) => {
         if (organizerUpdateError) throw new Error(`Organizer update failed: ${organizerUpdateError.message}`);
         await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email, organizerId: id, accountStatus, employmentStatus }, "organizer_profile");
       } catch (operationError) {
-        await supabase.from("profiles").update({ email: existingProfile.email, first_name: existingProfile.first_name, middle_name: existingProfile.middle_name, last_name: existingProfile.last_name, account_status: existingProfile.account_status }).eq("id", profileId);
+        await supabase.from("profiles").update({ email: existingProfile.email, first_name: existingProfile.first_name, middle_name: existingProfile.middle_name, last_name: existingProfile.last_name, name_extension: existingProfile.name_extension, account_status: existingProfile.account_status }).eq("id", profileId);
         await supabase.from("organizers").update(existingOrganizer).eq("id", id).eq("profile_id", profileId);
         if (emailChanged) await supabase.auth.admin.updateUserById(profileId, { email: existingProfile.email });
         throw operationError;
@@ -249,8 +291,10 @@ Deno.serve(async (request) => {
     let previousProfileForRollback: Record<string, unknown> | null = null;
     let previousStudentForRollback: Record<string, unknown> | null = null;
     try {
-      const { id, profileId, email, firstName, middleName, lastName, programId, departmentId, sectionId, yearLevel, accountStatus, statusOnly } = student;
-      const { data: previousProfile, error: previousProfileError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, account_status").eq("id", profileId).maybeSingle();
+      const { id, profileId, email, firstName, middleName, lastName, nameExtension, programId, departmentId, sectionId, yearLevel, accountStatus, statusOnly } = student;
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
+      if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
+      const { data: previousProfile, error: previousProfileError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, name_extension, account_status").eq("id", profileId).maybeSingle();
       if (previousProfileError || !previousProfile) throw new Error(`Could not load the student profile: ${previousProfileError?.message || "record not found"}`);
       const { data: previousStudent, error: previousStudentError } = await supabase.from("students").select("program_id, department_id, section_id, year_level").eq("id", id).maybeSingle();
       if (previousStudentError || !previousStudent) throw new Error(`Could not load the student account: ${previousStudentError?.message || "record not found"}`);
@@ -291,6 +335,7 @@ Deno.serve(async (request) => {
         first_name: firstName,
         middle_name: middleName,
         last_name: lastName,
+        name_extension: normalizedNameExtension || null,
         ...(accountStatus ? { account_status: accountStatus } : {})
       }).eq("id", profileId);
       
@@ -298,6 +343,20 @@ Deno.serve(async (request) => {
       
       let actualSectionId = sectionId;
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
+
+      if (isUuid) {
+        const { data: selectedSection, error: selectedSectionError } = await supabase
+          .from("sections")
+          .select("id")
+          .eq("id", sectionId)
+          .eq("program_id", programId)
+          .eq("year_level", yearLevel)
+          .eq("is_active", true)
+          .maybeSingle();
+        if (selectedSectionError || !selectedSection) {
+          throw new Error("The selected section is not available for the selected program and year level.");
+        }
+      }
       
       if (!isUuid) {
         const { data: sectionData } = await supabase
@@ -364,10 +423,38 @@ Deno.serve(async (request) => {
   let failed = 0;
   const errors: Record<string, string>[] = [];
 
-  for (const student of students) {
+  for (const [index, student] of students.entries()) {
     try {
-      const { email, firstName, middleName, lastName, studentNumber, programId, departmentId, sectionId, yearLevel } = student;
+      const { email, firstName, middleName, lastName, nameExtension, studentNumber, programId, departmentId, sectionId, yearLevel } = student;
+      const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
+      if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) {
+        throw new Error("The selected name extension is not valid.");
+      }
+      const { data: existingStudent, error: existingStudentError } = await supabase
+        .from("students")
+        .select("id")
+        .eq("student_id", studentNumber)
+        .maybeSingle();
+      if (existingStudentError) throw new Error(`Could not check student ID: ${existingStudentError.message}`);
+      if (existingStudent) throw new Error(`Student ID "${studentNumber}" already exists.`);
       const defaultPassword = studentNumber;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
+      let actualSectionId = sectionId;
+
+      if (isUuid) {
+        const { data: selectedSection, error: selectedSectionError } = await supabase
+          .from("sections")
+          .select("id")
+          .eq("id", sectionId)
+          .eq("program_id", programId)
+          .eq("year_level", yearLevel)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (selectedSectionError || !selectedSection) {
+          throw new Error("The selected section is not available for the selected program and year level.");
+        }
+      }
 
       // 1. Create auth user
       const { data: userData, error: createUserError } = await supabase.auth.admin.createUser({
@@ -377,7 +464,8 @@ Deno.serve(async (request) => {
         user_metadata: {
           first_name: firstName,
           middle_name: middleName,
-          last_name: lastName
+          last_name: lastName,
+          name_extension: normalizedNameExtension || undefined
         }
       });
 
@@ -397,8 +485,9 @@ Deno.serve(async (request) => {
         id: userId,
         email: email,
         first_name: firstName,
-        middle_name: middleName,
+        middle_name: middleName || null,
         last_name: lastName,
+        name_extension: normalizedNameExtension || null,
         role: "student",
         student_id: studentNumber,
         account_status: "active"
@@ -410,10 +499,7 @@ Deno.serve(async (request) => {
         throw new Error(`Profile insert failed: ${profileInsertError.message}`);
       }
 
-      // 3. Resolve Section UUID
-      let actualSectionId = sectionId;
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
-      
+      // 3. Resolve legacy text section values used by bulk imports.
       if (!isUuid) {
         const { data: sectionData } = await supabase
           .from("sections")
@@ -421,6 +507,7 @@ Deno.serve(async (request) => {
           .eq("section_name", sectionId)
           .eq("program_id", programId)
           .eq("year_level", yearLevel)
+          .eq("is_active", true)
           .limit(1)
           .maybeSingle();
 
@@ -470,7 +557,7 @@ Deno.serve(async (request) => {
       success++;
     } catch (err) {
       failed++;
-      errors.push({ email: student.email, error: err instanceof Error ? err.message : String(err) });
+      errors.push({ row: index + 2, email: student.email, studentNumber: student.studentNumber, error: err instanceof Error ? err.message : String(err) });
     }
   }
 

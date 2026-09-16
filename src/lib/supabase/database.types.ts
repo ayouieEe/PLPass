@@ -1857,6 +1857,7 @@ export type Database = {
           id: string
           last_name: string
           middle_name: string | null
+          name_extension: string | null
           profile_picture: string | null
           role: string
           student_id: string | null
@@ -1872,6 +1873,7 @@ export type Database = {
           id: string
           last_name: string
           middle_name?: string | null
+          name_extension?: string | null
           profile_picture?: string | null
           role: string
           student_id?: string | null
@@ -1887,6 +1889,7 @@ export type Database = {
           id?: string
           last_name?: string
           middle_name?: string | null
+          name_extension?: string | null
           profile_picture?: string | null
           role?: string
           student_id?: string | null
@@ -1989,11 +1992,16 @@ export type Database = {
       }
       request_email_outbox: {
         Row: {
+          attempt_count: number
           body: string
           created_at: string
           delivery_status: string
           error_message: string | null
           id: string
+          last_attempt_at: string | null
+          next_attempt_at: string
+          processing_started_at: string | null
+          processing_token: string | null
           provider_message_id: string | null
           recipient_email: string
           recipient_profile_id: string
@@ -2004,11 +2012,16 @@ export type Database = {
           subject: string
         }
         Insert: {
+          attempt_count?: number
           body: string
           created_at?: string
           delivery_status?: string
           error_message?: string | null
           id?: string
+          last_attempt_at?: string | null
+          next_attempt_at?: string
+          processing_started_at?: string | null
+          processing_token?: string | null
           provider_message_id?: string | null
           recipient_email: string
           recipient_profile_id: string
@@ -2019,11 +2032,16 @@ export type Database = {
           subject: string
         }
         Update: {
+          attempt_count?: number
           body?: string
           created_at?: string
           delivery_status?: string
           error_message?: string | null
           id?: string
+          last_attempt_at?: string | null
+          next_attempt_at?: string
+          processing_started_at?: string | null
+          processing_token?: string | null
           provider_message_id?: string | null
           recipient_email?: string
           recipient_profile_id?: string
@@ -2522,6 +2540,16 @@ export type Database = {
           subject: string
         }[]
       }
+      claim_request_email_outbox_batch: {
+        Args: { p_limit?: number }
+        Returns: {
+          body: string
+          id: string
+          processing_token: string
+          recipient_email: string
+          subject: string
+        }[]
+      }
       complete_event_email_outbox_delivery: {
         Args: {
           p_outbox_id: string
@@ -2552,6 +2580,14 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      complete_request_email_outbox_delivery: {
+        Args: {
+          p_outbox_id: string
+          p_processing_token: string
+          p_provider_message_id?: string
+        }
+        Returns: undefined
       }
       create_organizer_event: {
         Args: {
@@ -2755,6 +2791,14 @@ export type Database = {
       }
       expire_overdue_feedback_tasks: { Args: never; Returns: number }
       fail_event_email_outbox_delivery: {
+        Args: {
+          p_error_message: string
+          p_outbox_id: string
+          p_processing_token: string
+        }
+        Returns: undefined
+      }
+      fail_request_email_outbox_delivery: {
         Args: {
           p_error_message: string
           p_outbox_id: string

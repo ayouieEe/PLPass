@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { AlertCircle, CalendarCheck, ChevronLeft, ChevronRight, Clock3, type LucideIcon, TrendingUp, Users } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { CalendarCheck, ChevronLeft, ChevronRight, Clock3, ShieldCheck, type LucideIcon, TrendingUp, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -7,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAcademicCatalog, useCorrectionRequests, useEvents, useStudents } from "@/hooks/useRepositoryQueries";
+import { useAcademicCatalog, useEvents, useOrganizerProfiles, useStudents } from "@/hooks/useRepositoryQueries";
 import { useOrganizerDashboardAnalytics } from "@/features/organizer/hooks/useOrganizerDashboardAnalytics";
+import { repositories } from "@/services/repositories";
 import type { Event } from "@/types/domain";
 
 function shortCode(eventCode: string) {
@@ -65,12 +67,20 @@ function EventDetail({ label, value, detail }: { label: string; value: string; d
   return <div className="min-w-0 border-l border-border pl-3 first:border-l-0 first:pl-0"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 truncate text-sm font-semibold text-foreground" title={value}>{value}</p><p className="mt-0.5 truncate text-xs text-muted-foreground" title={detail}>{detail}</p></div>;
 }
 
-export function OrganizerDashboardPage() {
+export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?: "organizer" | "admin" }) {
+  const isAdminWorkspace = workspace === "admin";
   const { session } = useDevelopmentSession();
   const [predictionPage, setPredictionPage] = useState(0);
   const context = useMemo(() => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined), [session]);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
-  const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, context);
+  const organizerProfilesQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const systemHealthQuery = useQuery({
+    queryKey: ["admin-dashboard-system-health", context],
+    queryFn: () => repositories.systemHealth.getHealthSnapshot(context),
+    enabled: isAdminWorkspace && Boolean(context),
+    staleTime: 30_000,
+    retry: false
+  });
   const { semesters: semestersQuery } = useAcademicCatalog({ pageSize: 100 }, context);
   const studentsQuery = useStudents({ pageSize: 1 }, context);
   const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
@@ -90,25 +100,47 @@ export function OrganizerDashboardPage() {
     [activePredictionPage, predictionOverviewData]
   );
   const activeSemester = semestersQuery.data?.items.find((semester) => semester.isActive);
-  const pendingCorrectionRequests = useMemo(
-    () => (correctionRequestsQuery.data?.items ?? []).filter((request) => request.status === "pending").length,
-    [correctionRequestsQuery.data?.items]
-  );
+  const routes = isAdminWorkspace ? {
+    dashboard: APP_ROUTES.adminDashboard,
+    events: APP_ROUTES.adminEvents,
+    analytics: APP_ROUTES.adminAnalytics,
+    users: APP_ROUTES.adminUsers,
+    settings: APP_ROUTES.adminSettings,
+    createEvent: undefined
+  } : {
+    dashboard: APP_ROUTES.organizerDashboard,
+    events: APP_ROUTES.organizerEvents,
+    corrections: APP_ROUTES.organizerCorrections,
+    analytics: APP_ROUTES.organizerAnalytics,
+    users: APP_ROUTES.organizerUsers,
+    settings: APP_ROUTES.organizerSettings,
+    createEvent: APP_ROUTES.organizerCreateEvent
+  };
   const trend = analyticsQuery.data?.attendanceTrend ?? [];
   const totalPresent = trend.reduce((total, row) => total + row.present, 0);
   const totalLate = trend.reduce((total, row) => total + row.late, 0);
   const averageRate = Math.round(trend.reduce((total, row) => total + row.attendanceRate, 0) / Math.max(trend.length, 1));
+  const healthChecks = systemHealthQuery.data?.checks ?? [];
+  const unhealthyChecks = healthChecks.filter((check) => check.status !== "healthy").length;
+  const systemHealthStatus = systemHealthQuery.isError ? "Unavailable" : !systemHealthQuery.data ? "Checking…" : unhealthyChecks ? "Attention needed" : "Healthy";
+  const systemHealthDetail = systemHealthQuery.isError
+    ? "Health checks could not be loaded."
+    : !systemHealthQuery.data
+      ? "Checking monitored services…"
+      : unhealthyChecks
+        ? `${unhealthyChecks} monitored check${unhealthyChecks === 1 ? "" : "s"} need attention.`
+        : "All monitored services are operational.";
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title="Dashboard" description="See live sessions, event schedules, and attendance trends." actions={<Button asChild size="sm"><NavLink to={APP_ROUTES.organizerCreateEvent}>Create Event</NavLink></Button>} />
+      <PageHeader title={isAdminWorkspace ? "Admin Dashboard" : "Dashboard"} description={isAdminWorkspace ? "Monitor institution-wide activity and system operations." : "See live sessions, event schedules, and attendance trends."} actions={routes.createEvent ? <Button asChild size="sm"><NavLink to={routes.createEvent}>Create Event</NavLink></Button> : <Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.adminSystemHealth}>System Health</NavLink></Button>} />
 
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `Published events for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={APP_ROUTES.organizerEvents} />
-        <DashboardMetricCard title="Correction Requests" value={pendingCorrectionRequests.toLocaleString()} detail={pendingCorrectionRequests ? "Awaiting organizer review." : "No pending requests."} icon={AlertCircle} tone="warning" to={APP_ROUTES.organizerCorrections} />
-        <DashboardMetricCard title="Registered Students" value={(studentsQuery.data?.total ?? 0).toLocaleString()} detail="Total students enrolled in the system." icon={Users} to={APP_ROUTES.organizerUsers} />
-        <DashboardMetricCard title="Next Event Turnout" value={nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A"} detail={nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled."} icon={TrendingUp} tone="success" to={APP_ROUTES.organizerAnalytics} />
+        <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `${isAdminWorkspace ? "Institution-wide events" : "Published events"} for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={routes.events} />
+        {isAdminWorkspace ? <DashboardMetricCard title="System Health" value={systemHealthStatus} detail={systemHealthDetail} icon={ShieldCheck} tone={unhealthyChecks || systemHealthQuery.isError ? "warning" : "success"} to={APP_ROUTES.adminSystemHealth} /> : <DashboardMetricCard title="Registered Organizers" value={(organizerProfilesQuery.data?.total ?? 0).toLocaleString()} detail="Organizer accounts registered in your available scope." icon={Users} />}
+        <DashboardMetricCard title={isAdminWorkspace ? "Registered Organizers" : "Registered Students"} value={(isAdminWorkspace ? (organizerProfilesQuery.data?.total ?? 0) : (studentsQuery.data?.total ?? 0)).toLocaleString()} detail={isAdminWorkspace ? "Organizer accounts registered in the system." : "Total students enrolled in the system."} icon={Users} to={routes.users} />
+        <DashboardMetricCard title={isAdminWorkspace ? "Registered Students" : "Next Event Turnout"} value={isAdminWorkspace ? (studentsQuery.data?.total ?? 0).toLocaleString() : (nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A")} detail={isAdminWorkspace ? "Total students enrolled in the system." : (nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled.")} icon={isAdminWorkspace ? Users : TrendingUp} tone="success" to={isAdminWorkspace ? routes.users : routes.analytics} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
@@ -120,7 +152,7 @@ export function OrganizerDashboardPage() {
             </div>
             <div className="flex items-center gap-3">
               <Button asChild size="sm" variant="outline">
-                <NavLink to={`${APP_ROUTES.organizerEvents}?tab=today`}>View today’s events</NavLink>
+                <NavLink to={`${routes.events}?tab=today`}>View today’s events</NavLink>
               </Button>
             </div>
           </div>
@@ -141,7 +173,7 @@ export function OrganizerDashboardPage() {
       {analyticsQuery.isError ? <section className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-sm text-muted-foreground">Analytics could not be loaded. Refresh the page to try again.</section> : analyticsQuery.isLoading ? <section className="rounded-lg border bg-surface p-4 text-sm text-muted-foreground">Loading attendance analytics…</section> : <>
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_15.5rem]">
           <ChartPanel title="Attendance Trends" description="Attendance rate per completed event session." empty={!trend.length} emptyMessage="Attendance trends will appear after event sessions are completed."><ResponsiveContainer width="100%" height="100%"><LineChart data={trend} margin={{ top: 4, right: 6, left: -16, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" fontSize={11} tickLine={false} axisLine={false} /><YAxis unit="%" domain={[0, 100]} fontSize={11} tickLine={false} axisLine={false} /><Tooltip formatter={(value: number) => [`${value}%`, "Attendance rate"]} labelFormatter={(label, payload) => `${label} — ${payload?.[0]?.payload?.date ?? ""}`} /><Line type="monotone" dataKey="attendanceRate" name="Attendance rate" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} /></LineChart></ResponsiveContainer></ChartPanel>
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1"><DashboardMetricCard compact title="Total Present" value={totalPresent.toLocaleString()} detail="Across completed sessions." icon={Users} tone="success" to={APP_ROUTES.organizerAnalytics} /><DashboardMetricCard compact title="Total Late" value={totalLate.toLocaleString()} detail="After the check-in cutoff." icon={Clock3} tone="warning" to={APP_ROUTES.organizerAnalytics} /><DashboardMetricCard compact title="Attendance Rate" value={`${averageRate}%`} detail="Average across completed sessions." icon={TrendingUp} to={APP_ROUTES.organizerAnalytics} /></div>
+          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1"><DashboardMetricCard compact title="Total Present" value={totalPresent.toLocaleString()} detail="Across completed sessions." icon={Users} tone="success" to={routes.analytics} /><DashboardMetricCard compact title="Total Late" value={totalLate.toLocaleString()} detail="After the check-in cutoff." icon={Clock3} tone="warning" to={routes.analytics} /><DashboardMetricCard compact title="Attendance Rate" value={`${averageRate}%`} detail="Average across completed sessions." icon={TrendingUp} to={routes.analytics} /></div>
         </section>
         <section className="grid gap-4 xl:grid-cols-2">
           <ChartPanel title="Feedback Sentiment" description="Submitted event feedback." empty={!analyticsQuery.data?.sentiment.some((item) => item.value > 0)} emptyMessage="Feedback sentiment will appear after students submit feedback."><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={analyticsQuery.data?.sentiment ?? []} dataKey="value" nameKey="name" innerRadius={44} outerRadius={76} paddingAngle={3}>{(analyticsQuery.data?.sentiment ?? []).map((item, index) => <Cell key={item.name} fill={["#16a34a", "#64748b", "#dc2626"][index]} />)}</Pie><Tooltip formatter={(value: number) => `${value}%`} /><Legend iconType="circle" wrapperStyle={{ fontSize: "12px" }} /></PieChart></ResponsiveContainer></ChartPanel>

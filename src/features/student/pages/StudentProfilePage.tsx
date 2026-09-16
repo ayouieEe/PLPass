@@ -149,12 +149,12 @@ export function StudentProfilePage() {
     ? "Unable to read"
     : hasQrCredential
       ? formatCredentialStatus(readiness.qrStatus)
-      : "Not configured";
+      : "Pending";
   const facialEnrollmentLabel = credentialReadinessError
     ? "Unable to read"
     : hasFacialEnrollment
       ? formatCredentialStatus(readiness.faceStatus)
-      : "Organizer managed";
+      : "Pending";
   async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
     const file = input.files?.[0];

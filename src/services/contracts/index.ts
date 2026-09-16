@@ -46,6 +46,7 @@ export type CreateStudentInput = {
   firstName: string;
   middleName?: string;
   lastName: string;
+  nameExtension?: "Jr." | "Sr." | "II" | "III" | "IV" | "V";
   programId: string;
   departmentId: string;
   sectionId: string;
@@ -59,6 +60,7 @@ export type UpdateStudentInput = {
   firstName: string;
   middleName?: string;
   lastName: string;
+  nameExtension?: "Jr." | "Sr." | "II" | "III" | "IV" | "V";
   programId: string;
   departmentId: string;
   sectionId: string;
@@ -72,6 +74,7 @@ export type CreateOrganizerInput = {
   firstName: string;
   middleName?: string;
   lastName: string;
+  nameExtension?: "Jr." | "Sr." | "II" | "III" | "IV" | "V";
   employeeNumber: string;
   departmentId?: string;
   organizationName: string;
@@ -85,6 +88,7 @@ export type UpdateOrganizerInput = {
   firstName: string;
   middleName?: string;
   lastName: string;
+  nameExtension?: "Jr." | "Sr." | "II" | "III" | "IV" | "V";
   departmentId?: string;
   organizationName: string;
   position: string;
@@ -97,9 +101,16 @@ export type CreateAdminInput = {
   firstName: string;
   middleName?: string;
   lastName: string;
+  nameExtension?: "Jr." | "Sr." | "II" | "III" | "IV" | "V";
   employeeNumber: string;
   departmentId: string;
   officeName: string;
+};
+
+export type UpdateAdminInput = CreateAdminInput & {
+  id: string;
+  profileId: string;
+  accountStatus: "active" | "inactive" | "suspended";
 };
 
 export type BulkCreateOrganizersResult = {
@@ -343,6 +354,11 @@ export type CatalogDepartmentInput = { id?: string; code: string; name: string; 
 export type CatalogProgramInput = { id?: string; departmentId: string; code: string; name: string; isActive?: boolean };
 export type CatalogSectionInput = { id?: string; programId: string; name: string; yearLevel: number; academicYear: string; semester: string; isActive?: boolean };
 export type CatalogCategoryInput = { id?: string; name: string; isActive?: boolean };
+export type BulkCreateStudentsResult = {
+  success: number;
+  failed: number;
+  errors: Array<{ row?: number; email?: string; studentNumber?: string; error: string }>;
+};
 
 export interface AuthenticationRepository {
   listDevelopmentAccounts(context?: RepositoryContext): Promise<DevelopmentAccount[]>;
@@ -355,10 +371,11 @@ export interface UserManagementRepository {
   listStudents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Student>>;
   createStudent(input: CreateStudentInput, context?: RepositoryContext): Promise<Student>;
   updateStudent(input: UpdateStudentInput, context?: RepositoryContext): Promise<Student>;
-  bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<{ success: number; failed: number }>;
+  bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<BulkCreateStudentsResult>;
   createOrganizer(input: CreateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
   updateOrganizer(input: UpdateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
   createAdmin(input: CreateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
+  updateAdmin(input: UpdateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
   bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
@@ -529,6 +546,7 @@ export interface SystemHealthRepository {
   getHealthSnapshot(context?: RepositoryContext): Promise<SystemHealthSnapshot>;
   retryFailedNotification(input: { jobId: string; source: FailedNotificationJob["source"]; reason: string }, context?: RepositoryContext): Promise<FailedNotificationJob>;
   recoverAttendanceSession(input: { sessionId: string; reason: string }, context?: RepositoryContext): Promise<AttendanceSession>;
+  finishEvent(input: { eventId: string; reason: string }, context?: RepositoryContext): Promise<Event>;
   runDataConsistencyCheck(context?: RepositoryContext): Promise<SystemHealthIssue[]>;
 }
 
