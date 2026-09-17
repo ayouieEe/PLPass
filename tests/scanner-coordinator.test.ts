@@ -54,11 +54,11 @@ describe("scanner coordinator", () => {
       const stations = await Promise.all(Array.from({ length: 5 }, (_, index) => post(`${secureBase}/api/join`, { joinToken: sharedToken, scannerId: `phone-${index}` })));
       expect(stations.every((station) => station.status === 200)).toBe(true); const stationToken = String(stations[0].body.stationToken);
       const sixth = await post(`${secureBase}/api/join`, { joinToken: sharedToken }); expect(sixth.status).toBe(409);
-      const scanUrl = `${secureBase}/api/scan`; const scan = await post(scanUrl, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "attempt-1" }, stationToken);
+      const scanUrl = `${secureBase}/api/scan`; const scan = await post(scanUrl, { credentialCode: "2026-001", scanAttemptId: "attempt-1" }, stationToken);
       expect(scan.body.action).toBe("checked_in");
-      const replay = await post(scanUrl, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "attempt-1" }, stationToken);
+      const replay = await post(scanUrl, { credentialCode: "2026-001", scanAttemptId: "attempt-1" }, stationToken);
       expect(replay.body).toEqual(scan.body);
-      const secondScan = await post(scanUrl, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "attempt-2" }, stationToken);
+      const secondScan = await post(scanUrl, { credentialCode: "2026-001", scanAttemptId: "attempt-2" }, stationToken);
       expect(secondScan.body.action).toBe("already_recorded");
       expect(secondScan.body.message).toBe("Time In was already recorded.");
       expect(store.listPending()).toHaveLength(1);
@@ -78,7 +78,7 @@ describe("scanner coordinator", () => {
       const second = await post(`${base}/api/join`, { joinToken: sharedToken, scannerId: "same-phone" });
       expect(first.body.stationToken).toBe(second.body.stationToken);
       expect((await coordinator.getStatus()).stations).toHaveLength(1);
-      const scan = await post(`${base}/api/scan`, { credentialCode: "PLPASS-QR:2026-001:qr-1", scanAttemptId: "cached-checkin" }, String(first.body.stationToken));
+      const scan = await post(`${base}/api/scan`, { credentialCode: "2026-001", scanAttemptId: "cached-checkin" }, String(first.body.stationToken));
       expect(scan.body.action).toBe("already_recorded");
       expect(scan.body.message).toBe("Time In was already recorded.");
     } finally { await coordinator.stop(); }

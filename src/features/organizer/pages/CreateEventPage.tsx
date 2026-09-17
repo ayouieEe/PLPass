@@ -581,6 +581,21 @@ export function CreateEventPage() {
   }, [hasUnsavedProgress, isPublishingEvent, location.hash, location.pathname, location.search, navigate]);
 
   useEffect(() => {
+    const handleOverlayNavigation: EventListener = (event) => {
+      const nextPath = (event as globalThis.CustomEvent<{ nextPath?: string }>).detail?.nextPath;
+      if (!nextPath) return;
+      if (!hasUnsavedProgress || isPublishingEvent) {
+        navigate(nextPath);
+        return;
+      }
+      setPendingExitTo(nextPath);
+    };
+
+    window.addEventListener("plpass:leave-create-event-confirm", handleOverlayNavigation);
+    return () => window.removeEventListener("plpass:leave-create-event-confirm", handleOverlayNavigation);
+  }, [hasUnsavedProgress, isPublishingEvent, navigate]);
+
+  useEffect(() => {
     setParticipantPage(1);
   }, [search, programId, yearLevel, section]);
 

@@ -1082,5 +1082,8 @@ export async function exportReportXlsx(options: ReportExportOptions) {
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  // Keep the object URL alive long enough for the browser to begin the
+  // download. Revoking it synchronously can intermittently produce an empty
+  // file in Chromium-based browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }

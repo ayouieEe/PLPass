@@ -52,7 +52,12 @@ async function startScan() {
   const reader = new BrowserQRCodeReader();
   try {
     controls = await reader.decodeFromConstraints({
-      video: { facingMode: { ideal: "environment" } },
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        focusMode: { ideal: "continuous" }
+      } as MediaTrackConstraints,
       audio: false
     }, video, async (qr) => {
       if (!qr || busy) return;

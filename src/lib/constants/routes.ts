@@ -34,6 +34,7 @@ export const APP_ROUTES = {
   organizerSettings: "/organizer/settings",
   organizerAuditLogs: "/organizer/audit-logs",
   organizerEvent: (eventId: string) => `/organizer/events/${eventId}`,
+  organizerLiveAttendance: "/organizer/live-attendance",
   organizerLiveSession: (sessionId: string) => `/organizer/events?session=${encodeURIComponent(sessionId)}`,
   adminEvent: (eventId: string) => `/admin/events/${eventId}`,
   adminLiveSession: (sessionId: string) => `/admin/events?session=${encodeURIComponent(sessionId)}`,

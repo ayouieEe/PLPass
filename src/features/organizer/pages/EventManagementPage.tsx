@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
-import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
+import { extractStudentNumber, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -87,6 +87,15 @@ type EventOfflinePreparation = {
 };
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
+const scannerIdleSubmissionDelayMs = 1_000;
+const duplicateQrSuppressionMs = 5_000;
+const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
+
+function isEditableScanTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && (
+    target.isContentEditable || target.matches("input, textarea, select")
+  );
+}
 
 type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
@@ -96,6 +105,46 @@ type AttendanceRow = OrganizerAttendanceRow & {
 type DraftAttendanceRow = AttendanceRow & {
   checkInAt: string;
   checkOutAt?: string;
+};
+
+type StoredLiveAttendanceDraft = {
+  eventId: string;
+  rows: DraftAttendanceRow[];
+};
+
+function liveAttendanceDraftStorageKey(sessionId: string) {
+  return `${liveAttendanceDraftStoragePrefix}${sessionId}`;
+}
+
+function isDraftAttendanceRow(value: unknown): value is DraftAttendanceRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<DraftAttendanceRow>;
+  return typeof row.id === "string"
+    && typeof row.studentId === "string"
+    && typeof row.studentName === "string"
+    && typeof row.eventCode === "string"
+    && typeof row.attendanceMethod === "string"
+    && typeof row.attendanceStatus === "string"
+    && typeof row.checkInAt === "string"
+    && typeof row.checkInTime === "string";
+}
+
+function readLiveAttendanceDraft(sessionId: string, eventId: string): DraftAttendanceRow[] {
+  try {
+    const rawDraft = window.sessionStorage.getItem(liveAttendanceDraftStorageKey(sessionId));
+    if (!rawDraft) return [];
+    const draft = JSON.parse(rawDraft) as Partial<StoredLiveAttendanceDraft>;
+    if (draft.eventId !== eventId || !Array.isArray(draft.rows)) return [];
+    return draft.rows.filter(isDraftAttendanceRow);
+  } catch {
+    return [];
+  }
+}
+
+type ActiveParticipantIdentity = {
+  studentId: string;
+  studentNumber: string;
+  fullName: string;
 };
 
 type FinalizedSessionSummary = {
@@ -270,11 +319,11 @@ function matchesSearch(event: EventRecord, search: string) {
 }
 
 
-function countRows(rows: AttendanceRow[]) {
+function countRows(rows: AttendanceRow[], participantCount: number) {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
   const late = rows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
-  const rate = rows.length ? Math.round(((present + late) / rows.length) * 100) : 0;
+  const absent = Math.max(rows.filter((row) => row.attendanceStatus === "absent").length, participantCount - present - late);
+  const rate = participantCount ? Math.round(((present + late) / participantCount) * 100) : 0;
   return { present, late, absent, rate };
 }
 
@@ -304,10 +353,10 @@ function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
 }
 
-function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>): FinalizedSessionSummary {
+function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string }>, participantCount: number): FinalizedSessionSummary {
   const present = rows.filter((row) => row.attendanceStatus === "present").length;
   const late = rows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = rows.filter((row) => row.attendanceStatus === "absent").length;
+  const absent = Math.max(rows.filter((row) => row.attendanceStatus === "absent").length, participantCount - present - late);
   const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
   submittedReasons.forEach((row) => {
@@ -317,11 +366,11 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
   const [topReason, topCount = 0] = [...reasonCounts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
 
   return {
-    totalParticipants: rows.length,
+    totalParticipants: participantCount,
     present,
     late,
     absent,
-    attendanceRate: rows.length ? Math.round(((present + late) / rows.length) * 100) : 0,
+    attendanceRate: participantCount ? Math.round(((present + late) / participantCount) * 100) : 0,
     pendingStudentTasks: present + late,
     mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
   };
@@ -368,7 +417,10 @@ function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | u
 function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
   const modal = (
     <div className="fixed inset-0 z-[9999] flex h-dvh w-screen items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <section className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}>
+      <section
+        className={`max-h-[90vh] w-full overflow-hidden rounded-lg border bg-surface shadow-xl ${width}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex justify-end border-b px-5 py-3">
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close modal">
             <X className="h-4 w-4" aria-hidden="true" />
@@ -472,9 +524,9 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
         reason: values.reason
       });
       onClose();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to reschedule event";
-      toast.error(message);
+    } catch {
+      // useEventRescheduleMutation reports the failure through its onError
+      // handler; avoid showing the same error toast a second time here.
     }
   }
 
@@ -577,6 +629,8 @@ export function EventManagementPage() {
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
+  const activeEventId = activeEvent?.id;
+  const [activeParticipantIdentities, setActiveParticipantIdentities] = useState<ActiveParticipantIdentity[] | null>(null);
   const [activeRows, setActiveRows] = useState<DraftAttendanceRow[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [finalizedSummary, setFinalizedSummary] = useState<FinalizedSessionSummary | null>(null);
@@ -608,11 +662,19 @@ export function EventManagementPage() {
     method: defaultAttendanceMethod,
     lateCutoffMinutes: 15
   });
-  const qrInputRef = useRef<HTMLInputElement>(null);
+  const qrScannerBufferRef = useRef("");
+  const qrScannerFlushTimerRef = useRef<number | undefined>(undefined);
+  const submitQrAttendanceRef = useRef<(code: string) => void>(() => undefined);
+  const recentQrScansRef = useRef(new Map<string, number>());
+  const qrSubmissionInFlightRef = useRef(false);
+  const lastSuccessfulQrScanAtRef = useRef(0);
   const facialVideoRef = useRef<HTMLVideoElement>(null);
   const facialStreamRef = useRef<MediaStream | null>(null);
   const previousManualStudentIdRef = useRef<string | null>(null);
   const hydratedSessionIdRef = useRef<string | null>(null);
+  const hydratedAttendanceDraftSessionIdRef = useRef<string | null>(null);
+  const finalizedAttendanceSessionIdsRef = useRef(new Set<string>());
+  const [attendanceDraftReadySessionId, setAttendanceDraftReadySessionId] = useState<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
   const notifiedEventCodesRef = useRef(new Set<string>());
   const autoCancelledEventIdsRef = useRef(new Set<string>());
@@ -789,6 +851,61 @@ export function EventManagementPage() {
     void fetchAllObjectives();
   }, [eventsQuery.data?.items]);
 
+  // The live attendance card and QR matcher must use the active event's full
+  // participant list, rather than a paginated student list or a background
+  // readiness cache. Fetch the participant IDs first, then their identities.
+  useEffect(() => {
+    if (!activeEventId) {
+      setActiveParticipantIdentities(null);
+      return;
+    }
+
+    let current = true;
+    setActiveParticipantIdentities(null);
+    const loadActiveParticipants = async () => {
+      const client = getSupabaseBrowserClient();
+      const { data: participantRows, error: participantError } = await client
+        .from("event_participants")
+        .select("student_id")
+        .eq("event_id", activeEventId)
+        .neq("participant_status", "removed");
+      if (participantError) {
+        console.error("Failed to load active event participants:", participantError);
+        if (current) setActiveParticipantIdentities([]);
+        return;
+      }
+
+      const participantIds = [...new Set((participantRows ?? []).map((row) => String(row.student_id ?? "")).filter(Boolean))];
+      if (!participantIds.length) {
+        if (current) setActiveParticipantIdentities([]);
+        return;
+      }
+
+      const { data: studentRows, error: studentError } = await client
+        .from("students")
+        .select("id, student_id, profiles(first_name, middle_name, last_name, name_extension)")
+        .in("id", participantIds);
+      if (studentError) {
+        console.error("Failed to load active participant identities:", studentError);
+        if (current) setActiveParticipantIdentities([]);
+        return;
+      }
+
+      const identities = (studentRows ?? []).map((student) => {
+        const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+        return {
+          studentId: String(student.id),
+          studentNumber: String(student.student_id ?? ""),
+          fullName: [profile?.first_name, profile?.middle_name, profile?.last_name, profile?.name_extension].filter(Boolean).join(" ")
+        };
+      });
+      if (current) setActiveParticipantIdentities(identities);
+    };
+
+    void loadActiveParticipants();
+    return () => { current = false; };
+  }, [activeEventId]);
+
   useEffect(() => {
     const eventIds = (eventsQuery.data?.items ?? [])
       .filter((event) => event.status !== "completed" && event.status !== "cancelled")
@@ -848,6 +965,34 @@ export function EventManagementPage() {
     () => repositoryEvents,
     [repositoryEvents]
   );
+
+  const persistedActiveSession = useMemo(
+    () => sessionsList.find((attendanceSession) =>
+      attendanceSession.status === "active" &&
+      Boolean(attendanceSession.eventId) &&
+      repositoryEvents.some((event) => event.id === attendanceSession.eventId)
+    ),
+    [repositoryEvents, sessionsList]
+  );
+
+  // Rehydrate a live event from persisted session data after a reload or
+  // logout/login. The URL is intentionally not required: the event list and
+  // the live-session route are both derived from the database session state.
+  useEffect(() => {
+    if (sessionIdFromQuery || activeEvent || liveSessionId || attendanceSessionsQuery.isFetching || eventsQuery.isFetching) return;
+    if (!persistedActiveSession?.eventId) return;
+    const persistedEvent = repositoryEvents.find((event) => event.id === persistedActiveSession.eventId);
+    if (!persistedEvent) return;
+
+    hydratedSessionIdRef.current = persistedActiveSession.id;
+    setActiveEvent(persistedEvent);
+    setLiveSessionId(persistedActiveSession.id);
+    setActiveRows([]);
+    setCaptureMode(defaultAttendanceMethod);
+    setAttendancePhase("time_in");
+    setManualInput("");
+    setQrInput("");
+  }, [activeEvent, attendanceSessionsQuery.isFetching, eventsQuery.isFetching, liveSessionId, persistedActiveSession, repositoryEvents, sessionIdFromQuery]);
 
   useEffect(() => {
     if (!sessionIdFromQuery) {
@@ -1018,7 +1163,8 @@ export function EventManagementPage() {
     return map;
   }, [todayEvents, incomingEvents]);
 
-  const activeCounts = countRows(activeRows);
+  const activeParticipantCount = activeParticipantIdentities?.length ?? 0;
+  const activeCounts = countRows(activeRows, activeParticipantCount);
   // A Time Out must be at least a minute after Time In. This is enforced at
   // capture time; the extra check is only a recovery safeguard for an old,
   // already-saved invalid value so End Session can still complete safely.
@@ -1040,7 +1186,34 @@ export function EventManagementPage() {
   const isEndingAfterScheduledTime = Boolean(
     activeAttendanceSession?.endsAt && new Date().getTime() > new Date(activeAttendanceSession.endsAt).getTime()
   );
-  const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows);
+  const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeParticipantCount);
+
+  // Scans are deliberately held in the live workspace until End Session. Keep
+  // that draft in the browser session so route changes and reloads do not erase
+  // valid scans before they are finalized in Supabase.
+  useEffect(() => {
+    if (!activeEvent?.id || !activeScannerSessionId) {
+      setAttendanceDraftReadySessionId(null);
+      return;
+    }
+    if (hydratedAttendanceDraftSessionIdRef.current === activeScannerSessionId) return;
+
+    hydratedAttendanceDraftSessionIdRef.current = activeScannerSessionId;
+    const restoredRows = readLiveAttendanceDraft(activeScannerSessionId, activeEvent.id);
+    if (restoredRows.length > 0) setActiveRows(restoredRows);
+    setAttendanceDraftReadySessionId(activeScannerSessionId);
+  }, [activeEvent?.id, activeScannerSessionId]);
+
+  useEffect(() => {
+    if (!activeEvent?.id || !activeScannerSessionId || attendanceDraftReadySessionId !== activeScannerSessionId) return;
+    if (finalizedAttendanceSessionIdsRef.current.has(activeScannerSessionId)) return;
+    try {
+      const draft: StoredLiveAttendanceDraft = { eventId: activeEvent.id, rows: activeRows };
+      window.sessionStorage.setItem(liveAttendanceDraftStorageKey(activeScannerSessionId), JSON.stringify(draft));
+    } catch {
+      // Private browsing or storage limits should not stop attendance capture.
+    }
+  }, [activeEvent?.id, activeRows, activeScannerSessionId, attendanceDraftReadySessionId]);
 
   // A record may have been created before the organizer reopened this live
   // screen, or have just synchronized from the local desktop database. Restore
@@ -1284,6 +1457,13 @@ export function EventManagementPage() {
     return;
   }
 
+  // Refresh the offline package after creating the session. A package prepared
+  // before the event starts can be READY while still missing this newly
+  // ongoing session, which would make scanner startup reject it.
+  if (desktopApi()) {
+    try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
+  }
+
   setActiveRows([]);
   setFinalizedSummary(null);
   setCaptureMode(defaultAttendanceMethod);
@@ -1293,9 +1473,6 @@ export function EventManagementPage() {
   setStartEvent(null);
   setSelectedEventForSession(null);
   navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSession.id), APP_ROUTES.adminLiveSession(startedSession.id)), { replace: true });
-  if (desktopApi()) {
-    try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
-  }
   const startedAt = new Date(startedSession.attendanceWindowStartAt ?? Date.now()).getTime();
   const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
   const delayedMinutes = Math.max(0, Math.floor((startedAt - scheduledAt) / 60_000));
@@ -1334,6 +1511,13 @@ export function EventManagementPage() {
       attendanceRecords
     });
     attendanceFinalized = true;
+    finalizedAttendanceSessionIdsRef.current.add(sessionId);
+    try {
+      window.sessionStorage.removeItem(liveAttendanceDraftStorageKey(sessionId));
+    } catch {
+      // The session has already been finalized remotely; a storage cleanup
+      // failure must not make the organizer believe it is still open.
+    }
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
       .from("attendance_records")
@@ -1345,7 +1529,8 @@ export function EventManagementPage() {
         (finalizedRecords ?? []).map((record) => ({
           attendanceStatus: record.attendance_status as AttendanceStatus,
           lateReason: record.late_reason_category ?? undefined
-        }))
+        })),
+        activeParticipantCount
       )
     );
     setSummaryOpen(true);
@@ -1379,10 +1564,6 @@ export function EventManagementPage() {
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Time Out could not be opened.");
     }
-  }
-
-  function focusQrInput() {
-    window.requestAnimationFrame(() => qrInputRef.current?.focus());
   }
 
   function openLiveFacialVerification() {
@@ -1487,24 +1668,43 @@ export function EventManagementPage() {
     }
   }
 
-  async function submitQrAttendance() {
-    if (!qrInput.trim() || !activeEvent?.id || isQrProcessing) {
+  async function submitQrAttendance(inputCode = qrInput) {
+    const scanCode = inputCode.trim();
+    if (!scanCode || !activeEvent?.id || isQrProcessing || qrSubmissionInFlightRef.current) {
       return;
     }
 
+    // Some USB/Bluetooth scanners emit the same payload twice (or emit both
+    // their terminator and an idle-delimited submission). Treat that as one
+    // physical scan so the successful first attempt is not followed by a
+    // misleading "no participant" error toast.
+    // Ignore formatting differences between duplicate scanner emissions
+    // (line breaks, brackets, labels, punctuation, and case).
+    const scanKey = scanCode.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const now = Date.now();
+    const previousScanAt = recentQrScansRef.current.get(scanKey);
+    if (previousScanAt !== undefined && now - previousScanAt < duplicateQrSuppressionMs) return;
+    recentQrScansRef.current.set(scanKey, now);
+    for (const [key, timestamp] of recentQrScansRef.current) {
+      if (now - timestamp >= duplicateQrSuppressionMs) recentQrScansRef.current.delete(key);
+    }
+
+    qrSubmissionInFlightRef.current = true;
     setIsQrProcessing(true);
     const eventId = activeEvent.id;
     if (!eventId) {
       setIsQrProcessing(false);
+      qrSubmissionInFlightRef.current = false;
       return;
     }
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
     const recordQrLocally = async () => {
       if (!sessionId) throw new Error("The active attendance session could not be found.");
-      const student = await identifyOfflineStudent(eventId, "qr", qrInput);
+      const student = await identifyOfflineStudent(eventId, "qr", scanCode);
       if (!student) throw new Error("This QR code is not available in the prepared offline event package.");
       const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString() });
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, student)));
+      lastSuccessfulQrScanAtRef.current = Date.now();
       toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} recorded offline`, { description: local.safeMessage });
     };
     try {
@@ -1519,17 +1719,23 @@ export function EventManagementPage() {
           // The package may be absent or stale; continue with central lookup.
         }
       }
-      const credentialId = extractQrCredentialId(qrInput);
       const client = getSupabaseBrowserClient();
-      const { data: credential, error: credentialError } = await client
-        .from("qr_credentials")
-        .select("id, student_id, credential_status, revoked_at, expires_at")
-        .eq("id", credentialId)
-        .maybeSingle();
+      if (activeParticipantIdentities === null) {
+        toast.warning("The event participant list is still loading. Please scan again in a moment.");
+        return;
+      }
+      const matchedStudent = activeParticipantIdentities.find((student) =>
+        studentIdentityMatchesPayload(scanCode, student.studentNumber, student.fullName)
+      );
 
-      if (credentialError) throw credentialError;
-      if (!credential || credential.credential_status !== "activated" || credential.revoked_at || (credential.expires_at && new Date(credential.expires_at).getTime() <= Date.now())) {
-        toast.error("Invalid or inactive student QR code.");
+      if (!matchedStudent) {
+        if (Date.now() - lastSuccessfulQrScanAtRef.current < duplicateQrSuppressionMs) return;
+        toast.error("No active event participant matches this student number or name.");
+        return;
+      }
+      const studentId = matchedStudent.studentId;
+      if (!studentId) {
+        toast.error("The scanned student could not be identified.");
         return;
       }
 
@@ -1537,7 +1743,7 @@ export function EventManagementPage() {
         .from("event_participants")
         .select("id")
         .eq("event_id", activeEvent.id)
-        .eq("student_id", credential.student_id)
+        .eq("student_id", studentId)
         .neq("participant_status", "removed")
         .maybeSingle();
       if (participantError) throw participantError;
@@ -1546,7 +1752,6 @@ export function EventManagementPage() {
         return;
       }
 
-      const studentId = String(credential.student_id);
       const existing = activeRows.find((row) => row.studentId === studentId);
       if (attendancePhase === "time_in" && existing) {
         toast.warning(`${existing.studentName} already has a Time In.`);
@@ -1596,6 +1801,7 @@ export function EventManagementPage() {
           ? `${existing?.studentName ?? "Student"} Time Out recorded. This will be saved when you end the session.`
           : `${student?.fullName ?? student?.studentNumber ?? "Student"} Time In recorded. This will be saved when you end the session.`
       );
+      lastSuccessfulQrScanAtRef.current = Date.now();
     } catch (error) {
       if (desktopApi()) {
         try {
@@ -1610,9 +1816,82 @@ export function EventManagementPage() {
     } finally {
       setQrInput("");
       setIsQrProcessing(false);
-      focusQrInput();
+      qrSubmissionInFlightRef.current = false;
     }
   }
+
+  useEffect(() => {
+    submitQrAttendanceRef.current = (code) => { void submitQrAttendance(code); };
+  });
+
+  useEffect(() => {
+    const resetScannerBuffer = () => {
+      if (qrScannerFlushTimerRef.current !== undefined) {
+        window.clearTimeout(qrScannerFlushTimerRef.current);
+        qrScannerFlushTimerRef.current = undefined;
+      }
+      qrScannerBufferRef.current = "";
+    };
+
+    const submitBufferedScan = () => {
+      const value = qrScannerBufferRef.current.trim();
+      if (value.length < 3) {
+        resetScannerBuffer();
+        return;
+      }
+      resetScannerBuffer();
+      setQrInput(value);
+      submitQrAttendanceRef.current(value);
+    };
+
+    if (!activeEventId || captureMode !== "QR Code") {
+      resetScannerBuffer();
+      return;
+    }
+
+    const handleScannerKeyDown = (event: KeyboardEvent) => {
+      if (isQrProcessing || isEditableScanTarget(event.target)) {
+        resetScannerBuffer();
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "Tab") {
+        if (qrScannerBufferRef.current.trim().length >= 3) {
+          event.preventDefault();
+          submitBufferedScan();
+        } else {
+          resetScannerBuffer();
+        }
+        return;
+      }
+
+      if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
+      // Barcode scanners vary substantially in their key interval, especially
+      // when connected by Bluetooth. Submission is delimited by the scanner's
+      // Enter/Tab suffix, with an idle fallback for scanners without a suffix.
+      qrScannerBufferRef.current += event.key;
+      if (qrScannerFlushTimerRef.current !== undefined) window.clearTimeout(qrScannerFlushTimerRef.current);
+      qrScannerFlushTimerRef.current = window.setTimeout(submitBufferedScan, scannerIdleSubmissionDelayMs);
+    };
+
+    const handleScannerPaste = (event: ClipboardEvent) => {
+      if (isQrProcessing || isEditableScanTarget(event.target)) return;
+      const value = event.clipboardData?.getData("text")?.trim() ?? "";
+      if (value.length < 3) return;
+      event.preventDefault();
+      resetScannerBuffer();
+      setQrInput(value);
+      submitQrAttendanceRef.current(value);
+    };
+
+    window.addEventListener("keydown", handleScannerKeyDown, true);
+    window.addEventListener("paste", handleScannerPaste, true);
+    return () => {
+      resetScannerBuffer();
+      window.removeEventListener("keydown", handleScannerKeyDown, true);
+      window.removeEventListener("paste", handleScannerPaste, true);
+    };
+  }, [activeEventId, captureMode, isQrProcessing]);
 
   useEffect(() => {
     if (!activeEvent) {
@@ -2154,28 +2433,8 @@ export function EventManagementPage() {
                       </div>
 
                       <div className="border-t border-border pt-4">
-                        <label className="block text-sm font-semibold text-foreground" htmlFor="student-qr-scan">Scanner input</label>
-                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                        <input
-                          id="student-qr-scan"
-                          ref={qrInputRef}
-                          value={qrInput}
-                          onChange={(event) => setQrInput(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void submitQrAttendance();
-                            }
-                          }}
-                          placeholder="Waiting for a student QR scan…"
-                          aria-label="Student QR scan input"
-                          className="h-11 min-w-0 flex-1 rounded-lg border border-border bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
-                          disabled={isQrProcessing}
-                        />
-                        <Button type="button" className="h-11 shrink-0 rounded-lg px-6" onClick={focusQrInput} disabled={isQrProcessing}>
-                          <ScanLine className="h-4 w-4" aria-hidden="true" />
-                          Focus scanner input
-                        </Button>
+                        <div className="mt-3 rounded-lg border border-dashed border-primary/25 bg-primary/5 px-4 py-3 text-sm text-muted-foreground" role="status">
+                          {qrInput ? `Last scanner value received: ${qrInput}` : "Ready for a student number or name scan…"}
                         </div>
                       </div>
 

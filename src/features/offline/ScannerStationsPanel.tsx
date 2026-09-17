@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
+import { prepareEventForOffline } from "./offlineService";
 import type { AttendanceCapturePhase, ScannerCertificateStatus, ScannerCoordinatorStatus } from "./types";
 
 const inactive: ScannerCoordinatorStatus = { active: false, addresses: [], stations: [] };
@@ -40,6 +41,12 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
     if (!api) return;
     setBusy(true);
     try {
+      // A package prepared before the attendance session started may be READY
+      // while still missing the newly ongoing session. Verify the exact local
+      // session and refresh once so scanner startup is not dependent on timing.
+      const prepared = await api.getPreparedEvent(eventId);
+      const hasActiveSession = Boolean(prepared?.sessions.some((session) => session.id === sessionId && session.status === "ongoing"));
+      if (!hasActiveSession) await prepareEventForOffline(eventId);
       const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase);
       setStatus(scannerStatus);
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
@@ -58,6 +65,23 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       await api.stopScannerStations();
       setStatus(inactive);
       toast.success("Scanner stations were closed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshConnection() {
+    if (!api) return;
+    setBusy(true);
+    try {
+      // Starting while already active closes the old server and rebuilds it,
+      // which re-reads the laptop's current network addresses and join URL.
+      const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase);
+      setStatus(scannerStatus);
+      setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
+      toast.success("Scanner connection QR refreshed. Reconnect phones using the new QR code.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The scanner connection QR could not be refreshed.");
     } finally {
       setBusy(false);
     }
@@ -104,7 +128,10 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       {expanded ? <div className="border-t border-border p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <p className="text-sm text-muted-foreground">Use up to five phones as QR scanners. The laptop remains the only attendance recorder.</p>
-          {status.active ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void stop()}>Close scanner stations</Button> : <Button type="button" size="sm" disabled={!enabled || busy} onClick={() => void start()}>{busy ? "Starting…" : "Start scanner stations"}</Button>}
+          {status.active ? <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void refreshConnection()}>{busy ? "Refreshing…" : "Refresh connection QR"}</Button>
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void stop()}>Close scanner stations</Button>
+          </div> : <Button type="button" size="sm" disabled={!enabled || busy} onClick={() => void start()}>{busy ? "Starting…" : "Start scanner stations"}</Button>}
         </div>
         {!enabled ? <p className="mt-3 text-sm text-muted-foreground">Prepare this event for offline use before starting phone scanners.</p> : null}
         {!status.active && certificateStatus.configured ? <p className="mt-3 text-sm text-muted-foreground">Phones that already trust this laptop’s certificate are ready until {certificateStatus.expiresAt ? new Date(certificateStatus.expiresAt).toLocaleDateString() : "it expires"}.</p> : null}

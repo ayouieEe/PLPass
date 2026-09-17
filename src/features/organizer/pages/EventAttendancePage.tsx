@@ -334,7 +334,6 @@ export function EventAttendancePage() {
   const attendanceMutations = useAttendanceSubmissionMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const offline = useOfflineEvent(sessionQuery.data?.eventId, sessionId);
-  const [qrEnabled, setQrEnabled] = useState(false);
   const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualReason, setManualReason] = useState("");
@@ -630,7 +629,7 @@ export function EventAttendancePage() {
             <p className="font-semibold">Active attendance window</p>
             <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
           </div>
-          <QRFallbackPanel enabled={qrEnabled} disabled={attendanceMutations.credentialScanMutation.isPending} onToggle={() => setQrEnabled((value) => !value)} onSimulate={(code) => submitCredentialScan(code, "qr")} />
+          <QRFallbackPanel disabled={attendanceMutations.credentialScanMutation.isPending} onScan={(code) => void submitCredentialScan(code, "qr")} />
           <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
             <p className="font-semibold">Live facial recognition</p>
             <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Open this only after QR cannot be read, then scan one enrolled participant at a time. Use manual ID if face verification is unavailable.</p>

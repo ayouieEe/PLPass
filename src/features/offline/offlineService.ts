@@ -1,5 +1,4 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
 import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
 
 export function desktopApi() { return window.plpassDesktop; }
@@ -41,7 +40,7 @@ async function captureOfflineFace(input: HTMLVideoElement | HTMLCanvasElement) {
 
 export async function identifyOfflineStudent(eventId: string, method: OfflineIdentificationMethod, identifier: string | HTMLVideoElement | HTMLCanvasElement): Promise<PreparedEventParticipant | null> {
   const api = desktopApi(); if (!api) return null;
-  if (method === "qr" && typeof identifier === "string") return api.identifyQr(eventId, extractQrCredentialId(identifier));
+  if (method === "qr" && typeof identifier === "string") return api.identifyQr(eventId, identifier);
   if (method === "manual" && typeof identifier === "string") return api.identifyManual(eventId, identifier);
   if (method !== "facial" || typeof identifier === "string") return null;
   const match = await api.identifyOfflineFace(eventId, await captureOfflineFace(identifier));

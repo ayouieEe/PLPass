@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Radio } from "lucide-react";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -10,6 +10,15 @@ export function ActiveSessionOverlay() {
   const { session } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    left: number;
+    top: number;
+  } | null>(null);
+  const didDragRef = useRef(false);
 
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
@@ -52,25 +61,100 @@ export function ActiveSessionOverlay() {
     return null;
   }
 
-  if (location.pathname === APP_ROUTES.organizerEvents && currentSessionId === activeSession.id) {
+  const isAdminRoute = location.pathname.startsWith(`${APP_ROUTES.admin}/`);
+  const eventsRoute = isAdminRoute ? APP_ROUTES.adminEvents : APP_ROUTES.organizerEvents;
+  const eventDetailPrefix = `${eventsRoute}/`;
+  const currentEventId = location.pathname.startsWith(eventDetailPrefix)
+    ? decodeURIComponent(location.pathname.slice(eventDetailPrefix.length).split("/")[0])
+    : undefined;
+  const isLiveAttendanceWorkspace = location.pathname.startsWith(`${APP_ROUTES.organizerLiveAttendance}/`)
+    || location.pathname.startsWith(`${APP_ROUTES.admin}/live-attendance/`);
+
+  if (
+    (location.pathname === eventsRoute && Boolean(currentSessionId)) ||
+    isLiveAttendanceWorkspace ||
+    currentEventId === activeSession.eventId
+  ) {
     return null;
   }
 
   const event = eventsQuery.data?.items.find((e) => e.id === activeSession.eventId);
   const title = event?.title || activeSession.title;
+  const liveSessionPath = isAdminRoute
+    ? APP_ROUTES.adminLiveSession(activeSession.id)
+    : APP_ROUTES.organizerLiveSession(activeSession.id);
+
+  function openLiveSession() {
+    if (location.pathname === APP_ROUTES.organizerCreateEvent) {
+      window.dispatchEvent(new CustomEvent("plpass:leave-create-event-confirm", {
+        detail: { nextPath: liveSessionPath }
+      }));
+      return;
+    }
+    navigate(liveSessionPath);
+  }
+
+  function handlePointerDown(pointerEvent: React.PointerEvent<HTMLDivElement>) {
+    if (pointerEvent.pointerType === "mouse" && pointerEvent.button !== 0) return;
+    const rect = pointerEvent.currentTarget.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: pointerEvent.pointerId,
+      clientX: pointerEvent.clientX,
+      clientY: pointerEvent.clientY,
+      left: rect.left,
+      top: rect.top
+    };
+    didDragRef.current = false;
+    pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+  }
+
+  function handlePointerMove(pointerEvent: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== pointerEvent.pointerId) return;
+    const deltaX = pointerEvent.clientX - drag.clientX;
+    const deltaY = pointerEvent.clientY - drag.clientY;
+    if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) didDragRef.current = true;
+    const width = pointerEvent.currentTarget.offsetWidth;
+    const height = pointerEvent.currentTarget.offsetHeight;
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    const maxTop = Math.max(8, window.innerHeight - height - 8);
+    setPosition({
+      left: Math.min(Math.max(8, drag.left + deltaX), maxLeft),
+      top: Math.min(Math.max(8, drag.top + deltaY), maxTop)
+    });
+  }
+
+  function handlePointerUp(pointerEvent: React.PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== pointerEvent.pointerId) return;
+    if (pointerEvent.currentTarget.hasPointerCapture(pointerEvent.pointerId)) {
+      pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
+    }
+    dragRef.current = null;
+  }
 
   return (
     <div
       role="button"
       tabIndex={0}
-      onClick={() => navigate(APP_ROUTES.organizerLiveSession(activeSession.id))}
+      onClick={() => {
+        if (didDragRef.current) {
+          didDragRef.current = false;
+          return;
+        }
+        openLiveSession();
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          navigate(APP_ROUTES.organizerLiveSession(activeSession.id));
+          openLiveSession();
         }
       }}
-      className="fixed bottom-6 right-6 z-50 flex cursor-pointer items-center gap-3 overflow-hidden rounded-full bg-primary py-3 pl-4 pr-5 text-primary-foreground shadow-lg transition-all hover:scale-105 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-in slide-in-from-bottom-5 fade-in duration-300"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      style={position ? { left: position.left, top: position.top } : undefined}
+      className={`${position ? "fixed" : "fixed bottom-6 right-6"} z-50 flex touch-none cursor-grab items-center gap-3 overflow-hidden rounded-full bg-primary py-3 pl-4 pr-5 text-primary-foreground shadow-lg transition-all hover:scale-105 hover:bg-primary/90 active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-in slide-in-from-bottom-5 fade-in duration-300`}
       aria-label="Return to active live session"
     >
       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">

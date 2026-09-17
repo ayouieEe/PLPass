@@ -2407,6 +2407,53 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_finish_event: {
+        Args: { p_event_id: string; p_reason: string }
+        Returns: {
+          approval_reason: string | null
+          approval_status: string
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          category_id: string
+          college_office: string | null
+          created_at: string
+          department_id: string | null
+          description: string | null
+          ends_at: string
+          event_code: string
+          event_status: string
+          fixed_priority: boolean
+          id: string
+          impact_score: number | null
+          institutional_category: string | null
+          last_rescheduled_at: string | null
+          number_of_pax: number | null
+          organizer_id: string
+          participation_status: string | null
+          predicted_turnout_percent: number | null
+          priority_level: string
+          priority_score: number
+          priority_tier: string
+          published_at: string | null
+          published_by: string | null
+          requested_by: string | null
+          reschedule_count: number | null
+          starts_at: string
+          target_group: string | null
+          title: string
+          updated_at: string
+          urgency_points: number
+          venue: string
+          visibility: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       admin_list_credential_statuses: {
         Args: never
         Returns: {

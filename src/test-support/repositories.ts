@@ -70,7 +70,7 @@ import {
   RepositoryError,
   type RepositoryContext
 } from "@/test-support/simulatedRepositoryUtils";
-import { extractQrCredentialId } from "@/lib/credentials/qrCredential";
+import { studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import type {
   AttendanceRecord,
   AttendanceSession,
@@ -303,13 +303,6 @@ let failedNotificationState: FailedNotificationJob[] = [
   }
 ];
 
-const developmentCredentialStudentIds: Record<string, string> = {
-  "PLPASS-DEMO-1001": "student-1",
-  "PLPASS-DEMO-1002": "student-6",
-  "PLPASS-DEMO-1004": "student-4",
-  "PLPASS-DEMO-2001": "student-7"
-};
-
 export function resetSimulatedRepositoryState() {
   classRosterState = classRosterFixtures.map((entry) => ({ ...entry }));
   eventParticipantState = eventParticipantFixtures.map((entry) => ({ ...entry }));
@@ -533,7 +526,7 @@ function simulateAttendance(input: AttendanceScanInput | ManualAttendanceInput, 
   let note: string | undefined;
   const statusOverride = "statusOverride" in input ? input.statusOverride : undefined;
   if ("credentialCode" in input) {
-    const credentialStudentId = developmentCredentialStudentIds[extractQrCredentialId(input.credentialCode)];
+    const credentialStudentId = studentFixtures.find((student) => studentIdentityMatchesPayload(input.credentialCode, student.studentNumber, student.fullName ?? ""))?.id;
     if (!credentialStudentId) {
       addSafeAttendanceAttempt({ sessionId: session.id, accepted: false, attemptedAt: occurredAt, message: "Invalid credential", context });
       addSafeAudit(context, `${method}_attendance.invalid`, "attendance_session", session.id, { method });
@@ -1196,6 +1189,8 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     const updated: Event = {
       ...event,
       venue: input.venue || event.venue,
+      status: event.status === "cancelled" ? "approved" : event.status,
+      cancellationReason: undefined,
       startsAt: input.date && input.startTime 
         ? `${input.date}T${input.startTime}:00.000Z` 
         : event.startsAt,

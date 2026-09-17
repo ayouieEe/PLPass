@@ -328,6 +328,29 @@ describe("organizer repository scoping and workflows", () => {
 });
 
 describe("organizer UI flows", () => {
+  it("rehydrates an ongoing event session after the events page reloads", async () => {
+    const created = await repositories.attendanceSessions.createEventSession(
+      {
+        eventId: "event-1",
+        venue: "Main Hall",
+        date: "2026-07-15",
+        startTime: "10:00",
+        expectedEndTime: "11:00",
+        attendanceMode: "face-to-face"
+      },
+      organizerTestContext
+    );
+
+    expect(created.status).toBe("active");
+    storeSession(organizerSession);
+    setRoute("/organizer/events");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Live attendance session" })).toBeInTheDocument();
+    expect(screen.getAllByText("CCS Orientation").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("Start attendance")).not.toBeInTheDocument();
+  });
+
   it("renders the organizer reports route", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");

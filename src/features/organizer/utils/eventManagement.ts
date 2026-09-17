@@ -56,8 +56,14 @@ function isPastDate(dateString: string) {
   return new Date(`${dateString}T00:00:00`) < today;
 }
 
-function hasAttendanceSession(eventId: string | undefined, eventDate: string, sessions: Array<{ eventId?: string; date?: string }>) {
-  return Boolean(eventId && sessions.some((session) => session.eventId === eventId && session.date === eventDate));
+function hasAttendanceSession(eventId: string | undefined, sessions: Array<{ eventId?: string }>) {
+  return Boolean(eventId && sessions.some((session) => session.eventId === eventId));
+}
+
+function hasActiveAttendanceSession(eventId: string | undefined, sessions: Array<{ eventId?: string; status?: string }>) {
+  return Boolean(eventId && sessions.some((session) =>
+    session.eventId === eventId && (session.status === "active" || session.status === "ongoing")
+  ));
 }
 
 export function hasValidEventSchedule(event: Pick<EventRecord, "date" | "startTime" | "endTime">) {
@@ -74,12 +80,19 @@ export function shouldDisplayInEventTab(
     activeEventCode?: string;
     cancelledCodes: string[];
     completedCodes: Set<string>;
-    sessionsList: Array<{ eventId?: string; date?: string }>;
+    sessionsList: Array<{ eventId?: string; status?: string; startsAt?: string }>;
   }
 ) {
-  if (options.activeEventCode === event.code || options.cancelledCodes.includes(event.code) || options.completedCodes.has(event.code) || !hasValidEventSchedule(event)) return false;
+  if (
+    options.activeEventCode === event.code ||
+    event.status === "ongoing" ||
+    hasActiveAttendanceSession(event.id, options.sessionsList) ||
+    options.cancelledCodes.includes(event.code) ||
+    options.completedCodes.has(event.code) ||
+    !hasValidEventSchedule(event)
+  ) return false;
   if (tab === "today") return event.status === "today" || isTodayEvent(event);
-  if (isPastDate(event.date) && !hasAttendanceSession(event.id, event.date, options.sessionsList)) return false;
+  if (isPastDate(event.date) && !hasAttendanceSession(event.id, options.sessionsList)) return false;
   return event.status === "incoming" || !isTodayEvent(event);
 }
 

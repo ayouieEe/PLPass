@@ -14,6 +14,41 @@ export function extractQrCredentialId(rawCode: string) {
   return parts.length ? parts[parts.length - 1] : normalized;
 }
 
+export function extractStudentNumber(rawCode: string) {
+  const normalized = extractQrCredentialId(rawCode);
+  return /^\d{2}-\d{5}$/.test(normalized) ? normalized : "";
+}
+
+export function normalizeStudentLookupValue(rawValue: string) {
+  return extractQrCredentialId(rawValue).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Attendance QR payloads are deliberately limited to the value printed on the
+ * student's school ID: the student number or the student's full name. Keep
+ * this separate from the legacy credential normalizer, which understands old
+ * PLPASS-QR wrappers and opaque credential IDs.
+ */
+export function normalizeStudentIdentityValue(rawValue: string) {
+  return String(rawValue ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** True when a QR payload contains this participant's ID or full name. */
+export function studentIdentityMatchesPayload(payload: string, studentNumber: string, fullName: string) {
+  const value = normalizeStudentIdentityValue(payload);
+  if (!value) return false;
+
+  const studentId = normalizeStudentIdentityValue(studentNumber);
+  if (studentId && value.includes(studentId)) return true;
+
+  // Names on school QR codes may be rendered as "LAST, FIRST MIDDLE" while
+  // the participant list stores "First Middle Last". Ignore case, commas,
+  // periods, and word order, but require every name token to be present.
+  const payloadTokens: string[] = value.match(/[a-z0-9]+/g) ?? [];
+  const nameTokens: string[] = normalizeStudentIdentityValue(fullName).match(/[a-z0-9]+/g) ?? [];
+  return nameTokens.length >= 2 && nameTokens.every((token) => payloadTokens.includes(token));
+}
+
 export function extractSchoolStudentNumber(rawCode: string) {
-  return rawCode.match(/\b\d{2}-\d{5}\b/)?.[0] ?? "";
+  return extractStudentNumber(rawCode);
 }

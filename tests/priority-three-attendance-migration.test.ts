@@ -6,6 +6,10 @@ const migration = readFileSync(
   resolve(process.cwd(), "supabase/migrations/20260825144415_organizer_live_attendance_lifecycle.sql"),
   "utf8"
 );
+const latestStartMigration = readFileSync(
+  resolve(process.cwd(), "supabase/migrations/20260909113720_allow_owned_events_to_start_attendance_without_approval.sql"),
+  "utf8"
+);
 
 describe("Priority 3 live attendance migration", () => {
   it("prevents multiple active sessions for one event", () => {
@@ -27,5 +31,13 @@ describe("Priority 3 live attendance migration", () => {
   it("revokes public execution and grants authenticated access explicitly", () => {
     expect(migration).toMatch(/revoke all on function public\.start_event_attendance_session[\s\S]+from public, anon/i);
     expect(migration).toMatch(/grant execute on function public\.record_manual_event_attendance[\s\S]+to authenticated/i);
+  });
+
+  it("reuses an existing ongoing session and keeps the event lifecycle consistent", () => {
+    expect(latestStartMigration).toMatch(/where event_id = p_event_id and session_status = 'ongoing'/i);
+    expect(latestStartMigration).toMatch(/if found then return v_session; end if;/i);
+    expect(latestStartMigration).toContain("update public.events set event_status = 'ongoing'");
+    expect(latestStartMigration).toMatch(/revoke all on function public\.start_event_attendance_session[\s\S]+from public, anon/i);
+    expect(latestStartMigration).toMatch(/grant execute on function public\.start_event_attendance_session[\s\S]+to authenticated/i);
   });
 });

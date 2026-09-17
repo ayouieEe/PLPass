@@ -187,8 +187,10 @@ export class ScannerCoordinator {
         if (!input.credentialCode?.trim() || !input.scanAttemptId?.trim()) return json(response, 400, { error: "A QR credential and scan attempt ID are required." });
         const prior = this.attempts.get(input.scanAttemptId); if (prior) return json(response, 200, prior);
         station.lastSeenAt = new Date().toISOString(); station.lastScanAt = station.lastSeenAt;
-        const credentialId = input.credentialCode.trim().replace(/^PLPASS-QR:/i, "").split(":").filter(Boolean).pop()?.trim() ?? "";
-        const student = this.store.identifyQr(this.eventId, credentialId);
+        // Student QR payloads contain only the printed student number or full
+        // name. Opaque credential IDs and PLPASS-QR wrappers are rejected by
+        // the participant lookup.
+        const student = this.store.identifyQr(this.eventId, input.credentialCode.trim());
         const cachedAttendance = student ? this.store.getAttendanceState(this.sessionId, student.studentId) : null;
         const result = !student ? { accepted: false, message: "Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
           accepted: false,

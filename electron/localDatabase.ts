@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { localMigrations } from "./migrations.js";
 import type { CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflineStatus, PendingAttendanceRecord, PreparedEventPackage, PreparedEventParticipant } from "../src/features/offline/types.js";
+import { studentIdentityMatchesPayload } from "../src/lib/credentials/qrCredential.js";
 
 type SqlRow = Record<string, unknown>;
 
@@ -61,7 +62,11 @@ export class LocalAttendanceDatabase {
     if (!row) return null;
     return { studentId: String(row.student_id), studentNumber: String(row.student_number), displayName: String(row.display_name), participantStatus: String(row.participant_status), qrIdentifier: value(row, "qr_identifier"), faceEmbeddings: JSON.parse(String(row.face_embeddings_json ?? "[]")) as number[][] };
   }
-  identifyQr(eventId: string, qr: string) { return this.participant(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed' AND (qr_identifier=? OR lower(student_number)=lower(?))").get(eventId, qr, qr.trim()) as SqlRow | undefined); }
+  identifyQr(eventId: string, qr: string) {
+    const value = qr.trim();
+    const rows = this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[];
+    return this.participant(rows.find((row) => studentIdentityMatchesPayload(value, String(row.student_number ?? ""), String(row.display_name ?? ""))));
+  }
   getAttendanceState(sessionId: string, studentId: string) {
     const row = this.db.prepare("SELECT time_in, time_out FROM cached_attendance_state WHERE session_id=? AND student_id=?").get(sessionId, studentId) as SqlRow | undefined;
     return row ? { timeIn: value(row, "time_in"), timeOut: value(row, "time_out") } : null;
