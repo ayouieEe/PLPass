@@ -859,11 +859,26 @@ export function EventManagementPage() {
       setActiveParticipantIdentities(null);
       return;
     }
+    // Repository-backed event IDs are UUIDs. Mock/demo event IDs must not be
+    // sent to Postgres, and this also keeps isolated UI tests credential-free.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(activeEventId)) {
+      setActiveParticipantIdentities([]);
+      return;
+    }
 
     let current = true;
     setActiveParticipantIdentities(null);
     const loadActiveParticipants = async () => {
-      const client = getSupabaseBrowserClient();
+      let client: ReturnType<typeof getSupabaseBrowserClient>;
+      try {
+        client = getSupabaseBrowserClient();
+      } catch {
+        // The browser client is deliberately absent in isolated UI tests and
+        // offline setup screens. Attendance capture remains unavailable until
+        // a real event participant list can be loaded.
+        if (current) setActiveParticipantIdentities([]);
+        return;
+      }
       const { data: participantRows, error: participantError } = await client
         .from("event_participants")
         .select("student_id")
@@ -1551,7 +1566,7 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
+}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
