@@ -13,7 +13,10 @@ body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% -
 h1 { margin: 0; color: #1a291d; font-size: clamp(25px, 6vw, 31px); letter-spacing: -.035em; }
 .phase-badge { display: inline-flex; margin: 13px 0 0; border: 1px solid #bcd9bd; border-radius: 999px; background: #eff8ee; padding: 7px 11px; color: #2d6938; font-size: 13px; font-weight: 800; }
 .camera-frame { position: relative; overflow: hidden; min-height: 310px; border: 1px solid #203924; border-radius: 22px; background: #172219; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); }
-.scanner-camera { display: block; width: 100%; height: 310px; object-fit: cover; transform: rotateY(180deg); transform-origin: center; }
+.scanner-camera { display: block; width: 100%; height: 310px; object-fit: cover; transform-origin: center; }
+.scanner-camera.is-mirrored { transform: scaleX(-1); }
+.mirror-preview { position: absolute; top: 12px; right: 12px; z-index: 2; border: 1px solid rgba(255,255,255,.55); border-radius: 999px; background: rgba(8, 18, 10, .72); padding: 7px 10px; color: #fff; font: inherit; font-size: 12px; font-weight: 700; }
+.mirror-preview:focus-visible { outline: 3px solid #e9f8e8; outline-offset: 2px; }
 .scan-guide { position: absolute; inset: 50% auto auto 50%; width: min(56vw, 210px); aspect-ratio: 1; transform: translate(-50%, -54%); }
 .scan-guide span { position: absolute; width: 27px; height: 27px; border-color: #e9f8e8; border-style: solid; filter: drop-shadow(0 1px 4px #000); }
 .scan-guide span:nth-child(1) { top: 0; left: 0; border-width: 4px 0 0 4px; border-radius: 8px 0 0; }.scan-guide span:nth-child(2) { top: 0; right: 0; border-width: 4px 4px 0 0; border-radius: 0 8px 0 0; }.scan-guide span:nth-child(3) { bottom: 0; left: 0; border-width: 0 0 4px 4px; border-radius: 0 0 0 8px; }.scan-guide span:nth-child(4) { right: 0; bottom: 0; border-width: 0 4px 4px 0; border-radius: 0 0 8px; }

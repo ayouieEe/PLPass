@@ -13,6 +13,9 @@ let startingCamera = false;
 let heartbeatTimer: number | null = null;
 const recentCredentials = new Map<string, number>();
 let capturePhase: "time_in" | "time_out" = "time_in";
+// Back cameras should look like the real scene. A mirrored preview is only an
+// optional display preference; it does not alter frames supplied to QR decode.
+let previewMirrored = false;
 const scannerClientId = (() => {
   const key = "plpass-scanner-client-id";
   try {
@@ -30,6 +33,15 @@ function show(html: string) { root.innerHTML = html; }
 function safe(text: string) { return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character); }
 function phaseLabel() { return capturePhase === "time_out" ? "Time Out" : "Time In"; }
 function renderPhase() { const label = document.querySelector<HTMLElement>("#phase"); if (label) label.textContent = `Recording ${phaseLabel()}`; const result = document.querySelector<HTMLParagraphElement>("#result"); if (result && controls && !busy) { result.className = "scan-status"; result.textContent = `Camera is ready. Scan a student QR to record ${phaseLabel()}.`; } }
+function renderPreviewMirror() {
+  const video = document.querySelector<HTMLVideoElement>("#camera");
+  const button = document.querySelector<HTMLButtonElement>("#mirror-preview");
+  video?.classList.toggle("is-mirrored", previewMirrored);
+  if (button) {
+    button.setAttribute("aria-pressed", String(previewMirrored));
+    button.textContent = previewMirrored ? "Mirror preview: On" : "Mirror preview: Off";
+  }
+}
 
 async function startScan() {
   const video = document.querySelector<HTMLVideoElement>("#camera"); const result = document.querySelector<HTMLParagraphElement>("#result"); const button = document.querySelector<HTMLButtonElement>("#start");
@@ -74,7 +86,9 @@ async function join() {
     if (!response.ok || !body.stationToken) throw new Error(body.error ?? "This invitation is no longer valid.");
     stationToken = body.stationToken;
     capturePhase = body.capturePhase ?? "time_in";
-    show(`<main class="scanner-shell"><section class="scanner-card"><header class="scanner-header"><div class="brand"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><span>PLPass</span></div><span class="connection"><i></i> Connected</span></header><div class="scanner-title"><p class="station-name">${safe(body.station?.name ?? "Scanner station")}</p><h1>Student attendance</h1><p id="phase" class="phase-badge">Recording ${phaseLabel()}</p></div><div class="camera-frame"><video id="camera" class="scanner-camera" autoplay muted playsinline></video><div class="scan-guide" aria-hidden="true"><span></span><span></span><span></span><span></span></div><p class="camera-hint">Align the student QR within the frame</p></div><p id="result" class="scan-status" role="status">Start the camera to scan student ${phaseLabel()}.</p><button id="start" class="start-button"><span aria-hidden="true">▣</span> Start camera</button><footer class="scanner-footer"><span class="lock-icon" aria-hidden="true">⌑</span> Confirmed by the organizer laptop</footer></section></main>`);
+    show(`<main class="scanner-shell"><section class="scanner-card"><header class="scanner-header"><div class="brand"><img class="brand-mark" src="/plp-logo.png" alt="PLPass logo" /><span>PLPass</span></div><span class="connection"><i></i> Connected</span></header><div class="scanner-title"><p class="station-name">${safe(body.station?.name ?? "Scanner station")}</p><h1>Student attendance</h1><p id="phase" class="phase-badge">Recording ${phaseLabel()}</p></div><div class="camera-frame"><video id="camera" class="scanner-camera" autoplay muted playsinline></video><div class="scan-guide" aria-hidden="true"><span></span><span></span><span></span><span></span></div><button id="mirror-preview" class="mirror-preview" type="button" aria-pressed="false">Mirror preview: Off</button><p class="camera-hint">Align the student QR within the frame</p></div><p id="result" class="scan-status" role="status">Start the camera to scan student ${phaseLabel()}.</p><button id="start" class="start-button"><span aria-hidden="true">▣</span> Start camera</button><footer class="scanner-footer"><span class="lock-icon" aria-hidden="true">⌑</span> Confirmed by the organizer laptop</footer></section></main>`);
+    renderPreviewMirror();
+    document.querySelector<HTMLButtonElement>("#mirror-preview")?.addEventListener("click", () => { previewMirrored = !previewMirrored; renderPreviewMirror(); });
     document.querySelector<HTMLButtonElement>("#start")?.addEventListener("click", () => void startScan());
     socket = new WebSocket(`wss://${location.host}/ws?token=${encodeURIComponent(stationToken)}`);
     heartbeatTimer = window.setInterval(() => {
