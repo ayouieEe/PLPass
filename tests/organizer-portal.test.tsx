@@ -351,6 +351,16 @@ describe("organizer UI flows", () => {
     expect(screen.queryByText("Start attendance")).not.toBeInTheDocument();
   });
 
+  it("opens the selected completed event record from its event query parameter", async () => {
+    await repositories.eventManagement.completeEvent("event-1", organizerTestContext);
+    storeSession(organizerSession);
+    setRoute("/organizer/records?event=event-1");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Event Records" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Completed event report" })).toBeInTheDocument();
+  });
+
   it("renders the organizer reports route", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");

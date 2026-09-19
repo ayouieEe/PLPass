@@ -22,6 +22,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
+import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 
@@ -62,6 +63,7 @@ type EventRecord = {
   category: string;
   venue: string;
   startsAt?: string;
+  endsAt?: string;
   date: string;
   startTime: string;
   endTime: string;
@@ -212,6 +214,7 @@ function completedFromRepositoryEvent(event: {
     category: event.category,
     venue: event.venue,
     startsAt: event.startsAt,
+    endsAt: event.endsAt,
     date: formatDisplayDate(event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
@@ -682,7 +685,7 @@ export function EventRecordsPage() {
     [completedRows]
   );
   const pastEvents = useMemo(
-    () => completedRows.filter((event) => {
+    () => sortCompletedEventsNewestFirst(completedRows.filter((event) => {
       const scheduledDate = dateKey(event.startsAt ?? event.date);
       return matchesSearch(event, search)
         && (!fromDate || Boolean(scheduledDate && scheduledDate >= fromDate))
@@ -690,7 +693,7 @@ export function EventRecordsPage() {
         && (!venueFilter || event.venue === venueFilter)
         && (!categoryFilter || event.category === categoryFilter)
         && (!priorityFilter || event.priorityLevel === priorityFilter);
-    }),
+    })),
     [categoryFilter, completedRows, fromDate, priorityFilter, search, toDate, venueFilter]
   );
 

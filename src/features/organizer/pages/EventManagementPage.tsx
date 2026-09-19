@@ -636,6 +636,7 @@ export function EventManagementPage() {
   const [activeRows, setActiveRows] = useState<DraftAttendanceRow[]>([]);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [finalizedSummary, setFinalizedSummary] = useState<FinalizedSessionSummary | null>(null);
+  const [summaryEvent, setSummaryEvent] = useState<Pick<EventRecord, "id" | "code" | "name"> | null>(null);
   const [completedExtras, setCompletedExtras] = useState<CompletedRecord[]>([]);
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
@@ -1511,6 +1512,7 @@ export function EventManagementPage() {
 
   setActiveRows([]);
   setFinalizedSummary(null);
+  setSummaryEvent(null);
   setCaptureMode(defaultAttendanceMethod);
   setAttendancePhase("time_in");
   writeAttendancePhase(window.sessionStorage, startedSession.id, "time_in");
@@ -1535,6 +1537,7 @@ export function EventManagementPage() {
     return;
   }
   let attendanceFinalized = false;
+  const finalizedEvent = { id: activeEvent.id, code: activeEvent.code, name: activeEvent.name };
   try {
     const sessionId = liveSessionId;
     if (!sessionId) throw new Error("The active attendance session could not be found.");
@@ -1566,20 +1569,16 @@ export function EventManagementPage() {
       // failure must not make the organizer believe it is still open.
     }
     await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
-    const { data: finalizedRecords, error: finalizedRecordsError } = await getSupabaseBrowserClient()
-      .from("attendance_records")
-      .select("attendance_status, late_reason_category")
-      .eq("event_session_id", sessionId);
-    if (finalizedRecordsError) throw finalizedRecordsError;
     setFinalizedSummary(
       summarizeFinalizedSession(
-        (finalizedRecords ?? []).map((record) => ({
-          attendanceStatus: record.attendance_status as AttendanceStatus,
-          lateReason: record.late_reason_category ?? undefined
+        attendanceRecords.map((record) => ({
+          attendanceStatus: record.status,
+          lateReason: record.lateReason
         })),
         activeParticipantCount
       )
     );
+    setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
     void auditLogMutations.logActionMutation.mutateAsync({
@@ -2018,10 +2017,13 @@ export function EventManagementPage() {
   }
 
   function viewEventRecordFromSummary() {
-    if (!activeEvent?.id) {
-      return;
-    }
-    navigate(`${workspaceRoute(`${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(activeEvent.id)}`, `${APP_ROUTES.adminAttendance}?event=${encodeURIComponent(activeEvent.id)}`)}`);
+    const eventId = summaryEvent?.id ?? activeEvent?.id;
+    if (!eventId) return;
+    setSummaryOpen(false);
+    navigate(workspaceRoute(
+      `${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(eventId)}`,
+      `${APP_ROUTES.adminAttendance}?event=${encodeURIComponent(eventId)}`
+    ));
   }
 
   function exportReport(label: string, events = completedEvents) {
@@ -2929,7 +2931,7 @@ export function EventManagementPage() {
       {summaryOpen ? (
         <ModalFrame onClose={() => setSummaryOpen(false)} width="max-w-xl">
           <h2 className="text-xl font-semibold">Session Summary</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{activeEvent?.code} - {activeEvent?.name}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{summaryEvent?.code ?? activeEvent?.code ?? "-"} - {summaryEvent?.name ?? activeEvent?.name ?? ""}</p>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <SummaryTile label="Total Participants" value={sessionSummary.totalParticipants.toString()} />
             <SummaryTile label="Present" value={sessionSummary.present.toString()} />
