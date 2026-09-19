@@ -6,7 +6,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { ActiveSessionOverlay } from "@/features/attendance/ActiveSessionOverlay";
 
 export function RoleShellLayout() {
-  const { session } = useDevelopmentSession();
+  const { session, isOfflineMode } = useDevelopmentSession();
 
   if (!session) {
     return (
@@ -21,7 +21,7 @@ export function RoleShellLayout() {
       <DashboardLayout role={session.role} userLabel={session.displayName}>
         <Outlet />
       </DashboardLayout>
-      <ActiveSessionOverlay />
+      {!isOfflineMode ? <ActiveSessionOverlay /> : null}
     </HeaderProvider>
   );
 }

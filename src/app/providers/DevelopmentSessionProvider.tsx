@@ -19,10 +19,12 @@ import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTime
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
+import { getManilaCalendarDate, prepareEventForOffline, reconcileOfflineEventLifecycle } from "@/features/offline/offlineService";
 
 const supabaseAuthDeadlineMs = 12_000;
 const desktopOfflineSessionKey = "plpass-desktop-offline-session";
 const desktopOfflineSessionMaxAgeMs = 24 * 60 * 60_000;
+const dailyPackagePreparationRuns = new Set<string>();
 
 type CachedDesktopOfflineSession = {
   session: DevelopmentSession;
@@ -39,7 +41,7 @@ function cacheDesktopOfflineSession(session: DevelopmentSession) {
   window.localStorage.setItem(desktopOfflineSessionKey, JSON.stringify(value));
 }
 
-function readDesktopOfflineSession(userId: string | undefined) {
+function readDesktopOfflineSession(userId?: string) {
   try {
     const stored = window.localStorage.getItem(desktopOfflineSessionKey);
     if (!stored) return null;
@@ -47,7 +49,7 @@ function readDesktopOfflineSession(userId: string | undefined) {
     if (
       !value.session?.isAuthenticated ||
       value.session.role !== "organizer" ||
-      value.session.userId !== userId ||
+      (userId !== undefined && value.session.userId !== userId) ||
       !Number.isFinite(value.savedAt) ||
       Date.now() - value.savedAt > desktopOfflineSessionMaxAgeMs
     ) {
@@ -63,6 +65,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<DevelopmentSession | null>(null);
   const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [authError, setAuthError] = useState<string | undefined>();
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [offlineResumeAvailable, setOfflineResumeAvailable] = useState(false);
+  const [hasOfflineWork, setHasOfflineWork] = useState(false);
   useEffect(() => {
     let isMounted = true;
     async function restoreSession() {
@@ -103,17 +108,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         // to open the already-prepared local attendance package. Syncing still
         // requires a valid online Supabase session later.
         if (isDesktopOffline()) {
-          const { data } = await supabase.auth.getSession();
-          const offlineSession = readDesktopOfflineSession(data.session?.user.id);
-          if (offlineSession) {
-            if (isMounted) {
-              setSession(offlineSession);
-              setIsSessionRestored(true);
-            }
-            return;
-          }
+          // Offline recovery is intentionally based on the recent desktop
+          // cache, not on a Supabase token lookup. The token may be absent or
+          // expired while disconnected even though this desktop was recently
+          // authenticated online.
+          const offlineSession = readDesktopOfflineSession();
           if (isMounted) {
-            setAuthError("Offline access requires this organizer to sign in on this desktop while connected within the last 24 hours.");
+            setOfflineResumeAvailable(Boolean(offlineSession));
+            if (!offlineSession) setAuthError("Offline access requires this organizer to sign in on this desktop while connected within the last 24 hours.");
             setSession(null);
             setIsSessionRestored(true);
           }
@@ -138,6 +140,12 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         }
       } catch (error) {
         if (isMounted) {
+          if (window.plpassDesktop && supabase && !shouldSignOutAfterAuthFailure(error)) {
+            try {
+              const { data } = await supabase.auth.getSession();
+              setOfflineResumeAvailable(Boolean(readDesktopOfflineSession(data.session?.user.id)));
+            } catch { setOfflineResumeAvailable(false); }
+          }
           queryClient.clear();
           if (shouldSignOutAfterAuthFailure(error) && supabase) {
             void supabase.auth.signOut();
@@ -155,8 +163,96 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
+  const refreshOfflineWork = useCallback(async () => {
+    if (!session || session.role !== "organizer" || !window.plpassDesktop) { setHasOfflineWork(false); return false; }
+    try { const hasWork=await window.plpassDesktop.hasUnresolvedWork(session.userId); setHasOfflineWork(hasWork); return hasWork; }
+    catch { return hasOfflineWork; }
+  }, [hasOfflineWork,session]);
+
+  useEffect(() => { void refreshOfflineWork(); }, [refreshOfflineWork]);
+
+  const continueOffline = useCallback(async () => {
+    if (!window.plpassDesktop) return null;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const cached = readDesktopOfflineSession();
+      if (!cached || cached.role !== "organizer") {
+        setAuthError("Offline access is available only to the recently authenticated organizer on this desktop.");
+        return null;
+      }
+      setSession(cached);
+      setIsOfflineMode(true);
+      setOfflineResumeAvailable(false);
+      setAuthError(undefined);
+      queryClient.clear();
+      return cached;
+    } catch {
+      setAuthError("The saved organizer session is unavailable on this desktop.");
+      return null;
+    }
+  }, []);
+
+  const reconnectOnline = useCallback(async () => {
+    if (!session || !window.plpassDesktop) return false;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data, error } = await supabase.auth.getUser();
+      if (error || data.user?.id !== session.userId) return false;
+      const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
+      if (!confirmed || confirmed.role !== "organizer") return false;
+      const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true);
+      if (!reconciliation.completed) {
+        setAuthError(reconciliation.message);
+        return false;
+      }
+      cacheDesktopOfflineSession(confirmed);
+      setSession(confirmed);
+      setIsOfflineMode(false);
+      setHasOfflineWork(false);
+      return true;
+    } catch { return false; }
+  }, [session]);
+
+  // Prepare today's owned events once, serially, after a confirmed online
+  // organizer session. A persisted attempt marker prevents relaunch retry loops.
   useEffect(() => {
-    if (!session || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+    if (!session || session.role !== "organizer" || isOfflineMode || !window.plpassDesktop || !navigator.onLine || import.meta.env.MODE === "test") return;
+    let cancelled = false;
+    const day = getManilaCalendarDate();
+    const marker = `plpass-offline-package-attempts:${session.userId}:${day}`;
+    const runKey = `${session.userId}:${day}`;
+    const timer=window.setTimeout(()=>{
+      if(cancelled || dailyPackagePreparationRuns.has(runKey)) return;
+      dailyPackagePreparationRuns.add(runKey);
+      void (async () => {
+      try {
+        const desktopApi=window.plpassDesktop;
+        if(!desktopApi) return;
+        const local = await desktopApi.listPreparedEvents(session.userId, day);
+        const ready = new Set(local.map((item) => item.event.id));
+        const prior = new Set<string>(JSON.parse(window.localStorage.getItem(marker) ?? "[]"));
+        const page = await repositories.eventManagement.listEvents({ pageIndex: 0, pageSize: 100 }, { actorUserId:session.userId, actorRole:"organizer" });
+        const candidates = [...page.items];
+        for (let pageIndex=1; pageIndex<page.pageCount; pageIndex+=1) {
+          if (cancelled) return;
+          const nextPage = await repositories.eventManagement.listEvents({ pageIndex, pageSize: 100 }, { actorUserId:session.userId, actorRole:"organizer" });
+          candidates.push(...nextPage.items);
+        }
+        const targets = candidates.filter((event) => ["approved", "ongoing"].includes(event.status) && getManilaCalendarDate(new Date(event.startsAt)) === day && !ready.has(event.id) && !prior.has(event.id));
+        for (const event of targets) {
+          if (cancelled) return;
+          prior.add(event.id);
+          window.localStorage.setItem(marker, JSON.stringify([...prior]));
+          try { await prepareEventForOffline(event.id, session.userId); } catch { /* One attempt per event/day; explicit refresh is available in Events. */ }
+        }
+      } catch { /* A failure here does not create a retry loop. */ }
+      })();
+    },0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [isOfflineMode, session]);
+
+  useEffect(() => {
+    if (!session || isOfflineMode || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
       return;
     }
 
@@ -220,6 +316,16 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       if (channel) void supabase.removeChannel(channel);
       removeVisibilityListener();
     };
+  }, [isOfflineMode, session]);
+
+  useEffect(() => {
+    const handleOffline = () => {
+      if (!window.plpassDesktop || session?.role !== "organizer" || !readDesktopOfflineSession(session.userId)) return;
+      queryClient.clear();
+      setIsOfflineMode(true);
+    };
+    window.addEventListener("offline",handleOffline);
+    return()=>window.removeEventListener("offline",handleOffline);
   }, [session]);
 
   const signInWithPassword = useCallback(async (email: string, password: string) => {
@@ -242,13 +348,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       };
       window.localStorage.setItem("plpass-development-session", JSON.stringify(nextSession));
       setSession(nextSession);
+      setIsOfflineMode(false);
+      setOfflineResumeAvailable(false);
       return nextSession;
     }
     if (isDesktopOffline()) {
       try {
         const supabase = getSupabaseBrowserClient();
-        const { data } = await supabase.auth.getSession();
-        const offlineSession = readDesktopOfflineSession(data.session?.user.id);
+        const offlineSession = readDesktopOfflineSession();
         if (offlineSession) {
           setSession(offlineSession);
           return offlineSession;
@@ -281,6 +388,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         "Sign-in took too long. Check your connection and try again."
       );
       setSession(nextSession);
+      setIsOfflineMode(false);
+      setOfflineResumeAvailable(false);
       cacheDesktopOfflineSession(nextSession);
       return nextSession;
     } catch (error) {
@@ -297,18 +406,27 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const logout = useCallback(async () => {
+    const wasOffline = isOfflineMode;
+    if (wasOffline && session?.role === "organizer" && window.plpassDesktop && await window.plpassDesktop.hasUnresolvedWork(session.userId)) {
+      throw new Error("Sync or resolve the saved offline event before logging out. Your local records have been kept.");
+    }
     queryClient.clear();
     window.localStorage.removeItem("plpass-development-session");
     window.localStorage.removeItem(desktopOfflineSessionKey);
     setSession(null);
-    if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    setIsOfflineMode(false);
+    setOfflineResumeAvailable(false);
+    setHasOfflineWork(false);
+    setIsOfflineMode(false);
+    setOfflineResumeAvailable(false);
+    if (wasOffline || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
     const { error } = await getSupabaseBrowserClient().auth.signOut();
     if (error) throw error;
-  }, []);
+  }, [isOfflineMode,session]);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, authError, signInWithPassword, logout }),
-    [authError, isSessionRestored, logout, session, signInWithPassword]
+    () => ({ session, isSessionRestored, isOfflineMode, offlineResumeAvailable, hasOfflineWork, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
+    [authError, continueOffline, hasOfflineWork, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

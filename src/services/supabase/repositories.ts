@@ -32,6 +32,7 @@ import type {
 } from "@/services/contracts";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 import { mapSupabaseError, throwIfSupabaseError } from "@/lib/supabase/errors";
 import {
   mapAttendanceRecord,
@@ -973,8 +974,8 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const { data, error } = await client.rpc("reschedule_organizer_event", {
       p_event_id: input.eventId,
       p_venue: input.venue?.trim() || currentEvent.venue,
-      p_starts_at: new Date(`${date}T${startTime}:00`).toISOString(),
-      p_ends_at: new Date(`${date}T${endTime}:00`).toISOString(),
+      p_starts_at: manilaDateTimeToIso(date, startTime),
+      p_ends_at: manilaDateTimeToIso(date, endTime),
       p_reason: reason
     });
     throwIfSupabaseError(error);
@@ -1014,8 +1015,11 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
     throw new RepositoryError("Class sessions are not part of the event-only PLPass schema.", "VALIDATION_ERROR");
 },
  async createEventSession(input) {
-  const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-  const scheduledEnd = new Date(`${input.date}T${input.expectedEndTime}:00`).toISOString();
+  if (input.date !== dateKey(new Date())) {
+    throw new RepositoryError("An attendance session can only be started on the event's scheduled Manila date. Reschedule the event to today first.", "VALIDATION_ERROR");
+  }
+  const scheduledStart = manilaDateTimeToIso(input.date, input.startTime);
+  const scheduledEnd = manilaDateTimeToIso(input.date, input.expectedEndTime);
   const client = getSupabaseBrowserClient();
   const { data, error } = await client.rpc("start_event_attendance_session", {
     p_event_id: input.eventId,

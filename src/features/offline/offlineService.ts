@@ -1,7 +1,17 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
+import type { LocalAttendanceInput, LocalAttendanceResult, OfflineIdentificationMethod, OfflinePreparedEventSummary, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "./types";
 
 export function desktopApi() { return window.plpassDesktop; }
+
+export function getManilaCalendarDate(at = new Date()) {
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(at);
+  const part=(name:string)=>parts.find((item)=>item.type===name)?.value??"";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export async function listOfflineEvents(organizerProfileId: string): Promise<OfflinePreparedEventSummary[]> {
+  return desktopApi()?.listPreparedEvents(organizerProfileId, getManilaCalendarDate()) ?? [];
+}
 
 export async function confirmSupabaseConnectivity(): Promise<boolean> {
   try {
@@ -10,17 +20,26 @@ export async function confirmSupabaseConnectivity(): Promise<boolean> {
   } catch { return false; }
 }
 
-export async function prepareEventForOffline(eventId: string): Promise<OfflineStatus> {
+export async function prepareEventForOffline(eventId: string, organizerProfileId: string): Promise<OfflineStatus> {
   const api = desktopApi();
   if (!api) throw new Error("Offline preparation is available in the PLPass desktop app.");
-  if (!(await confirmSupabaseConnectivity())) throw new Error("A confirmed Supabase connection is required to prepare an event.");
   const { data, error } = await getSupabaseBrowserClient().rpc("prepare_offline_event_package", { p_event_id: eventId });
   if (error) throw error;
   const pkg = data as unknown as PreparedEventPackage;
   if (!pkg?.event?.id || !Array.isArray(pkg.sessions) || !pkg.sessions.length || !Array.isArray(pkg.participants) || !pkg.participants.length) {
     throw new Error("The event package is incomplete and was not saved.");
   }
-  return api.prepareEvent(pkg);
+  return api.prepareEvent(pkg, organizerProfileId);
+}
+
+export async function startOfflineEvent(eventId:string,sessionId:string,organizerProfileId:string) {
+  const api=desktopApi(); if(!api) throw new Error("Offline event sessions require the PLPass desktop app.");
+  return api.startOfflineSession(eventId,sessionId,organizerProfileId,getManilaCalendarDate(),new Date().toISOString());
+}
+
+export async function endOfflineEvent(eventId:string,sessionId:string,organizerProfileId:string,reason?:string) {
+  const api=desktopApi(); if(!api) throw new Error("Offline event sessions require the PLPass desktop app.");
+  return api.endOfflineSession(eventId,sessionId,organizerProfileId,new Date().toISOString(),reason);
 }
 
 async function captureOfflineFace(input: HTMLVideoElement | HTMLCanvasElement) {
@@ -47,9 +66,9 @@ export async function identifyOfflineStudent(eventId: string, method: OfflineIde
   return match ? { ...match, faceEmbeddings: [] } : null;
 }
 
-export async function recordOfflineAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult> {
+export async function recordOfflineAttendance(input: LocalAttendanceInput, phase?:"time_in"|"time_out"): Promise<LocalAttendanceResult> {
   const api=desktopApi(); if(!api) throw new Error("Local attendance requires the PLPass desktop app.");
-  return api.recordAttendance(input);
+  return phase ? api.recordScannerAttendance(input,phase) : api.recordAttendance(input);
 }
 
 function errorCode(error: unknown) { return error && typeof error === "object" && "code" in error ? String(error.code) : ""; }
@@ -70,6 +89,7 @@ function syncFailureStatus(error: unknown): "RETRY" | "CONFLICT" {
 }
 
 let activeSync: Promise<{confirmed:number;failed:number}> | null = null;
+let activeLifecycleSync: Promise<{completed:boolean;message:string}> | null = null;
 const syncBackoffBaseMs = 5_000;
 const syncBackoffMaxMs = 5 * 60_000;
 const syncInterRecordDelayMs = 125;
@@ -97,6 +117,59 @@ const syncMetrics: OfflineSyncMetrics = {
 
 export function getOfflineSyncMetrics(): OfflineSyncMetrics { return { ...syncMetrics }; }
 
+export async function reconcileOfflineEventLifecycle(organizerProfileId:string,connectionAlreadyConfirmed=false):Promise<{completed:boolean;message:string}> {
+  if(activeLifecycleSync) return activeLifecycleSync;
+  activeLifecycleSync=(async()=>{
+    const api=desktopApi();
+    if(!api || (!connectionAlreadyConfirmed && !(await confirmSupabaseConnectivity()))) return {completed:false,message:"A verified connection is required. Local attendance remains saved."};
+    const events=await api.listPreparedEvents(organizerProfileId,getManilaCalendarDate());
+    for(const summary of events){
+      if(!summary.sessionId || !["START_PENDING","END_PENDING"].includes(summary.lifecycle)) continue;
+      const pkg=await api.getPreparedEvent(summary.event.id,organizerProfileId);
+      let local=pkg?.sessions.find((item)=>item.id===summary.sessionId);
+      if(!pkg || !local) continue;
+      try {
+        if(local.offlineLifecycle==="START_PENDING") {
+          if(!local.offlineStartedAt) throw new Error("The local event start time is missing.");
+          const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_start",{p_session_id:local.id,p_actual_start:local.offlineStartedAt});
+          if(error) throw error;
+          await api.setOfflineLifecycleState(pkg.event.id,local.id,"STARTED");
+          local=(await api.getPreparedEvent(pkg.event.id,organizerProfileId))?.sessions.find((item)=>item.id===summary.sessionId);
+          if(!local) throw new Error("The locally saved event session could not be reloaded after start reconciliation.");
+        }
+        if(local && ["STARTED","END_PENDING"].includes(local.offlineLifecycle ?? "")) {
+          for(let i=0;i<5;i++) {
+            const result=await synchronizePendingAttendance(20,false,true,organizerProfileId);
+            if(result.failed || result.confirmed===0) break;
+          }
+          if(local.offlineLifecycle==="END_PENDING") {
+            if((await api.listPending(pkg.event.id,organizerProfileId)).length) continue;
+            if(!local.offlineEndedAt) throw new Error("The local event end time is missing.");
+            const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_end",{
+              p_session_id:local.id,
+              p_actual_end:local.offlineEndedAt,
+              p_reason:"Organizer ended this session offline.",
+              p_expected_student_ids:pkg.participants.filter((participant)=>participant.participantStatus!=="removed").map((participant)=>participant.studentId)
+            });
+            if(error) throw error;
+            await api.setOfflineLifecycleState(pkg.event.id,local.id,"ENDED");
+          }
+        }
+      } catch(error) {
+        const code=errorCode(error);
+        if(["42501","22023","23503","23514"].includes(code) && summary.sessionId) await api.setOfflineLifecycleState(pkg.event.id,summary.sessionId,"CONFLICT");
+        return {completed:false,message:"Reconciliation could not be confirmed. The saved event and attendance were retained for review."};
+      }
+    }
+    const remaining=await api.listPreparedEvents(organizerProfileId,getManilaCalendarDate());
+    let hasLocalAttendance=false;
+    for(const item of remaining) if((await api.listPending(item.event.id,organizerProfileId)).length) { hasLocalAttendance=true; break; }
+    const pending=remaining.some((item)=>["START_PENDING","END_PENDING","CONFLICT"].includes(item.lifecycle)) || hasLocalAttendance;
+    return {completed:!pending,message:pending?"Some offline work is still awaiting confirmation; nothing was discarded.":"Offline event sessions and attendance are confirmed."};
+  })().finally(()=>{activeLifecycleSync=null;});
+  return activeLifecycleSync;
+}
+
 function registerSyncResult(result: { confirmed: number; failed: number }) {
   if (result.failed === 0) {
     syncBackoffExponent = 0;
@@ -110,14 +183,14 @@ function registerSyncResult(result: { confirmed: number; failed: number }) {
   syncMetrics.lastRetryDelayMs = delay;
 }
 
-export async function synchronizePendingAttendance(batchSize=20, forceRetry=false): Promise<{confirmed:number;failed:number}> {
+export async function synchronizePendingAttendance(batchSize=20, forceRetry=false, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number}> {
   if (activeSync) return activeSync;
   if (!forceRetry && Date.now() < nextSyncAllowedAt) return { confirmed: 0, failed: 0 };
   const boundedBatchSize = Math.min(20, Math.max(1, Math.floor(batchSize) || 20));
   syncMetrics.attempts += 1;
   syncMetrics.activeSyncs += 1;
   syncMetrics.lastAttemptAt = new Date().toISOString();
-  activeSync = synchronizePendingAttendanceOnce(boundedBatchSize, forceRetry).then((result) => {
+  activeSync = synchronizePendingAttendanceOnce(boundedBatchSize, forceRetry, connectionAlreadyConfirmed,organizerProfileId).then((result) => {
     registerSyncResult(result);
     syncMetrics.successfulRecords += result.confirmed;
     return result;
@@ -125,10 +198,10 @@ export async function synchronizePendingAttendance(batchSize=20, forceRetry=fals
   try { return await activeSync; } finally { activeSync = null; syncMetrics.activeSyncs = Math.max(0, syncMetrics.activeSyncs - 1); }
 }
 
-async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: boolean): Promise<{confirmed:number;failed:number}> {
-  const api=desktopApi(); if(!api || !(await confirmSupabaseConnectivity())) return {confirmed:0,failed:0};
-  await api.recoverInterruptedSync();
-  const records=await api.beginSync(batchSize, forceRetry); const inFlight=new Set<string>(); let confirmed=0,failed=0; let lastRpcAt=0;
+async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: boolean, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number}> {
+  const api=desktopApi(); if(!api || !organizerProfileId || (!connectionAlreadyConfirmed && !(await confirmSupabaseConnectivity()))) return {confirmed:0,failed:0};
+  await api.recoverInterruptedSync(organizerProfileId);
+  const records=await api.beginSync(batchSize, forceRetry,organizerProfileId); const inFlight=new Set<string>(); let confirmed=0,failed=0; let lastRpcAt=0;
   for(const record of records){
     if (inFlight.has(record.localAttendanceUuid)) continue;
     inFlight.add(record.localAttendanceUuid);

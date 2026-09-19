@@ -5,7 +5,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 
 export function ProtectedRoute() {
   const location = useLocation();
-  const { session, isSessionRestored } = useDevelopmentSession();
+  const { session, isSessionRestored, isOfflineMode } = useDevelopmentSession();
 
   if (!isSessionRestored) {
     return (
@@ -17,6 +17,15 @@ export function ProtectedRoute() {
 
   if (!session?.isAuthenticated) {
     return <Navigate to={APP_ROUTES.login} replace state={{ from: location }} />;
+  }
+
+  if (isOfflineMode) {
+    const allowed = session.role === "organizer" && (
+      location.pathname === APP_ROUTES.organizerEvents ||
+      /^\/organizer\/events\/[^/]+\/?$/.test(location.pathname) ||
+      /^\/organizer\/live-attendance\/[^/]+\/?$/.test(location.pathname)
+    );
+    if (!allowed) return <Navigate to={APP_ROUTES.organizerEvents} replace />;
   }
 
   return <Outlet />;

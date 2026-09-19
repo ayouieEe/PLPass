@@ -80,7 +80,7 @@ import {
 } from "@/features/organizer/lib/eventResources";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
-import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, manilaDateTimeToIso } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
@@ -334,6 +334,7 @@ export function EventDetailsPage() {
   const [isSendingQueuedInvitations, setIsSendingQueuedInvitations] = useState(false);
   const [invitationStatusRefreshKey, setInvitationStatusRefreshKey] = useState(0);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [rescheduleToStart, setRescheduleToStart] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isStartSessionOpen, setIsStartSessionOpen] = useState(false);
   const [sessionModalMode, setSessionModalMode] = useState<"start" | "existing">("start");
@@ -515,6 +516,10 @@ export function EventDetailsPage() {
       toast.error("End time must be after start time.");
       return;
     }
+    if (new Date(manilaDateTimeToIso(rescheduleValues.date, rescheduleValues.startTime)).getTime() <= Date.now()) {
+      toast.error("Choose a start time later than the current Manila time.");
+      return;
+    }
     if (participants.length > 50 && !window.confirm(`This reschedule will queue up to ${participants.length} participant notifications. Continue?`)) {
       return;
     }
@@ -523,6 +528,10 @@ export function EventDetailsPage() {
       await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
       await eventQuery.refetch();
       setIsRescheduleOpen(false);
+      if (rescheduleToStart) {
+        setRescheduleToStart(false);
+        setIsStartSessionOpen(true);
+      }
     } catch {
       // The mutation displays the repository error in a toast.
     }
@@ -546,6 +555,20 @@ export function EventDetailsPage() {
   }
 
   async function startAttendanceSession() {
+    if (dateKey(event.startsAt) !== dateKey(new Date())) {
+      toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
+      setIsStartSessionOpen(false);
+      setRescheduleValues({
+        venue: event.venue,
+        date: dateKey(new Date()),
+        startTime: timeInputValue(event.startsAt),
+        endTime: timeInputValue(event.endsAt),
+        reason: "Reschedule event to today to start attendance."
+      });
+      setRescheduleToStart(true);
+      setIsRescheduleOpen(true);
+      return;
+    }
     try {
       const session = await mutations.createEventSessionMutation.mutateAsync({
         eventId: event.id,
@@ -881,6 +904,18 @@ export function EventDetailsPage() {
             {canChangeEvent ? (
             <div className="flex items-center gap-2">
             <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
+              if (!activeSession && dateKey(event.startsAt) !== dateKey(new Date())) {
+                setRescheduleValues({
+                  venue: event.venue,
+                  date: dateKey(new Date()),
+                  startTime: timeInputValue(event.startsAt),
+                  endTime: timeInputValue(event.endsAt),
+                  reason: "Reschedule event to today to start attendance."
+                });
+                setRescheduleToStart(true);
+                setIsRescheduleOpen(true);
+                return;
+              }
               setSessionModalMode(activeSession ? "existing" : "start");
               if (!activeSession) setLateCutoffMinutes(15);
               setIsStartSessionOpen(true);
@@ -1461,12 +1496,13 @@ export function EventDetailsPage() {
       <ModalShell
         open={isRescheduleOpen}
         title="Reschedule event"
-        description="Update the schedule and let participants know why it changed."
+        description={rescheduleToStart ? "This event can only be started on its scheduled Manila date. Reschedule it to today to continue, or cancel to leave it unchanged." : "Update the schedule and let participants know why it changed."}
         size="md"
-        onClose={() => !rescheduleEventMutation.isPending && setIsRescheduleOpen(false)}
-        footer={<><Button type="button" variant="outline" onClick={() => setIsRescheduleOpen(false)} disabled={rescheduleEventMutation.isPending}>Cancel</Button><Button type="submit" form="reschedule-event-form" disabled={rescheduleEventMutation.isPending}>{rescheduleEventMutation.isPending ? "Saving..." : "Save new schedule"}</Button></>}
+        onClose={() => !rescheduleEventMutation.isPending && (setIsRescheduleOpen(false), setRescheduleToStart(false))}
+        footer={<><Button type="button" variant="outline" onClick={() => { setIsRescheduleOpen(false); setRescheduleToStart(false); }} disabled={rescheduleEventMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void rescheduleEvent()} disabled={rescheduleEventMutation.isPending}>{rescheduleEventMutation.isPending ? "Saving..." : rescheduleToStart ? "Reschedule to today" : "Save new schedule"}</Button></>}
       >
         <form id="reschedule-event-form" className="space-y-4" onSubmit={(submitEvent) => { submitEvent.preventDefault(); void rescheduleEvent(); }}>
+          {rescheduleToStart ? <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Choose a start time later than the current Manila time and an end time after it. After saving, you must still confirm Start session.</p> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-1.5 text-sm font-medium text-foreground">
               <span>Venue</span>

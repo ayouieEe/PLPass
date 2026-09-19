@@ -21,7 +21,7 @@ function JoinCode({ label, value }: { label: string; value?: string }) {
   );
 }
 
-export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase }: { eventId: string; sessionId: string; enabled: boolean; capturePhase: AttendanceCapturePhase }) {
+export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase, organizerProfileId }: { eventId: string; sessionId: string; enabled: boolean; capturePhase: AttendanceCapturePhase; organizerProfileId: string }) {
   const [status, setStatus] = useState<ScannerCoordinatorStatus>(inactive);
   const [certificateStatus, setCertificateStatus] = useState<ScannerCertificateStatus>({ configured: false });
   const [busy, setBusy] = useState(false);
@@ -44,10 +44,10 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       // A package prepared before the attendance session started may be READY
       // while still missing the newly ongoing session. Verify the exact local
       // session and refresh once so scanner startup is not dependent on timing.
-      const prepared = await api.getPreparedEvent(eventId);
+      const prepared = await api.getPreparedEvent(eventId, organizerProfileId);
       const hasActiveSession = Boolean(prepared?.sessions.some((session) => session.id === sessionId && session.status === "ongoing"));
-      if (!hasActiveSession) await prepareEventForOffline(eventId);
-      const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase);
+      if (!hasActiveSession) await prepareEventForOffline(eventId, organizerProfileId);
+      const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase, organizerProfileId);
       setStatus(scannerStatus);
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
       toast.success("Scanner stations are ready. Start the laptop hotspot, then connect each phone.");
@@ -76,7 +76,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
     try {
       // Starting while already active closes the old server and rebuilds it,
       // which re-reads the laptop's current network addresses and join URL.
-      const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase);
+      const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase, organizerProfileId);
       setStatus(scannerStatus);
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
       toast.success("Scanner connection QR refreshed. Reconnect phones using the new QR code.");

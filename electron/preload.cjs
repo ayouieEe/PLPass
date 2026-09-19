@@ -3,21 +3,27 @@ const { contextBridge, ipcRenderer } = require("electron");
 // This is deliberately a small, named IPC surface. The renderer receives no
 // Node, SQL, filesystem, or unrestricted Electron access.
 contextBridge.exposeInMainWorld("plpassDesktop", {
-  prepareEvent: (input) => ipcRenderer.invoke("offline:prepare", input),
-  getStatus: (id) => ipcRenderer.invoke("offline:status", id),
-  getPreparedEvent: (id) => ipcRenderer.invoke("offline:getPreparedEvent", id),
-  getPreparedEventBySession: (id) => ipcRenderer.invoke("offline:getPreparedEventBySession", id),
+  prepareEvent: (input, organizerId) => ipcRenderer.invoke("offline:prepare", input, organizerId),
+  listPreparedEvents: (organizerId, day) => ipcRenderer.invoke("offline:listPrepared", organizerId, day),
+  hasUnresolvedWork: (organizerId) => ipcRenderer.invoke("offline:hasWork", organizerId),
+  startOfflineSession: (eventId, sessionId, organizerId, day, at) => ipcRenderer.invoke("offline:startSession", eventId, sessionId, organizerId, day, at),
+  endOfflineSession: (eventId, sessionId, organizerId, at, reason) => ipcRenderer.invoke("offline:endSession", eventId, sessionId, organizerId, at, reason),
+  setOfflineLifecycleState: (eventId, sessionId, state) => ipcRenderer.invoke("offline:setLifecycle", eventId, sessionId, state),
+  getStatus: (id, organizerId) => ipcRenderer.invoke("offline:status", id, organizerId),
+  getPreparedEvent: (id, organizerId) => ipcRenderer.invoke("offline:getPreparedEvent", id, organizerId),
+  getPreparedEventBySession: (id, organizerId) => ipcRenderer.invoke("offline:getPreparedEventBySession", id, organizerId),
   identifyQr: (eventId, qr) => ipcRenderer.invoke("offline:identifyQr", eventId, qr),
   identifyManual: (eventId, value) => ipcRenderer.invoke("offline:identifyManual", eventId, value),
   identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture),
   recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
-  listPending: (eventId) => ipcRenderer.invoke("offline:listPending", eventId),
-  beginSync: (limit, forceRetry) => ipcRenderer.invoke("offline:beginSync", limit, forceRetry),
+  recordScannerAttendance: (input, phase) => ipcRenderer.invoke("offline:recordScanner", input, phase),
+  listPending: (eventId, organizerId) => ipcRenderer.invoke("offline:listPending", eventId, organizerId),
+  beginSync: (limit, forceRetry, organizerId) => ipcRenderer.invoke("offline:beginSync", limit, forceRetry, organizerId),
   confirmSync: (uuid, id) => ipcRenderer.invoke("offline:confirmSync", uuid, id),
   failSync: (uuid, status, error) => ipcRenderer.invoke("offline:failSync", uuid, status, error),
-  recoverInterruptedSync: () => ipcRenderer.invoke("offline:recover"),
+  recoverInterruptedSync: (organizerId) => ipcRenderer.invoke("offline:recover", organizerId),
   cleanupEvent: (eventId, verified, completed) => ipcRenderer.invoke("offline:cleanup", eventId, verified, completed)
-  ,startScannerStations: (eventId, sessionId, phase) => ipcRenderer.invoke("scanner:start", eventId, sessionId, phase)
+  ,startScannerStations: (eventId, sessionId, phase, organizerId) => ipcRenderer.invoke("scanner:start", eventId, sessionId, phase, organizerId)
   ,stopScannerStations: () => ipcRenderer.invoke("scanner:stop")
   ,getScannerStations: () => ipcRenderer.invoke("scanner:status")
   ,getScannerCertificateStatus: () => ipcRenderer.invoke("scanner:certificateStatus")

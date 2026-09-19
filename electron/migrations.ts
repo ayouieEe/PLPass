@@ -53,6 +53,25 @@ export const localMigrations = [
       ALTER TABLE pending_attendance ADD COLUMN next_attempt_at TEXT;
       CREATE INDEX pending_attendance_due_sync_idx ON pending_attendance(sync_status, next_attempt_at, created_at);
     `
+  },
+  {
+    version: 3,
+    sql: `
+      ALTER TABLE prepared_events ADD COLUMN organizer_profile_id TEXT;
+      ALTER TABLE prepared_events ADD COLUMN prepared_manila_date TEXT;
+      ALTER TABLE cached_sessions ADD COLUMN offline_lifecycle TEXT NOT NULL DEFAULT 'NOT_STARTED';
+      ALTER TABLE cached_sessions ADD COLUMN offline_started_at TEXT;
+      ALTER TABLE cached_sessions ADD COLUMN offline_ended_at TEXT;
+      ALTER TABLE cached_sessions ADD COLUMN offline_end_reason TEXT;
+      CREATE INDEX prepared_events_owner_day_idx ON prepared_events(organizer_profile_id, prepared_manila_date, preparation_status);
+    `
+  },
+  {
+    // Version 3 was shipped in an earlier desktop build before all of its
+    // columns were present. Keep this repair migration additive so existing
+    // databases upgrade safely instead of trusting the old version marker.
+    version: 4,
+    sql: `CREATE INDEX IF NOT EXISTS prepared_events_owner_day_idx ON prepared_events(organizer_profile_id, prepared_manila_date, preparation_status);`
   }
 ] as const;
 

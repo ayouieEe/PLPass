@@ -24,6 +24,9 @@ export type PreparedEventSession = {
   lateCutoffAt?: string;
   attendanceWindowStartAt?: string;
   attendanceWindowEndAt?: string;
+  offlineLifecycle?: "NOT_STARTED" | "START_PENDING" | "STARTED" | "END_PENDING" | "ENDED" | "CONFLICT";
+  offlineStartedAt?: string;
+  offlineEndedAt?: string;
 };
 
 export type ExistingAttendanceState = {
@@ -36,11 +39,19 @@ export type ExistingAttendanceState = {
 
 export type PreparedEventPackage = {
   cacheVersion: number;
+  organizerProfileId?: string;
   event: { id: string; code: string; title: string; status: string; startsAt: string; endsAt: string };
   sessions: PreparedEventSession[];
   participants: PreparedEventParticipant[];
   attendance: ExistingAttendanceState[];
   preparedAt: string;
+};
+
+export type OfflinePreparedEventSummary = Pick<PreparedEventPackage, "cacheVersion" | "organizerProfileId" | "preparedAt" | "event"> & {
+  sessionId?: string;
+  lifecycle: "NOT_STARTED" | "START_PENDING" | "STARTED" | "END_PENDING" | "ENDED" | "CONFLICT";
+  localStartedAt?: string;
+  localEndedAt?: string;
 };
 
 export type LocalAttendanceInput = {
@@ -98,21 +109,27 @@ export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sess
 export type ScannerCertificateStatus = { configured: boolean; fingerprint?: string; expiresAt?: string };
 
 export interface PLPassDesktopApi {
-  prepareEvent(input: PreparedEventPackage): Promise<OfflineStatus>;
-  getStatus(eventId: string): Promise<OfflineStatus>;
-  getPreparedEvent(eventId: string): Promise<PreparedEventPackage | null>;
-  getPreparedEventBySession(sessionId: string): Promise<PreparedEventPackage | null>;
+  prepareEvent(input: PreparedEventPackage, organizerProfileId: string): Promise<OfflineStatus>;
+  listPreparedEvents(organizerProfileId: string, manilaDate: string): Promise<OfflinePreparedEventSummary[]>;
+  hasUnresolvedWork(organizerProfileId: string): Promise<boolean>;
+  startOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, manilaDate: string, startedAt: string): Promise<PreparedEventPackage>;
+  endOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, endedAt: string, reason?: string): Promise<PreparedEventPackage>;
+  setOfflineLifecycleState(eventId: string, sessionId: string, state: "STARTED" | "ENDED" | "CONFLICT"): Promise<void>;
+  getStatus(eventId: string, organizerProfileId: string): Promise<OfflineStatus>;
+  getPreparedEvent(eventId: string, organizerProfileId: string): Promise<PreparedEventPackage | null>;
+  getPreparedEventBySession(sessionId: string, organizerProfileId: string): Promise<PreparedEventPackage | null>;
   identifyQr(eventId: string, qrIdentifier: string): Promise<PreparedEventParticipant | null>;
   identifyManual(eventId: string, studentIdentifier: string): Promise<PreparedEventParticipant | null>;
   identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
-  listPending(eventId?: string): Promise<PendingAttendanceRecord[]>;
-  beginSync(limit: number, forceRetry?: boolean): Promise<PendingAttendanceRecord[]>;
+  recordScannerAttendance(input: LocalAttendanceInput, phase: AttendanceCapturePhase): Promise<LocalAttendanceResult>;
+  listPending(eventId: string | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
+  beginSync(limit: number, forceRetry: boolean | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
   confirmSync(localAttendanceUuid: string, serverAttendanceId: string): Promise<void>;
   failSync(localAttendanceUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
-  recoverInterruptedSync(): Promise<number>;
+  recoverInterruptedSync(organizerProfileId: string): Promise<number>;
   cleanupEvent(eventId: string, serverVerified: boolean, eventCompleted: boolean): Promise<CleanupResult>;
-  startScannerStations(eventId: string, sessionId: string, capturePhase?: AttendanceCapturePhase): Promise<ScannerCoordinatorStatus>;
+  startScannerStations(eventId: string, sessionId: string, capturePhase: AttendanceCapturePhase, organizerProfileId: string): Promise<ScannerCoordinatorStatus>;
   stopScannerStations(): Promise<void>;
   getScannerStations(): Promise<ScannerCoordinatorStatus>;
   getScannerCertificateStatus(): Promise<ScannerCertificateStatus>;

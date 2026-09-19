@@ -3141,6 +3141,14 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      reconcile_offline_event_session_end: {
+        Args: { p_actual_end: string; p_expected_student_ids: string[]; p_reason: string; p_session_id: string }
+        Returns: undefined
+      }
+      reconcile_offline_event_session_start: {
+        Args: { p_actual_start: string; p_session_id: string }
+        Returns: undefined
+      }
       set_student_credential_status: {
         Args: {
           p_credential_type: string

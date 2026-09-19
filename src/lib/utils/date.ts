@@ -95,6 +95,22 @@ export function dateKey(value: DateInput) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+/** Convert a Manila wall-clock date/time into an unambiguous UTC timestamp. */
+export function manilaDateTimeToIso(date: string, time: string) {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(time);
+  if (!dateMatch || !timeMatch) {
+    throw new Error("A valid Manila date and time are required.");
+  }
+  const [, hour, minute] = timeMatch;
+  if (Number(hour) > 23 || Number(minute) > 59) throw new Error("The Manila date and time are invalid.");
+  const parsed = new Date(`${date}T${time}:00+08:00`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new Error("The Manila date and time are invalid.");
+  }
+  return parsed.toISOString();
+}
+
 export function compareDateValues(first: DateInput, second: DateInput) {
   const firstTime = toValidDate(first)?.getTime() ?? Number.POSITIVE_INFINITY;
   const secondTime = toValidDate(second)?.getTime() ?? Number.POSITIVE_INFINITY;

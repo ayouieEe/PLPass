@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { Bell, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, UserCircle, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useHeader } from "@/app/providers/HeaderContext";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { RoleBasedSidebar } from "@/components/shared/RoleBasedSidebar";
@@ -48,7 +49,7 @@ export function DashboardLayout({
   children
 }: DashboardLayoutProps) {
   const { theme, setTheme } = useTheme();
-  const { session, logout } = useDevelopmentSession();
+  const { session, logout, isOfflineMode, hasOfflineWork, reconnectOnline } = useDevelopmentSession();
   const { headerOverride } = useHeader();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -61,8 +62,10 @@ export function DashboardLayout({
   const [collapsed, setCollapsed] = useState(readCollapsedState);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [networkAvailable, setNetworkAvailable] = useState(() => typeof navigator !== "undefined" && navigator.onLine);
+  const [reconnectMessage, setReconnectMessage] = useState("");
   const isDark = theme === "dark";
-  const notificationContext = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const notificationContext = session && !isOfflineMode ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const unreadCount = useNotificationUnreadCount(notificationContext);
   
   const routeMeta = useMemo(() => getRouteHeaderMeta(location.pathname, role), [location.pathname, role]);
@@ -77,6 +80,12 @@ export function DashboardLayout({
   useEffect(() => {
     window.localStorage.setItem(sidebarStorageKey, String(collapsed));
   }, [collapsed]);
+
+  useEffect(() => {
+    const online=()=>setNetworkAvailable(true), offline=()=>setNetworkAvailable(false);
+    window.addEventListener("online",online); window.addEventListener("offline",offline);
+    return()=>{window.removeEventListener("online",online);window.removeEventListener("offline",offline);};
+  }, []);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -139,10 +148,9 @@ export function DashboardLayout({
     };
   }, [accountMenuOpen]);
 
-  function handleLogout() {
-    logout();
-    queryClient.clear();
-    navigate(APP_ROUTES.login, { replace: true });
+  async function handleLogout() {
+    try { await logout(); queryClient.clear(); navigate(APP_ROUTES.login, { replace: true }); }
+    catch(error) { toast.error(error instanceof Error?error.message:"Could not log out safely."); }
   }
 
   function closeDrawer({ restoreFocus = true } = {}) {
@@ -164,6 +172,7 @@ export function DashboardLayout({
       {routeAnnouncement ? <p className="sr-only" role="status" aria-live="polite">{routeAnnouncement}</p> : null}
       <RoleBasedSidebar
         role={role}
+        offlineMode={isOfflineMode}
         userLabel={userLabel}
         collapsed={collapsed}
         className="fixed inset-y-0 left-0 z-30 hidden md:flex"
@@ -183,6 +192,7 @@ export function DashboardLayout({
           >
             <RoleBasedSidebar
               role={role}
+              offlineMode={isOfflineMode}
               userLabel={userLabel}
               onNavigate={() => closeDrawer({ restoreFocus: false })}
               className={cn(
@@ -213,7 +223,7 @@ export function DashboardLayout({
               <Button ref={openDrawerRef} type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
-              <Button
+              {!isOfflineMode ? <Button
                 type="button"
                 variant="ghost"
                 size="icon"
@@ -222,7 +232,7 @@ export function DashboardLayout({
                 onClick={() => setCollapsed((current) => !current)}
               >
                 {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
-              </Button>
+              </Button> : null}
               <span className="hidden h-8 w-px bg-border md:block" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
@@ -292,7 +302,7 @@ export function DashboardLayout({
                     <p className="font-medium">{userLabel}</p>
                     <p className="text-xs capitalize text-muted-foreground">{role}</p>
                   </div>
-                    <NavLink
+                    {!isOfflineMode ? <NavLink
                       role="menuitem"
                       onClick={() => setAccountMenuOpen(false)}
                       className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-muted"
@@ -308,7 +318,7 @@ export function DashboardLayout({
                     >
                       <UserCircle className="h-4 w-4" aria-hidden="true" />
                       Profile
-                    </NavLink>
+                    </NavLink> : null}
                   <button
                     type="button"
                     role="menuitem"
@@ -328,6 +338,7 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
+        {isOfflineMode || hasOfflineWork ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/40 bg-amber-50 px-6 py-2 text-sm text-amber-900"><span>{isOfflineMode?"Offline mode — only events saved on this device are available.":"Saved offline event work is awaiting server confirmation."} Attendance remains on this device until sync is confirmed.{reconnectMessage ? ` ${reconnectMessage}` : ""}</span><Button type="button" size="sm" variant="outline" disabled={!networkAvailable} onClick={async()=>{setReconnectMessage("Checking connection and reconciling saved attendance…");const complete=await reconnectOnline();setReconnectMessage(complete?"Reconnect complete.":"Sync is not confirmed; local work is retained. Check the connection or contact support.");}}>{networkAvailable?"Reconnect & sync":"Waiting for internet"}</Button></div> : null}
         <main id="main-content" tabIndex={-1} className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>

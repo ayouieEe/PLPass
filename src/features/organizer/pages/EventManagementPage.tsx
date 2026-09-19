@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
-import { dateKey, formatDisplayTime, formatLocalTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime, formatLocalTime, manilaDateTimeToIso } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { hasCapability } from "@/lib/auth/permissions";
@@ -55,7 +55,7 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 
@@ -500,9 +500,10 @@ interface EditEventModalComponentProps {
   event: EventRecord;
   onClose: () => void;
   context?: RepositoryContext;
+  onRescheduled?: (event: Event) => void;
 }
 
-function EditEventModalComponent({ event, onClose, context }: EditEventModalComponentProps) {
+function EditEventModalComponent({ event, onClose, context, onRescheduled }: EditEventModalComponentProps) {
   const rescheduleEventMutation = useEventRescheduleMutation(context);
   const form = useForm<RescheduleEventFormValues>({
     resolver: zodResolver(rescheduleEventSchema),
@@ -516,8 +517,19 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
   });
 
   async function onSubmit(values: RescheduleEventFormValues) {
+    let newStart: string;
     try {
-      await rescheduleEventMutation.mutateAsync({
+      newStart = manilaDateTimeToIso(values.date || event.date, toTimeInputValue(values.startTime || event.startTime));
+    } catch {
+      toast.error("Enter a valid date and start time.");
+      return;
+    }
+    if (new Date(newStart).getTime() <= Date.now()) {
+      toast.error("Choose a start time later than the current time.");
+      return;
+    }
+    try {
+      const updatedEvent = await rescheduleEventMutation.mutateAsync({
         eventId: event.id || "",
         venue: values.venue,
         date: values.date,
@@ -525,6 +537,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
         endTime: toTimeInputValue(values.endTime || ""),
         reason: values.reason
       });
+      onRescheduled?.(updatedEvent);
       onClose();
     } catch {
       // useEventRescheduleMutation reports the failure through its onError
@@ -551,6 +564,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
             <label className="text-sm font-medium">Date</label>
             <input 
               type="date"
+              min={dateKey(new Date())}
               className="w-full rounded-lg border bg-background px-3 py-2"
               {...form.register("date")}
             />
@@ -583,6 +597,7 @@ function EditEventModalComponent({ event, onClose, context }: EditEventModalComp
             {...form.register("reason")}
           />
         </div>
+        <p className="text-xs text-muted-foreground">To reschedule for today, choose a start time later than the current Manila time and an end time after it.</p>
         <div className="rounded-lg border bg-blue-50 p-3 text-sm text-blue-900">
           <p className="font-medium">Note:</p>
           <p className="mt-1">Rescheduling will archive all existing sessions for this event. Students will be notified of the change.</p>
@@ -630,6 +645,7 @@ export function EventManagementPage() {
   const [eventAttention, setEventAttention] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
   const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
+  const [rescheduleForStartId, setRescheduleForStartId] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
   const activeEventId = activeEvent?.id;
   const [activeParticipantIdentities, setActiveParticipantIdentities] = useState<ActiveParticipantIdentity[] | null>(null);
@@ -1311,7 +1327,7 @@ export function EventManagementPage() {
     let current = true;
     const refreshPhoneAttendance = async () => {
       try {
-        const pending = await api.listPending(activeEvent.id);
+        const pending = await api.listPending(activeEvent.id,session?.userId??"");
         if (!current) return;
         const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
         if (records.length) {
@@ -1348,7 +1364,7 @@ export function EventManagementPage() {
     void refreshPhoneAttendance();
     const unsubscribe = api.onScannerStatus(() => { void refreshPhoneAttendance(); });
     return () => { current = false; unsubscribe(); };
-  }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, studentsQuery.data?.items]);
+  }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
 
   // Filter options are global to the Events workspace. Build them from every
   // loaded event so switching between Today, Incoming, and Cancelled never
@@ -1378,20 +1394,22 @@ export function EventManagementPage() {
     }
     setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "PREPARING", preparing: true }));
     try {
-      const status = await prepareEventForOffline(eventId);
+      if (!session?.userId) throw new Error("An authenticated organizer is required to prepare an offline event.");
+      const status = await prepareEventForOffline(eventId, session.userId);
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: status.packageStatus }));
       toast.success(`${event.code} is ready for offline use.`);
     } catch (error) {
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: error instanceof Error ? error.message : "Preparation failed." }));
       toast.error(`Unable to prepare ${event.code} for offline use.`);
     }
-  }, []);
+  }, [session?.userId]);
 
   useEffect(() => {
     const api = desktopApi();
     if (!api) return;
     let current = true;
-    void Promise.all(repositoryEvents.filter((event): event is EventRecord & { id: string } => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id) })))
+    if (!session?.userId) return;
+    void Promise.all(repositoryEvents.filter((event): event is EventRecord & { id: string } => Boolean(event.id)).map(async (event) => ({ id: event.id, status: await api.getStatus(event.id,session.userId) })))
       .then((entries) => {
         if (!current) return;
         setOfflinePreparationByEventId((previous) => {
@@ -1404,24 +1422,11 @@ export function EventManagementPage() {
       })
       .catch(() => undefined);
     return () => { current = false; };
-  }, [repositoryEvents]);
+  }, [repositoryEvents,session?.userId]);
 
-  useEffect(() => {
-    if (activeTab !== "today" || !todayEvents.length || !desktopApi()) return;
-    let cancelled = false;
-    void (async () => {
-      if (!(await confirmSupabaseConnectivity())) return;
-      for (const event of todayEvents) {
-        const state = event.id ? offlinePreparationByEventId.get(event.id) : undefined;
-        // A failed automatic attempt must wait for the organizer's Retry action.
-        // Otherwise updating the error state re-runs this effect and repeatedly
-        // shows the same failure toast.
-        if (cancelled || !event.id || state?.preparing || state?.packageStatus === "READY" || state?.error) continue;
-        await prepareOfflinePackage(event);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [activeTab, canManageOwnedEvents, offlinePreparationByEventId, prepareOfflinePackage, todayEvents]);
+  // Daily package preparation is owned by the authenticated session provider;
+  // opening this screen never starts an automatic RPC burst. Operators retain
+  // the explicit per-event refresh action for changes made later in the day.
   const hasEventFilters = Boolean(eventFilters.dateFrom || eventFilters.dateTo || eventFilters.venue || eventFilters.category || eventFilters.priority !== "all");
   const selectedListTitle = activeTab === "today" ? "Today's events" : activeTab === "incoming" ? "Incoming events" : "Cancelled events";
 
@@ -1484,6 +1489,10 @@ export function EventManagementPage() {
   }
 
   const eventToStart = startEvent;
+  if (eventToStart.date !== dateKey(new Date()) || sessionForm.date !== dateKey(new Date())) {
+    toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
+    return;
+  }
   if (!eventToStart.id) {
     toast.error("This event is missing an ID and cannot start an attendance session.");
     return;
@@ -2613,6 +2622,7 @@ export function EventManagementPage() {
             sessionId={activeScannerSessionId ?? ""}
             enabled={Boolean(activeEvent.id && activeScannerSessionId && offlinePreparationByEventId.get(activeEvent.id)?.packageStatus === "READY")}
             capturePhase={attendancePhase}
+            organizerProfileId={session?.userId ?? ""}
           />
         </div>
         </>
@@ -2832,8 +2842,21 @@ export function EventManagementPage() {
       {editEvent ? (
         <EditEventModalComponent 
           event={editEvent} 
-          onClose={() => setEditEvent(null)} 
+          onClose={() => { setEditEvent(null); setRescheduleForStartId(null); }}
           context={context}
+          onRescheduled={(updatedEvent) => {
+            if (rescheduleForStartId !== updatedEvent.id) return;
+            const refreshed = eventRecordFromRepository(updatedEvent, editEvent?.objectives ?? []);
+            setStartEvent(refreshed);
+            setRescheduleForStartId(null);
+            setSessionForm((current) => ({
+              ...current,
+              venue: refreshed.venue,
+              date: refreshed.date,
+              startTime: toTimeInputValue(refreshed.startTime),
+              endTime: toTimeInputValue(refreshed.endTime)
+            }));
+          }}
         />
       ) : null}
 
@@ -2841,6 +2864,20 @@ export function EventManagementPage() {
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
           <h2 className="text-xl font-semibold">Start Attendance</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
+          {startEvent.date !== dateKey(new Date()) ? (
+            <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+              <p className="font-semibold">This event cannot be started today as currently scheduled.</p>
+              <p className="mt-1 text-sm">Events may only start on their scheduled Manila date. This event is scheduled for {startEvent.date}; reschedule it to {dateKey(new Date())} first, or cancel to leave it unchanged.</p>
+              <Button type="button" className="mt-4" onClick={() => {
+                setRescheduleForStartId(startEvent.id ?? null);
+                setEditEvent({ ...startEvent, date: dateKey(new Date()) });
+                setStartEvent(null);
+              }}>
+                Reschedule to today
+              </Button>
+            </div>
+          ) : (
+          <>
           <section className="mt-5 rounded-xl border bg-muted/20 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -2919,6 +2956,8 @@ export function EventManagementPage() {
             <Button type="button" variant="outline" onClick={() => setStartEvent(null)}>Cancel</Button>
             <Button type="button" onClick={() => void startSession()} disabled={createEventSessionMutation.isPending}><Play className="h-4 w-4" aria-hidden="true" />{createEventSessionMutation.isPending ? "Starting…" : "Start Session"}</Button>
           </div>
+          </>
+          )}
         </ModalFrame>
       ) : null}
 

@@ -17,7 +17,7 @@ type LocationState = {
 };
 
 export function LoginPage() {
-  const { signInWithPassword, authError } = useDevelopmentSession();
+  const { signInWithPassword, continueOffline, offlineResumeAvailable, authError } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -62,6 +62,11 @@ export function LoginPage() {
     }
   }
 
+  async function handleContinueOffline() {
+    const cached = await continueOffline();
+    if (cached) navigate(APP_ROUTES.organizerEvents, { replace: true });
+  }
+
   const displayError = inputError || (authError ? formatUserErrorMessage(authError) : null);
 
   return (
@@ -87,6 +92,7 @@ export function LoginPage() {
           </span>
         </div>
         <Button type="submit" className="h-12 w-full rounded-lg" disabled={!email || !password || isSubmitting}>{isSubmitting ? "Signing in..." : "Sign in"}</Button>
+        {offlineResumeAvailable && window.plpassDesktop ? <Button type="button" variant="outline" className="h-12 w-full rounded-lg" onClick={() => void handleContinueOffline()}>Continue offline</Button> : null}
         <Button type="button" variant="link" asChild><a href={APP_ROUTES.forgotPassword}>Forgot password?</a></Button>
       </form>
     </AuthLayout>

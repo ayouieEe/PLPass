@@ -13,7 +13,13 @@ export type DevelopmentSession = {
 export type DevelopmentSessionContextValue = {
   session: DevelopmentSession | null;
   isSessionRestored: boolean;
+  isOfflineMode: boolean;
+  offlineResumeAvailable: boolean;
+  hasOfflineWork: boolean;
   authError?: string;
+  continueOffline: () => Promise<DevelopmentSession | null>;
+  reconnectOnline: () => Promise<boolean>;
+  refreshOfflineWork: () => Promise<boolean>;
   signInWithPassword: (email: string, password: string) => Promise<DevelopmentSession | null>;
   logout: () => Promise<void>;
 };

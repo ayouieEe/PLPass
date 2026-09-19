@@ -15,6 +15,7 @@ type RoleBasedSidebarProps = {
   collapsed?: boolean;
   headerAction?: ReactNode;
   onNavigate?: () => void;
+  offlineMode?: boolean;
 };
 
 function groupedItems(items: NavigationItem[]) {
@@ -40,9 +41,11 @@ export function RoleBasedSidebar({
   className,
   collapsed = false,
   headerAction,
-  onNavigate
+  onNavigate,
+  offlineMode = false
 }: RoleBasedSidebarProps) {
   const visibleItems = (ROLE_NAVIGATION[role] ?? []).filter((item) => {
+    if (offlineMode) return role === "organizer" && item.path === APP_ROUTES.organizerEvents;
     if (!item.capability) return true;
     const capabilities = Array.isArray(item.capability) ? item.capability : [item.capability];
     return hasAnyCapability(role, capabilities as readonly Capability[]);
@@ -111,7 +114,7 @@ export function RoleBasedSidebar({
         ))}
       </nav>
 
-      <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
+      {!offlineMode ? <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
         <button
           type="button"
           title={collapsed ? `${userLabel} profile` : undefined}
@@ -139,7 +142,7 @@ export function RoleBasedSidebar({
             </>
           ) : null}
         </button>
-      </div>
+      </div> : <div className="mt-auto border-t border-border p-3 text-xs text-muted-foreground">Offline • {userLabel}</div>}
     </aside>
   );
 }

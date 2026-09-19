@@ -6,9 +6,10 @@ import {
   shouldDisplayInEventTab,
   type EventRecord
 } from "@/features/organizer/utils/eventManagement";
-import { dateKey } from "@/lib/utils/date";
+import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
+const eventDetailsPage = readFileSync("src/features/organizer/pages/EventDetailsPage.tsx", "utf8");
 const appRouter = readFileSync("src/app/router/AppRouter.tsx", "utf8");
 const activeSessionOverlay = readFileSync("src/features/attendance/ActiveSessionOverlay.tsx", "utf8");
 const routes = readFileSync("src/lib/constants/routes.ts", "utf8");
@@ -46,6 +47,28 @@ describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "", endTime: "04:00" })).toBe(false);
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "02:00", endTime: "04:00" })).toBe(true);
+  });
+
+  it("converts Manila wall time independently of the computer timezone", () => {
+    expect(manilaDateTimeToIso("2026-09-20", "09:30")).toBe("2026-09-20T01:30:00.000Z");
+    expect(() => manilaDateTimeToIso("2026-02-30", "09:30")).toThrow(/invalid/i);
+    expect(() => manilaDateTimeToIso("2026-09-20", "24:00")).toThrow(/invalid/i);
+  });
+
+  it("requires a same-day schedule before any online attendance session can start", () => {
+    expect(repositories).toContain("input.date !== dateKey(new Date())");
+    expect(repositories).toContain("manilaDateTimeToIso(input.date, input.startTime)");
+    expect(eventManagementPage).toContain("Reschedule to today");
+    expect(eventManagementPage).toContain("startEvent.date !== dateKey(new Date())");
+    expect(eventDetailsPage).toContain("dateKey(event.startsAt) !== dateKey(new Date())");
+    expect(eventDetailsPage).toContain("Reschedule event to today to start attendance.");
+    expect(attendanceStartMigration).not.toContain("scheduled Manila date");
+    const sameDayMigration = readFileSync(
+      "supabase/migrations/20260919173952_enforce_event_start_on_scheduled_manila_day.sql",
+      "utf8"
+    );
+    expect(sameDayMigration).toContain("Events can only be started on their scheduled Manila date");
+    expect(sameDayMigration).toContain("v_event.starts_at at time zone 'Asia/Manila'");
   });
 
   it("keeps past events out of incoming when they have no attendance session", () => {

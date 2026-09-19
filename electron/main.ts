@@ -138,14 +138,23 @@ protocol.registerSchemesAsPrivileged([
 
 function registerHandlers() {
   const handlers: Record<string, (...args: never[]) => unknown> = {
-    "offline:prepare": (pkg) => store.prepareEvent(pkg), "offline:status": (id) => store.getStatus(id), "offline:getPreparedEvent": (id) => store.getPreparedEvent(id), "offline:getPreparedEventBySession": (id) => store.getPreparedEventBySession(id),
+    "offline:prepare": (pkg, organizerId) => store.prepareEvent(pkg, organizerId), "offline:listPrepared": (organizerId, day) => store.listPreparedEvents(organizerId, day),
+    "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId),
+    "offline:startSession": (eventId, sessionId, organizerId, day, at) => store.startOfflineSession(eventId, sessionId, organizerId, day, at),
+    "offline:endSession": (eventId, sessionId, organizerId, at, reason) => store.endOfflineSession(eventId, sessionId, organizerId, at, reason),
+    "offline:setLifecycle": (eventId, sessionId, state) => store.setOfflineLifecycleState(eventId, sessionId, state),
+    "offline:status": (id, ownerId) => store.getStatusForOrganizer(id, ownerId), "offline:getPreparedEvent": (id, ownerId) => store.getPreparedEventForOrganizer(id, ownerId), "offline:getPreparedEventBySession": (id, ownerId) => store.getPreparedEventBySessionForOrganizer(id, ownerId),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
-    "offline:listPending": (eventId) => store.listPending(eventId), "offline:beginSync": (limit, forceRetry) => store.beginSync(limit, forceRetry),
+    "offline:recordScanner": (input, phase) => phase === "time_out" ? store.recordScannerCheckOut(input) : store.recordScannerCheckIn(input),
+    "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
     "offline:confirmSync": (uuid, serverId) => store.confirmSync(uuid, serverId), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
-    "offline:recover": () => store.recoverInterruptedSync(), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
+    "offline:recover": (organizerId) => store.recoverInterruptedSync(organizerId), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
   };
-  handlers["scanner:start"] = (eventId, sessionId, phase) => scannerCoordinator.start(eventId, sessionId, phase);
+  handlers["scanner:start"] = (eventId, sessionId, phase, ownerId) => {
+    if (!store.getPreparedEventForOrganizer(eventId, ownerId)) throw new Error("The event package is not available to this organizer on this device.");
+    return scannerCoordinator.start(eventId, sessionId, phase);
+  };
   handlers["scanner:stop"] = () => scannerCoordinator.stop();
   handlers["scanner:status"] = () => scannerCoordinator.getStatus();
   handlers["scanner:certificateStatus"] = () => scannerCoordinator.getCertificateStatus();
@@ -176,7 +185,19 @@ app.whenReady().then(() => {
   store = new LocalAttendanceDatabase(new DatabaseSync(dbPath));
   scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")));
   registerHandlers();
-  const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: path.join(directory,"preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  const preloadPath = path.join(directory, "preload.cjs");
+  if (!existsSync(preloadPath)) console.error(`PLPass desktop preload is missing: ${preloadPath}`);
+  const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {
+    console.error(`PLPass desktop preload failed (${failedPreloadPath}): ${error.stack ?? error.message}`);
+  });
+  win.webContents.on("did-finish-load", () => {
+    void win.webContents.executeJavaScript("typeof window.plpassDesktop === 'object'").then((available) => {
+      if (!available) console.error(`PLPass desktop bridge was not exposed. Expected preload at: ${preloadPath}`);
+    }).catch((error: unknown) => {
+      console.error(`PLPass desktop bridge check failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
   win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl) => {
     console.error(`Renderer failed to load ${validatedUrl}: ${errorCode} ${errorDescription}`);
   });
