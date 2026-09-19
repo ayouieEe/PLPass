@@ -10,6 +10,9 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { queryClient } from "@/app/providers/queryClient";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
   approveOrganizerCorrectionRequest,
@@ -466,6 +469,66 @@ export function OrganizerCorrectionRequestsPage() {
   const [selectedRequest, setSelectedRequest] = useState<RequestDetails | null>(null);
   const [decisionRemarks, setDecisionRemarks] = useState("");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
+  useEffect(() => {
+    const actorUserId = scope.context.actorUserId;
+    if (!actorUserId || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    const supabase = getSupabaseBrowserClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retryTimer: number | undefined;
+    let retryAttempt = 0;
+    let disposed = false;
+    let refetchTimer: number | undefined;
+    const invalidateRequests = () => {
+      if (refetchTimer !== undefined) window.clearTimeout(refetchTimer);
+      refetchTimer = window.setTimeout(() => {
+        refetchTimer = undefined;
+        void queryClient.invalidateQueries({ queryKey: ["correctionRequests"] });
+      }, 250);
+    };
+    const subscribe = () => {
+      if (disposed || !isPageVisible()) return;
+      channel = supabase.channel(`plpass-correction-requests-${actorUserId}-${retryAttempt}`);
+      channel
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "attendance_requests" }, invalidateRequests)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "attendance_requests" }, invalidateRequests)
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            retryAttempt = 0;
+            return;
+          }
+          if (!disposed && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+            const delay = Math.min(60_000, 1_000 * 2 ** retryAttempt);
+            retryAttempt = Math.min(retryAttempt + 1, 6);
+            retryTimer = window.setTimeout(() => {
+              if (!isPageVisible()) return;
+              if (channel) void supabase.removeChannel(channel);
+              channel = null;
+              subscribe();
+            }, delay);
+          }
+        });
+    };
+    subscribe();
+    const removeVisibilityListener = onPageVisibilityChange((visible) => {
+      if (!visible) {
+        if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+        if (channel) void supabase.removeChannel(channel);
+        channel = null;
+      } else if (!channel) {
+        subscribe();
+        invalidateRequests();
+      }
+    });
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (refetchTimer !== undefined) window.clearTimeout(refetchTimer);
+      if (channel) void supabase.removeChannel(channel);
+      removeVisibilityListener();
+    };
+  }, [scope.context.actorUserId]);
 
   const studentsMap = useMemo(() => {
     const map = new Map<string, { name: string; studentNumber: string }>();

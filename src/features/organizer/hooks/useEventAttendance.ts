@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatDisplayTime } from "@/lib/utils/date";
+import { postgresUuidValues } from "@/lib/utils/postgresUuid";
 import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 
 type OrgAttendanceStatus = "present" | "late" | "absent";
@@ -105,13 +106,14 @@ function mapLateReason(value: string | null): OrganizerAttendanceRow["lateReason
 
 async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<string, EventAttendanceSummary>> {
   const client = getSupabaseBrowserClient();
-  if (eventIds.length === 0) return {};
+  const remoteEventIds = postgresUuidValues(eventIds);
+  if (remoteEventIds.length === 0) return {};
 
   // 1. Sessions belonging to these events
   const { data: sessions, error: sessionsError } = await client
     .from("event_sessions")
     .select("id, event_id")
-    .in("event_id", eventIds);
+    .in("event_id", remoteEventIds);
   if (sessionsError) throw sessionsError;
 
   const sessionToEvent = new Map<string, string>();
@@ -122,7 +124,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   const { data: participants, error: participantsError } = await client
     .from("event_participants")
     .select("id, event_id")
-    .in("event_id", eventIds);
+    .in("event_id", remoteEventIds);
   if (participantsError) throw participantsError;
 
   const registeredCountByEvent = new Map<string, number>();
@@ -144,7 +146,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   }
 
   const summaries: Record<string, EventAttendanceSummary> = {};
-  eventIds.forEach((eventId) => {
+  remoteEventIds.forEach((eventId) => {
     summaries[eventId] = {
       rows: [],
       present: 0,
@@ -189,11 +191,12 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
 }
 
 export function useAttendanceSummaries(eventIds: string[]) {
-  const key = [...eventIds].sort().join(",");
+  const remoteEventIds = postgresUuidValues(eventIds);
+  const key = [...remoteEventIds].sort().join(",");
   return useQuery({
     queryKey: ["event-attendance-summaries", key],
-    queryFn: () => fetchAttendanceForEvents(eventIds),
-    enabled: eventIds.length > 0
+    queryFn: () => fetchAttendanceForEvents(remoteEventIds),
+    enabled: remoteEventIds.length > 0
   });
 }
 
@@ -207,18 +210,19 @@ function emptyFeedbackSummary(): EventFeedbackSummary {
 }
 
 async function fetchFeedbackForEvents(eventIds: string[]): Promise<Record<string, EventFeedbackSummary>> {
-  if (eventIds.length === 0) return {};
+  const remoteEventIds = postgresUuidValues(eventIds);
+  if (remoteEventIds.length === 0) return {};
 
   const client = getSupabaseBrowserClient();
   const summaries: Record<string, EventFeedbackSummary> = {};
-  eventIds.forEach((eventId) => {
+  remoteEventIds.forEach((eventId) => {
     summaries[eventId] = emptyFeedbackSummary();
   });
 
   const { data: feedbackData, error: feedbackError } = await client
     .from("event_feedback")
     .select("id, event_id, comment, sentiment_label")
-    .in("event_id", eventIds);
+    .in("event_id", remoteEventIds);
   if (feedbackError) throw feedbackError;
 
   const feedbackRows = (feedbackData ?? []) as EventFeedbackRow[];
@@ -287,10 +291,11 @@ async function fetchFeedbackForEvents(eventIds: string[]): Promise<Record<string
 }
 
 export function useEventFeedbackSummaries(eventIds: string[]) {
-  const key = [...eventIds].sort().join(",");
+  const remoteEventIds = postgresUuidValues(eventIds);
+  const key = [...remoteEventIds].sort().join(",");
   return useQuery({
     queryKey: ["event-feedback-summaries", key],
-    queryFn: () => fetchFeedbackForEvents(eventIds),
-    enabled: eventIds.length > 0
+    queryFn: () => fetchFeedbackForEvents(remoteEventIds),
+    enabled: remoteEventIds.length > 0
   });
 }

@@ -342,6 +342,8 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
     queryKey: ["attendanceSessions", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.attendanceSessions.listAttendanceSessions(listQuery, context), "Attendance sessions"),
     retry: retryUnlessTimedOut,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
     enabled: Boolean(context)
   });
 }
@@ -351,7 +353,9 @@ export function useAttendanceSession(sessionId: string | undefined, context?: Re
     queryKey: ["attendanceSession", sessionId, context],
     queryFn: () => repositories.attendanceSessions.getAttendanceSessionById(sessionId ?? "", context),
     enabled: Boolean(sessionId && context),
-    retry: false
+    retry: false,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false
   });
 }
 
@@ -396,6 +400,8 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
     queryKey: ["attendanceRecords", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.attendanceRecords.listAttendanceRecords(listQuery, context), "Attendance records"),
     retry: retryUnlessTimedOut,
+    staleTime: 15_000,
+    refetchOnWindowFocus: false,
     enabled: Boolean(context)
   });
 }
@@ -550,8 +556,11 @@ export function useCorrectionRequests(
     mutationFn: (input: ReviewCorrectionRequestInput) =>
       repositories.correctionRequests.reviewCorrectionRequest(input, context),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["correctionRequests"] });
-      await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["correctionRequests"] }),
+        queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] }),
+        queryClient.invalidateQueries({ queryKey: ["auditLogs"] })
+      ]);
       toast.success("Correction request reviewed successfully");
     },
     onError: (error: unknown) => {

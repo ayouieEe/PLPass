@@ -119,6 +119,8 @@ export function isNonBlockingAuditLoggingError(error: unknown): boolean {
 const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, name_extension, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
+const attendanceSessionReadSelect = "id, event_id, created_by, session_name, venue, mode, session_status, scheduled_start, scheduled_end, actual_start, actual_end, attendance_window_start_at, attendance_window_end_at, late_cutoff_at, ended_reason, session_archive_status, superseded_by, created_at, updated_at";
+const attendanceRecordReadSelect = "id, event_session_id, student_id, attendance_status, verification_method, checkout_verification_method, time_in, time_out, recorded_at, recorded_by, remarks, late_reason_category, late_reason_option_id, verification_attempt_id, local_attendance_uuid, created_at, updated_at";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 const facialEnrollmentBucket = "facial-enrollments";
@@ -984,10 +986,24 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
 
 export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query) {
-    const rows = await selectRowsFiltered("event_sessions", query, "*", {
-      event_id: query?.eventId
-    });
-    return pageResult(rows.items.map((row) => mapAttendanceSession(row, "event")), rows.total, query);
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    let builder = client
+      .from("event_sessions")
+      .select(attendanceSessionReadSelect, query?.eventId ? { count: "exact" } : undefined);
+
+    if (query?.eventId) builder = builder.eq("event_id", query.eventId);
+    if (query?.sessionStatus) builder = builder.eq("session_status", query.sessionStatus);
+    if (listQuery.dateFrom) builder = builder.gte("scheduled_start", listQuery.dateFrom);
+    if (listQuery.dateTo) builder = builder.lt("scheduled_start", listQuery.dateTo);
+    if (listQuery.sortBy) builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+
+    const { data, error, count } = await builder.range(from, to);
+    throwIfSupabaseError(error);
+    const rows = (data ?? []) as unknown as Row[];
+    return pageResult(rows.map((row) => mapAttendanceSession(row, "event")), count ?? rows.length, listQuery);
   },
 
   async getAttendanceSessionById(sessionId) {
@@ -1061,7 +1077,10 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const eventId = (query as { eventId?: string })?.eventId;
 
     const client = getSupabaseBrowserClient();
-    let builder = client.from("attendance_records").select("*", { count: "exact" });
+    const hasScopedFilter = Boolean(eventId || sessionId || studentId || listQuery.dateFrom || listQuery.dateTo || listQuery.attendanceStatus);
+    let builder = client
+      .from("attendance_records")
+      .select(attendanceRecordReadSelect, hasScopedFilter ? { count: "exact" } : undefined);
 
     if (eventId) {
       const { data: sessionRows, error: sessionError } = await client
@@ -2412,7 +2431,7 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
     if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
     const client = getSupabaseBrowserClient();
     if (!input.jobId) throw new RepositoryError("The failed notification id is invalid.", "VALIDATION_ERROR");
-    if (input.source !== "event_email" && input.source !== "request_email") throw new RepositoryError("The failed notification source is invalid.", "VALIDATION_ERROR");
+    if (input.source !== "event_email") throw new RepositoryError("Only recent participant invitation emails can be retried. Request-update emails remain failed for review.", "VALIDATION_ERROR");
     const { data, error } = await client.rpc("admin_retry_email_job" as never, { p_job_id: input.jobId, p_source: input.source, p_reason: input.reason } as never);
     throwIfSupabaseError(error);
     if (!data) throw new RepositoryError("Only failed notification jobs can be retried.", "NOT_FOUND");

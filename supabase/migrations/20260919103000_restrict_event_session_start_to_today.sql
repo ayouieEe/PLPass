@@ -1,0 +1,4 @@
+-- Reconciliation marker for a migration already applied on the linked project.
+-- The later remote migration 20260919150000 restored the flexible start
+-- behavior; the current remote function was verified before reconciliation.
+-- This marker intentionally performs no replay.

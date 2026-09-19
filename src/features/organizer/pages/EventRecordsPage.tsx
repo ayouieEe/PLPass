@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { BarChart3, CalendarCheck, CheckCircle2, Download, FileDown, FileSpreadsheet, FileText, Filter, Search, UserCheck, UserX, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { postgresUuidValues } from "@/lib/utils/postgresUuid";
 import { toast } from "sonner";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -569,7 +570,7 @@ export function EventRecordsPage() {
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, EventObjective[]>>(new Map());
 
   useEffect(() => {
-    const eventIds = (eventsQuery.data?.items ?? []).map((event) => event.id);
+    const eventIds = postgresUuidValues((eventsQuery.data?.items ?? []).map((event) => event.id));
     if (eventIds.length === 0) {
       setObjectivesByEventId(new Map());
       return;

@@ -515,6 +515,9 @@ export function EventDetailsPage() {
       toast.error("End time must be after start time.");
       return;
     }
+    if (participants.length > 50 && !window.confirm(`This reschedule will queue up to ${participants.length} participant notifications. Continue?`)) {
+      return;
+    }
 
     try {
       await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
@@ -689,6 +692,9 @@ export function EventDetailsPage() {
 
   async function addSelectedParticipants() {
     if (!participantPickerSelectedIds.length) return;
+    if (participantPickerSelectedIds.length > 50 && !window.confirm(`This will queue ${participantPickerSelectedIds.length} participant invitation emails. Continue?`)) {
+      return;
+    }
     setIsUpdatingParticipants(true);
     try {
       const rows = participantPickerSelectedIds.map((studentId) => ({ event_id: event.id, student_id: studentId, participant_status: "confirmed" }));

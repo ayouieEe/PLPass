@@ -1,0 +1,4 @@
+-- Reconciliation marker for a migration already applied on the linked project.
+-- The remote schema was verified on 2026-09-19: notification ownership uses
+-- public.notifications.recipient_id, and the cancellation notification path
+-- is already present remotely. This marker intentionally performs no replay.

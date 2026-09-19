@@ -1483,7 +1483,9 @@ export function CreateEventPage() {
         title={pendingScheduleConflicts.length > 0 ? "Review conflict and publish?" : "Review and publish event"}
         description={pendingScheduleConflicts.length > 0
           ? "The selected venue has an overlapping active event. Students will be notified immediately if you continue."
-          : "Confirm the details below. Selected participants will receive an event invitation by email."}
+          : selectedIds.length > 50
+            ? `This will queue ${selectedIds.length} invitation emails. Confirm to continue; delivery remains subject to the configured daily email cap.`
+            : "Confirm the details below. Selected participants will receive an event invitation by email."}
         confirmLabel="Publish event"
         cancelLabel={pendingScheduleConflicts.length > 0 ? "Review schedule" : "Edit event"}
         onCancel={() => setPendingPublish(null)}

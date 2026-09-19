@@ -1,0 +1,3 @@
+-- Reconciliation marker for a migration already applied on the linked project.
+-- The current remote start_event_attendance_session definition was verified
+-- to be the flexible version. This marker intentionally performs no replay.

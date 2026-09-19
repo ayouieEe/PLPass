@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createVisibleInterval, createVisibleTabLease } from "@/lib/browser/visibilityControls";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { extractStudentNumber, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -56,6 +57,7 @@ import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
+import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 
 // Event Records is organized around Today, Incoming, and Cancelled events.
 // A live session is a full-page state entered after Start Session.
@@ -688,7 +690,18 @@ export function EventManagementPage() {
   );
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
-  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, context);
+  const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
+  const activeAttendanceSession = useMemo(
+    () =>
+      sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
+      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
+    [activeEvent?.id, liveSessionId, sessionsList]
+  );
+  const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
+  const attendanceRecordsQuery = useAttendanceRecords(
+    { pageSize: 500, sessionId: activeScannerSessionId },
+    activeScannerSessionId ? context : undefined
+  );
   const { refetch: refetchAttendanceRecords } = attendanceRecordsQuery;
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
@@ -699,7 +712,6 @@ export function EventManagementPage() {
 
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const credentialStatusesQuery = useStudentCredentialStatuses(context);
-  const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
 
   useEffect(() => {
     const checkUnstartedEvents = () => {
@@ -733,9 +745,16 @@ export function EventManagementPage() {
       });
     };
 
-    checkUnstartedEvents();
-    const interval = window.setInterval(checkUnstartedEvents, 60_000);
-    return () => window.clearInterval(interval);
+    const lease = createVisibleTabLease("event-management-unstarted-check", (isLeader) => {
+      if (isLeader) checkUnstartedEvents();
+    });
+    const removeInterval = createVisibleInterval(() => {
+      if (lease.isLeader()) checkUnstartedEvents();
+    }, 60_000);
+    return () => {
+      removeInterval();
+      lease.dispose();
+    };
   }, [attendanceSessionsQuery.isLoading, cancelEventMutation, eventsQuery.data?.items, canManageOwnedEvents, sessionsList]);
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
@@ -1004,7 +1023,7 @@ export function EventManagementPage() {
     setLiveSessionId(persistedActiveSession.id);
     setActiveRows([]);
     setCaptureMode(defaultAttendanceMethod);
-    setAttendancePhase("time_in");
+    setAttendancePhase(readAttendancePhase(window.sessionStorage, persistedActiveSession.id));
     setManualInput("");
     setQrInput("");
   }, [activeEvent, attendanceSessionsQuery.isFetching, eventsQuery.isFetching, liveSessionId, persistedActiveSession, repositoryEvents, sessionIdFromQuery]);
@@ -1045,11 +1064,29 @@ export function EventManagementPage() {
       hydratedSessionIdRef.current = requestedSession.id;
       setActiveRows([]);
       setCaptureMode(defaultAttendanceMethod);
-      setAttendancePhase("time_in");
+      setAttendancePhase(readAttendancePhase(window.sessionStorage, requestedSession.id));
       setManualInput("");
       setQrInput("");
     }
   }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, liveSessionId, navigate, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
+
+  // The renderer can unmount when an organizer visits another screen, but the
+  // Electron scanner coordinator remains alive in the main process. Restore
+  // its session-scoped phase when returning so the UI and phone scanners agree.
+  useEffect(() => {
+    const api = desktopApi();
+    if (!api || !activeEvent?.id || !activeScannerSessionId) return;
+    let current = true;
+    void api.getScannerStations().then((scanner) => {
+      if (!current || !scanner.active || scanner.eventId !== activeEvent.id || scanner.sessionId !== activeScannerSessionId) return;
+      const phase = scanner.capturePhase ?? readAttendancePhase(window.sessionStorage, activeScannerSessionId);
+      writeAttendancePhase(window.sessionStorage, activeScannerSessionId, phase);
+      setAttendancePhase(phase);
+    }).catch(() => {
+      // The browser-only sessionStorage value still restores navigation state.
+    });
+    return () => { current = false; };
+  }, [activeEvent?.id, activeScannerSessionId]);
 
   // Keep the live workspace addressable as its own session view. This also
   // gives the floating session shortcut a reliable route to detect and hide.
@@ -1187,13 +1224,6 @@ export function EventManagementPage() {
     () => activeRows.filter((row) => !row.checkOutAt || !canRecordTimeOut(row.checkInAt, row.checkOutAt)),
     [activeRows]
   );
-  const activeAttendanceSession = useMemo(
-    () =>
-      sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
-      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
-    [activeEvent?.id, liveSessionId, sessionsList]
-  );
-  const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
   const actualStartAt = activeAttendanceSession?.attendanceWindowStartAt;
   const startedLateMinutes = actualStartAt && activeAttendanceSession
     ? Math.max(0, Math.floor((new Date(actualStartAt).getTime() - new Date(activeAttendanceSession.startsAt).getTime()) / 60_000))
@@ -1267,9 +1297,11 @@ export function EventManagementPage() {
     });
   }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
-  // Scanner phones write to the laptop's local database.  Keep the live list
+  // Scanner phones write to the laptop's local database. Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
-  // organizer immediately, including while the laptop is offline.
+  // organizer immediately, including while the laptop is offline. Do not poll
+  // Supabase here: the previous one-second full-table refetch was the primary
+  // source of the database CPU spikes.
   useEffect(() => {
     if (!canManageOwnedEvents) return;
     const api = desktopApi();
@@ -1303,9 +1335,8 @@ export function EventManagementPage() {
             return [...otherRows, ...phoneRows];
           });
         }
-        // A fast reconnect can confirm and delete the local pending row before
-        // the renderer reads it. Refetch the server list so the live table
-        // remains current in both offline and online transitions.
+        // A scanner-status event is already a targeted signal. Refresh only the
+        // active session's scoped query after that signal, never on a timer.
         await refetchAttendanceRecords();
       } catch {
         // The scanner itself remains the source of a safe result; a failed UI
@@ -1315,8 +1346,7 @@ export function EventManagementPage() {
 
     void refreshPhoneAttendance();
     const unsubscribe = api.onScannerStatus(() => { void refreshPhoneAttendance(); });
-    const interval = window.setInterval(() => { void refreshPhoneAttendance(); }, 1000);
-    return () => { current = false; unsubscribe(); window.clearInterval(interval); };
+    return () => { current = false; unsubscribe(); };
   }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, studentsQuery.data?.items]);
 
   // Filter options are global to the Events workspace. Build them from every
@@ -1483,6 +1513,7 @@ export function EventManagementPage() {
   setFinalizedSummary(null);
   setCaptureMode(defaultAttendanceMethod);
   setAttendancePhase("time_in");
+  writeAttendancePhase(window.sessionStorage, startedSession.id, "time_in");
   setLiveSessionId(startedSession.id);
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
@@ -1527,6 +1558,7 @@ export function EventManagementPage() {
     });
     attendanceFinalized = true;
     finalizedAttendanceSessionIdsRef.current.add(sessionId);
+    clearAttendancePhase(window.sessionStorage, sessionId);
     try {
       window.sessionStorage.removeItem(liveAttendanceDraftStorageKey(sessionId));
     } catch {
@@ -1575,6 +1607,7 @@ export function EventManagementPage() {
       const scanner = api ? await api.getScannerStations() : undefined;
       if (scanner?.active) await api?.setScannerCapturePhase("time_out");
       setAttendancePhase("time_out");
+      if (activeScannerSessionId) writeAttendancePhase(window.sessionStorage, activeScannerSessionId, "time_out");
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Time Out could not be opened.");

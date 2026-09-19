@@ -1,10 +1,26 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  buildBrevoPayload,
+  isBrevoQuotaResponse,
+  nonNegativeIntegerSetting,
+  positiveIntegerSetting
+} from "../_shared/emailWorkerPolicy.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
 const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
 const brevoFromName = "PLPass";
+const dailySendCap = nonNegativeIntegerSetting(Deno.env.get("PLPASS_EMAIL_DAILY_CAP"), 250);
+const quotaDeferMinutes = positiveIntegerSetting(Deno.env.get("PLPASS_EMAIL_QUOTA_DEFER_MINUTES"), 60);
+const developmentMode = Deno.env.get("PLPASS_EMAIL_DEVELOPMENT_MODE") === "true";
+const sandboxMode = developmentMode && Deno.env.get("PLPASS_BREVO_SANDBOX_MODE") === "true";
+const developmentAllowlist = new Set(
+  (Deno.env.get("PLPASS_EMAIL_RECIPIENT_ALLOWLIST") ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
@@ -44,8 +60,92 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function recipientAllowed(email: string) {
+  return !developmentMode || developmentAllowlist.has(email.trim().toLowerCase());
+}
+
+async function sentTodayCount() {
+  const since = new Date();
+  since.setUTCHours(0, 0, 0, 0);
+  const [eventResult, requestResult] = await Promise.all([
+    supabase.from("event_email_outbox").select("id", { count: "exact", head: true }).eq("delivery_status", "sent").gte("sent_at", since.toISOString()),
+    supabase.from("request_email_outbox").select("id", { count: "exact", head: true }).eq("delivery_status", "sent").gte("sent_at", since.toISOString())
+  ]);
+  if (eventResult.error) throw new Error(eventResult.error.message);
+  if (requestResult.error) throw new Error(requestResult.error.message);
+  return (eventResult.count ?? 0) + (requestResult.count ?? 0);
+}
+
+async function deferEventRow(row: EventEmailRow, reason: string) {
+  const { error } = await supabase.rpc("defer_event_email_outbox_delivery", {
+    p_outbox_id: row.id,
+    p_processing_token: row.processing_token,
+    p_defer_until: new Date(Date.now() + quotaDeferMinutes * 60_000).toISOString(),
+    p_reason: reason
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function deferRequestRow(row: RequestEmailRow, reason: string) {
+  const { error } = await supabase.rpc("defer_request_email_outbox_delivery", {
+    p_outbox_id: row.id,
+    p_processing_token: row.processing_token,
+    p_defer_until: new Date(Date.now() + quotaDeferMinutes * 60_000).toISOString(),
+    p_reason: reason
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function deferAllDueRows(until: Date, reason: string) {
+  const { error } = await supabase.rpc("defer_due_email_outbox_deliveries", {
+    p_defer_until: until.toISOString(),
+    p_reason: reason
+  });
+  if (error) throw new Error(error.message);
+}
+
+// A quota result applies to every row this invocation already leased. Release
+// those exact leases now instead of leaving them in `processing` for five
+// minutes and making a later worker recover them.
+async function deferRemainingEventRows(rows: EventEmailRow[], startIndex: number, reason: string) {
+  for (const row of rows.slice(startIndex)) await deferEventRow(row, reason);
+}
+
+async function deferRemainingRequestRows(rows: RequestEmailRow[], startIndex: number, reason: string) {
+  for (const row of rows.slice(startIndex)) await deferRequestRow(row, reason);
+}
+
+async function failEventRow(row: EventEmailRow, message: string) {
+  const { error } = await supabase.rpc("fail_event_email_outbox_delivery", {
+    p_outbox_id: row.id,
+    p_processing_token: row.processing_token,
+    p_error_message: message
+  });
+  if (error) throw new Error(error.message);
+}
+
+async function failRequestRow(row: RequestEmailRow, message: string) {
+  const { error } = await supabase.rpc("fail_request_email_outbox_delivery", {
+    p_outbox_id: row.id,
+    p_processing_token: row.processing_token,
+    p_error_message: message
+  });
+  if (error) throw new Error(error.message);
+}
+
+function nextUtcDay() {
+  const next = new Date();
+  next.setUTCHours(24, 0, 0, 0);
+  return next;
+}
+
 async function dispatchQueuedEmails() {
-  const { data, error } = await supabase.rpc("claim_event_email_outbox_batch", { p_limit: 25 });
+  const sentToday = await sentTodayCount();
+  if (sentToday >= dailySendCap) {
+    await deferAllDueRows(nextUtcDay(), "Deferred because the PLPass daily email budget has been reached.");
+    return { processed: 0, sent: 0, failed: 0, deferred: 0, quotaLimited: true };
+  }
+  const { data, error } = await supabase.rpc("claim_event_email_outbox_batch_with_daily_cap", { p_limit: 25, p_daily_cap: dailySendCap });
   if (error) throw new Error(error.message);
 
   const { data: settings } = await supabase
@@ -61,8 +161,14 @@ async function dispatchQueuedEmails() {
   const rows = (data ?? []) as EventEmailRow[];
   let sent = 0;
   let failed = 0;
+  let deferred = 0;
   for (const row of rows) {
     try {
+      if (!recipientAllowed(row.recipient_email)) {
+        await deferEventRow(row, "Development recipient is not on the configured allowlist.");
+        deferred += 1;
+        continue;
+      }
       const eventNotificationsEnabled = notificationPreferences.notificationEventsEnabled !== false;
       if (!eventNotificationsEnabled) {
         const { error: skipError } = await supabase
@@ -80,14 +186,7 @@ async function dispatchQueuedEmails() {
           "api-key": brevoApiKey ?? "",
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          sender: { email: brevoFromEmail, name: brevoFromName },
-          replyTo: { email: brevoFromEmail, name: brevoFromName },
-          to: [{ email: row.recipient_email }],
-          subject: row.subject,
-          textContent: row.body,
-          htmlContent: row.html_body || undefined
-        })
+        body: JSON.stringify(buildBrevoPayload(row, brevoFromEmail, brevoFromName, sandboxMode))
       });
 
       if (response.ok) {
@@ -101,45 +200,57 @@ async function dispatchQueuedEmails() {
         sent += 1;
       } else {
         const errorMessage = (await response.text()).slice(0, 1000);
-        await supabase.rpc("fail_event_email_outbox_delivery", {
-          p_outbox_id: row.id,
-          p_processing_token: row.processing_token,
-          p_error_message: errorMessage || `Email provider returned ${response.status}.`
-        });
+        if (isBrevoQuotaResponse(response.status, errorMessage)) {
+          const reason = `Brevo quota/rate limit: ${errorMessage || response.status}`;
+          await deferRemainingEventRows(rows, rows.indexOf(row), reason);
+          await deferAllDueRows(new Date(Date.now() + quotaDeferMinutes * 60_000), "Deferred because Brevo reported a quota or rate limit.");
+          deferred += rows.length - rows.indexOf(row);
+          break;
+        }
+        await failEventRow(row, errorMessage || `Email provider returned ${response.status}.`);
         failed += 1;
       }
     } catch (error) {
-      await supabase.rpc("fail_event_email_outbox_delivery", {
-        p_outbox_id: row.id,
-        p_processing_token: row.processing_token,
-        p_error_message: error instanceof Error ? error.message : "Email delivery failed."
-      });
+      const message = error instanceof Error ? error.message : "Email delivery failed.";
+      if (isBrevoQuotaResponse(0, message)) {
+        const reason = `Brevo quota/rate limit: ${message}`;
+        await deferRemainingEventRows(rows, rows.indexOf(row), reason);
+        await deferAllDueRows(new Date(Date.now() + quotaDeferMinutes * 60_000), "Deferred because Brevo reported a quota or rate limit.");
+        deferred += rows.length - rows.indexOf(row);
+        break;
+      }
+      await failEventRow(row, message);
       failed += 1;
     }
   }
 
-  return { processed: rows.length, sent, failed };
+  return { processed: rows.length, sent, failed, deferred, quotaLimited: deferred > 0 };
 }
 
 async function dispatchQueuedRequestEmails() {
-  const { data, error } = await supabase.rpc("claim_request_email_outbox_batch", { p_limit: 25 });
+  const sentToday = await sentTodayCount();
+  if (sentToday >= dailySendCap) {
+    await deferAllDueRows(nextUtcDay(), "Deferred because the PLPass daily email budget has been reached.");
+    return { processed: 0, sent: 0, failed: 0, deferred: 0, quotaLimited: true };
+  }
+  const { data, error } = await supabase.rpc("claim_request_email_outbox_batch_with_daily_cap", { p_limit: 25, p_daily_cap: dailySendCap });
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as RequestEmailRow[];
   let sent = 0;
   let failed = 0;
+  let deferred = 0;
   for (const row of rows) {
     try {
+      if (!recipientAllowed(row.recipient_email)) {
+        await deferRequestRow(row, "Development recipient is not on the configured allowlist.");
+        deferred += 1;
+        continue;
+      }
       const response = await fetch("https://api.brevo.com/v3/smtp/email", {
         method: "POST",
         headers: { "api-key": brevoApiKey ?? "", "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sender: { email: brevoFromEmail, name: brevoFromName },
-          replyTo: { email: brevoFromEmail, name: brevoFromName },
-          to: [{ email: row.recipient_email }],
-          subject: row.subject,
-          textContent: row.body
-        })
+        body: JSON.stringify(buildBrevoPayload(row, brevoFromEmail, brevoFromName, sandboxMode))
       });
 
       if (response.ok) {
@@ -153,24 +264,31 @@ async function dispatchQueuedRequestEmails() {
         sent += 1;
       } else {
         const errorMessage = (await response.text()).slice(0, 1000);
-        await supabase.rpc("fail_request_email_outbox_delivery", {
-          p_outbox_id: row.id,
-          p_processing_token: row.processing_token,
-          p_error_message: errorMessage || `Email provider returned ${response.status}.`
-        });
+        if (isBrevoQuotaResponse(response.status, errorMessage)) {
+          const reason = `Brevo quota/rate limit: ${errorMessage || response.status}`;
+          await deferRemainingRequestRows(rows, rows.indexOf(row), reason);
+          await deferAllDueRows(new Date(Date.now() + quotaDeferMinutes * 60_000), "Deferred because Brevo reported a quota or rate limit.");
+          deferred += rows.length - rows.indexOf(row);
+          break;
+        }
+        await failRequestRow(row, errorMessage || `Email provider returned ${response.status}.`);
         failed += 1;
       }
     } catch (error) {
-      await supabase.rpc("fail_request_email_outbox_delivery", {
-        p_outbox_id: row.id,
-        p_processing_token: row.processing_token,
-        p_error_message: error instanceof Error ? error.message : "Email delivery failed."
-      });
+      const message = error instanceof Error ? error.message : "Email delivery failed.";
+      if (isBrevoQuotaResponse(0, message)) {
+        const reason = `Brevo quota/rate limit: ${message}`;
+        await deferRemainingRequestRows(rows, rows.indexOf(row), reason);
+        await deferAllDueRows(new Date(Date.now() + quotaDeferMinutes * 60_000), "Deferred because Brevo reported a quota or rate limit.");
+        deferred += rows.length - rows.indexOf(row);
+        break;
+      }
+      await failRequestRow(row, message);
       failed += 1;
     }
   }
 
-  return { processed: rows.length, sent, failed };
+  return { processed: rows.length, sent, failed, deferred, quotaLimited: deferred > 0 };
 }
 
 Deno.serve(async (request) => {
@@ -180,17 +298,22 @@ Deno.serve(async (request) => {
   const requestBody = await request.json().catch(() => ({}));
   const action = typeof requestBody.action === "string" ? requestBody.action : "";
   const authorization = request.headers.get("Authorization");
-  const isWorker = authorization === `Bearer ${serviceRoleKey}`;
+  const apiKey = request.headers.get("apikey");
+  // The database worker supplies both headers. Requiring both avoids making a
+  // scheduling endpoint reachable through the user-authentication path.
+  const isWorker = authorization === `Bearer ${serviceRoleKey}` && apiKey === serviceRoleKey;
 
   if (action === "dispatch") {
     if (!isWorker) return json({ error: "Worker authorization is required." }, 403);
     if (!brevoApiKey || !brevoFromEmail) return json({ error: "Email provider credentials are not configured." }, 500);
     try {
-      const [eventEmails, requestEmails] = await Promise.all([dispatchQueuedEmails(), dispatchQueuedRequestEmails()]);
+      const eventEmails = await dispatchQueuedEmails();
+      const requestEmails = eventEmails.quotaLimited ? { processed: 0, sent: 0, failed: 0, deferred: 0, quotaLimited: true } : await dispatchQueuedRequestEmails();
       return json({
         processed: eventEmails.processed + requestEmails.processed,
         sent: eventEmails.sent + requestEmails.sent,
         failed: eventEmails.failed + requestEmails.failed,
+        deferred: eventEmails.deferred + requestEmails.deferred,
         eventEmails,
         requestEmails
       });
@@ -259,6 +382,18 @@ Deno.serve(async (request) => {
   if (action !== "retry" || !retryOutboxId) return json({ error: "Unsupported email action." }, 400);
   const { data: retryRow, error: retryError } = await supabase
     .from("event_email_outbox")
+    .select("id, created_at, last_attempt_at, notification_type")
+    .eq("id", retryOutboxId)
+    .eq("event_id", eventId)
+    .eq("delivery_status", "failed")
+    .maybeSingle();
+  if (retryError) return json({ error: retryError.message }, 500);
+  if (!retryRow) return json({ error: "That invitation is no longer available to retry." }, 404);
+  if (retryRow.notification_type !== "participant_added") return json({ error: "Only participant invitation emails may be retried here." }, 403);
+  if (new Date(retryRow.created_at).getTime() < Date.now() - 24 * 60 * 60 * 1000) return json({ error: "Only invitations from the last 24 hours may be retried." }, 400);
+  if (retryRow.last_attempt_at && new Date(retryRow.last_attempt_at).getTime() > Date.now() - 15 * 60 * 1000) return json({ error: "This invitation is still within its retry cooldown." }, 429);
+  const { data: queuedRow, error: queueError } = await supabase
+    .from("event_email_outbox")
     .update({
       delivery_status: "pending",
       error_message: null,
@@ -269,11 +404,11 @@ Deno.serve(async (request) => {
     })
     .eq("id", retryOutboxId)
     .eq("event_id", eventId)
-    .in("notification_type", ["published", "rescheduled", "participant_added"])
+    .eq("notification_type", "participant_added")
     .eq("delivery_status", "failed")
     .select("id")
     .maybeSingle();
-  if (retryError) return json({ error: retryError.message }, 500);
-  if (!retryRow) return json({ error: "That invitation is no longer available to retry." }, 404);
+  if (queueError) return json({ error: queueError.message }, 500);
+  if (!queuedRow) return json({ error: "That invitation is no longer available to retry." }, 404);
   return json({ queued: true });
 });

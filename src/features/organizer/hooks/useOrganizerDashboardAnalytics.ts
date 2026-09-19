@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { dateKey } from "@/lib/utils/date";
+import { isPostgresUuid } from "@/lib/utils/postgresUuid";
 
 export type DashboardAnalytics = {
   attendanceTrend: Array<{ label: string; date: string; present: number; late: number; absent: number; attendanceRate: number }>;
@@ -24,10 +25,13 @@ type DashboardEvent = { id: string; code: string; startsAt: string };
 export type LiveEventSession = { eventId: string; actualStart: string };
 
 async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<DashboardAnalytics> {
-  if (!events.length) return emptyAnalytics();
+  // Mock/demo rows use labels such as `event-1`. Those are useful locally but
+  // invalid for the UUID event_id column, so never send them to PostgREST.
+  const remoteEvents = events.filter((event) => isPostgresUuid(event.id));
+  if (!remoteEvents.length) return emptyAnalytics();
   const client = getSupabaseBrowserClient();
-  const eventIds = events.map((event) => event.id);
-  const eventById = new Map(events.map((event) => [event.id, event]));
+  const eventIds = remoteEvents.map((event) => event.id);
+  const eventById = new Map(remoteEvents.map((event) => [event.id, event]));
   const { data: sessions, error: sessionsError } = await client
     .from("event_sessions")
     .select("id, event_id")
@@ -89,8 +93,9 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
 }
 
 export function useOrganizerDashboardAnalytics(events: DashboardEvent[]) {
-  const idsKey = events.map((event) => event.id).sort().join(",");
-  return useQuery({ queryKey: ["organizer-dashboard-analytics", idsKey], queryFn: () => fetchDashboardAnalytics(events), enabled: events.length > 0 });
+  const remoteEvents = events.filter((event) => isPostgresUuid(event.id));
+  const idsKey = remoteEvents.map((event) => event.id).sort().join(",");
+  return useQuery({ queryKey: ["organizer-dashboard-analytics", idsKey], queryFn: () => fetchDashboardAnalytics(remoteEvents), enabled: remoteEvents.length > 0 });
 }
 
 export function useOrganizerLiveEventSessions() {

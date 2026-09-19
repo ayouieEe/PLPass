@@ -8,6 +8,7 @@ import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { useHeader } from "@/app/providers/HeaderContext";
+import { queryClient } from "@/app/providers/queryClient";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
 import { ParticipationBarChart } from "@/components/charts/ParticipationBarChart";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
@@ -42,6 +43,7 @@ import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -325,7 +327,7 @@ export function EventAttendancePage() {
   const navigate = useNavigate();
   const { setHeaderOverride } = useHeader();
   const sessionQuery = useAttendanceSession(sessionId, scope.context);
-  const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
+  const recordsQuery = useAttendanceRecords({ pageSize: 500, sessionId }, scope.context);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const participantQuery = useEventParticipants(sessionQuery.data?.eventId ?? "", { pageSize: 500 }, scope.context);
@@ -365,6 +367,60 @@ export function EventAttendancePage() {
       });
     }
   }, [selectedSession, selectedEvent, setHeaderOverride]);
+
+  useEffect(() => {
+    if (!sessionId || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    const supabase = getSupabaseBrowserClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let retryTimer: number | undefined;
+    let retryAttempt = 0;
+    let disposed = false;
+    const invalidateAttendance = () => {
+      void queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+      void queryClient.invalidateQueries({ queryKey: ["attendanceSession", sessionId] });
+    };
+    const subscribe = () => {
+      if (disposed || !isPageVisible()) return;
+      channel = supabase.channel(`plpass-attendance-${sessionId}-${retryAttempt}`);
+      channel
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "attendance_records", filter: `event_session_id=eq.${sessionId}` }, invalidateAttendance)
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "attendance_records", filter: `event_session_id=eq.${sessionId}` }, invalidateAttendance)
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            retryAttempt = 0;
+            return;
+          }
+          if (!disposed && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
+            const delay = Math.min(60_000, 1_000 * 2 ** retryAttempt);
+            retryAttempt = Math.min(retryAttempt + 1, 6);
+            retryTimer = window.setTimeout(() => {
+              if (!isPageVisible()) return;
+              if (channel) void supabase.removeChannel(channel);
+              channel = null;
+              subscribe();
+            }, delay);
+          }
+        });
+    };
+    subscribe();
+    const removeVisibilityListener = onPageVisibilityChange((visible) => {
+      if (!visible) {
+        if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+        retryTimer = undefined;
+        if (channel) void supabase.removeChannel(channel);
+        channel = null;
+      } else if (!channel) {
+        subscribe();
+        invalidateAttendance();
+      }
+    });
+    return () => {
+      disposed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (channel) void supabase.removeChannel(channel);
+      removeVisibilityListener();
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     if (!facialCameraOpen) return;
