@@ -191,8 +191,15 @@ describe("student UI flows", () => {
     storeSession(studentSession);
     setRoute("/student/events/event-4");
     render(<App />);
+    const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "PLP Tech & Leadership Simulation Day" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Choose Late Reason" }));
+    const lateReasonDialog = await screen.findByRole("dialog");
+    expect(within(lateReasonDialog).getByRole("heading", { name: "Tell us why you were late" })).toBeInTheDocument();
+    expect(within(lateReasonDialog).getByRole("button", { name: "Traffic / Commute" })).toBeInTheDocument();
+    await user.click(within(lateReasonDialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Attendance Records" })).not.toBeInTheDocument();
   });
 
@@ -270,6 +277,10 @@ describe("student UI flows", () => {
     render(<App />);
     const methodsUser = userEvent.setup();
     expect(await screen.findByRole("heading", { name: "Attendance Methods" })).toBeInTheDocument();
+    expect(screen.getByText("Supported attendance modes")).toBeInTheDocument();
+    expect(screen.getByText("QR", { selector: "p" })).toBeInTheDocument();
+    expect(screen.queryByText("Online", { selector: "p" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Remote event")).not.toBeInTheDocument();
     await methodsUser.click(await screen.findByRole("button", { name: "Report attendance issue" }));
     await methodsUser.click(await screen.findByRole("button", { name: "Submit report" }));
     expect(await screen.findByText("Explanation must be at least 10 characters.")).toBeInTheDocument();

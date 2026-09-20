@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Download,
-  Globe2,
   Lock,
   Paperclip,
   QrCode,
@@ -366,8 +365,7 @@ export function AttendanceMethodsPage() {
   const verificationSteps: Array<{ icon: LucideIcon; label: string; tag: string; description: string }> = [
     { icon: QrCode, label: "QR", tag: "Primary", description: "The normal method for Time In and Time Out during onsite events." },
     { icon: Camera, label: "Facial", tag: "Backup", description: "Used by organizers only when QR scanning cannot be completed." },
-    { icon: ClipboardCheck, label: "Manual", tag: "Organizer recorded", description: "Organizer records attendance when a check-in needs review." },
-    { icon: Globe2, label: "Online", tag: "Remote event", description: "Used only when the event allows remote attendance." }
+    { icon: ClipboardCheck, label: "Manual", tag: "Organizer recorded", description: "Organizer records attendance when a check-in needs review." }
   ];
 
   return (
@@ -396,7 +394,7 @@ export function AttendanceMethodsPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance access</p>
                   <h2 className="mt-1 text-xl font-semibold tracking-tight">{readiness} of 2 verification options ready</h2>
                   <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    QR is the main method students use. Facial, manual, and online attendance are handled by organizers only when the event setup requires it.
+                    QR is the main method students use. Facial and manual attendance are handled by organizers only when the event setup requires it.
                   </p>
                 </div>
               </div>

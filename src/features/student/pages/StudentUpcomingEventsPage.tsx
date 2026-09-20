@@ -163,9 +163,12 @@ export function StudentUpcomingEventsPage() {
     .slice(0, 1);
   const hiddenOngoingCount = Math.max(0, ongoingWorkflowsFromRepository.length - ongoingWorkflows.length);
 
-  // "Upcoming" tab — only events that have not started yet. Anything already
+  // "Upcoming" tab — show every published future event assigned to the student.
+  // This must not depend on the attendance workflow state: a future event can
+  // legitimately have a completed/absent/correction workflow while still
+  // needing to remain visible in the schedule and calendar.
   const now = Date.now();
-  const upcomingWorkflowsFromRepository = actionableWorkflows.filter(({ event }) => new Date(event.startsAt).getTime() > now);
+  const upcomingWorkflowsFromRepository = allWorkflows.filter(({ event }) => new Date(event.startsAt).getTime() > now);
   const upcomingWorkflows = upcomingWorkflowsFromRepository
     .filter(({ event }) => new Date(event.startsAt).getTime() > now)
     .sort((left, right) => new Date(left.event.startsAt).getTime() - new Date(right.event.startsAt).getTime());

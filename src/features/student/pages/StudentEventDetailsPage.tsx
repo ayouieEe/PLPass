@@ -32,6 +32,11 @@ import {
 import type { EventObjective, EventResource } from "@/types/domain";
 
 type RatingState = Record<string, number>;
+type LateReasonOption = {
+  id: string;
+  code: string;
+  label: string;
+};
 const emojiRatings = [
   { value: 1, emoji: "😞", label: "Needs improvement" },
   { value: 2, emoji: "🙁", label: "Below expectations" },
@@ -110,6 +115,92 @@ function FeedbackModal({
   );
 }
 
+function LateReasonModal({
+  open,
+  onClose,
+  options,
+  selectedOptionId,
+  customReason,
+  onSelectOption,
+  onCustomReasonChange,
+  onSubmit,
+  isLoading,
+  isError,
+  isSubmitting
+}: {
+  open: boolean;
+  onClose: () => void;
+  options: LateReasonOption[];
+  selectedOptionId: string;
+  customReason: string;
+  onSelectOption: (optionId: string) => void;
+  onCustomReasonChange: (value: string) => void;
+  onSubmit: () => void;
+  isLoading: boolean;
+  isError: boolean;
+  isSubmitting: boolean;
+}) {
+  if (!open) return null;
+
+  const selectedOption = options.find((option) => option.id === selectedOptionId);
+  const requiresCustomReason = selectedOption?.code === "other";
+  const canSubmit = Boolean(selectedOptionId)
+    && !isLoading
+    && !isError
+    && !isSubmitting
+    && (!requiresCustomReason || customReason.trim().length >= 5);
+
+  return (
+    <ModalShell
+      open={open}
+      title="Tell us why you were late"
+      description="Choose one reason. It will be locked after submission."
+      size="sm"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
+          <Button type="button" onClick={onSubmit} disabled={!canSubmit}>
+            {isSubmitting ? "Submitting..." : "Submit Reason"}
+          </Button>
+        </>
+      )}
+    >
+      <div className="space-y-5">
+        {isLoading ? <p className="text-sm text-muted-foreground">Loading available reasons…</p> : null}
+        {isError ? <p className="text-sm text-destructive">Late reasons are temporarily unavailable. Please try again.</p> : null}
+        <div className="grid gap-2">
+          {options.map((reason) => (
+            <button
+              key={reason.id}
+              type="button"
+              aria-pressed={selectedOptionId === reason.id}
+              onClick={() => onSelectOption(reason.id)}
+              className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition hover:border-primary ${selectedOptionId === reason.id ? "border-primary bg-primary/10" : "bg-surface"}`}
+            >
+              {reason.label}
+            </button>
+          ))}
+        </div>
+        {selectedOptionId ? (
+          <div>
+            <label htmlFor="late-reason-details" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Additional details {requiresCustomReason ? <span className="text-destructive">*</span> : <span className="font-normal text-muted-foreground">(Optional)</span>}
+            </label>
+            <textarea
+              id="late-reason-details"
+              className="min-h-24 w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              placeholder="Explain why you were late..."
+              value={customReason}
+              onChange={(event) => onCustomReasonChange(event.target.value)}
+            />
+          </div>
+        ) : null}
+      </div>
+    </ModalShell>
+  );
+}
+
 function DetailRow({ icon: Icon, label, value }: { icon: typeof CalendarDays; label: string; value: string }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-transparent bg-background p-3.5 transition hover:border-border">
@@ -172,6 +263,7 @@ export function StudentEventDetailsPage() {
   const [ratings, setRatings] = useState<RatingState>({});
   const [comment, setComment] = useState("");
   const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [lateReasonModalOpen, setLateReasonModalOpen] = useState(false);
   const [feedbackStep, setFeedbackStep] = useState(0);
   const [selectedLateReasonCategory, setSelectedLateReasonCategory] = useState<string>("");
   const [customLateReason, setCustomLateReason] = useState<string>("");
@@ -251,6 +343,9 @@ export function StudentEventDetailsPage() {
         reasonOptionId: selectedOption.id,
         customReason: customLateReason.trim() || undefined
       });
+      setLateReasonModalOpen(false);
+      setSelectedLateReasonCategory("");
+      setCustomLateReason("");
       toast.success("Late reason submitted. Event feedback is now available.");
     } catch {
       toast.error("Unable to submit late reason. Please try again.");
@@ -341,44 +436,10 @@ export function StudentEventDetailsPage() {
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-5">
           <p className="font-semibold text-warning">Late reason required before feedback</p>
           <p className="mt-1 text-sm text-muted-foreground">Choose your reason once. It will be locked after submission.</p>
-          <div className="mt-4 flex flex-col gap-4">
-            {lateReasonOptionsQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading available reasons…</p> : null}
-            {lateReasonOptionsQuery.isError ? <p className="text-sm text-destructive">Late reasons are temporarily unavailable. Please try again.</p> : null}
-            <div className="flex flex-wrap gap-2">
-                {lateReasonOptions.map((reason) => (
-                <Button 
-                  key={reason.id} 
-                  type="button" 
-                  variant={selectedLateReasonCategory === reason.id ? "default" : "outline"} 
-                  onClick={() => setSelectedLateReasonCategory(reason.id)}
-                >
-                  {reason.label}
-                </Button>
-              ))}
-            </div>
-            {selectedLateReasonCategory && (
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">
-                    Additional Details {lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" ? <span className="text-destructive">*</span> : <span className="text-muted-foreground font-normal">(Optional)</span>}
-                </label>
-                <textarea
-                  className="w-full rounded-xl border border-border bg-background p-3 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px]"
-                  placeholder="Explain why you were late..."
-                  value={customLateReason}
-                  onChange={(e) => setCustomLateReason(e.target.value)}
-                />
-              </div>
-            )}
-            {selectedLateReasonCategory && (
-              <div className="flex justify-end">
-                <Button 
-                  onClick={submitLateReason} 
-                  disabled={lateReasonOptionsQuery.isLoading || lateReasonOptionsQuery.isError || submitLateReasonMutation.isPending || (lateReasonOptions.find((option) => option.id === selectedLateReasonCategory)?.code === "other" && customLateReason.trim().length < 5)}
-                >
-                  {submitLateReasonMutation.isPending ? "Submitting..." : "Submit Reason"}
-                </Button>
-              </div>
-            )}
+          <div className="mt-4 flex justify-end">
+            <Button type="button" onClick={() => setLateReasonModalOpen(true)}>
+              Choose Late Reason
+            </Button>
           </div>
         </section>
       )}
@@ -470,6 +531,19 @@ export function StudentEventDetailsPage() {
         canSubmit={allObjectivesRated && !feedbackQuery.submitMutation.isPending}
         step={feedbackStep}
         onBack={() => setFeedbackStep((current) => Math.max(0, current - 1))}
+      />
+      <LateReasonModal
+        open={lateReasonModalOpen}
+        onClose={() => setLateReasonModalOpen(false)}
+        options={lateReasonOptions}
+        selectedOptionId={selectedLateReasonCategory}
+        customReason={customLateReason}
+        onSelectOption={setSelectedLateReasonCategory}
+        onCustomReasonChange={setCustomLateReason}
+        onSubmit={() => void submitLateReason()}
+        isLoading={lateReasonOptionsQuery.isLoading}
+        isError={lateReasonOptionsQuery.isError}
+        isSubmitting={submitLateReasonMutation.isPending}
       />
     </div>
   );
