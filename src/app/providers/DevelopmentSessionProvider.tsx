@@ -19,7 +19,12 @@ import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTime
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
-import { getManilaCalendarDate, prepareEventForOffline, reconcileOfflineEventLifecycle } from "@/features/offline/offlineService";
+
+function getManilaCalendarDate(at = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
+  const part = (name: string) => parts.find((item) => item.type === name)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 
 const supabaseAuthDeadlineMs = 12_000;
 const desktopOfflineSessionKey = "plpass-desktop-offline-session";
@@ -174,7 +179,6 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const continueOffline = useCallback(async () => {
     if (!window.plpassDesktop) return null;
     try {
-      const supabase = getSupabaseBrowserClient();
       const cached = readDesktopOfflineSession();
       if (!cached || cached.role !== "organizer") {
         setAuthError("Offline access is available only to the recently authenticated organizer on this desktop.");
@@ -200,6 +204,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       if (error || data.user?.id !== session.userId) return false;
       const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
       if (!confirmed || confirmed.role !== "organizer") return false;
+      const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");
       const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true);
       if (!reconciliation.completed) {
         setAuthError(reconciliation.message);
@@ -239,6 +244,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           candidates.push(...nextPage.items);
         }
         const targets = candidates.filter((event) => ["approved", "ongoing"].includes(event.status) && getManilaCalendarDate(new Date(event.startsAt)) === day && !ready.has(event.id) && !prior.has(event.id));
+        const { prepareEventForOffline } = await import("@/features/offline/offlineService");
         for (const event of targets) {
           if (cancelled) return;
           prior.add(event.id);
@@ -354,7 +360,6 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     }
     if (isDesktopOffline()) {
       try {
-        const supabase = getSupabaseBrowserClient();
         const offlineSession = readDesktopOfflineSession();
         if (offlineSession) {
           setSession(offlineSession);
