@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useNotifications, useNotificationPreferences } from "@/hooks/useRepositoryQueries";
 import { categoriesForRole, notificationCategory, notificationCategoryLabels, isNotificationVisibleForRole, type NotificationCategory } from "@/lib/notifications/policy";
+import { formatDateTime } from "@/lib/utils/date";
+import type { Notification } from "@/types/domain";
 
 type StatusFilter = "all" | "unread";
 type CategoryFilter = "all" | NotificationCategory;
@@ -19,11 +21,26 @@ function hasRepositoryCode(error: Error | null, code: string) {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
+function cleanNotificationText(value: string) {
+  return value
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function notificationPreview(value: string) {
+  const singleLine = cleanNotificationText(value).replace(/\s+/g, " ");
+  return singleLine.length > 150 ? `${singleLine.slice(0, 147).trimEnd()}…` : singleLine;
+}
+
 export function NotificationsPage() {
   const { session } = useDevelopmentSession();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const notifications = useNotifications(
     {
@@ -79,7 +96,6 @@ export function NotificationsPage() {
 
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-surface px-4 py-3 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge label={`${unreadCount} unread`} tone={unreadCount > 0 ? "info" : "muted"} />
           <div className="inline-flex rounded-full border bg-background p-1">
             <button
               type="button"
@@ -106,7 +122,7 @@ export function NotificationsPage() {
             className="h-10 rounded-full border bg-background px-4 text-sm font-semibold text-foreground shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             aria-label="Filter notification type"
           >
-            <option value="all">All relevant notifications</option>
+            <option value="all">All Notifications</option>
             {availableCategories.map((category) => (
               <option key={category} value={category}>
                 {notificationCategoryLabels[category]}
@@ -115,12 +131,15 @@ export function NotificationsPage() {
           </select>
         </div>
 
-        {hasActiveFilters ? (
-          <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
-            <RotateCcw className="h-4 w-4" aria-hidden="true" />
-            Clear
-          </Button>
-        ) : null}
+        <div className="ml-auto flex items-center gap-2">
+          <StatusBadge label={`${unreadCount} unread`} tone={unreadCount > 0 ? "info" : "muted"} />
+          {hasActiveFilters ? (
+            <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Clear
+            </Button>
+          ) : null}
+        </div>
       </section>
 
       {isPreferencesOpen
@@ -162,6 +181,43 @@ export function NotificationsPage() {
           )
         : null}
 
+      {selectedNotification
+        ? createPortal(
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => setSelectedNotification(null)}>
+              <section role="dialog" aria-modal="true" aria-labelledby="notification-detail-title" className="w-full max-w-2xl rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-primary">Notification details</p>
+                    <h2 id="notification-detail-title" className="mt-1 text-xl font-semibold text-foreground">{cleanNotificationText(selectedNotification.title)}</h2>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <StatusBadge label={selectedNotification.status} tone={selectedNotification.status === "unread" ? "info" : "muted"} />
+                      <StatusBadge label={selectedNotification.type} tone="muted" />
+                      {selectedNotification.requiresAction ? <StatusBadge label="Action required" tone="warning" /> : null}
+                      {selectedNotification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setSelectedNotification(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label="Close notification details">
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="mt-5 max-h-[55vh] overflow-y-auto rounded-xl border bg-background px-4 py-4 text-sm leading-7 text-foreground whitespace-pre-line">
+                  {cleanNotificationText(selectedNotification.body)}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
+                  <div className="flex items-center gap-2">
+                    {selectedNotification.status === "unread" ? (
+                      <Button type="button" variant="outline" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>Mark as read</Button>
+                    ) : null}
+                    <Button type="button" onClick={() => setSelectedNotification(null)}>Close</Button>
+                  </div>
+                </div>
+              </section>
+            </div>,
+            document.body
+          )
+        : null}
+
       {notifications.isLoading ? <LoadingState label="Loading notifications" /> : null}
       {isEmptyResult || (!notifications.isLoading && items.length === 0) ? (
         <EmptyState title="No notifications" description="This account has no notifications for the selected filters." />
@@ -171,18 +227,30 @@ export function NotificationsPage() {
       ) : null}
       <section className="space-y-3">
         {items.map((notification) => (
-          <article key={notification.id} className="rounded-lg border bg-surface p-4">
+          <article key={notification.id} className="rounded-xl border bg-surface p-4 shadow-sm transition hover:border-primary/40 hover:shadow-md">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
+              <div
+                role="button"
+                tabIndex={0}
+                aria-label={`Open notification: ${cleanNotificationText(notification.title)}`}
+                className="min-w-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                onClick={() => setSelectedNotification(notification)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedNotification(notification);
+                  }
+                }}
+              >
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="font-semibold">{notification.title}</h2>
+                  <h2 className="font-semibold">{cleanNotificationText(notification.title)}</h2>
                   <StatusBadge label={notification.status} tone={notification.status === "unread" ? "info" : "muted"} />
                   <StatusBadge label={notification.type} tone="muted" />
                   {notification.requiresAction ? <StatusBadge label="Action required" tone="warning" /> : null}
                   {notification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{notification.body}</p>
-                <p className="mt-2 text-xs text-muted-foreground">{notification.createdAt}</p>
+                <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{notificationPreview(notification.body)}</p>
+                <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(notification.createdAt, "Date unavailable")}</p>
               </div>
               <Button
                 type="button"

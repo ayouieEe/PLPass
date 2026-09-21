@@ -181,7 +181,7 @@ export function RequestHistoryPage() {
         title="Request History"
         description="Track your requests and view their status."
         actions={
-          <Button asChild type="button" variant="outline">
+          <Button asChild type="button" variant="destructive">
             <NavLink to={APP_ROUTES.studentMethods}>
               <AlertTriangle className="mr-2 h-4 w-4" />
               Report an Issue

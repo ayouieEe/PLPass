@@ -4,7 +4,6 @@ import {
   CalendarCheck,
   CalendarDays,
   ClipboardList,
-  CircleHelp,
   LayoutDashboard,
   ShieldCheck,
   UserCircle,
@@ -59,7 +58,6 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Attendance Methods", path: APP_ROUTES.studentMethods, icon: ShieldCheck, group: "Attendance" },
     { label: "Attendance Records", path: APP_ROUTES.studentAttendance, icon: CalendarCheck, group: "Attendance" },
     { label: "Request History", path: APP_ROUTES.studentRequestHistory, icon: ClipboardList, group: "Records" },
-    { label: "FAQs", path: APP_ROUTES.studentFaqs, icon: CircleHelp, group: "Help" },
     { label: "Profile", path: APP_ROUTES.studentProfile, icon: UserCircle, group: "Account" }
   ]
 };

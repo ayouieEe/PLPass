@@ -235,6 +235,8 @@ export function AppRouter() {
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
               <Route path={APP_ROUTES.studentLegalReview} element={<StudentLegalReviewPage />} />
+              <Route path={APP_ROUTES.studentTerms} element={<LegalPolicyPage document="terms" backTo={APP_ROUTES.studentProfile} backLabel="Back to profile" workspace />} />
+              <Route path={APP_ROUTES.studentPrivacy} element={<LegalPolicyPage document="privacy" backTo={APP_ROUTES.studentProfile} backLabel="Back to profile" workspace />} />
               <Route element={<StudentLegalGate />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />
               <Route path={APP_ROUTES.studentDashboard} element={<StudentDashboardPage />} />

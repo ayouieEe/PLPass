@@ -364,8 +364,8 @@ export function AttendanceMethodsPage() {
 
   const verificationSteps: Array<{ icon: LucideIcon; label: string; tag: string; description: string }> = [
     { icon: QrCode, label: "QR", tag: "Primary", description: "The normal method for Time In and Time Out during onsite events." },
-    { icon: Camera, label: "Facial", tag: "Backup", description: "Used by organizers only when QR scanning cannot be completed." },
-    { icon: ClipboardCheck, label: "Manual", tag: "Organizer recorded", description: "Organizer records attendance when a check-in needs review." }
+    { icon: Camera, label: "Facial", tag: "Backup", description: "Used by organizers when QR scanning cannot be completed." },
+    { icon: ClipboardCheck, label: "Manual", tag: "Backup", description: "Used by organizers when both QR scanning and facial verification are unavailable." }
   ];
 
   return (
@@ -374,7 +374,7 @@ export function AttendanceMethodsPage() {
         title="Attendance Methods"
         description="View your attendance options and report verification issues."
         actions={
-          <Button type="button" variant="outline" onClick={() => setShowIssueReport(true)}>
+          <Button type="button" variant="destructive" onClick={() => setShowIssueReport(true)}>
             <AlertTriangle className="mr-2 h-4 w-4" />
             Report an Issue
           </Button>
@@ -394,7 +394,7 @@ export function AttendanceMethodsPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance access</p>
                   <h2 className="mt-1 text-xl font-semibold tracking-tight">{readiness} of 2 verification options ready</h2>
                   <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    QR is the main method students use. Facial and manual attendance are handled by organizers only when the event setup requires it.
+                    QR is the primary method. If QR scanning fails, organizers can use facial verification; manual attendance is the final backup when neither QR nor facial verification is available.
                   </p>
                 </div>
               </div>
