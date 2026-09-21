@@ -52,7 +52,7 @@ test("student correction validation connects a listbox error to its trigger", as
 test("student attendance-issue validation connects its error to the explanation", async ({ page }) => {
   await seedSession(page, "student");
   await page.goto("/student/methods");
-  await page.getByRole("button", { name: "Report attendance issue" }).click();
+  await page.getByRole("button", { name: "Report an Issue" }).click();
   await page.getByRole("button", { name: "Submit report" }).click();
   await expectConnectedError(page.getByLabel("What happened?"), "Explanation must be at least 10 characters.");
 });

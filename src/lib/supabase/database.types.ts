@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      legal_acceptances: {
+        Row: {
+          accepted_at: string
+          document_type: string
+          document_version: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          document_type: string
+          document_version: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          document_type?: string
+          document_version?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       admin_profiles: {
         Row: {
           created_at: string

@@ -4,6 +4,8 @@ export const APP_ROUTES = {
   login: "/login",
   forgotPassword: "/forgot-password",
   resetPassword: "/reset-password",
+  terms: "/terms",
+  privacy: "/privacy",
   profile: "/profile",
   notifications: "/notifications",
   admin: "/admin",
@@ -62,5 +64,7 @@ export const APP_ROUTES = {
   studentMethods: "/student/methods",
   studentRequestHistory: "/student/request-history",
   studentCorrections: "/student/corrections",
-  studentProfile: "/student/profile"
+  studentFaqs: "/student/faqs",
+  studentProfile: "/student/profile",
+  studentLegalReview: "/student/legal-review"
 } as const;

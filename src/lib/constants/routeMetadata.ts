@@ -182,11 +182,25 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
       breadcrumbs: [rolePrefix, "Correction Requests"]
     };
   }
+  if (pathname === "/student/faqs") {
+    return {
+      title: "Frequently Asked Questions",
+      description: "Find answers about your account, events, attendance, records, and requests.",
+      breadcrumbs: [rolePrefix, "FAQs"]
+    };
+  }
   if (pathname === "/student/profile") {
     return {
       title: "Student Profile",
       description: "Manage your student details and attendance access.",
       breadcrumbs: [rolePrefix, "Profile"]
+    };
+  }
+  if (pathname === "/student/legal-review") {
+    return {
+      title: "Account Agreements",
+      description: "Review the PLPass Terms of Use and Privacy Policy.",
+      breadcrumbs: [rolePrefix, "Account Agreements"]
     };
   }
 

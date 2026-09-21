@@ -235,6 +235,7 @@ describe("student UI flows", () => {
       ["/student/schedule", "Events"],
       ["/student/methods", "Attendance Methods"],
       ["/student/request-history", "Request History"],
+      ["/student/faqs", "Frequently Asked Questions"],
       ["/student/profile", "Profile"]
     ] as const) {
       setRoute(path);
@@ -281,7 +282,7 @@ describe("student UI flows", () => {
     expect(screen.getByText("QR", { selector: "p" })).toBeInTheDocument();
     expect(screen.queryByText("Online", { selector: "p" })).not.toBeInTheDocument();
     expect(screen.queryByText("Remote event")).not.toBeInTheDocument();
-    await methodsUser.click(await screen.findByRole("button", { name: "Report attendance issue" }));
+    await methodsUser.click(await screen.findByRole("button", { name: "Report an Issue" }));
     await methodsUser.click(await screen.findByRole("button", { name: "Submit report" }));
     expect(await screen.findByText("Explanation must be at least 10 characters.")).toBeInTheDocument();
 
@@ -293,6 +294,7 @@ describe("student UI flows", () => {
     setRoute("/student/request-history");
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Request History" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Report an Issue" })).toHaveAttribute("href", "/student/methods");
     expect(await screen.findByText("Attendance Issue")).toBeInTheDocument();
     expect(screen.getByText("QR scanner failed during the venue check-in.")).toBeInTheDocument();
   });

@@ -1,19 +1,21 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 type AuthLayoutProps = {
   title: string;
   description?: string;
   headerAction?: ReactNode;
+  wide?: boolean;
   children: ReactNode;
 };
 
-export function AuthLayout({ title, description, headerAction, children }: AuthLayoutProps) {
+export function AuthLayout({ title, description, headerAction, wide = false, children }: AuthLayoutProps) {
   return (
-    <main className="plpass-auth-scene relative grid min-h-[100dvh] content-start overflow-x-hidden overflow-y-auto bg-background px-4 py-6 sm:place-items-center sm:py-8">
+    <main className="plpass-auth-scene relative grid min-h-[100dvh] content-start overflow-x-clip overflow-y-visible bg-background px-4 py-6 sm:place-items-center sm:py-8">
       <div className="plpass-auth-grid" aria-hidden="true" />
       <div className="plpass-auth-ribbons" aria-hidden="true" />
       <div className="plpass-auth-ambient" aria-hidden="true" />
-      <section className="relative z-10 w-full max-w-[440px] py-2 sm:py-0">
+      <section className={`relative z-10 w-full ${wide ? "max-w-3xl" : "max-w-[440px]"} py-2 sm:py-0`}>
         <div className="mb-6 text-center sm:mb-8">
           <div className="mx-auto flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg shadow-primary/20 ring-1 ring-primary/20">
             <img src="/plp-logo.png" alt="PLPass logo" className="h-full w-full object-cover" />
@@ -29,6 +31,10 @@ export function AuthLayout({ title, description, headerAction, children }: AuthL
           </div>
           {children}
         </div>
+        <footer className="mt-4 flex justify-center gap-4 text-xs text-muted-foreground">
+          <Link to="/terms" className="hover:text-foreground hover:underline">Terms of Use</Link>
+          <Link to="/privacy" className="hover:text-foreground hover:underline">Privacy Policy</Link>
+        </footer>
       </section>
     </main>
   );

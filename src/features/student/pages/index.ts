@@ -7,4 +7,5 @@ export { MyAttendancePage } from "./MyAttendancePage";
 export { CorrectionRequestsPage } from "./CorrectionRequestsPage";
 export { AttendanceMethodsPage } from "./AttendanceMethodsPage";
 export { RequestHistoryPage } from "./RequestHistoryPage";
+export { StudentFaqPage } from "./StudentFaqPage";
 export { StudentProfilePage } from "./StudentProfilePage";
