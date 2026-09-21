@@ -676,13 +676,12 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
   },
   async updateOrganizerBranding(input, context) {
     requireBrandingContext(context, input.organizerId);
+    if (context?.actorRole === "organizer") {
+      throw new RepositoryError("Organizers cannot edit branding. A department administrator manages department branding.", "PERMISSION_DENIED");
+    }
     if (!input.collegeName.trim()) throw new RepositoryError("College name is required.", "VALIDATION_ERROR");
     if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
       throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
-    }
-    if (context?.actorRole === "organizer") {
-      const profile = await selectRowsFiltered("organizers", { pageIndex: 0, pageSize: 1 }, "id", { profile_id: context.actorUserId });
-      if (String(profile.items[0]?.id ?? "") !== input.organizerId) throw new RepositoryError("You can only update your own branding.", "PERMISSION_DENIED");
     }
     const current = await selectSingleRowWithColumns("organizers", input.organizerId, "id, college_logo_path");
     let logoPath = typeof current.college_logo_path === "string" ? current.college_logo_path : null;

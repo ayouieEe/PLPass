@@ -359,8 +359,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       if (disposed || !isPageVisible()) return;
       channel = supabase.channel(`plpass-notifications-${session.userId}-${retryAttempt}`);
       channel
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${session.userId}` }, () => scheduleInvalidation(["notifications"]))
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications", filter: `recipient_id=eq.${session.userId}` }, () => scheduleInvalidation(["notifications"]))
+        // RLS already limits the rows delivered to the authenticated user. Do not
+        // add a Realtime column filter: older Realtime schema caches can reject
+        // a valid recipient_id filter and silently disable notifications.
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => scheduleInvalidation(["notifications"]))
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, () => scheduleInvalidation(["notifications"]))
         .subscribe((status) => {
           if (status === "SUBSCRIBED") {
             retryAttempt = 0;

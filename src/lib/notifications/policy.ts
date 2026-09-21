@@ -28,7 +28,7 @@ export function notificationCategory(notification: Notification): NotificationCa
 export function categoriesForRole(role: UserRole): NotificationCategory[] {
   if (role === "student") return ["attendance", "events", "requests", "credentials", "security"];
   if (role === "organizer") return ["events", "attendance", "requests", "reports", "security"];
-  if (role === "admin") return ["security", "system", "requests"];
+  if (role === "admin" || role === "department_admin") return ["security", "system", "requests", "events", "attendance"];
   return ["security"];
 }
 

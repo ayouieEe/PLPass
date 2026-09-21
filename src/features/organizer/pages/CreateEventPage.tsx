@@ -230,7 +230,7 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
@@ -476,6 +476,8 @@ export function CreateEventPage() {
       ,numberOfPax: undefined
     }
   });
+  const organizerDepartment = catalog.departments.data?.items.find((department) => department.id === scope.context.departmentId);
+  const isDepartmentBoundOrganizer = scope.context.actorRole === "organizer" && Boolean(scope.context.departmentId);
   const {
     fields: objectiveFields,
     append: appendObjective,
@@ -515,6 +517,12 @@ export function CreateEventPage() {
   useEffect(() => {
     form.setValue("numberOfPax", selectedIds.length, { shouldValidate: selectedIds.length > 0 });
   }, [form, selectedIds.length]);
+
+  useEffect(() => {
+    if (isDepartmentBoundOrganizer && organizerDepartment) {
+      form.setValue("collegeOffice", organizerDepartment.name, { shouldValidate: true, shouldDirty: false });
+    }
+  }, [form, isDepartmentBoundOrganizer, organizerDepartment]);
 
   const hasUnsavedProgress = hasOrganizerInteracted;
 
@@ -1020,7 +1028,15 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Organizational Information</h3>
               <div className="grid gap-4 md:grid-cols-3">
                 <TextField control={form.control} name="requestedBy" label="Requested By" placeholder="Enter requester name" />
-                <SelectField control={form.control} name="collegeOffice" label="College/Office" placeholder="Select a college or office" options={COLLEGE_OFFICE_OPTIONS} required />
+                <SelectField
+                  control={form.control}
+                  name="collegeOffice"
+                  label="College/Office"
+                  placeholder={isDepartmentBoundOrganizer ? "Loading your department" : "Select a college or office"}
+                  options={isDepartmentBoundOrganizer && organizerDepartment ? [{ label: organizerDepartment.name, value: organizerDepartment.name }] : COLLEGE_OFFICE_OPTIONS}
+                  disabled={isDepartmentBoundOrganizer}
+                  required
+                />
                 <TextField
                   control={form.control}
                   name="numberOfPax"

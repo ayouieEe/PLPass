@@ -882,7 +882,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     };
   },
   async updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context) {
-    await beforeRead("userManagement", context, ["admin", "organizer"]);
+    await beforeRead("userManagement", context, ["admin"]);
     const currentContext = contextOrDefault(context);
     const profile = organizerProfileFixtures.find((item) => item.id === input.organizerId);
     if (!profile || (currentContext.actorRole === "organizer" && profile.userId !== currentContext.actorUserId)) {

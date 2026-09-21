@@ -79,6 +79,7 @@ export class LocalAttendanceDatabase {
     };
     this.transaction(() => {
       protectRows("cached_participants", ["student_number", "display_name", "qr_identifier", "face_embeddings_json"]);
+      protectRows("cached_student_directory", ["student_number", "display_name", "qr_identifier"]);
       protectRows("pending_walkin_scans", ["student_number"]);
     });
   }
@@ -104,11 +105,14 @@ export class LocalAttendanceDatabase {
         organizer_profile_id=excluded.organizer_profile_id,prepared_manila_date=excluded.prepared_manila_date`).run({ ...pkg.event, cacheVersion: pkg.cacheVersion, preparedAt: pkg.preparedAt, organizerProfileId, preparedManilaDate: manilaDate(pkg.preparedAt) });
       this.db.prepare("DELETE FROM cached_sessions WHERE event_id = ?").run(pkg.event.id);
       this.db.prepare("DELETE FROM cached_participants WHERE event_id = ?").run(pkg.event.id);
+      this.db.prepare("DELETE FROM cached_student_directory WHERE event_id = ?").run(pkg.event.id);
       const session = this.db.prepare(`INSERT INTO cached_sessions(session_id,event_id,title,venue,session_status,starts_at,ends_at,late_cutoff_at,attendance_window_start_at,attendance_window_end_at,offline_lifecycle)
         VALUES(@id,@eventId,@title,@venue,@status,@startsAt,@endsAt,@lateCutoffAt,@attendanceWindowStartAt,@attendanceWindowEndAt,@offlineLifecycle)`);
       pkg.sessions.forEach((item) => session.run({ ...item, offlineLifecycle:item.status==="ongoing"?"STARTED":"NOT_STARTED", lateCutoffAt: item.lateCutoffAt ?? null, attendanceWindowStartAt: item.attendanceWindowStartAt ?? null, attendanceWindowEndAt: item.attendanceWindowEndAt ?? null }));
       const participant = this.db.prepare(`INSERT INTO cached_participants VALUES(@eventId,@studentId,@studentNumber,@displayName,@participantStatus,@qrIdentifier,@faceEmbeddings)`);
       pkg.participants.forEach((item) => sqlRun(participant, { eventId: pkg.event.id, studentId:item.studentId, studentNumber:this.protect(item.studentNumber), displayName:this.protect(item.displayName), participantStatus:item.participantStatus, qrIdentifier:this.protect(item.qrIdentifier), faceEmbeddings:this.protect(JSON.stringify(item.faceEmbeddings)) }));
+      const directory = this.db.prepare("INSERT INTO cached_student_directory VALUES(@eventId,@studentId,@studentNumber,@displayName,@qrIdentifier)");
+      (pkg.studentDirectory ?? pkg.participants).forEach((item) => sqlRun(directory, { eventId: pkg.event.id, studentId:item.studentId, studentNumber:this.protect(item.studentNumber), displayName:this.protect(item.displayName), qrIdentifier:this.protect(item.qrIdentifier) }));
       const attendance = this.db.prepare(`INSERT INTO cached_attendance_state VALUES(@sessionId,@studentId,@attendanceStatus,@timeIn,@timeOut)`);
       pkg.attendance.forEach((item) => attendance.run({ ...item, timeIn: item.timeIn ?? null, timeOut: item.timeOut ?? null }));
       this.db.prepare("UPDATE prepared_events SET preparation_status='READY' WHERE event_id=?").run(pkg.event.id);
@@ -189,8 +193,9 @@ export class LocalAttendanceDatabase {
     const e=this.db.prepare("SELECT * FROM prepared_events WHERE event_id=? AND preparation_status='READY'").get(eventId) as SqlRow|undefined; if(!e)return null;
     const sessions=(this.db.prepare("SELECT * FROM cached_sessions WHERE event_id=?").all(eventId) as SqlRow[]).map(s=>({id:String(s.session_id),eventId:String(s.event_id),title:String(s.title),venue:String(s.venue),status:String(s.session_status),startsAt:String(s.starts_at),endsAt:String(s.ends_at),lateCutoffAt:value(s,"late_cutoff_at"),attendanceWindowStartAt:value(s,"attendance_window_start_at"),attendanceWindowEndAt:value(s,"attendance_window_end_at"),offlineLifecycle:String(s.offline_lifecycle) as PreparedEventPackage["sessions"][number]["offlineLifecycle"],offlineStartedAt:value(s,"offline_started_at"),offlineEndedAt:value(s,"offline_ended_at")}));
     const participants=(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=?").all(eventId) as SqlRow[]).map(p=>this.participant(p)).filter((p):p is PreparedEventParticipant=>p!==null);
+    const studentDirectory=(this.db.prepare("SELECT * FROM cached_student_directory WHERE event_id=?").all(eventId) as SqlRow[]).map((p) => ({ studentId:String(p.student_id), studentNumber:this.reveal(String(p.student_number)) ?? "", displayName:this.reveal(String(p.display_name)) ?? "", participantStatus:"directory", qrIdentifier:this.reveal(value(p,"qr_identifier")), faceEmbeddings:[], isParticipant:false }));
     const attendance=(this.db.prepare("SELECT * FROM cached_attendance_state WHERE session_id IN (SELECT session_id FROM cached_sessions WHERE event_id=?)").all(eventId) as SqlRow[]).map(a=>({sessionId:String(a.session_id),studentId:String(a.student_id),attendanceStatus:String(a.attendance_status),timeIn:value(a,"time_in"),timeOut:value(a,"time_out")}));
-    return {cacheVersion:Number(e.cache_version),organizerProfileId:value(e,"organizer_profile_id"),preparedAt:String(e.prepared_at),event:{id:String(e.event_id),code:String(e.event_code),title:String(e.title),status:String(e.event_status),startsAt:String(e.starts_at),endsAt:String(e.ends_at)},sessions,participants,attendance};
+    return {cacheVersion:Number(e.cache_version),organizerProfileId:value(e,"organizer_profile_id"),preparedAt:String(e.prepared_at),event:{id:String(e.event_id),code:String(e.event_code),title:String(e.title),status:String(e.event_status),startsAt:String(e.starts_at),endsAt:String(e.ends_at)},sessions,participants,studentDirectory,attendance};
   }
   getPreparedEventForOrganizer(eventId:string,organizerProfileId:string):PreparedEventPackage|null {
     const owner=this.db.prepare("SELECT 1 FROM prepared_events WHERE event_id=? AND organizer_profile_id=? AND preparation_status='READY'").get(eventId,organizerProfileId);
@@ -206,13 +211,17 @@ export class LocalAttendanceDatabase {
   identifyQr(eventId: string, qr: string) {
     const value = qr.trim();
     const rows = this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[];
-    return this.participant(rows.find((row) => studentIdentityMatchesPayload(value, this.reveal(String(row.student_number ?? "")) ?? "", this.reveal(String(row.display_name ?? "")) ?? "")));
+    const participant=this.participant(rows.find((row) => studentIdentityMatchesPayload(value, this.reveal(String(row.student_number ?? "")) ?? "", this.reveal(String(row.display_name ?? "")) ?? "")));
+    if(participant) return {...participant,isParticipant:true};
+    const directoryRows=this.db.prepare("SELECT * FROM cached_student_directory WHERE event_id=?").all(eventId) as SqlRow[];
+    const match=directoryRows.find((row)=>studentIdentityMatchesPayload(value,this.reveal(String(row.student_number ?? "")) ?? "",this.reveal(String(row.display_name ?? "")) ?? ""));
+    return match ? {studentId:String(match.student_id),studentNumber:this.reveal(String(match.student_number)) ?? "",displayName:this.reveal(String(match.display_name)) ?? "",participantStatus:"directory",qrIdentifier:this.reveal(value(match,"qr_identifier")),faceEmbeddings:[],isParticipant:false} : null;
   }
   getAttendanceState(sessionId: string, studentId: string) {
     const row = this.db.prepare("SELECT time_in, time_out FROM cached_attendance_state WHERE session_id=? AND student_id=?").get(sessionId, studentId) as SqlRow | undefined;
     return row ? { timeIn: value(row, "time_in"), timeOut: value(row, "time_out") } : null;
   }
-  identifyManual(eventId: string, input: string) { const rows=this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]; return this.participant(rows.find((row)=>{const item=this.participant(row);return item && (item.studentNumber.toLowerCase()===input.trim().toLowerCase()||item.displayName.toLowerCase()===input.trim().toLowerCase());})); }
+  identifyManual(eventId: string, input: string) { const normalized=input.trim().toLowerCase(); const rows=this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]; const participant=this.participant(rows.find((row)=>{const item=this.participant(row);return item && (item.studentNumber.toLowerCase()===normalized||item.displayName.toLowerCase()===normalized);})); if(participant) return {...participant,isParticipant:true}; const directory=this.db.prepare("SELECT * FROM cached_student_directory WHERE event_id=?").all(eventId) as SqlRow[]; const match=directory.find((row)=>(this.reveal(String(row.student_number)) ?? "").toLowerCase()===normalized||(this.reveal(String(row.display_name)) ?? "").toLowerCase()===normalized); return match ? {studentId:String(match.student_id),studentNumber:this.reveal(String(match.student_number)) ?? "",displayName:this.reveal(String(match.display_name)) ?? "",participantStatus:"directory",qrIdentifier:this.reveal(value(match,"qr_identifier")),faceEmbeddings:[],isParticipant:false} : null; }
   listFaceCandidates(eventId: string) { return (this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]).map((row) => this.participant(row)).filter((p):p is PreparedEventParticipant=>Boolean(p?.faceEmbeddings.length)); }
 
   // Phone scanner stations are intentionally check-in only.  A continuously

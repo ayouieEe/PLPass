@@ -401,7 +401,8 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
-    expect(screen.getByText("College branding")).toBeInTheDocument();
+    expect(screen.queryByText("College branding")).not.toBeInTheDocument();
+    expect(screen.getByText("Notification preferences")).toBeInTheDocument();
     expect(screen.queryByText("Academic structure")).not.toBeInTheDocument();
     expect(screen.queryByText("Manage the configuration that controls PLPass operations.")).not.toBeInTheDocument();
   });

@@ -98,5 +98,20 @@ export const localMigrations = [
       CREATE INDEX pending_walkin_scans_event_idx ON pending_walkin_scans(event_id, session_id);
     `
   }
+  ,{
+    version: 6,
+    sql: `
+      CREATE TABLE cached_student_directory(
+        event_id TEXT NOT NULL REFERENCES prepared_events(event_id) ON DELETE CASCADE,
+        student_id TEXT NOT NULL,
+        student_number TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        qr_identifier TEXT,
+        PRIMARY KEY(event_id, student_id)
+      );
+      CREATE INDEX cached_student_directory_number_idx ON cached_student_directory(event_id, student_number);
+      CREATE UNIQUE INDEX cached_student_directory_qr_idx ON cached_student_directory(event_id, qr_identifier) WHERE qr_identifier IS NOT NULL;
+    `
+  }
 ] as const;
 

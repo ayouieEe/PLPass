@@ -9,6 +9,8 @@ export type PreparedEventParticipant = {
   participantStatus: string;
   qrIdentifier?: string;
   faceEmbeddings: number[][];
+  /** True when this student is enrolled in the event; false means a verified walk-in candidate. */
+  isParticipant?: boolean;
 };
 
 export type OfflineFaceMatch = Omit<PreparedEventParticipant, "faceEmbeddings">;
@@ -43,6 +45,8 @@ export type PreparedEventPackage = {
   event: { id: string; code: string; title: string; status: string; startsAt: string; endsAt: string };
   sessions: PreparedEventSession[];
   participants: PreparedEventParticipant[];
+  /** Active student directory cached for offline walk-in verification. */
+  studentDirectory?: PreparedEventParticipant[];
   attendance: ExistingAttendanceState[];
   preparedAt: string;
 };

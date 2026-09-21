@@ -208,10 +208,10 @@ export class ScannerCoordinator {
         // name. Opaque credential IDs and PLPASS-QR wrappers are rejected by
         // the participant lookup.
         const student = this.store.identifyQr(this.eventId, input.credentialCode.trim());
-        const cachedAttendance = student ? this.store.getAttendanceState(this.sessionId, student.studentId) : null;
+        const cachedAttendance = student?.isParticipant !== false ? (student ? this.store.getAttendanceState(this.sessionId, student.studentId) : null) : null;
         const unlistedStudentNumber=!student?extractSchoolStudentNumber(input.credentialCode):"";
         const recordedAt=new Date().toISOString();
-        const result = !student ? { accepted: false, ...(unlistedStudentNumber?{requiresWalkInConfirmation:true,studentNumber:unlistedStudentNumber}:{}), message: unlistedStudentNumber?"Student is not in the downloaded roster. Ask the organizer whether to save this as an unverified walk-in.":"Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
+        const result = student?.isParticipant === false ? { accepted:false, requiresWalkInConfirmation:true, verifiedStudent:true, studentName:student.displayName, studentNumber:student.studentNumber, message:`${student.displayName} is not on this event's participant list. Confirm to save this verified student as a walk-in.` } : !student ? { accepted: false, ...(unlistedStudentNumber?{requiresWalkInConfirmation:true,studentNumber:unlistedStudentNumber}:{}), message: unlistedStudentNumber?"Student is not in the cached student directory. Ask the organizer whether to save this as an unverified walk-in.":"Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
           accepted: false,
           action: "already_recorded" as const,
           message: "Time In was already recorded.",

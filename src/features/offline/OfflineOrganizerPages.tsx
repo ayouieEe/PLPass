@@ -114,6 +114,13 @@ export function OfflineOrganizerLiveAttendancePage() {
       const input: string | HTMLVideoElement = method === "facial" ? video as HTMLVideoElement : identifier;
       const scannedAt=new Date().toISOString();
       const student = await identifyOfflineStudent(pkg.event.id, method, input);
+      if (student && student.isParticipant === false) {
+        if (!window.confirm(`${student.displayName} (${student.studentNumber}) is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`)) return;
+        const queued=await desktopApi()?.queueWalkInScan({eventId:pkg.event.id,sessionId,studentNumber:student.studentNumber,identificationMethod:method==="manual"?"manual":"qr",capturePhase,attendanceTimestamp:scannedAt,organizerProfileId:session.userId});
+        if(!queued) throw new Error("This desktop cannot securely save a walk-in scan.");
+        setStatus(`${student.displayName}: verified walk-in ${capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(scannedAt).toLocaleTimeString()}; not synced.`);
+        setIdentifier(""); await load(); return;
+      }
       if (!student) {
         const studentNumber=method==="facial"?"":extractSchoolStudentNumber(identifier);
         if(!studentNumber) throw new Error("This student is not in the downloaded roster. Only a valid student number can be queued for verification.");

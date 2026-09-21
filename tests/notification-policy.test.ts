@@ -21,7 +21,8 @@ describe("role notification policy", () => {
   it("exposes only the relevant category groups per role", () => {
     expect(categoriesForRole("student")).toEqual(["attendance", "events", "requests", "credentials", "security"]);
     expect(categoriesForRole("organizer")).toEqual(["events", "attendance", "requests", "reports", "security"]);
-    expect(categoriesForRole("admin")).toEqual(["security", "system", "requests"]);
+    expect(categoriesForRole("admin")).toEqual(["security", "system", "requests", "events", "attendance"]);
+    expect(categoriesForRole("department_admin")).toEqual(["security", "system", "requests", "events", "attendance"]);
   });
 
   it("classifies explicit notification codes before legacy types", () => {

@@ -9,14 +9,12 @@ const organizerTwo = { actorUserId: "user-organizer-2", actorRole: "organizer" a
 
 beforeEach(() => resetSimulatedRepositoryState());
 
-describe("organizer-owned branding", () => {
-  it("allows an organizer to update their own college branding", async () => {
-    const updated = await simulatedUserManagementRepository.updateOrganizerBranding({
+describe("branding ownership", () => {
+  it("rejects organizer branding edits", async () => {
+    await expect(simulatedUserManagementRepository.updateOrganizerBranding({
       organizerId: "organizer-1",
       collegeName: "College of Computing",
-    }, organizerOne);
-    expect(updated.collegeName).toBe("College of Computing");
-    expect((await simulatedUserManagementRepository.getOrganizerBranding("organizer-1", organizerOne)).collegeName).toBe("College of Computing");
+    }, organizerOne)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 
   it("rejects cross-organizer branding access", async () => {

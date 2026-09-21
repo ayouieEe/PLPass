@@ -7,10 +7,11 @@ const attendance = readFileSync(resolve(process.cwd(), "src/features/organizer/p
 const correctionRequests = readFileSync(resolve(process.cwd(), "src/features/organizer/pages/OrganizerCorrectionRequestsPage.tsx"), "utf8");
 
 describe("Realtime subscription boundaries", () => {
-  it("keeps the global channel limited to filtered notifications", () => {
+  it("uses the notifications table RLS boundary without a fragile Realtime column filter", () => {
     expect(provider).toContain("plpass-notifications-");
     expect(provider).toContain("table: \"notifications\"");
-    expect(provider).toContain("filter: `recipient_id=eq.${session.userId}`");
+    expect(provider).toContain("RLS already limits the rows delivered to the authenticated user");
+    expect(provider).not.toContain("filter: `recipient_id=eq.${session.userId}`");
     expect(provider).not.toContain("tableQueryKeys");
     expect(provider).not.toContain('event: "*"');
   });

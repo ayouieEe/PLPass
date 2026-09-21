@@ -712,6 +712,7 @@ export function EventManagementPage() {
   const hydratedSessionIdRef = useRef<string | null>(null);
   const hydratedAttendanceDraftSessionIdRef = useRef<string | null>(null);
   const finalizedAttendanceSessionIdsRef = useRef(new Set<string>());
+  const autoPreparedOfflineEventIdsRef = useRef(new Set<string>());
   const [attendanceDraftReadySessionId, setAttendanceDraftReadySessionId] = useState<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
   const notifiedEventCodesRef = useRef(new Set<string>());
@@ -1456,6 +1457,7 @@ export function EventManagementPage() {
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: message }));
       if(session?.userId){const failuresKey=`plpass-offline-package-failures:${session.userId}:${getManilaCalendarDate()}`;const failures=JSON.parse(window.localStorage.getItem(failuresKey)??"{}") as Record<string,string>;failures[eventId]=message;window.localStorage.setItem(failuresKey,JSON.stringify(failures));}
       toast.error(`Unable to prepare ${event.code} for offline use.`);
+      throw error;
     }
   }, [session?.userId]);
 
@@ -1482,6 +1484,22 @@ export function EventManagementPage() {
       .catch(() => undefined);
     return () => { current = false; };
   }, [repositoryEvents,session?.userId]);
+
+  // Prepare only today's eligible events, once per event/day. This gives the
+  // organizer a ready offline package before starting while avoiding a request
+  // loop or a burst on every render.
+  useEffect(() => {
+    if (!desktopApi() || !session?.userId || !canManageOwnedEvents) return;
+    const today = getManilaCalendarDate();
+    repositoryEvents
+      .filter((event): event is EventRecord & { id: string } => Boolean(event.id) && event.date === today && event.status !== "cancelled" && event.status !== "completed")
+      .forEach((event) => {
+        const current = offlinePreparationByEventId.get(event.id);
+        if (current?.packageStatus === "READY" || current?.preparing || autoPreparedOfflineEventIdsRef.current.has(event.id)) return;
+        autoPreparedOfflineEventIdsRef.current.add(event.id);
+        void prepareOfflinePackage(event).catch(() => undefined);
+      });
+  }, [canManageOwnedEvents, offlinePreparationByEventId, prepareOfflinePackage, repositoryEvents, session?.userId]);
 
   // Daily package preparation is owned by the authenticated session provider;
   // opening this screen never starts an automatic RPC burst. Operators retain
@@ -1548,6 +1566,7 @@ export function EventManagementPage() {
   }
 
   const eventToStart = startEvent;
+  const eventId = eventToStart.id as string;
   if (eventToStart.date !== dateKey(new Date()) || sessionForm.date !== dateKey(new Date())) {
     toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
     return;
@@ -1555,6 +1574,19 @@ export function EventManagementPage() {
   if (!eventToStart.id) {
     toast.error("This event is missing an ID and cannot start an attendance session.");
     return;
+  }
+  if (desktopApi()) {
+    const preparation = offlinePreparationByEventId.get(eventToStart.id);
+    if (preparation?.packageStatus !== "READY") {
+      const confirmed = window.confirm(`Offline resources for ${eventToStart.code} are not ready. Starting this event will download the required offline package now. The event can start only after that download succeeds. Continue?`);
+      if (!confirmed) return;
+      try {
+        await prepareOfflinePackage(eventToStart);
+      } catch {
+        toast.error("The event was not started because its required offline resources could not be downloaded.");
+        return;
+      }
+    }
   }
   let startedSession;
   try {
@@ -1575,7 +1607,14 @@ export function EventManagementPage() {
   // before the event starts can be READY while still missing this newly
   // ongoing session, which would make scanner startup reject it.
   if (desktopApi()) {
-    try { await prepareOfflinePackage(eventToStart); } catch { /* The existing online session can continue if refresh fails. */ }
+    try {
+      const refreshed = await prepareEventForOffline(eventId, session?.userId ?? "");
+      if (refreshed.packageStatus !== "READY") throw new Error("Offline package is not ready.");
+      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: refreshed.packageStatus }));
+    } catch {
+      toast.error("The event session was created, but required offline resources could not be confirmed. Do not use offline scanners; refresh preparation and retry.");
+      return;
+    }
   }
 
   setActiveRows([]);

@@ -68,8 +68,8 @@ async function startScan() {
       busy = true; result.className = "scan-status"; result.textContent = `Recording ${phaseLabel()} with the laptop…`;
       try {
         const response = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${stationToken}` }, body: JSON.stringify({ credentialCode: credential, scanAttemptId: crypto.randomUUID() }) });
-        const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; recordedAt?: string; requiresWalkInConfirmation?: boolean; error?: string };
-        if(body.requiresWalkInConfirmation&&body.studentNumber&&window.confirm(`Student ${body.studentNumber} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)){
+        const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; recordedAt?: string; requiresWalkInConfirmation?: boolean; verifiedStudent?: boolean; error?: string };
+        if(body.requiresWalkInConfirmation&&body.studentNumber&&window.confirm(body.verifiedStudent?`${body.studentName??body.studentNumber} is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`:`Student ${body.studentNumber} is not in the cached student directory. Save this scan as an unverified walk-in for later verification?`)){
           const walkInResponse=await fetch("/api/walk-in",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${stationToken}`},body:JSON.stringify({studentNumber:body.studentNumber})});
           const walkIn=await walkInResponse.json() as {accepted?:boolean;message?:string;error?:string;studentNumber?:string;recordedAt?:string};
           result.className=walkIn.accepted?"scan-status success":"scan-status error";
