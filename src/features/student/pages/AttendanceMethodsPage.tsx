@@ -61,7 +61,7 @@ function QrPreview({ active, value, fileName }: { active: boolean; value: string
   return (
     <div className="flex flex-col items-center gap-3">
       <div
-        className={cn("grid h-52 w-52 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5", !active && "opacity-70 grayscale")}
+        className={cn("grid h-44 w-44 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5 sm:h-52 sm:w-52", !active && "opacity-70 grayscale")}
         role="img"
         aria-label={active ? "PLPass student QR credential, ready for organizer scanning" : "PLPass student QR credential unavailable; contact an organizer or administrator"}
       >
@@ -405,7 +405,7 @@ export function AttendanceMethodsPage() {
             </div>
 
             <div className="grid gap-4 border-t bg-surface-muted/30 p-5 md:auto-rows-fr md:grid-cols-2 md:p-6">
-              <div className="flex h-full min-h-[34rem] flex-col rounded-2xl border bg-surface p-5 shadow-sm">
+              <div className="flex h-full min-h-[34rem] min-w-0 flex-col rounded-2xl border bg-surface p-5 shadow-sm">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-primary">Primary</p>
@@ -414,10 +414,12 @@ export function AttendanceMethodsPage() {
                       Use this for Time In and Time Out scans when attending onsite events.
                     </p>
                   </div>
-                   <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : "muted"} />
+                  <div className="shrink-0 self-start">
+                    <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : "muted"} />
+                  </div>
                 </div>
 
-                <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-5 text-center">
+                <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-3 text-center sm:p-5">
                   <QrPreview active={hasQrCredential} value={qrScanCode} fileName={qrDownloadFileName} />
                   <p className="mt-4 text-sm font-semibold text-foreground">
                     Student No. {student.studentNumber}
@@ -428,7 +430,7 @@ export function AttendanceMethodsPage() {
                 </div>
               </div>
 
-              <div className="flex h-full min-h-[34rem] flex-col rounded-2xl border bg-surface p-5 shadow-sm">
+              <div className="flex h-full min-h-[34rem] min-w-0 flex-col rounded-2xl border bg-surface p-5 shadow-sm">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Backup</p>
@@ -442,12 +444,12 @@ export function AttendanceMethodsPage() {
                   </div>
                 </div>
 
-                <div className="mt-5 flex flex-1 flex-col rounded-xl border bg-background p-5">
-                  <div className="flex items-center gap-3">
+                <div className="mt-5 flex flex-1 flex-col rounded-xl border bg-background p-4 sm:p-5">
+                  <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:text-left">
                     <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       {identityReadiness.faceEnrolled ? <CheckCircle2 className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-semibold">{identityReadiness.faceEnrolled ? "Facial backup ready" : "Facial backup not set up"}</p>
                       <p className="text-sm text-muted-foreground">
                         {identityReadiness.faceEnrolled
@@ -458,7 +460,7 @@ export function AttendanceMethodsPage() {
                   </div>
 
                   <div className="mt-5 rounded-xl border border-dashed bg-muted/30 p-4">
-                    <div className="flex items-start gap-3">
+                    <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:text-left">
                       <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-muted-foreground">
@@ -469,7 +471,7 @@ export function AttendanceMethodsPage() {
                             ? "Your face is already enrolled. Facial enrollment cannot be repeated or replaced."
                             : "Follow the three quick camera prompts. Each capture is saved automatically."}
                         </p>
-                        <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
                           {!identityReadiness.faceEnrolled ? (
                             <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
                               Enroll face

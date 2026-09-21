@@ -212,8 +212,8 @@ export function StudentUpcomingEventsPage() {
 
       <section className="relative space-y-4 overflow-hidden rounded-2xl border bg-surface p-4 shadow-sm">
         <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/60 via-primary/20 to-transparent" />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-fit max-w-full items-center gap-1 rounded-xl bg-muted/60 p-1">
             {([
               { id: "ongoing", label: "Ongoing", count: ongoingWorkflows.length },
               { id: "upcoming", label: "Upcoming", count: upcomingWorkflows.length }
@@ -226,7 +226,7 @@ export function StudentUpcomingEventsPage() {
                   setSearch("");
                   setSelectedDayKey(null);
                 }}
-                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-200 ${
+                className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition-all duration-200 sm:px-4 ${
                   activeTab === tab.id
                     ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
                     : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
@@ -249,12 +249,12 @@ export function StudentUpcomingEventsPage() {
           </div>
 
           {activeTab === "upcoming" && (
-            <div className="flex items-center gap-1 rounded-xl bg-muted/60 p-1">
+            <div className="flex w-fit max-w-full items-center gap-1 self-start rounded-xl bg-muted/60 p-1 sm:self-auto">
               <button
                 type="button"
                 onClick={() => setView("list")}
                 aria-label="List view"
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+                className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
                   view === "list"
                     ? "bg-primary text-primary-foreground shadow-md shadow-primary/20"
                     : "text-muted-foreground hover:bg-background/80 hover:text-foreground"
