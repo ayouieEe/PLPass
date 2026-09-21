@@ -59,11 +59,14 @@ describe("CPU stabilization migrations", () => {
     expect(worker).toContain("rows.slice(startIndex)");
   });
 
-  it("uses handler-level service-key authentication for the scheduled worker", () => {
+  it("uses handler-level dedicated-key authentication for the scheduled worker", () => {
     const config = readFileSync(resolve(process.cwd(), "supabase/config.toml"), "utf8");
     const worker = readFileSync(resolve(process.cwd(), "supabase/functions/send-event-emails/index.ts"), "utf8");
-    expect(config).toMatch(/\[functions\.send-event-emails\][\s\S]*verify_jwt = true/);
-    expect(worker).toContain("const isWorker = authorization === `Bearer ${serviceRoleKey}` && apiKey === serviceRoleKey;");
+    expect(config).toMatch(/\[functions\.send-event-emails\][\s\S]*verify_jwt = false/);
+    expect(worker).toContain("const workerKey = Deno.env.get(\"EMAIL_WORKER_KEY\");");
+    expect(worker).toContain("const isWorker = Boolean(workerKey) && authorization === `Bearer ${workerKey}` && apiKey === workerKey;");
+    expect(worker).toContain("const workerBatchSize = Math.min(positiveIntegerSetting(Deno.env.get(\"PLPASS_EMAIL_WORKER_BATCH_SIZE\"), 5), 10);");
+    expect(worker).toContain("p_limit: workerBatchSize");
     expect(worker).toContain("supabase.auth.getUser(accessToken)");
   });
 });

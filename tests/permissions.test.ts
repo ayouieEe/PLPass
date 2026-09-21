@@ -13,6 +13,7 @@ describe("role capabilities", () => {
     expect(hasCapability("admin", "system.settings.manage")).toBe(true);
     expect(hasCapability("admin", "attendance.session.recover")).toBe(true);
     expect(hasCapability("admin", "events.read.all")).toBe(true);
+    expect(hasCapability("admin", "users.invitation.resend")).toBe(true);
     expect(hasCapability("admin", "events.create")).toBe(false);
     expect(hasCapability("admin", "events.manage.owned")).toBe(false);
     expect(hasCapability("admin", "attendance.manage.owned")).toBe(false);
@@ -25,7 +26,10 @@ describe("role capabilities", () => {
     expect(hasCapability("organizer", "events.read.all")).toBe(false);
     expect(hasCapability("organizer", "system.settings.manage")).toBe(false);
     expect(hasCapability("organizer", "audit.read.all")).toBe(false);
+    expect(hasCapability("organizer", "audit.export")).toBe(true);
+    expect(hasCapability("organizer", "reports.read.owned")).toBe(true);
     expect(hasCapability("organizer", "users.status.manage")).toBe(false);
+    expect(hasCapability("organizer", "users.invitation.resend")).toBe(false);
   });
 
   it("supports shared route guards without granting either role extra capabilities", () => {

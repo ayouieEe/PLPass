@@ -53,7 +53,7 @@ export function RoleBasedSidebar({
   const groups = groupedItems(visibleItems);
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
-  const workspaceLabel = role === "admin" ? "Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;
+  const workspaceLabel = role === "admin" ? "University Admin Workspace" : role === "department_admin" ? "Department Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;
 
   return (
     <aside
@@ -120,7 +120,7 @@ export function RoleBasedSidebar({
           title={collapsed ? `${userLabel} profile` : undefined}
           aria-label={`${userLabel} profile`}
           onClick={() => {
-            const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "admin" ? APP_ROUTES.adminProfile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
+            const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "admin" ? APP_ROUTES.adminProfile : role === "department_admin" ? APP_ROUTES.profile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
             navigate(route);
             onNavigate?.();
           }}

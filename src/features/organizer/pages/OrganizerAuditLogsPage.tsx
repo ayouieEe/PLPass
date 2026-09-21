@@ -21,6 +21,7 @@ import {
   useAdminProfiles
 } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { hasCapability } from "@/lib/auth/permissions";
 import type { AuditLog } from "@/types/domain";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import {
@@ -49,6 +50,7 @@ export function OrganizerAuditLogsPage() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
   );
+  const canExportAudit = session ? hasCapability(session.role, "audit.export") : false;
 
   // Queries
   const queryParams = useMemo(
@@ -272,7 +274,7 @@ export function OrganizerAuditLogsPage() {
                 <Filter className="h-3 w-3" aria-hidden="true" />
                 {filteredLogs.length} results
               </span>
-              <Button
+              {canExportAudit ? <Button
                 type="button"
                 onClick={() => void exportAuditLogs("xlsx")}
                 disabled={!filteredLogs.length}
@@ -280,11 +282,11 @@ export function OrganizerAuditLogsPage() {
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 XLSX
-              </Button>
-              <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+              </Button> : null}
+              {canExportAudit ? <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 PDF
-              </Button>
+              </Button> : null}
               <Button
                 type="button"
                 variant="outline"

@@ -35,6 +35,6 @@ entrypoint = "./functions/analyze-feedback/index.ts"
 
 [functions.send-event-emails]
 enabled = true
-# Keep Supabase platform JWT verification enabled. The handler also verifies the
-# worker's service-key headers before dispatching scheduled email work.
-verify_jwt = true
+# The handler verifies both dedicated worker headers before dispatching. The
+# service-role key is never sent by the database dispatcher.
+verify_jwt = false

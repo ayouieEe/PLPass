@@ -90,6 +90,16 @@ export type Department = {
   isActive: boolean;
 };
 
+export type DepartmentBranding = {
+  departmentId: ID;
+  displayName?: string;
+  logoPath?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  updatedAt?: ISODateString;
+};
+
 export type Program = {
   id: ID;
   departmentId: ID;

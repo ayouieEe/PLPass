@@ -40,6 +40,18 @@ export const ROLE_NAVIGATION: RoleNavigationConfig = {
     { label: "Settings", path: APP_ROUTES.adminSettings, icon: Settings, group: "Account", capability: "system.settings.manage" },
     { label: "Profile", path: APP_ROUTES.adminProfile, icon: UserCircle, group: "Account", capability: "profile.manage.own" }
   ],
+  department_admin: [
+    { label: "Dashboard", path: APP_ROUTES.departmentDashboard, icon: LayoutDashboard, group: "Overview", capability: "departments.read.owned" },
+    { label: "User Management", path: APP_ROUTES.departmentUsers, icon: UserCircle, group: "Department", capability: "users.read.department" },
+    { label: "Department Events", path: APP_ROUTES.departmentEvents, icon: ClipboardList, group: "Department", capability: "events.read.department" },
+    { label: "Department Students", path: APP_ROUTES.departmentStudents, icon: UserCheck, group: "Department", capability: "students.read.department" },
+    { label: "Attendance Records", path: APP_ROUTES.departmentAttendance, icon: CalendarCheck, group: "Department", capability: "attendance.read.department" },
+    { label: "Analytics Insights", path: APP_ROUTES.departmentAnalytics, icon: BarChart3, group: "Insights", capability: "analytics.read.department" },
+    { label: "Reports", path: APP_ROUTES.departmentReports, icon: BarChart3, group: "Insights", capability: "reports.read.department" },
+    { label: "Audit Logs", path: APP_ROUTES.departmentAuditLogs, icon: ClipboardList, group: "Account", capability: "audit.read.department" },
+    { label: "Branding", path: APP_ROUTES.departmentBranding, icon: Settings, group: "Department", capability: "departments.branding.manage.owned" },
+    { label: "Profile", path: APP_ROUTES.profile, icon: UserCircle, group: "Account", capability: "profile.manage.own" }
+  ],
   student: [
     { label: "Dashboard", path: APP_ROUTES.studentDashboard, icon: LayoutDashboard, group: "Overview" },
     { label: "Events", path: APP_ROUTES.studentUpcomingEvents, icon: CalendarDays, group: "Events" },

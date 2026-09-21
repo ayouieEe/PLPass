@@ -608,6 +608,11 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
+  async listStudentsByIds(studentIds, context) {
+    await beforeRead("userManagement", context, ["admin", "faculty", "organizer", "student"]);
+    const permitted = new Set(studentIds);
+    return studentFixtures.filter((student) => permitted.has(student.id));
+  },
   async createStudent(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
     const newStudent: Student = {
@@ -786,12 +791,32 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
   async updateAdmin(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
     const adminIndex = adminProfileFixtures.findIndex((profile) => profile.id === input.id && profile.userId === input.profileId);
-    const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "admin");
+    const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && ["admin", "department_admin"].includes(user.role));
     if (adminIndex === -1 || userIndex === -1) throw new RepositoryError("Admin account not found.", "NOT_FOUND");
     const updated = { ...adminProfileFixtures[adminIndex], departmentId: input.departmentId, officeName: input.officeName };
     adminProfileFixtures[adminIndex] = updated;
     userFixtures[userIndex] = { ...userFixtures[userIndex], email: input.email, displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: input.accountStatus === "active" };
     return updated;
+  },
+  async revokeUserSessions(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const currentContext = contextOrDefault(context);
+    if (currentContext.actorUserId === input.userId || !input.reason.trim()) {
+      throw new RepositoryError("A different user and a reason are required to revoke sessions.", "VALIDATION_ERROR");
+    }
+    return { revokedSessionCount: 1 };
+  },
+  async resendAdminInvitation(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin"].includes(user.role));
+    if (!target) throw new RepositoryError("The administrator account could not be found.", "NOT_FOUND");
+    return;
+  },
+  async resendUserInvitation(input, context) {
+    await beforeRead("userManagement", context, ["admin"]);
+    const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin", "organizer"].includes(user.role));
+    if (!target) throw new RepositoryError("The account could not be found.", "NOT_FOUND");
+    return;
   },
   async bulkCreateOrganizers(inputs, context) {
     await beforeRead("userManagement", context, ["admin"]);
@@ -847,6 +872,19 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       collegeLogoUrl: profile.collegeLogoPath,
       updatedAt: new Date().toISOString()
     };
+  },
+  async getDepartmentBranding(departmentId, context) {
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    const department = departmentFixtures.find((item) => item.id === departmentId);
+    if (!department) throw new RepositoryError("Department was not found.", "NOT_FOUND");
+    return { departmentId, displayName: department.name, primaryColor: "#3f7a44", secondaryColor: "#e8f1e6", updatedAt: new Date().toISOString() };
+  },
+  async updateDepartmentBranding(input, context) {
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    const department = departmentFixtures.find((item) => item.id === input.departmentId);
+    if (!department) throw new RepositoryError("Department was not found.", "NOT_FOUND");
+    if (!input.displayName.trim()) throw new RepositoryError("A department display name is required.", "VALIDATION_ERROR");
+    return { departmentId: input.departmentId, displayName: input.displayName.trim(), primaryColor: input.primaryColor, secondaryColor: input.secondaryColor, updatedAt: new Date().toISOString() };
   }
 };
 
@@ -1686,8 +1724,9 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
 };
 
 export const simulatedStudentCredentialRepository: StudentCredentialRepository = {
-  async listStudentCredentialStatuses(context) {
+  async listStudentCredentialStatuses(context, studentIds) {
     await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    if (context?.actorRole === "organizer" && !studentIds?.length) return [];
     return [];
   },
   async getStudentCredentialStatus(studentId, context) {

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { changePassword, passwordChangeErrorMessage, passwordRequirementsMessage, passwordSchema } from "@/lib/auth/passwords";
+import { PasswordField } from "@/components/auth/PasswordField";
 
 type ChangePasswordFormProps = {
   email: string;
@@ -46,16 +47,16 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
       <p className="text-sm text-muted-foreground">Use at least 8 characters. Changing your password signs out other devices.</p>
       <div className="space-y-1.5">
         <label htmlFor="current-password" className="text-xs font-semibold text-foreground">Current password</label>
-        <input id="current-password" autoComplete="current-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
+        <PasswordField id="current-password" autoComplete="current-password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} />
       </div>
       <div className="space-y-1.5">
         <label htmlFor="new-password" className="text-xs font-semibold text-foreground">New password</label>
-        <input id="new-password" autoComplete="new-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={password} onChange={(event) => setPassword(event.target.value)} />
+        <PasswordField id="new-password" autoComplete="new-password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={password} onChange={(event) => setPassword(event.target.value)} />
         <p className="text-xs text-muted-foreground">{passwordRequirementsMessage}</p>
       </div>
       <div className="space-y-1.5">
         <label htmlFor="confirm-new-password" className="text-xs font-semibold text-foreground">Confirm new password</label>
-        <input id="confirm-new-password" autoComplete="new-password" type="password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
+        <PasswordField id="confirm-new-password" autoComplete="new-password" className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
       </div>
       <Button type="submit" disabled={submitting} className="mt-2 px-6">{submitting ? "Updating..." : "Update password"}</Button>
     </form>

@@ -375,9 +375,14 @@ export function EventAttendancePage() {
     let retryTimer: number | undefined;
     let retryAttempt = 0;
     let disposed = false;
+    let refetchTimer: number | undefined;
     const invalidateAttendance = () => {
-      void queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
-      void queryClient.invalidateQueries({ queryKey: ["attendanceSession", sessionId] });
+      if (refetchTimer !== undefined) return;
+      refetchTimer = window.setTimeout(() => {
+        refetchTimer = undefined;
+        void queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+        void queryClient.invalidateQueries({ queryKey: ["attendanceSession", sessionId] });
+      }, 250);
     };
     const subscribe = () => {
       if (disposed || !isPageVisible()) return;
@@ -417,6 +422,7 @@ export function EventAttendancePage() {
     return () => {
       disposed = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      if (refetchTimer !== undefined) window.clearTimeout(refetchTimer);
       if (channel) void supabase.removeChannel(channel);
       removeVisibilityListener();
     };

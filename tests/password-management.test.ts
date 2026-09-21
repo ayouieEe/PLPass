@@ -1,9 +1,42 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AuthWeakPasswordError } from "@supabase/auth-js";
 import { authFailure, authTimeoutFailure, isInvalidCredentialAuthError, SupabaseAuthResolutionError, toSafeAuthErrorMessage } from "@/app/providers/supabaseSessionResolver";
-import { forgotPasswordErrorMessage, newPasswordSchema, passwordChangeErrorMessage, passwordResetErrorMessage, passwordSchema } from "@/lib/auth/passwords";
+
+const authMocks = vi.hoisted(() => ({
+  persistent: {
+    auth: {
+      setSession: vi.fn().mockResolvedValue({ error: null }),
+      updateUser: vi.fn().mockResolvedValue({ error: null }),
+      signOut: vi.fn().mockResolvedValue({ error: null })
+    }
+  },
+  reauthentication: {
+    auth: {
+      signInWithPassword: vi.fn().mockResolvedValue({ data: { session: { access_token: "access", refresh_token: "refresh" } }, error: null })
+    }
+  }
+}));
+
+vi.mock("@/lib/supabase/client", () => ({
+  getSupabaseBrowserClient: () => authMocks.persistent,
+  getSupabaseConfig: () => ({ url: "https://example.supabase.co", anonKey: "publishable-key" })
+}));
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: () => authMocks.reauthentication
+}));
+
+import { changePassword, forgotPasswordErrorMessage, newPasswordSchema, passwordChangeErrorMessage, passwordResetErrorMessage, passwordSchema } from "@/lib/auth/passwords";
 
 describe("password management safeguards", () => {
+  it("reauthenticates without racing the persistent application session", async () => {
+    await changePassword("user@example.com", "Current-password1!", "New-password1!");
+
+    expect(authMocks.reauthentication.auth.signInWithPassword).toHaveBeenCalledWith({ email: "user@example.com", password: "Current-password1!" });
+    expect(authMocks.persistent.auth.setSession).toHaveBeenCalledWith({ access_token: "access", refresh_token: "refresh" });
+    expect(authMocks.persistent.auth.updateUser).toHaveBeenCalledWith({ password: "New-password1!", current_password: "Current-password1!" });
+    expect(authMocks.persistent.auth.signOut).toHaveBeenCalledWith({ scope: "others" });
+  });
+
   it("requires a current password and a confirmed new password for voluntary changes", () => {
     expect(passwordSchema.safeParse({ currentPassword: "old-password", password: "New-password1!", confirmPassword: "New-password1!" }).success).toBe(true);
     expect(passwordSchema.safeParse({ currentPassword: "Same-password1!", password: "Same-password1!", confirmPassword: "Same-password1!" }).error?.issues[0]?.message).toMatch(/different/i);
@@ -40,5 +73,18 @@ describe("password management safeguards", () => {
     expect(isInvalidCredentialAuthError(new Error("Failed to fetch"))).toBe(false);
     expect(toSafeAuthErrorMessage(new Error("Failed to fetch"))).toBe("We couldn't connect to PLPass. Check your internet connection and try again.");
     expect(toSafeAuthErrorMessage(new Error("Email not confirmed"))).toBe("Please verify your email address before signing in.");
+  });
+
+  it("explains common password-change failures without exposing provider internals", () => {
+    expect(passwordChangeErrorMessage(new Error("Password should be at least 8 characters"))).toMatch(/security requirements/i);
+    expect(passwordChangeErrorMessage(new Error("Failed to fetch"))).toMatch(/internet connection/i);
+    expect(passwordChangeErrorMessage(new Error("Auth session missing"))).toMatch(/sign in again/i);
+    expect(passwordChangeErrorMessage({ code: "current_password_invalid", status: 400 })).toMatch(/current password is incorrect/i);
+    expect(passwordChangeErrorMessage({ code: "reauthentication_needed", status: 400 })).toMatch(/sign in again/i);
+    expect(passwordChangeErrorMessage(new Error("Email not confirmed"))).toMatch(/not confirmed/i);
+    expect(passwordChangeErrorMessage(new Error("rate limit exceeded"))).toMatch(/wait a few minutes/i);
+    expect(passwordChangeErrorMessage({ message: "Invalid login credentials", code: "invalid_credentials", status: 400 })).toBe("Your current password is incorrect.");
+    expect(passwordChangeErrorMessage({ error: "email_not_confirmed", status: 400 })).toMatch(/not confirmed/i);
+    expect(passwordChangeErrorMessage("Failed to fetch")).toMatch(/internet connection/i);
   });
 });

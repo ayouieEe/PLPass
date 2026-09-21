@@ -8,11 +8,13 @@ import {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const workerKey = Deno.env.get("EMAIL_WORKER_KEY");
 const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
 const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
 const brevoFromName = "PLPass";
 const dailySendCap = nonNegativeIntegerSetting(Deno.env.get("PLPASS_EMAIL_DAILY_CAP"), 250);
 const quotaDeferMinutes = positiveIntegerSetting(Deno.env.get("PLPASS_EMAIL_QUOTA_DEFER_MINUTES"), 60);
+const workerBatchSize = Math.min(positiveIntegerSetting(Deno.env.get("PLPASS_EMAIL_WORKER_BATCH_SIZE"), 5), 10);
 const developmentMode = Deno.env.get("PLPASS_EMAIL_DEVELOPMENT_MODE") === "true";
 const sandboxMode = developmentMode && Deno.env.get("PLPASS_BREVO_SANDBOX_MODE") === "true";
 const developmentAllowlist = new Set(
@@ -145,7 +147,7 @@ async function dispatchQueuedEmails() {
     await deferAllDueRows(nextUtcDay(), "Deferred because the PLPass daily email budget has been reached.");
     return { processed: 0, sent: 0, failed: 0, deferred: 0, quotaLimited: true };
   }
-  const { data, error } = await supabase.rpc("claim_event_email_outbox_batch_with_daily_cap", { p_limit: 25, p_daily_cap: dailySendCap });
+  const { data, error } = await supabase.rpc("claim_event_email_outbox_batch_with_daily_cap", { p_limit: workerBatchSize, p_daily_cap: dailySendCap });
   if (error) throw new Error(error.message);
 
   const { data: settings } = await supabase
@@ -233,7 +235,7 @@ async function dispatchQueuedRequestEmails() {
     await deferAllDueRows(nextUtcDay(), "Deferred because the PLPass daily email budget has been reached.");
     return { processed: 0, sent: 0, failed: 0, deferred: 0, quotaLimited: true };
   }
-  const { data, error } = await supabase.rpc("claim_request_email_outbox_batch_with_daily_cap", { p_limit: 25, p_daily_cap: dailySendCap });
+  const { data, error } = await supabase.rpc("claim_request_email_outbox_batch_with_daily_cap", { p_limit: workerBatchSize, p_daily_cap: dailySendCap });
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as RequestEmailRow[];
@@ -301,7 +303,7 @@ Deno.serve(async (request) => {
   const apiKey = request.headers.get("apikey");
   // The database worker supplies both headers. Requiring both avoids making a
   // scheduling endpoint reachable through the user-authentication path.
-  const isWorker = authorization === `Bearer ${serviceRoleKey}` && apiKey === serviceRoleKey;
+  const isWorker = Boolean(workerKey) && authorization === `Bearer ${workerKey}` && apiKey === workerKey;
 
   if (action === "dispatch") {
     if (!isWorker) return json({ error: "Worker authorization is required." }, 403);

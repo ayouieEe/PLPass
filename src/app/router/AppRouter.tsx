@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AuthenticatedLayout, PublicLayout } from "@/app/layouts/AppLayout";
 import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
@@ -14,6 +14,7 @@ import { RoleRoute } from "@/app/router/RoleRoute";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { getPasswordLinkType, getPasswordSetupPath, hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
 import { AdminReportsPage } from "@/features/admin/pages/AdminPages";
 
@@ -34,6 +35,7 @@ const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/Org
 const OrganizerPersonalSettingsPage = lazy(() => import("@/features/organizer/pages/OrganizerPersonalSettingsPage").then((module) => ({ default: module.OrganizerPersonalSettingsPage })));
 const OrganizerUserManagementPage = lazy(() => import("@/features/organizer/pages/OrganizerUserManagement").then((module) => ({ default: module.OrganizerUserManagementPage })));
 const AdminSystemHealthPage = lazy(() => import("@/features/admin/pages/AdminSystemHealthPage").then((module) => ({ default: module.AdminSystemHealthPage })));
+const DepartmentAdminPage = lazy(() => import("@/features/department/pages/DepartmentAdminPages").then((module) => ({ default: module.DepartmentAdminPage })));
 const StudentRootPage = lazy(() => import("@/features/student/pages/StudentRootPage").then((module) => ({ default: module.StudentRootPage })));
 const StudentDashboardPage = lazy(() => import("@/features/student/pages/StudentDashboardPage").then((module) => ({ default: module.StudentDashboardPage })));
 const StudentSchedulePage = lazy(() => import("@/features/student/pages/StudentSchedulePage").then((module) => ({ default: module.StudentSchedulePage })));
@@ -54,6 +56,14 @@ function AdminOrOrganizerProfilePage() {
   return <ProfilePage />;
 }
 
+function PublicEntryRoute() {
+  const location = useLocation();
+  if (hasPasswordSetupPayload(location)) {
+    return <Navigate to={getPasswordSetupPath(location, APP_ROUTES.resetPassword)} replace state={{ invitation: getPasswordLinkType(location) === "invite" }} />;
+  }
+  return <Navigate to={APP_ROUTES.login} replace />;
+}
+
 function OrganizerEventsRoute() {
   const { isOfflineMode } = useDevelopmentSession();
   return isOfflineMode ? <OfflineOrganizerEventsPage /> : <EventManagementPage />;
@@ -72,7 +82,7 @@ export function AppRouter() {
     <Suspense fallback={<LoadingState label="Loading workspace" />}>
     <Routes>
       <Route element={<PublicLayout />}>
-        <Route index element={<Navigate to={APP_ROUTES.login} replace />} />
+        <Route index element={<PublicEntryRoute />} />
         <Route path={APP_ROUTES.login} element={<LoginPage />} />
         <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
         <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
@@ -96,6 +106,8 @@ export function AppRouter() {
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} permission="attendance.read.owned" />}>
               <Route path={APP_ROUTES.organizerRecords} element={<EventRecordsPage />} />
+            </Route>
+            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="reports.read.owned" />}>
               <Route path={APP_ROUTES.organizerReports} element={<OrganizerReportsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} permission="credentials.use.owned_event" />}>
@@ -156,7 +168,37 @@ export function AppRouter() {
               <Route element={<RoleRoute allowedRoles={["admin"]} permission="profile.manage.own" />}>
                 <Route path={APP_ROUTES.adminProfile} element={<AdminOrOrganizerProfilePage />} />
               </Route>
-              <Route path={APP_ROUTES.organizerUsers} element={<AccessDeniedPage />} />
+            <Route path={APP_ROUTES.organizerUsers} element={<AccessDeniedPage />} />
+            </Route>
+            <Route element={<RoleRoute allowedRoles={["department_admin"]} />}>
+              <Route path={APP_ROUTES.department} element={<Navigate to={APP_ROUTES.departmentDashboard} replace />} />
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="departments.read.owned" />}>
+                <Route path={APP_ROUTES.departmentDashboard} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="events.read.department" />}>
+                <Route path={APP_ROUTES.departmentEvents} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="students.read.department" />}>
+                <Route path={APP_ROUTES.departmentStudents} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="attendance.read.department" />}>
+                <Route path={APP_ROUTES.departmentAttendance} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="analytics.read.department" />}>
+                <Route path={APP_ROUTES.departmentAnalytics} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="reports.read.department" />}>
+                <Route path={APP_ROUTES.departmentReports} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="audit.read.department" />}>
+                <Route path={APP_ROUTES.departmentAuditLogs} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="departments.branding.manage.owned" />}>
+                <Route path={APP_ROUTES.departmentBranding} element={<DepartmentAdminPage />} />
+              </Route>
+              <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="users.read.department" />}>
+                <Route path={APP_ROUTES.departmentUsers} element={<OrganizerUserManagementPage />} />
+              </Route>
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />

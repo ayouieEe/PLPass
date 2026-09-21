@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useStudentsByIds, useAuditLogMutations, useEvents, useParticipantsForEvents } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
 import { formatDateTime } from "@/lib/utils/date";
+import { hasCapability } from "@/lib/auth/permissions";
 
 type FacialStatus = FacialCredentialDisplayStatus;
 type QRStatus = "Active" | "Deactivated";
@@ -546,12 +547,32 @@ function ReportExportModal({
 
 export function AuthenticationMethodsPage() {
   const scope = useOrganizerScope();
-  const studentsQuery = useStudents({ pageSize: 100 }, scope.context);
-  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
+  const actorRole = scope.context?.actorRole;
+  const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
+  const ownedEventIds = useMemo(
+    () => actorRole === "organizer"
+      ? (eventsQuery.data?.items ?? []).filter((event) => event.organizerId === scope.organizerProfile?.id).map((event) => event.id)
+      : [],
+    [actorRole, eventsQuery.data?.items, scope.organizerProfile?.id]
+  );
+  const participantsQuery = useParticipantsForEvents(ownedEventIds, scope.context);
+  const organizerParticipantIds = useMemo(
+    () => [...new Set((participantsQuery.data ?? []).map((participant) => participant.studentId))],
+    [participantsQuery.data]
+  );
+  const allStudentsQuery = useStudents({ pageSize: 100 }, scope.context, actorRole !== "organizer");
+  const organizerStudentsQuery = useStudentsByIds(organizerParticipantIds, scope.context);
+  const studentsQuery = actorRole === "organizer" ? organizerStudentsQuery : allStudentsQuery;
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, actorRole === "organizer" ? organizerParticipantIds : undefined);
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
+  const canResetCredentials = scope.context?.actorRole === "organizer" || Boolean(scope.context?.actorRole && hasCapability(scope.context.actorRole, "credentials.reset"));
+  const canRevokeCredentials = scope.context?.actorRole === "organizer" || Boolean(scope.context?.actorRole && hasCapability(scope.context.actorRole, "credentials.revoke"));
 
-  const rawStudents = useMemo(() => studentsQuery.data?.items ?? [], [studentsQuery.data?.items]);
+  const rawStudents = useMemo(() => {
+    if (actorRole === "organizer") return organizerStudentsQuery.data ?? [];
+    return allStudentsQuery.data?.items ?? [];
+  }, [actorRole, organizerStudentsQuery.data, allStudentsQuery.data?.items]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("qr");
   const [searchQuery, setSearchQuery] = useState("");
@@ -737,6 +758,12 @@ export function AuthenticationMethodsPage() {
 
   async function confirmModalAction() {
     if (!activeModal) return;
+    const isRevocation = /Disable|Deactivate/.test(activeModal.title);
+    if ((isRevocation && !canRevokeCredentials) || (!isRevocation && /Enable|Activate|Regenerate/.test(activeModal.title) && !canResetCredentials)) {
+      toast.error("Your account does not have permission for this credential action.");
+      setActiveModal(null);
+      return;
+    }
 
     if (activeModal.type === "qr" && activeModal.studentName) {
       const student = qrRows.find((row) => row.studentName === activeModal.studentName);
@@ -855,7 +882,7 @@ export function AuthenticationMethodsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Authentication Methods" description="Manage QR codes and facial recognition credentials for all students." />
+      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes and facial recognition credentials institution-wide." : "Manage credentials for participants in your owned events."} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Credential overview">
         {activeTab === "qr" ? (

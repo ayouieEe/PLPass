@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AuthWeakPasswordError } from "@supabase/auth-js";
-import { establishPasswordRecoverySession, saveRecoveredPassword } from "@/lib/auth/recovery";
+import { establishPasswordRecoverySession, getPasswordSetupPath, hasPasswordSetupPayload, saveRecoveredPassword } from "@/lib/auth/recovery";
 
 function createStorage() {
   const values = new Map<string, string>();
@@ -24,6 +24,18 @@ function createClient(session: unknown | null = { user: { id: "recovery-user" } 
 }
 
 describe("password recovery links", () => {
+  it("recognizes and preserves invite payloads from the root URL", () => {
+    const location = { search: "", hash: "#access_token=access&refresh_token=refresh&type=invite" };
+
+    expect(hasPasswordSetupPayload(location)).toBe(true);
+    expect(getPasswordSetupPath(location, "/reset-password")).toBe("/reset-password#access_token=access&refresh_token=refresh&type=invite");
+  });
+
+  it("recognizes PKCE setup links without treating an ordinary login URL as an invite", () => {
+    expect(hasPasswordSetupPayload({ search: "?code=one-time-code", hash: "" })).toBe(true);
+    expect(hasPasswordSetupPayload({ search: "", hash: "" })).toBe(false);
+  });
+
   it("accepts PKCE and implicit recovery links and stores a tab-only marker", async () => {
     const storage = createStorage();
     const pkceClient = createClient();
@@ -37,6 +49,19 @@ describe("password recovery links", () => {
 
     expect(pkceClient.auth.exchangeCodeForSession).toHaveBeenCalledWith("one-time-code");
     expect(implicitClient.auth.setSession).toHaveBeenCalledWith({ access_token: "access-token", refresh_token: "refresh-token" });
+    expect(storage.setItem).toHaveBeenCalledWith("plpass-password-recovery", "active");
+  });
+
+  it("accepts an invitation link as a password-setup session", async () => {
+    const storage = createStorage();
+    const client = createClient();
+
+    await expect(establishPasswordRecoverySession(client, {
+      search: "",
+      hash: "#access_token=access-token&refresh_token=refresh-token&type=invite"
+    }, storage)).resolves.toBe(true);
+
+    expect(client.auth.setSession).toHaveBeenCalledWith({ access_token: "access-token", refresh_token: "refresh-token" });
     expect(storage.setItem).toHaveBeenCalledWith("plpass-password-recovery", "active");
   });
 

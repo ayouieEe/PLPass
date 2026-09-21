@@ -32,6 +32,7 @@ import type {
 } from "@/services/contracts";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 import { mapSupabaseError, throwIfSupabaseError } from "@/lib/supabase/errors";
 import {
@@ -60,6 +61,7 @@ import { normalizeStudentIdentityValue, studentIdentityMatchesPayload } from "@/
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import type {
   AdminProfile,
+  DepartmentBranding,
   Class,
   ClassRoster,
   Department,
@@ -115,6 +117,20 @@ export function isNonBlockingAuditLoggingError(error: unknown): boolean {
     (message.includes("row level security") && message.includes("audit_logs")) ||
     (message.includes("rls") && message.includes("audit_logs"))
   );
+}
+
+async function getFunctionInvocationErrorMessage(error: unknown): Promise<string> {
+  const fallback = error instanceof Error ? error.message : "The server could not complete the request.";
+  const response = error && typeof error === "object" && "context" in error
+    ? (error as { context?: unknown }).context
+    : null;
+
+  if (response && typeof response === "object" && "json" in response && typeof response.json === "function") {
+    const body = await (response as Response).clone().json().catch(() => null) as { error?: unknown } | null;
+    if (typeof body?.error === "string" && body.error.trim()) return body.error;
+  }
+
+  return fallback;
 }
 
 const defaultPageSize = 20;
@@ -413,12 +429,25 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
         : await selectRows("students", query, studentReadSelect);
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
+  async listStudentsByIds(studentIds, context) {
+    void context;
+    const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
+    if (uniqueStudentIds.length === 0) return [];
+
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("students")
+      .select(studentReadSelect)
+      .in("id", uniqueStudentIds);
+    throwIfSupabaseError(error);
+    return (data ?? []).map((row) => mapStudent(row as Row));
+  },
   async createStudent(input) {
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", {
       body: { action: "create-student", students: [input] }
     });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     if (data?.failed > 0) throw new RepositoryError(data.errors?.[0]?.error || "Failed to create student", "VALIDATION_ERROR");
 
@@ -436,15 +465,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data, error } = await client.functions.invoke("manage-users", {
       body: { action: "update-student", student: input }
     });
-    if (error) {
-      let message = error.message;
-      const response = (error as { context?: unknown }).context;
-      if (response && typeof response === "object" && "json" in response && typeof response.json === "function") {
-        const body = await (response as Response).clone().json().catch(() => null) as { error?: unknown } | null;
-        if (typeof body?.error === "string" && body.error.trim()) message = body.error;
-      }
-      throw new RepositoryError(message, "VALIDATION_ERROR");
-    }
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
 
     const { data: studentRow, error: fetchError } = await client
@@ -460,7 +481,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data, error } = await client.functions.invoke("manage-users", {
       body: { action: "bulk-create-students", students: inputs }
     });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     
     return {
@@ -510,7 +531,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-organizer", organizer: input } });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     const generatedEmployeeNumber = String(data?.employeeNumber ?? input.employeeNumber);
     const { data: row, error: fetchError } = await client.from("organizers").select("id, profile_id, employee_id, organization_name, department_id, position, organizer_status").eq("employee_id", generatedEmployeeNumber).single();
@@ -521,7 +542,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can update organizer accounts.", "PERMISSION_DENIED");
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "update-organizer", organizer: input } });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     const { data: row, error: fetchError } = await client
       .from("organizers")
@@ -535,7 +556,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create admin accounts.", "PERMISSION_DENIED");
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-admin", admin: input } });
-    if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("employee_number", input.employeeNumber).single();
     throwIfSupabaseError(fetchError);
@@ -553,6 +574,36 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("id", input.id).single();
     throwIfSupabaseError(fetchError);
     return { id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number), departmentId: String(row.department_id), officeName: String(row.office_name) };
+  },
+  async revokeUserSessions(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can revoke user sessions.", "PERMISSION_DENIED");
+    if (context.actorUserId === input.userId) throw new RepositoryError("Administrators cannot revoke their own sessions.", "VALIDATION_ERROR");
+    const reason = input.reason.trim();
+    if (!reason) throw new RepositoryError("A reason is required to revoke user sessions.", "VALIDATION_ERROR");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "revoke-user-sessions", userId: input.userId, reason }
+    });
+    if (error) throw new RepositoryError(error.message, "SERVER_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    return { revokedSessionCount: Number(data?.revokedSessionCount ?? 0) };
+  },
+  async resendUserInvitation(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only university administrators can resend account invitations.", "PERMISSION_DENIED");
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.functions.invoke("manage-users", {
+      body: { action: "prepare-user-invitation-resend", userId: input.userId }
+    });
+    if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "SERVER_ERROR");
+    if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
+    if (typeof data?.email !== "string" || !data.email) throw new RepositoryError("The invitation could not be prepared.", "SERVER_ERROR");
+    const { error: resetError } = await client.auth.resetPasswordForEmail(data.email, {
+      redirectTo: `${window.location.origin}${APP_ROUTES.resetPassword}`
+    });
+    if (resetError) throw new RepositoryError(resetError.message, "SERVER_ERROR");
+  },
+  async resendAdminInvitation(input, context) {
+    return this.resendUserInvitation(input, context);
   },
   async bulkCreateOrganizers(inputs, context) {
     if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
@@ -610,6 +661,63 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const result = { organizerId: String(row.id), collegeName: String(row.organization_name ?? "PLP"), collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined, collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined), updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined };
     try { await supabaseAuditLogRepository.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: input.organizerId, metadata: { collegeName: result.collegeName, logoUpdated: Boolean(input.logo), logoRemoved: Boolean(input.removeLogo) } }, context); } catch { /* Branding remains committed if audit logging is unavailable. */ }
     return result;
+  },
+  async getDepartmentBranding(departmentId, context) {
+    if (context?.actorRole !== "department_admin" && context?.actorRole !== "admin") {
+      throw new RepositoryError("Only department administrators can view department branding.", "PERMISSION_DENIED");
+    }
+    const row = await selectSingleRowWithColumns("departments", departmentId, "id, department_name, brand_name_override, logo_path, primary_color, secondary_color, updated_at");
+    return {
+      departmentId: String(row.id),
+      displayName: typeof row.brand_name_override === "string" && row.brand_name_override.trim() ? row.brand_name_override : String(row.department_name ?? ""),
+      logoPath: typeof row.logo_path === "string" ? row.logo_path : undefined,
+      logoUrl: await signedBrandingUrl(typeof row.logo_path === "string" ? row.logo_path : undefined),
+      primaryColor: typeof row.primary_color === "string" ? row.primary_color : undefined,
+      secondaryColor: typeof row.secondary_color === "string" ? row.secondary_color : undefined,
+      updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined
+    } satisfies DepartmentBranding;
+  },
+  async updateDepartmentBranding(input, context) {
+    if (context?.actorRole !== "department_admin" && context?.actorRole !== "admin") {
+      throw new RepositoryError("Only department administrators can update department branding.", "PERMISSION_DENIED");
+    }
+    const displayName = input.displayName.trim();
+    if (!displayName) throw new RepositoryError("A department display name is required.", "VALIDATION_ERROR");
+    if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
+      throw new RepositoryError("Department logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
+    }
+    const client = getSupabaseBrowserClient();
+    const current = await selectSingleRowWithColumns("departments", input.departmentId, "id, logo_path");
+    let logoPath = typeof current.logo_path === "string" ? current.logo_path : null;
+    if (input.logo) {
+      const extension = input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg";
+      const nextPath = `departments/${input.departmentId}/logo.${extension}`;
+      if (logoPath && logoPath !== nextPath) await client.storage.from("branding-assets").remove([logoPath]);
+      const { error } = await client.storage.from("branding-assets").upload(nextPath, input.logo, { contentType: input.logo.type, cacheControl: "3600", upsert: true });
+      throwIfSupabaseError(error);
+      logoPath = nextPath;
+    } else if (input.removeLogo) {
+      if (logoPath) await client.storage.from("branding-assets").remove([logoPath]);
+      logoPath = null;
+    }
+    const { data, error } = await client.from("departments").update({
+      brand_name_override: displayName,
+      logo_path: logoPath,
+      primary_color: input.primaryColor?.trim() || null,
+      secondary_color: input.secondaryColor?.trim() || null,
+      updated_at: new Date().toISOString()
+    } as never).eq("id", input.departmentId).select("id, department_name, brand_name_override, logo_path, primary_color, secondary_color, updated_at").single();
+    throwIfSupabaseError(error);
+    const row = data as unknown as Row;
+    return {
+      departmentId: String(row.id),
+      displayName: String(row.brand_name_override ?? row.department_name ?? ""),
+      logoPath: typeof row.logo_path === "string" ? row.logo_path : undefined,
+      logoUrl: await signedBrandingUrl(typeof row.logo_path === "string" ? row.logo_path : undefined),
+      primaryColor: typeof row.primary_color === "string" ? row.primary_color : undefined,
+      secondaryColor: typeof row.secondary_color === "string" ? row.secondary_color : undefined,
+      updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined
+    } satisfies DepartmentBranding;
   }
 };
 
@@ -1807,7 +1915,7 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
 };
 
 export const supabaseStudentCredentialRepository: StudentCredentialRepository = {
-  async listStudentCredentialStatuses(context) {
+  async listStudentCredentialStatuses(context, studentIds) {
     requireOrganizerContext(context);
     const client = getSupabaseBrowserClient();
 
@@ -1847,15 +1955,20 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
         .filter((status) => status.studentId);
     }
 
-    const [{ data: qrRows, error: qrError }, { data: facialRows, error: facialError }] = await Promise.all([
-      client
+    const scopedStudentIds = [...new Set(studentIds ?? [])];
+    if (context?.actorRole === "organizer" && scopedStudentIds.length === 0) return [];
+    let qrQuery = client
         .from("qr_credentials")
         .select("id, student_id, credential_status, issued_at, expires_at, revoked_at, last_successful_check_in_at, created_at, updated_at")
-        .order("issued_at", { ascending: false }),
-      client
+        .order("issued_at", { ascending: false });
+    let facialQuery = client
         .from("facial_profiles")
-        .select("id, student_id, facial_status, enrolled_at, last_verified_at, consent_recorded_at, created_at, updated_at")
-    ]);
+        .select("id, student_id, facial_status, enrolled_at, last_verified_at, consent_recorded_at, created_at, updated_at");
+    if (context?.actorRole === "organizer") {
+      qrQuery = qrQuery.in("student_id", scopedStudentIds);
+      facialQuery = facialQuery.in("student_id", scopedStudentIds);
+    }
+    const [{ data: qrRows, error: qrError }, { data: facialRows, error: facialError }] = await Promise.all([qrQuery, facialQuery]);
     throwIfSupabaseError(qrError);
     throwIfSupabaseError(facialError);
 

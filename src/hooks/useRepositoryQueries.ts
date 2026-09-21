@@ -69,11 +69,12 @@ export function useDevelopmentAccounts() {
   });
 }
 
-export function useUsers(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useUsers(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["users", listQuery, context],
-    queryFn: () => repositories.userManagement.listUsers(listQuery, context)
+    queryFn: () => repositories.userManagement.listUsers(listQuery, context),
+    enabled: Boolean(context) && enabled
   });
 }
 
@@ -85,13 +86,13 @@ export function useUser(userId: string | undefined, context?: RepositoryContext)
   });
 }
 
-export function useStudents(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useStudents(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["students", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudents(listQuery, context), "Student data"),
     retry: retryUnlessTimedOut,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 
@@ -132,44 +133,47 @@ export function useFacultyProfiles(query?: Partial<ListQuery>, context?: Reposit
   });
 }
 
-export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["organizerProfiles", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listOrganizerProfiles(listQuery, context), "Organizer data"),
     retry: retryUnlessTimedOut,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 
-export function useAdminProfiles(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useAdminProfiles(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["adminProfiles", listQuery, context],
     queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context),
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 
-export function useAcademicCatalog(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useAcademicCatalog(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();
   const invalidate = async () => { await queryClient.invalidateQueries({ queryKey: ["departments"] }); await queryClient.invalidateQueries({ queryKey: ["programs"] }); await queryClient.invalidateQueries({ queryKey: ["sections"] }); await queryClient.invalidateQueries({ queryKey: ["eventCategories"] }); };
   return {
     departments: useQuery({
       queryKey: ["departments", listQuery, context],
-      queryFn: () => repositories.academicManagement.listDepartments(listQuery, context)
+      queryFn: () => repositories.academicManagement.listDepartments(listQuery, context),
+      enabled: Boolean(context) && enabled
     }),
     programs: useQuery({
       queryKey: ["programs", listQuery, context],
-      queryFn: () => repositories.academicManagement.listPrograms(listQuery, context)
+      queryFn: () => repositories.academicManagement.listPrograms(listQuery, context),
+      enabled: Boolean(context) && enabled
     }),
     semesters: useQuery({
       queryKey: ["semesters", listQuery, context],
-      queryFn: () => repositories.academicManagement.listSemesters(listQuery, context)
+      queryFn: () => repositories.academicManagement.listSemesters(listQuery, context),
+      enabled: Boolean(context) && enabled
     }),
-    sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }) }),
-    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }) }),
+    sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled }),
+    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled }),
     createDepartmentMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateDepartment>>[0]) => { if (!repositories.academicManagement.createOrUpdateDepartment) throw new Error("Department management is unavailable."); return repositories.academicManagement.createOrUpdateDepartment(input, context); }, onSuccess: invalidate }),
     createProgramMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateProgram>>[0]) => { if (!repositories.academicManagement.createOrUpdateProgram) throw new Error("Program management is unavailable."); return repositories.academicManagement.createOrUpdateProgram(input, context); }, onSuccess: invalidate }),
     createSectionMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateSection>>[0]) => { if (!repositories.academicManagement.createOrUpdateSection) throw new Error("Section management is unavailable."); return repositories.academicManagement.createOrUpdateSection(input, context); }, onSuccess: invalidate }),
@@ -231,13 +235,13 @@ export function useStudentsForClass(classId: string | undefined, query?: Partial
   });
 }
 
-export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["events", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.eventManagement.listEvents(listQuery, context), "Events"),
     retry: retryUnlessTimedOut,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 
@@ -327,6 +331,30 @@ export function useEventParticipants(eventId: string, query?: Partial<ListQuery>
   });
 }
 
+export function useStudentsByIds(studentIds: readonly string[], context?: RepositoryContext) {
+  const normalizedStudentIds = [...new Set(studentIds)].sort();
+  return useQuery({
+    queryKey: ["students", "ids", normalizedStudentIds, context],
+    queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudentsByIds(normalizedStudentIds, context), "Student data"),
+    retry: retryUnlessTimedOut,
+    enabled: Boolean(context) && normalizedStudentIds.length > 0
+  });
+}
+
+export function useParticipantsForEvents(eventIds: readonly string[], context?: RepositoryContext) {
+  const normalizedEventIds = [...new Set(eventIds)].sort();
+  return useQuery({
+    queryKey: ["eventParticipants", "events", normalizedEventIds, context],
+    queryFn: async () => {
+      const results = await Promise.all(
+        normalizedEventIds.map((eventId) => repositories.eventManagement.listEventParticipants(eventId, { pageIndex: 0, pageSize: 500 }, context))
+      );
+      return results.flatMap((result) => result.items);
+    },
+    enabled: Boolean(context?.actorUserId && normalizedEventIds.length)
+  });
+}
+
 export function useEventResources(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
@@ -394,7 +422,7 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
   };
 }
 
-export function useAttendanceRecords(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useAttendanceRecords(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceRecords", listQuery, context],
@@ -402,7 +430,7 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
     retry: retryUnlessTimedOut,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 
@@ -619,11 +647,12 @@ export function useStudentCredentialStatus(studentId: string | undefined, contex
   });
 }
 
-export function useStudentCredentialStatuses(context?: RepositoryContext) {
+export function useStudentCredentialStatuses(context?: RepositoryContext, studentIds?: readonly string[], enabled = true) {
+  const normalizedStudentIds = [...new Set(studentIds ?? [])].sort();
   return useQuery({
-    queryKey: ["studentCredentialStatuses", context],
-    queryFn: () => repositories.studentCredentials.listStudentCredentialStatuses(context),
-    enabled: Boolean(context?.actorUserId)
+    queryKey: ["studentCredentialStatuses", context, normalizedStudentIds],
+    queryFn: () => repositories.studentCredentials.listStudentCredentialStatuses(context, normalizedStudentIds),
+    enabled: Boolean(context?.actorUserId && enabled && (context.actorRole !== "organizer" || normalizedStudentIds.length))
   });
 }
 
@@ -901,6 +930,25 @@ export function useOrganizerBranding(organizerId: string | undefined, context?: 
       await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
       queryClient.setQueryData(["organizerBranding", organizerId, context], branding);
       toast.success("College branding updated successfully");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+  return { ...query, updateMutation };
+}
+
+export function useDepartmentBranding(departmentId: string | undefined, context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["departmentBranding", departmentId, context],
+    queryFn: () => repositories.userManagement.getDepartmentBranding(departmentId ?? "", context),
+    enabled: Boolean(departmentId && context)
+  });
+  const updateMutation = useMutation({
+    mutationFn: (input: Omit<import("@/services/contracts").UpdateDepartmentBrandingInput, "departmentId">) => repositories.userManagement.updateDepartmentBranding({ ...input, departmentId: departmentId ?? "" }, context),
+    onSuccess: async (branding) => {
+      await queryClient.invalidateQueries({ queryKey: ["departmentBranding", departmentId] });
+      queryClient.setQueryData(["departmentBranding", departmentId, context], branding);
+      toast.success("Department branding updated successfully");
     },
     onError: (error: unknown) => toast.error(getErrorMessage(error))
   });

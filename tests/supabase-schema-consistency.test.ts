@@ -17,12 +17,14 @@ describe("linked Supabase session schema usage", () => {
     expect(provider).not.toContain("attendance_sessions:");
   });
 
-  it("reports the exact linked queries that fail in Request History", () => {
+  it("reports only linked event-era queries in Request History", () => {
     const page = read("src/features/student/pages/RequestHistoryPage.tsx");
 
     expect(page).toContain("unavailableLinkedDetails");
     expect(page).toContain("Unavailable right now:");
-    expect(page).toContain('classesQuery.isError ? "class details"');
+    expect(page).not.toContain("useClasses");
+    expect(page).not.toContain("classesQuery");
+    expect(page).not.toContain("class details");
     expect(page).toContain('recordsQuery.isError ? "attendance records"');
   });
 });

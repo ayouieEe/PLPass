@@ -19,9 +19,11 @@ describe("priority five organizer credential workflows", () => {
     expect(source).not.toContain('student.status === "enrolled" ? "Active"');
   });
 
-  it("loads organizer credential status in one repository operation", () => {
+  it("loads organizer credential status only for the supplied owned-event participants", () => {
     const source = read("src/services/supabase/repositories.ts");
-    expect(source).toContain("async listStudentCredentialStatuses(context)");
+    expect(source).toContain("async listStudentCredentialStatuses(context, studentIds)");
+    expect(source).toContain('qrQuery = qrQuery.in("student_id", scopedStudentIds)');
+    expect(source).toContain('facialQuery = facialQuery.in("student_id", scopedStudentIds)');
     expect(source).toContain('from("qr_credentials")');
     expect(source).toContain('from("facial_profiles")');
   });

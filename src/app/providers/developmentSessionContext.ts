@@ -8,6 +8,7 @@ export type DevelopmentSession = {
   displayName: string;
   email: string;
   accountStatus?: "active" | "inactive" | "suspended";
+  departmentId?: string;
 };
 
 export type DevelopmentSessionContextValue = {

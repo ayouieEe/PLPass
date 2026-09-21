@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useClasses, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -58,7 +58,6 @@ function submittedTime(value: string) {
 
 export function RequestHistoryPage() {
   const scope = useStudentScope();
-  const classesQuery = useClasses({ pageSize: 100 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
@@ -79,7 +78,6 @@ export function RequestHistoryPage() {
   }
 
   if (
-    classesQuery.isLoading ||
     eventsQuery.isLoading ||
     sessionsQuery.isLoading ||
     recordsQuery.isLoading ||
@@ -91,7 +89,6 @@ export function RequestHistoryPage() {
 
   const student = scope.student;
   const unavailableLinkedDetails = [
-    classesQuery.isError ? "class details" : undefined,
     eventsQuery.isError ? "event details" : undefined,
     sessionsQuery.isError ? "attendance sessions" : undefined,
     recordsQuery.isError ? "attendance records" : undefined,
@@ -99,7 +96,6 @@ export function RequestHistoryPage() {
     credentialRequestsQuery.isError ? "support requests" : undefined
   ].filter((value): value is string => Boolean(value));
   const hasPartialDataIssue = unavailableLinkedDetails.length > 0;
-  const classes = classesQuery.data?.items ?? [];
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sessions = sessionsQuery.data?.items ?? [];
   const records = recordsQuery.data?.items ?? [];
@@ -114,10 +110,9 @@ export function RequestHistoryPage() {
     const eventRecord = studentEventRecords.find(
       (record) => record.id === request.attendanceRecordId || record.eventId === request.eventId
     );
-    const classRecord = classes.find((entry) => entry.id === request.classId);
     const event = events.find((entry) => entry.id === request.eventId);
-    const title = eventRecord?.eventName ?? event?.title ?? classRecord?.subjectTitle ?? "Attendance correction";
-    const reference = eventRecord?.eventCode ?? event?.code ?? classRecord?.subjectCode ?? request.attendanceRecordId;
+    const title = eventRecord?.eventName ?? event?.title ?? "Attendance correction";
+    const reference = eventRecord?.eventCode ?? event?.code ?? request.attendanceRecordId;
     const scheduleSource = eventRecord ?? event;
     const eventSchedule = scheduleSource
       ? `${formatDisplayDate(scheduleSource.startsAt)} at ${formatDisplayTime(scheduleSource.startsAt)}`
@@ -189,7 +184,7 @@ export function RequestHistoryPage() {
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-4">
           <p className="font-semibold text-warning">Some linked details are temporarily unavailable.</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your submitted requests are still shown. Missing class or event names may appear as record references.
+            Your submitted requests are still shown. Missing event names may appear as record references.
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             Unavailable right now: {unavailableLinkedDetails.join(", ")}.

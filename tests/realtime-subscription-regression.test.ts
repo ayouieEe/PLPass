@@ -18,6 +18,9 @@ describe("Realtime subscription boundaries", () => {
   it("scopes live attendance subscriptions to the active session", () => {
     expect(attendance).toContain("plpass-attendance-${sessionId}-");
     expect(attendance).toContain("filter: `event_session_id=eq.${sessionId}`");
+    expect(attendance).toContain("let refetchTimer: number | undefined;");
+    expect(attendance).toContain("if (refetchTimer !== undefined) return;");
+    expect(attendance).toContain("}, 250);");
     expect(attendance).not.toContain('table: "attendance_requests"');
     expect(attendance).not.toContain('table: "audit_logs"');
   });

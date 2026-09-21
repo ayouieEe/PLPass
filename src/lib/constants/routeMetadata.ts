@@ -20,6 +20,11 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/admin/catalogs") return { title: "Academic Catalogs", description: "Manage academic and event catalogs.", breadcrumbs: ["Admin", "Catalogs"] };
   if (pathname === "/admin/settings") return { title: "System Settings", description: "Manage institution-wide policies.", breadcrumbs: ["Admin", "Settings"] };
 
+  if (pathname === "/department" || pathname === "/department/dashboard") return { title: "Department Overview", description: "Review department events, participation, and branding.", breadcrumbs: ["Department Admin", "Dashboard"] };
+  if (pathname === "/department/events") return { title: "Department Events", description: "Review events associated with your department.", breadcrumbs: ["Department Admin", "Events"] };
+  if (pathname === "/department/students") return { title: "Department Students", description: "Review students visible through your department scope.", breadcrumbs: ["Department Admin", "Students"] };
+  if (pathname === "/department/branding") return { title: "Department Branding", description: "Manage branding for your assigned department.", breadcrumbs: ["Department Admin", "Branding"] };
+
   // Organizer Routes
   if (pathname === "/organizer" || pathname === "/organizer/dashboard") {
     return {

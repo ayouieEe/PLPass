@@ -5,6 +5,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { repositories } from "@/services/repositories";
 import type { FailedNotificationJob, SystemHealthIssue, SystemHealthSnapshot } from "@/services/contracts";
 import { hasCapability } from "@/lib/auth/permissions";
+import { useAdminWorkspaceRefresh } from "@/hooks/useAdminWorkspaceRefresh";
 import { toast } from "sonner";
 
 const statusStyles = {
@@ -33,23 +34,23 @@ function IssueList({ issues, emptyLabel, onReview }: { issues: SystemHealthIssue
 }
 
 function formatNotificationError(rawError: string) {
-  const sendGridMatch = rawError.match(/SendGrid API error (\d+):\s*(\{[\s\S]*\})$/i);
-  if (!sendGridMatch) return { summary: rawError, guidance: null };
+  const providerMatch = rawError.match(/(?:Brevo|SendGrid) API error (\d+):\s*(\{[\s\S]*\})$/i);
+  if (!providerMatch) return { summary: rawError, guidance: null };
 
   try {
-    const payload = JSON.parse(sendGridMatch[2]) as { errors?: Array<{ message?: string }> };
+    const payload = JSON.parse(providerMatch[2]) as { errors?: Array<{ message?: string }> };
     const providerMessage = payload.errors?.[0]?.message?.trim();
     if (providerMessage) {
       const guidance = /verified Sender Identity/i.test(providerMessage)
-        ? "Verify the configured sender address or domain in SendGrid, then retry the job."
+        ? "Verify the configured sender address or domain, then retry the job."
         : "Review the provider configuration before retrying the job.";
-      return { summary: `SendGrid rejected the email (HTTP ${sendGridMatch[1]}). ${providerMessage}`, guidance };
+      return { summary: `The email provider rejected the message (HTTP ${providerMatch[1]}). ${providerMessage}`, guidance };
     }
   } catch {
     // Keep the original error visible when a provider response is not valid JSON.
   }
 
-  return { summary: `SendGrid rejected the email (HTTP ${sendGridMatch[1]}).`, guidance: "Review the SendGrid configuration before retrying the job." };
+  return { summary: `The email provider rejected the message (HTTP ${providerMatch[1]}).`, guidance: "Review the email-provider configuration before retrying the job." };
 }
 
 export function AdminSystemHealthPage() {
@@ -68,6 +69,9 @@ export function AdminSystemHealthPage() {
   const canRunConsistencyCheck = actorRole ? hasCapability(actorRole, "system.data_check.run") : false;
   const canRetryJobs = actorRole ? hasCapability(actorRole, "system.jobs.retry") : false;
   const canRecoverSessions = actorRole ? hasCapability(actorRole, "attendance.session.recover") : false;
+  const canReadErrors = actorRole ? hasCapability(actorRole, "system.errors.read") : false;
+  const canRefreshWorkspace = actorRole ? hasCapability(actorRole, "system.cache.refresh") : false;
+  const workspaceRefresh = useAdminWorkspaceRefresh();
 
   const loadSnapshot = useCallback(async ({ silent = false }: { silent?: boolean } = {}): Promise<boolean> => {
     if (!actorUserId || !actorRole) return false;
@@ -142,6 +146,14 @@ export function AdminSystemHealthPage() {
     if (await loadSnapshot()) toast.success("System Health checks refreshed.");
     else toast.error("System Health checks could not be refreshed.");
   }
+  async function refreshWorkspace() {
+    try {
+      await workspaceRefresh.refresh();
+      toast.success("Administrator workspace data refreshed.");
+    } catch {
+      toast.error("Administrator workspace data could not be refreshed.");
+    }
+  }
 
   async function markIssueReviewed(issue: SystemHealthIssue) {
     try {
@@ -161,17 +173,17 @@ export function AdminSystemHealthPage() {
   const visibleNotifications = snapshot?.failedNotifications.slice(notificationPage * ITEMS_PER_PAGE, (notificationPage + 1) * ITEMS_PER_PAGE) ?? [];
   const visibleSessions = snapshot?.stuckSessions.slice(sessionPage * ITEMS_PER_PAGE, (sessionPage + 1) * ITEMS_PER_PAGE) ?? [];
   return <div className="mx-auto max-w-6xl space-y-6">
-    <PageHeader eyebrow="Administration" title="System Health" description="Inspect service availability and recover supported operational failures safely." actions={<button type="button" onClick={() => void refreshChecks()} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold"><RefreshCw className="mr-2 h-4 w-4" />Refresh checks</button>} />
+    <PageHeader eyebrow="Administration" title="System Health" description="Inspect service availability and recover supported operational failures safely." actions={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => void refreshChecks()} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold"><RefreshCw className="mr-2 h-4 w-4" />Refresh checks</button>{canRefreshWorkspace ? <button type="button" onClick={() => void refreshWorkspace()} disabled={workspaceRefresh.isRefreshing} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`mr-2 h-4 w-4 ${workspaceRefresh.isRefreshing ? "animate-spin" : ""}`} />{workspaceRefresh.isRefreshing ? "Refreshing…" : "Refresh workspace data"}</button> : null}</div>} />
     {message ? <div role="alert" className="rounded-xl border border-border bg-surface p-3 text-sm">{message}</div> : null}
     {loading ? <div className="rounded-2xl border border-border bg-surface p-8 text-center text-sm text-muted-foreground">Loading system health…</div> : snapshot ? <>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{snapshot.checks.map((check) => <div key={check.key} className={`rounded-2xl border p-4 ${statusStyles[check.status]}`}><div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold">{check.label}</p>{check.status === "healthy" ? <CheckCircle2 className="h-5 w-5" aria-hidden="true" /> : <Activity className="h-5 w-5" aria-hidden="true" />}</div><p className="mt-2 text-xs">{check.message}</p></div>)}</section>
       <section className="rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Email processing</h2><p className="mt-2 text-sm text-muted-foreground">Last successful email delivery: {snapshot.lastSuccessfulEmailAt ? new Date(snapshot.lastSuccessfulEmailAt).toLocaleString() : "No successful delivery recorded."}</p></section>
       <div className="grid gap-6 lg:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-surface p-5"><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /><h2 className="font-semibold">Recent application errors</h2></div><div className="mt-4"><IssueList issues={snapshot.recentErrors} emptyLabel="No recent application errors." /></div></section>
+        {canReadErrors ? <section className="rounded-2xl border border-border bg-surface p-5"><div className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /><h2 className="font-semibold">Recent application errors</h2></div><div className="mt-4"><IssueList issues={snapshot.recentErrors} emptyLabel="No recent application errors." /></div></section> : null}
         <section className="rounded-2xl border border-border bg-surface p-5"><div className="flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" /><h2 className="font-semibold">Data consistency</h2></div><p className="mt-2 text-sm text-muted-foreground">Run a read-only check for duplicate or mismatched records. Mark reviewed items to clear them from this list; the review remains in Audit Logs.</p><div className="mt-4"><IssueList issues={snapshot.consistencyIssues.filter((issue) => !reviewedIssueIds.includes(issue.id))} emptyLabel="No consistency issues detected yet." onReview={(issue) => void markIssueReviewed(issue)} /></div>{canRunConsistencyCheck ? <button type="button" className="mt-4 inline-flex items-center rounded-xl border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50" onClick={() => void runAction("consistency", async () => { const issues = await repositories.systemHealth.runDataConsistencyCheck({ actorUserId: session.userId, actorRole: session.role }); setSnapshot((current) => current ? { ...current, consistencyIssues: issues.filter((issue) => !reviewedIssueIds.includes(issue.id)) } : current); }, "Data consistency check completed.", { requiresReason: false, reloadSnapshot: false })} disabled={working !== null}><Wrench className="mr-2 h-4 w-4" />{working === "consistency" ? "Checking…" : "Run consistency check"}</button> : null}</section>
       </div>
       <section className="rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Failed notification or email jobs</h2><div className="mt-4 space-y-3">{snapshot.failedNotifications.length ? visibleNotifications.map((job: FailedNotificationJob) => { const error = formatNotificationError(job.lastError); const canRetryJob = canRetryJobs && job.source === "event_email"; return <div key={`${job.source}-${job.id}`} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-background p-4"><div className="min-w-0 flex-1"><p className="text-sm font-medium">{job.subject}</p><p className="mt-1 text-xs text-muted-foreground">{job.channel} · {job.recipient}</p><p className="mt-2 text-sm text-red-700">{error.summary}</p>{error.guidance ? <p className="mt-1 text-xs text-muted-foreground">Next step: {error.guidance}</p> : null}{job.source === "request_email" ? <p className="mt-1 text-xs text-muted-foreground">Request-update email rows are retained for review and cannot be retried from this screen.</p> : null}</div>{canRetryJob ? <button type="button" className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={() => { setReason(""); setPendingRecovery({ action: job.id, title: "Retry notification", description: `Retry delivery for ${job.subject}?`, operation: (actionReason) => repositories.systemHealth.retryFailedNotification({ jobId: job.id, source: job.source, reason: actionReason }, { actorUserId: session.userId, actorRole: session.role }), successMessage: "Notification retry completed." }); }} disabled={working !== null}><RotateCcw className="mr-2 h-4" />{working === job.id ? "Retrying…" : "Retry"}</button> : null}</div>; }) : <p className="text-sm text-muted-foreground">No failed notification or email jobs.</p>}</div><PaginationControls page={notificationPage} totalItems={snapshot.failedNotifications.length} onPageChange={setNotificationPage} /></section>
-      <section className="rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Stuck attendance sessions</h2><p className="mt-2 text-sm text-muted-foreground">Finish the entire event by closing its stuck sessions, marking missing attendance as absent, and recording the administrator’s reason.</p><div className="mt-4 space-y-3">{snapshot.stuckSessions.length ? visibleSessions.map((sessionItem) => <div key={sessionItem.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4"><div><p className="text-sm font-medium">{sessionItem.title}</p><p className="mt-1 text-xs text-muted-foreground">Active since {new Date(sessionItem.startsAt).toLocaleString()}</p></div>{canRecoverSessions ? <button type="button" className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={() => { setReason(""); setPendingRecovery({ action: sessionItem.id, title: "Finish event", description: `This will finish the event containing “${sessionItem.title}”, close all active sessions, mark missing attendance as absent, and record the reason. Continue?`, operation: (actionReason) => repositories.systemHealth.finishEvent({ eventId: sessionItem.eventId ?? "", reason: actionReason }, { actorUserId: session.userId, actorRole: session.role }), successMessage: "Event finished successfully." }); }} disabled={working !== null}><Wrench className="mr-2 h-4 w-4" />{working === sessionItem.id ? "Finishing…" : "Finish event"}</button> : null}</div>) : <p className="text-sm text-muted-foreground">No stuck attendance sessions.</p>}</div><PaginationControls page={sessionPage} totalItems={snapshot.stuckSessions.length} onPageChange={setSessionPage} /></section>
+      <section className="rounded-2xl border border-border bg-surface p-5"><h2 className="font-semibold">Stuck attendance sessions</h2><p className="mt-2 text-sm text-muted-foreground">Recover one session when possible. Finish event is the broader action: it closes every active session and marks missing attendance absent.</p><div className="mt-4 space-y-3">{snapshot.stuckSessions.length ? visibleSessions.map((sessionItem) => <div key={sessionItem.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4"><div><p className="text-sm font-medium">{sessionItem.title}</p><p className="mt-1 text-xs text-muted-foreground">Active since {new Date(sessionItem.startsAt).toLocaleString()}</p></div>{canRecoverSessions ? <div className="flex flex-wrap gap-2"><button type="button" className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-sm font-semibold disabled:opacity-50" onClick={() => { setReason(""); setPendingRecovery({ action: `recover-${sessionItem.id}`, title: "Recover session", description: `Recover only the stuck session for “${sessionItem.title}”? This does not finish the whole event.`, operation: (actionReason) => repositories.systemHealth.recoverAttendanceSession({ sessionId: sessionItem.id, reason: actionReason }, { actorUserId: session.userId, actorRole: session.role }), successMessage: "Attendance session recovered successfully." }); }} disabled={working !== null}><Wrench className="mr-2 h-4 w-4" />{working === `recover-${sessionItem.id}` ? "Recovering…" : "Recover session"}</button><button type="button" className="inline-flex items-center rounded-xl bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={() => { setReason(""); setPendingRecovery({ action: `finish-${sessionItem.id}`, title: "Finish event", description: `This will finish the event containing “${sessionItem.title}”, close all active sessions, mark missing attendance as absent, and record the reason. Continue?`, operation: (actionReason) => repositories.systemHealth.finishEvent({ eventId: sessionItem.eventId ?? "", reason: actionReason }, { actorUserId: session.userId, actorRole: session.role }), successMessage: "Event finished successfully." }); }} disabled={working !== null}><Wrench className="mr-2 h-4 w-4" />{working === `finish-${sessionItem.id}` ? "Finishing…" : "Finish event"}</button></div> : null}</div>) : <p className="text-sm text-muted-foreground">No stuck attendance sessions.</p>}</div><PaginationControls page={sessionPage} totalItems={snapshot.stuckSessions.length} onPageChange={setSessionPage} /></section>
     </> : null}
     {pendingRecovery ? <div role="dialog" aria-modal="true" aria-labelledby="recovery-dialog-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"><div className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-xl"><h2 id="recovery-dialog-title" className="text-lg font-semibold">{pendingRecovery.title}</h2><p className="mt-2 text-sm text-muted-foreground">{pendingRecovery.description}</p><label htmlFor="recovery-action-reason" className="mt-4 block text-sm font-semibold">Why are you doing this?<input autoFocus id="recovery-action-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Enter a short reason" className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-normal outline-none focus:border-primary focus:ring-2 focus:ring-primary/20" /></label>{message ? <p className="mt-2 text-sm text-red-700">{message}</p> : null}<div className="mt-5 flex justify-end gap-2"><button type="button" className="rounded-xl border border-border px-4 py-2 text-sm font-semibold" onClick={() => { setPendingRecovery(null); setReason(""); setMessage(null); }}>Cancel</button><button type="button" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50" onClick={() => void runAction(pendingRecovery.action, pendingRecovery.operation, pendingRecovery.successMessage)} disabled={working !== null}>Confirm {pendingRecovery.title.toLowerCase()}</button></div></div></div> : null}
   </div>;

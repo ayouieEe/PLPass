@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { AuthLayout } from "@/app/layouts/AuthLayout";
@@ -7,6 +7,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getAuthorizedHomePath, isPathAllowedForRole } from "@/lib/utils/auth";
 import { formatUserErrorMessage } from "@/lib/utils/errors";
+import { getPasswordLinkType, getPasswordSetupPath, hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import type { UserRole } from "@/types/roles";
 
 type LocationState = {
@@ -26,6 +27,18 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const locationState = location.state as LocationState | null;
+
+  useEffect(() => {
+    // Supabase invitations use the configured Site URL, which currently lands
+    // on /login. Hand the one-time invite token to the existing password setup
+    // page instead of asking a first-time user to sign in.
+    if (hasPasswordSetupPayload(location)) {
+      navigate(getPasswordSetupPath(location, APP_ROUTES.resetPassword), {
+        replace: true,
+        state: { invitation: getPasswordLinkType(location) === "invite" }
+      });
+    }
+  }, [location, navigate]);
 
   function redirectAfterSignIn(role: UserRole) {
     const requestedPath = locationState?.from?.pathname;

@@ -13,6 +13,7 @@ type RecoveryAuthClient = {
 type RecoveryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type PasswordRecoveryLocation = Pick<Location, "search" | "hash">;
+export type PasswordLinkType = "invite" | "recovery";
 
 const passwordRecoveryMarkerKey = "plpass-password-recovery";
 const passwordRecoveryMarkerValue = "active";
@@ -35,6 +36,22 @@ function hasPasswordRecoveryMarker(storage?: RecoveryStorage) {
 
 function hasRecoveryPayload(location: PasswordRecoveryLocation) {
   return Boolean(location.search || location.hash);
+}
+
+/** Identifies a Supabase password setup link without exposing its token. */
+export function getPasswordLinkType(location: PasswordRecoveryLocation = window.location): PasswordLinkType | null {
+  const type = new URLSearchParams(location.hash.startsWith("#") ? location.hash.slice(1) : location.hash).get("type");
+  return type === "invite" || type === "recovery" ? type : null;
+}
+
+/** Returns true when the URL contains a one-time password setup payload. */
+export function hasPasswordSetupPayload(location: PasswordRecoveryLocation = window.location) {
+  return Boolean(getPasswordLinkType(location) || new URLSearchParams(location.search).get("code"));
+}
+
+/** Keeps the one-time payload attached while routing it to the public setup page. */
+export function getPasswordSetupPath(location: PasswordRecoveryLocation, resetPath: string) {
+  return `${resetPath}${location.search}${location.hash}`;
 }
 
 /**
@@ -61,7 +78,7 @@ export async function establishPasswordRecoverySession(
   const accessToken = fragment.get("access_token");
   const refreshToken = fragment.get("refresh_token");
   const type = fragment.get("type");
-  if (type === "recovery" && accessToken && refreshToken) {
+  if ((type === "recovery" || type === "invite") && accessToken && refreshToken) {
     const { error } = await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
     if (error) {
       clearPasswordRecoveryMarker(storage);

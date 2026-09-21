@@ -15,6 +15,7 @@ export type SupabaseAuthFailureCode =
   | "FACULTY_RECORD_MISSING"
   | "ORGANIZER_RECORD_MISSING"
   | "ADMIN_RECORD_MISSING"
+  | "DEPARTMENT_ADMIN_RECORD_MISSING"
   | "DEAN_ASSIGNMENT_MISSING"
   | "ROLE_RECORD_MULTIPLE"
   | "RLS_PERMISSION_DENIED"
@@ -137,6 +138,7 @@ export function toSafeAuthErrorMessage(error: unknown) {
       case "PROFILE_MISSING":
       case "STUDENT_RECORD_MISSING":
       case "ORGANIZER_RECORD_MISSING":
+      case "DEPARTMENT_ADMIN_RECORD_MISSING":
         return "Your PLPass account is not fully set up. Contact PLPass support for help.";
       case "ACCOUNT_INACTIVE":
         return error.message;
@@ -266,6 +268,14 @@ function assertSupabaseRoleRecord(
     if (!data) throw new SupabaseAuthResolutionError("ADMIN_RECORD_MISSING", "No visible admin record was returned for this Supabase profile.", true);
     return;
   }
+  if (role === "department_admin") {
+    const { data, error } = adminResult;
+    if (error) throw databaseQueryError(error);
+    if (!data || !data.department_id) {
+      throw new SupabaseAuthResolutionError("DEPARTMENT_ADMIN_RECORD_MISSING", "A department administrator must have an assigned department.", true);
+    }
+    return;
+  }
   if (role !== "organizer") {
     throw new SupabaseAuthResolutionError(
       "UNSUPPORTED_ROLE",
@@ -322,7 +332,10 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
       displayName: mappedUser.displayName,
       email: mappedUser.email,
       isAuthenticated: true,
-      accountStatus: "active"
+      accountStatus: "active",
+      departmentId: (mappedUser.role === "department_admin" && adminResult.data?.department_id)
+        ? String(adminResult.data.department_id)
+        : undefined
     };
   } catch (error) {
     if (error instanceof SupabaseAuthResolutionError) {

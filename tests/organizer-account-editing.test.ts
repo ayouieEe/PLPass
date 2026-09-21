@@ -19,7 +19,8 @@ describe("organizer account editing", () => {
     expect(contracts).toContain("updateOrganizer(input: UpdateOrganizerInput");
     expect(repository).toContain('action: "update-organizer"');
     expect(userManager).toContain('if (action === "update-organizer")');
-    expect(userManager).toContain('profile.role !== "admin"');
+    expect(userManager).toContain('["admin", "department_admin"].includes(profile.role)');
+    expect(userManager).toContain('Department administrators can manage organizers only.');
     expect(userManager).toContain('"user.organizer_updated"');
   });
 
@@ -28,5 +29,25 @@ describe("organizer account editing", () => {
     expect(page).toContain("Assigned automatically when the account is created.");
     expect(page).toContain("Employee IDs are generated automatically during import.");
     expect(userManager).toContain('return json({ success: true, employeeNumber });');
+  });
+
+  it("keeps access changes in university-admin account management", () => {
+    const profile = readFileSync("src/pages/ProfilePage.tsx", "utf8");
+    expect(profile).not.toContain("Close my organizer account");
+    expect(contracts).not.toContain("closeOwnOrganizerAccount");
+    expect(repository).not.toContain('action: "close-own-organizer-account"');
+    expect(userManager).not.toContain('action === "close-own-organizer-account"');
+    expect(page).toContain('value="active">Active</option><option value="inactive">Inactive</option>');
+    expect(userManager).toContain('if (!["active", "inactive"].includes(accountStatus))');
+    expect(userManager).toContain('supabase.auth.admin.signOut(profileId, "global")');
+  });
+
+  it("does not expose or accept department-admin deletion", () => {
+    expect(page).not.toContain("Delete department-admin account?");
+    expect(page).not.toContain("users.delete.department_admin");
+    expect(contracts).not.toContain("deleteDepartmentAdmin");
+    expect(repository).not.toContain('action: "delete-department-admin"');
+    expect(userManager).not.toContain('action === "delete-department-admin"');
+    expect(userManager).toContain('.in("role", ["admin", "department_admin"])');
   });
 });

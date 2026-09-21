@@ -33,10 +33,14 @@ describe("priority seven organizer account security", () => {
 
   it("requires a stronger, changed password and confirmed sign-out", () => {
     const profile = read("src/features/organizer/pages/OrganizerProfilePage.tsx");
+    const accountProfile = read("src/pages/ProfilePage.tsx");
+    const router = read("src/app/router/AppRouter.tsx");
     const changePasswordForm = read("src/components/auth/ChangePasswordForm.tsx");
     const passwords = read("src/lib/auth/passwords.ts");
     const provider = read("src/app/providers/DevelopmentSessionProvider.tsx");
     expect(profile).toContain("ChangePasswordForm email={organizerEmail}");
+    expect(accountProfile).toContain("<ChangePasswordForm email={user.email} />");
+    expect(router).toContain('path={APP_ROUTES.organizerProfile} element={<AdminOrOrganizerProfilePage />}');
     expect(changePasswordForm).toContain("passwordSchema.safeParse");
     expect(passwords).toContain(".min(8, passwordRequirementsMessage)");
     expect(passwords).toContain("value.password === value.currentPassword");

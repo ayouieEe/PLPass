@@ -1,4 +1,6 @@
-export const USER_ROLES = ["admin", "faculty", "organizer", "student"] as const;
+// faculty remains only as compatibility scaffolding for retired local fixtures.
+// It is not an active login role and has no capabilities.
+export const USER_ROLES = ["admin", "department_admin", "faculty", "organizer", "student"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const STUDENT_STATUSES = ["enrolled", "loa", "dropped", "archived"] as const;

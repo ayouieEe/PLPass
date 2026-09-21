@@ -9,6 +9,7 @@ import type {
   CorrectionRequest,
   CredentialRequest,
   Department,
+  DepartmentBranding,
   Event,
   EventParticipant,
   FacultyProfile,
@@ -92,7 +93,7 @@ export type UpdateOrganizerInput = {
   departmentId?: string;
   organizationName: string;
   position: string;
-  accountStatus: "active" | "inactive" | "suspended";
+  accountStatus: "active" | "inactive";
   employmentStatus: "active" | "part_time" | "on_leave" | "separated";
 };
 
@@ -105,12 +106,13 @@ export type CreateAdminInput = {
   employeeNumber: string;
   departmentId: string;
   officeName: string;
+  adminRole?: "admin" | "department_admin";
 };
 
 export type UpdateAdminInput = CreateAdminInput & {
   id: string;
   profileId: string;
-  accountStatus: "active" | "inactive" | "suspended";
+  accountStatus: "active" | "inactive";
 };
 
 export type BulkCreateOrganizersResult = {
@@ -360,6 +362,19 @@ export type BulkCreateStudentsResult = {
   errors: Array<{ row?: number; email?: string; studentNumber?: string; error: string }>;
 };
 
+export type UpdateDepartmentBrandingInput = {
+  departmentId: string;
+  displayName: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  logo?: File | null;
+  removeLogo?: boolean;
+};
+
+export type RevokeUserSessionsResult = {
+  revokedSessionCount: number;
+};
+
 export interface AuthenticationRepository {
   listDevelopmentAccounts(context?: RepositoryContext): Promise<DevelopmentAccount[]>;
   getSession(context?: RepositoryContext): Promise<AuthSession>;
@@ -369,6 +384,7 @@ export interface UserManagementRepository {
   listUsers(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<User>>;
   getUserById(userId: string, context?: RepositoryContext): Promise<User>;
   listStudents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Student>>;
+  listStudentsByIds(studentIds: readonly string[], context?: RepositoryContext): Promise<Student[]>;
   createStudent(input: CreateStudentInput, context?: RepositoryContext): Promise<Student>;
   updateStudent(input: UpdateStudentInput, context?: RepositoryContext): Promise<Student>;
   bulkCreateStudents(input: CreateStudentInput[], context?: RepositoryContext): Promise<BulkCreateStudentsResult>;
@@ -376,12 +392,17 @@ export interface UserManagementRepository {
   updateOrganizer(input: UpdateOrganizerInput, context?: RepositoryContext): Promise<OrganizerProfile>;
   createAdmin(input: CreateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
   updateAdmin(input: UpdateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
+  revokeUserSessions(input: { userId: string; reason: string }, context?: RepositoryContext): Promise<RevokeUserSessionsResult>;
+  resendUserInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
+  resendAdminInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
   bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
   listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
   listAdminProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AdminProfile>>;
   getOrganizerBranding(organizerId: string, context?: RepositoryContext): Promise<OrganizerBranding>;
   updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context?: RepositoryContext): Promise<OrganizerBranding>;
+  getDepartmentBranding(departmentId: string, context?: RepositoryContext): Promise<DepartmentBranding>;
+  updateDepartmentBranding(input: UpdateDepartmentBrandingInput, context?: RepositoryContext): Promise<DepartmentBranding>;
 }
 
 export interface AcademicManagementRepository {
@@ -457,7 +478,7 @@ export interface CredentialRequestRepository {
 }
 
 export interface StudentCredentialRepository {
-  listStudentCredentialStatuses(context?: RepositoryContext): Promise<StudentCredentialStatus[]>;
+  listStudentCredentialStatuses(context?: RepositoryContext, studentIds?: readonly string[]): Promise<StudentCredentialStatus[]>;
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
