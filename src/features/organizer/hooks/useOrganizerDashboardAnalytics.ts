@@ -56,8 +56,9 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
 
   const { data: records, error: recordsError } = await client
     .from("attendance_records")
-    .select("event_session_id, attendance_status, recorded_at, late_reason_category")
+    .select("event_session_id, attendance_status, recorded_at, late_reason_category, finalized_at")
     .in("event_session_id", sessionIds)
+    .not("finalized_at", "is", null)
     .order("recorded_at", { ascending: true });
   if (recordsError) throw recordsError;
 

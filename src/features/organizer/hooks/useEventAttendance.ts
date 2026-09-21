@@ -34,6 +34,7 @@ type AttendanceSummaryRow = {
   time_in: string | null;
   time_out: string | null;
   recorded_at: string | null;
+  finalized_at?: string | null;
   late_reason_category?: string | null;
   late_reason?: string | null;
   students?: StudentRelationRow | StudentRelationRow[] | null;
@@ -138,7 +139,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -159,7 +160,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   });
 
   records.forEach((row) => {
-    if (!row.event_session_id) return;
+    if (!row.event_session_id || !row.finalized_at) return;
     const eventId = sessionToEvent.get(row.event_session_id);
     if (!eventId || !summaries[eventId]) return;
     const status = (row.attendance_status ?? "present") as OrgAttendanceStatus;

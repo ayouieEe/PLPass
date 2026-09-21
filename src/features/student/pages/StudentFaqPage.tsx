@@ -81,7 +81,7 @@ const faqCategories: FaqCategory[] = [
       },
       {
         question: "What do the attendance statuses mean?",
-        answer: "Statuses describe how your attendance was recorded, such as present, late, absent, excused, or pending review. The organizer may add remarks or review a record before the final status is shown."
+        answer: "Attendance has three final statuses: Present, Late, or Absent. Present and Late are assigned only after Time In, Time Out, and the required event feedback. If your Time In is after the late cutoff, submit your late reason after Time Out and before event feedback."
       },
       {
         question: "How do I request an attendance correction?",

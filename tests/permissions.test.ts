@@ -11,7 +11,7 @@ describe("role capabilities", () => {
   it("gives admins only the defined system and read/support capabilities", () => {
     expect(hasCapability("admin", "users.read.all")).toBe(true);
     expect(hasCapability("admin", "system.settings.manage")).toBe(true);
-    expect(hasCapability("admin", "attendance.session.recover")).toBe(true);
+    expect(CAPABILITIES).not.toContain("attendance.session.recover");
     expect(hasCapability("admin", "events.read.all")).toBe(true);
     expect(hasCapability("admin", "users.invitation.resend")).toBe(true);
     expect(hasCapability("admin", "events.create")).toBe(false);
@@ -27,7 +27,7 @@ describe("role capabilities", () => {
     expect(hasCapability("organizer", "system.settings.manage")).toBe(false);
     expect(hasCapability("organizer", "audit.read.all")).toBe(false);
     expect(hasCapability("organizer", "audit.export")).toBe(true);
-    expect(hasCapability("organizer", "reports.read.owned")).toBe(true);
+    expect(CAPABILITIES).not.toContain("reports.read.owned");
     expect(hasCapability("organizer", "users.status.manage")).toBe(false);
     expect(hasCapability("organizer", "users.invitation.resend")).toBe(false);
   });

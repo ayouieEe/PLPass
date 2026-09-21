@@ -307,6 +307,16 @@
       0 1px 0 hsl(var(--surface) / 0.9) inset;
   }
 
+  /* iOS Safari can report a larger dynamic viewport while its browser chrome is open.
+     Use the stable small viewport for legal pages so the layout does not reserve a
+     blank block below the footer on mobile. The policy body remains the sole scroller. */
+  @media (max-width: 639px) {
+    .plpass-auth-legal {
+      height: 100svh !important;
+      min-height: 0 !important;
+    }
+  }
+
   .plpass-auth-grid,
   .plpass-auth-ribbons,
   .plpass-auth-ambient {

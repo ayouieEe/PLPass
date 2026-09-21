@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { PLPassDesktopApi } from "../src/features/offline/types.js";
 
 const api: PLPassDesktopApi = {
+  saveOfflineOrganizerIdentity: (identity) => ipcRenderer.invoke("offline:saveIdentity", identity),
+  getOfflineOrganizerIdentity: (userId) => ipcRenderer.invoke("offline:getIdentity", userId),
+  clearOfflineOrganizerIdentity: () => ipcRenderer.invoke("offline:clearIdentity"),
   prepareEvent: (input, organizerId) => ipcRenderer.invoke("offline:prepare", input, organizerId),
   listPreparedEvents: (organizerId, day) => ipcRenderer.invoke("offline:listPrepared", organizerId, day),
   hasUnresolvedWork: (organizerId) => ipcRenderer.invoke("offline:hasWork", organizerId),
@@ -12,8 +15,15 @@ const api: PLPassDesktopApi = {
   identifyQr: (eventId, qr) => ipcRenderer.invoke("offline:identifyQr", eventId, qr), identifyManual: (eventId, value) => ipcRenderer.invoke("offline:identifyManual", eventId, value),
   identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture), recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   recordScannerAttendance: (input, phase) => ipcRenderer.invoke("offline:recordScanner", input, phase),
+  getAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:capturePhase", sessionId, ownerId),
+  advanceAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:advancePhase", sessionId, ownerId),
+  queueWalkInScan: (input) => ipcRenderer.invoke("offline:queueWalkin", input),
+  listPendingWalkInScans: (eventId, ownerId) => ipcRenderer.invoke("offline:listWalkins", eventId, ownerId),
+  beginWalkInSync: (limit, ownerId, forceRetry) => ipcRenderer.invoke("offline:beginWalkinSync", limit, ownerId, forceRetry),
+  confirmWalkInSync: (id, student) => ipcRenderer.invoke("offline:confirmWalkinSync", id, student),
+  failWalkInSync: (id, status, error) => ipcRenderer.invoke("offline:failWalkinSync", id, status, error),
   listPending: (eventId, organizerId) => ipcRenderer.invoke("offline:listPending", eventId, organizerId), beginSync: (limit, forceRetry, organizerId) => ipcRenderer.invoke("offline:beginSync", limit, forceRetry, organizerId),
-  confirmSync: (uuid, id) => ipcRenderer.invoke("offline:confirmSync", uuid, id), failSync: (uuid,status,error) => ipcRenderer.invoke("offline:failSync", uuid,status,error),
+  confirmSync: (uuid, id, status, timeOut) => ipcRenderer.invoke("offline:confirmSync", uuid, id, status, timeOut), failSync: (uuid,status,error) => ipcRenderer.invoke("offline:failSync", uuid,status,error),
   recoverInterruptedSync: (organizerId) => ipcRenderer.invoke("offline:recover", organizerId), cleanupEvent: (eventId,verified,completed) => ipcRenderer.invoke("offline:cleanup", eventId,verified,completed),
   startScannerStations: (eventId,sessionId,phase,ownerId) => ipcRenderer.invoke("scanner:start",eventId,sessionId,phase,ownerId),
   stopScannerStations: () => ipcRenderer.invoke("scanner:stop"), getScannerStations: () => ipcRenderer.invoke("scanner:status"),

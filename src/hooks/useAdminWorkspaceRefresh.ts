@@ -12,7 +12,6 @@ const ADMIN_WORKSPACE_QUERY_ROOTS = [
   "events",
   "attendanceSessions",
   "attendanceRecords",
-  "reports",
   "analytics",
   "auditLogs",
   "systemSettings",

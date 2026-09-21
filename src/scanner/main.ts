@@ -68,9 +68,16 @@ async function startScan() {
       busy = true; result.className = "scan-status"; result.textContent = `Recording ${phaseLabel()} with the laptop…`;
       try {
         const response = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${stationToken}` }, body: JSON.stringify({ credentialCode: credential, scanAttemptId: crypto.randomUUID() }) });
-        const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; error?: string };
+        const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; recordedAt?: string; requiresWalkInConfirmation?: boolean; error?: string };
+        if(body.requiresWalkInConfirmation&&body.studentNumber&&window.confirm(`Student ${body.studentNumber} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)){
+          const walkInResponse=await fetch("/api/walk-in",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${stationToken}`},body:JSON.stringify({studentNumber:body.studentNumber})});
+          const walkIn=await walkInResponse.json() as {accepted?:boolean;message?:string;error?:string;studentNumber?:string;recordedAt?:string};
+          result.className=walkIn.accepted?"scan-status success":"scan-status error";
+          result.textContent=walkIn.accepted?`${walkIn.studentNumber}: ${walkIn.message??"Unverified scan saved locally; not synced."}`:walkIn.error??"Walk-in scan was not saved.";
+        }else{
         const name = body.studentName ? `${body.studentName}${body.studentNumber ? ` (${body.studentNumber})` : ""}: ` : "";
         result.className = body.accepted ? "scan-status success" : "scan-status error"; result.textContent = `${name}${body.message ?? body.error ?? "Scan could not be confirmed."}`;
+        }
       } catch { result.className = "scan-status error"; result.textContent = "Disconnected from the attendance laptop. Reconnect to its hotspot before scanning again."; controls?.stop(); }
       window.setTimeout(() => { busy = false; }, 750);
     });

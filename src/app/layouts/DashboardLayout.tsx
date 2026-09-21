@@ -48,7 +48,7 @@ export function DashboardLayout({
   children
 }: DashboardLayoutProps) {
   const { theme, setTheme } = useTheme();
-  const { session, logout, isOfflineMode, hasOfflineWork, reconnectOnline } = useDevelopmentSession();
+  const { session, logout, isOfflineMode, hasOfflineWork, offlineConflictCount, reconnectOnline } = useDevelopmentSession();
   const { headerOverride } = useHeader();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -337,7 +337,7 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        {isOfflineMode || hasOfflineWork ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/40 bg-amber-50 px-6 py-2 text-sm text-amber-900"><span>{isOfflineMode?"Offline mode — only events saved on this device are available.":"Saved offline event work is awaiting server confirmation."} Attendance remains on this device until sync is confirmed.{reconnectMessage ? ` ${reconnectMessage}` : ""}</span><Button type="button" size="sm" variant="outline" disabled={!networkAvailable} onClick={async()=>{setReconnectMessage("Checking connection and reconciling saved attendance…");const complete=await reconnectOnline();setReconnectMessage(complete?"Reconnect complete.":"Sync is not confirmed; local work is retained. Check the connection or contact support.");}}>{networkAvailable?"Reconnect & sync":"Waiting for internet"}</Button></div> : null}
+        {isOfflineMode || hasOfflineWork ? <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/40 bg-amber-50 px-6 py-2 text-sm text-amber-900"><span>{isOfflineMode?"Offline mode — only events saved on this device are available.":offlineConflictCount?`${offlineConflictCount} saved attendance record${offlineConflictCount===1?" needs":"s need"} review. Local work is retained on this device.`:"Saved offline event work is syncing or awaiting server confirmation."}{reconnectMessage ? ` ${reconnectMessage}` : ""}</span><Button type="button" size="sm" variant="outline" disabled={!networkAvailable} onClick={async()=>{setReconnectMessage("Checking connection and reconciling saved attendance…");const complete=await reconnectOnline(true);setReconnectMessage(complete?"Reconnect complete; all saved work is confirmed.":"Some local work is still unresolved. It has been retained for retry or review.");}}>{networkAvailable?"Retry sync":"Waiting for internet"}</Button></div> : null}
         <main id="main-content" tabIndex={-1} className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>

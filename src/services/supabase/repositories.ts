@@ -32,6 +32,7 @@ import type {
 } from "@/services/contracts";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { formatStudentNumber } from "@/lib/utils/studentNumber";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 import { mapSupabaseError, throwIfSupabaseError } from "@/lib/supabase/errors";
@@ -142,7 +143,7 @@ const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, name_extension, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
 const attendanceSessionReadSelect = "id, event_id, created_by, session_name, venue, mode, session_status, scheduled_start, scheduled_end, actual_start, actual_end, attendance_window_start_at, attendance_window_end_at, late_cutoff_at, ended_reason, session_archive_status, superseded_by, created_at, updated_at";
-const attendanceRecordReadSelect = "id, event_session_id, student_id, attendance_status, verification_method, checkout_verification_method, time_in, time_out, recorded_at, recorded_by, remarks, late_reason_category, late_reason_option_id, verification_attempt_id, local_attendance_uuid, created_at, updated_at";
+const attendanceRecordReadSelect = "id, event_session_id, student_id, attendance_status, verification_method, checkout_verification_method, time_in, time_out, recorded_at, recorded_by, remarks, late_reason, late_reason_category, late_reason_option_id, late_reason_submitted_at, finalized_at, verification_attempt_id, local_attendance_uuid, created_at, updated_at";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 const facialEnrollmentBucket = "facial-enrollments";
@@ -182,10 +183,10 @@ function emptyPage<T>(query?: ListQuery): PaginatedResult<T> {
 
 function allowedCorrectionStatusesForAttendance(status: AttendanceStatus): AttendanceStatus[] {
   if (status === "late") {
-    return ["present", "excused"];
+    return ["present", "absent"];
   }
   if (status === "absent") {
-    return ["present", "late", "excused"];
+    return ["present", "late"];
   }
   return [];
 }
@@ -493,8 +494,10 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
   },
   async createStudent(input) {
     const client = getSupabaseBrowserClient();
+    const studentNumber = formatStudentNumber(input.studentNumber);
+    const normalizedInput = { ...input, studentNumber };
     const { data, error } = await client.functions.invoke("manage-users", {
-      body: { action: "create-student", students: [input] }
+      body: { action: "create-student", students: [normalizedInput] }
     });
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
@@ -504,7 +507,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data: studentRow, error: fetchError } = await client
       .from("students")
       .select(studentReadSelect)
-      .eq("student_id", input.studentNumber)
+      .eq("student_id", studentNumber)
       .single();
     throwIfSupabaseError(fetchError);
     return mapStudent(studentRow as Row);
@@ -527,8 +530,9 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
   },
   async bulkCreateStudents(inputs) {
     const client = getSupabaseBrowserClient();
+    const normalizedInputs = inputs.map((input) => ({ ...input, studentNumber: formatStudentNumber(input.studentNumber) }));
     const { data, error } = await client.functions.invoke("manage-users", {
-      body: { action: "bulk-create-students", students: inputs }
+      body: { action: "bulk-create-students", students: normalizedInputs }
     });
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
@@ -1133,21 +1137,7 @@ export const supabaseAttendanceSessionRepository: AttendanceSessionRepository = 
 },
   async endAttendanceSession(input: EndAttendanceSessionInput) {
   const client = getSupabaseBrowserClient();
-  const { data, error } = input.attendanceRecords
-    ? await client.rpc("finalize_event_attendance_session" as never, {
-        p_session_id: input.sessionId,
-        p_reason: input.reason,
-        p_attendance_records: input.attendanceRecords.map((record) => ({
-          student_id: record.studentId,
-          attendance_status: record.status,
-          verification_method: record.verificationMethod,
-          time_in: record.timeIn,
-          ...(record.timeOut ? { time_out: record.timeOut } : {}),
-          ...(record.lateReason ? { late_reason: record.lateReason } : {}),
-          ...(record.remarks ? { remarks: record.remarks } : {})
-        }))
-      } as never)
-    : await client.rpc("end_event_attendance_session", {
+  const { data, error } = await client.rpc("end_event_attendance_session", {
         p_session_id: input.sessionId,
         p_reason: input.reason
       });
@@ -1237,7 +1227,6 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       presentCount: Number(summary.presentCount ?? 0),
       lateCount: Number(summary.lateCount ?? 0),
       absentCount: Number(summary.absentCount ?? 0),
-      excusedCount: Number(summary.excusedCount ?? 0),
       attendedCount: Number(summary.attendedCount ?? 0),
       attendanceRate: Number(summary.attendanceRate ?? 0),
       lateReasonTaskCount: Number(summary.lateReasonTaskCount ?? 0),
@@ -1319,10 +1308,9 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       const windowStart = new Date(session.attendanceWindowStartAt ?? session.startsAt).getTime();
       const windowEnd = session.attendanceWindowEndAt ?? session.endsAt;
       const scannedAt = new Date(occurredAt).getTime();
-      const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
-      if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime()) || scannedAt > lateCutoff) {
+      if (scannedAt < windowStart || (windowEnd && scannedAt > new Date(windowEnd).getTime())) {
         await insertVerificationAttempt(input.sessionId, "facial", false, "outside_window", "Facial verification is outside the attendance window.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
-        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is outside the attendance window or needs late review.", { failedAttempts: 1 });
+        return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Facial verification is outside the attendance window.", { failedAttempts: 1 });
       }
 
       const { data: existingRows, error: existingError } = await client
@@ -1353,13 +1341,13 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
         const updatedRecord = mapAttendanceRecord(updatedRow);
         await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-out.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
         await updateRow("facial_profiles", String(facialProfileRow.id), { last_verified_at: occurredAt, updated_at: new Date().toISOString() });
-        return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
-          attendanceRecord: updatedRecord, attendanceStatus: updatedRecord.status, present: 1, ...studentSummary
+        return credentialScanResult(input, "Time Out Recorded", occurredAt, "Time Out recorded. Complete the event feedback to receive a final attendance status.", {
+          attendanceRecord: updatedRecord, attendanceStatus: updatedRecord.status, ...studentSummary
         });
       }
 
       const attempt = await insertVerificationAttempt(input.sessionId, "facial", true, undefined, "Face verified for check-in.", occurredAt, { studentId, facialProfileId: String(facialProfileRow.id) });
-      const recordRow = await insertRow("attendance_records", {
+      const checkInData = {
         event_session_id: input.sessionId,
         student_id: studentId,
         verification_attempt_id: String(attempt.id ?? ""),
@@ -1368,11 +1356,14 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
         time_in: occurredAt,
         recorded_at: occurredAt,
         recorded_by: String(profile.id ?? "")
-      });
+      };
+      const recordRow = existing
+        ? await updateRow("attendance_records", String(existing.id ?? ""), checkInData)
+        : await insertRow("attendance_records", checkInData);
       await updateRow("facial_profiles", String(facialProfileRow.id), { last_verified_at: occurredAt, updated_at: new Date().toISOString() });
       const record = mapAttendanceRecord(recordRow);
-      return credentialScanResult(input, "Present", occurredAt, "Student checked in successfully.", {
-        attendanceRecord: record, attendanceStatus: "present", present: 1, ...studentSummary
+      return credentialScanResult(input, "Time In Recorded", occurredAt, "Time In recorded. Complete Time Out and event feedback to receive a final attendance status.", {
+        attendanceRecord: record, attendanceStatus: record.status, ...studentSummary
       });
     }
 
@@ -1429,15 +1420,6 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       return credentialScanResult(input, "Outside Attendance Window", occurredAt, "QR scan is outside the attendance window.", { failedAttempts: 1 });
     }
 
-    const lateCutoff = new Date(session.lateCutoffAt ?? new Date(new Date(session.startsAt).getTime() + 15 * 60_000).toISOString()).getTime();
-    if (scannedAt > lateCutoff) {
-      await insertVerificationAttempt(input.sessionId, input.method, false, "late_reason_required", "Late QR scans need organizer review before they are recorded.", occurredAt, {
-        studentId,
-        ...credentialAttemptMetadata
-      });
-      return credentialScanResult(input, "Outside Attendance Window", occurredAt, "Late QR scans need organizer review before they are recorded.", { failedAttempts: 1 });
-    }
-
     const { data: existingRows, error: existingError } = await client
       .from("attendance_records")
       .select("*")
@@ -1447,7 +1429,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     throwIfSupabaseError(existingError);
 
     const existing = existingRows?.[0] as Row | undefined;
-    
+
     // Handle check-in/check-out logic
     if (existing) {
       const existingTimeOut = existing.time_out;
@@ -1480,10 +1462,9 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
           studentId,
           ...credentialAttemptMetadata
         });
-        return credentialScanResult(input, "Present", occurredAt, "Student checked out successfully.", {
+        return credentialScanResult(input, "Time Out Recorded", occurredAt, "Time Out recorded. Complete the event feedback to receive a final attendance status.", {
           attendanceRecord: updatedRecord,
           attendanceStatus: updatedRecord.status,
-          present: 1,
           studentDisplayName: studentSummary.displayName,
           studentNumber: studentSummary.studentNumber
         });
@@ -1496,7 +1477,7 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       ...credentialAttemptMetadata
     });
     const profile = await currentProfile();
-    const recordRow = await insertRow("attendance_records", {
+    const checkInData = {
       event_session_id: input.sessionId,
       student_id: studentId,
       verification_attempt_id: String(attempt.id ?? ""),
@@ -1505,13 +1486,15 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       time_in: occurredAt,
       recorded_at: occurredAt,
       recorded_by: String(profile.id ?? "")
-    });
+    };
+    const recordRow = existing
+      ? await updateRow("attendance_records", String(existing.id ?? ""), checkInData)
+      : await insertRow("attendance_records", checkInData);
     const record = mapAttendanceRecord(recordRow);
     const studentSummary = await studentScanSummary(studentId);
-    return credentialScanResult(input, "Present", occurredAt, "Student checked in successfully.", {
+    return credentialScanResult(input, "Time In Recorded", occurredAt, "Time In recorded. Complete Time Out and event feedback to receive a final attendance status.", {
       attendanceRecord: record,
-      attendanceStatus: "present",
-      present: 1,
+      attendanceStatus: record.status,
       studentDisplayName: studentSummary.displayName,
       studentNumber: studentSummary.studentNumber
     });
@@ -1535,11 +1518,11 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     const record = mapAttendanceRecord(data as Row);
     const studentSummary = await studentScanSummary(input.studentId);
     return {
-      resultStatus: record.status === "late" ? "Late" : "Present",
+      resultStatus: record.checkedOutAt ? "Time Out Recorded" : "Time In Recorded",
       attendanceStatus: record.status,
       verificationMethod: "manual",
       recordedAt,
-      safeMessage: record.checkedOutAt ? "Student checked out successfully." : `Student checked in as ${record.status}.`,
+      safeMessage: record.checkedOutAt ? "Time Out recorded. Complete event feedback to receive a final attendance status." : "Time In recorded. Complete Time Out and event feedback to receive a final attendance status.",
       attendanceRecord: record,
       summary: { present: record.status === "present" ? 1 : 0, late: record.status === "late" ? 1 : 0, absent: 0, duplicateAttempts: 0, failedAttempts: 0 },
       ...studentSummary
@@ -1631,24 +1614,13 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
     */
   },
   async submitLateReason(input: SubmitLateReasonInput, context) {
+    void context;
     const client = getSupabaseBrowserClient();
-    if (context?.actorRole === "student") {
-      const studentId = await currentStudentIdForProfile(context.actorUserId);
-      const { data: record, error: recordError } = await client
-        .from("attendance_records")
-        .select("id, student_id")
-        .eq("id", input.attendanceRecordId)
-        .maybeSingle();
-      throwIfSupabaseError(recordError);
-      if (!record || String(record.student_id) !== studentId) {
-        throw new RepositoryError("Students can only submit late reasons for their own attendance records.", "PERMISSION_DENIED");
-      }
-    }
-    const { data, error } = await client.rpc("submit_late_reason", {
-      p_attendance_record_id: input.attendanceRecordId,
+    const { data, error } = await client.rpc("submit_event_late_reason" as never, {
+      p_event_session_id: input.eventSessionId,
       p_late_reason_option_id: input.reasonOptionId,
       p_late_reason: input.customReason
-    });
+    } as never);
     throwIfSupabaseError(error);
     return mapAttendanceRecord(data as Row);
   },
@@ -1726,12 +1698,15 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
     if (context?.actorRole === "student") {
       const { data: record, error: recordError } = await client
         .from("attendance_records")
-        .select("id, student_id, attendance_status")
+        .select("id, student_id, attendance_status, finalized_at")
         .eq("id", input.attendanceRecordId)
         .maybeSingle();
       throwIfSupabaseError(recordError);
       if (!record || String(record.student_id) !== studentId) {
         throw new RepositoryError("Students can only create correction requests for their own attendance records.", "PERMISSION_DENIED");
+      }
+      if (!record.finalized_at) {
+        throw new RepositoryError("Attendance corrections are available only after the event workflow has finalized.", "VALIDATION_ERROR");
       }
       const allowedStatuses = allowedCorrectionStatusesForAttendance(String(record.attendance_status) as AttendanceStatus);
       if (!allowedStatuses.includes(input.requestedStatus)) {
@@ -2517,6 +2492,12 @@ function requireAdminHealthContext(context?: { actorRole?: string }) {
   }
 }
 
+function requireDepartmentHealthContext(context?: { actorRole?: string; departmentId?: string }) {
+  if (context?.actorRole !== "department_admin" || !context.departmentId) {
+    throw new RepositoryError("An active department administrator with an assigned department is required.", "PERMISSION_DENIED");
+  }
+}
+
 function requireAdminContext(context?: { actorRole?: string }) {
   if (context?.actorRole !== "admin") {
     throw new RepositoryError("Only administrators can manage global configuration.", "PERMISSION_DENIED");
@@ -2525,10 +2506,43 @@ function requireAdminContext(context?: { actorRole?: string }) {
 
 export const supabaseSystemHealthRepository: SystemHealthRepository = {
   async getHealthSnapshot(context): Promise<SystemHealthSnapshot> {
-    requireAdminHealthContext(context);
+    const isDepartmentAdmin = context?.actorRole === "department_admin";
+    if (isDepartmentAdmin) requireDepartmentHealthContext(context);
+    else requireAdminHealthContext(context);
     const client = getSupabaseBrowserClient();
     const checkedAt = new Date().toISOString();
     const checks: SystemHealthSnapshot["checks"] = [];
+
+    if (isDepartmentAdmin) {
+      const { data: authData, error: authError } = await client.auth.getUser();
+      checks.push({ key: "database", label: "Department data", status: "healthy", message: "Department health data is responding.", checkedAt });
+      checks.push({ key: "auth", label: "Authentication status", status: authError || !authData.user ? "failed" : "healthy", message: authError || !authData.user ? "The department administrator session could not be verified." : "The department administrator session is active.", checkedAt });
+
+      const stuckCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+      const [stuckResult, failedResult, sentResult] = await Promise.all([
+        client.from("event_sessions").select("*").eq("session_status", "ongoing").lt("scheduled_end", stuckCutoff).order("scheduled_end", { ascending: true }).limit(100),
+        client.from("event_email_outbox" as never).select("id, recipient_email, event_id, notification_type, last_attempt_at, subject, delivery_status, error_message, created_at" as never).eq("delivery_status" as never, "failed").order("created_at" as never, { ascending: false }).limit(50),
+        client.from("event_email_outbox" as never).select("sent_at" as never).not("sent_at" as never, "is", null).order("sent_at" as never, { ascending: false }).limit(1)
+      ]);
+      throwIfSupabaseError(stuckResult.error);
+      throwIfSupabaseError(failedResult.error);
+      throwIfSupabaseError(sentResult.error);
+
+      const failedNotifications: FailedNotificationJob[] = ((failedResult.data ?? []) as unknown as Row[]).map((row) => ({
+        id: String(row.id), eventId: String(row.event_id ?? "") || undefined, notificationType: String(row.notification_type ?? "") || undefined, lastAttemptAt: row.last_attempt_at ? String(row.last_attempt_at) : null, source: "event_email", recipient: String(row.recipient_email ?? ""), channel: "email",
+        subject: String(row.subject ?? "Event email"), status: "failed", lastError: String(row.error_message ?? "Email delivery failed."),
+        updatedAt: String(row.created_at ?? checkedAt)
+      }));
+      const sentTimes = ((sentResult.data ?? []) as unknown as Row[]).map((row) => String(row.sent_at ?? "")).filter(Boolean).sort().reverse();
+      return {
+        checks,
+        recentErrors: [],
+        failedNotifications,
+        stuckSessions: ((stuckResult.data ?? []) as Row[]).map((row) => mapAttendanceSession(row, "event")),
+        consistencyIssues: [],
+        lastSuccessfulEmailAt: sentTimes[0] ?? null
+      };
+    }
 
     const { data: settingsData, error: databaseError } = await client.from("system_settings" as never).select("id, institution_name, current_school_year, current_semester_id, updated_at").limit(1).maybeSingle();
     const settingsRow = settingsData as unknown as Row | null;
@@ -2546,8 +2560,10 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
     const { error: functionError } = await client.functions.invoke(functionName, { body: { action: "health" } });
     checks.push({ key: "edge-functions", label: "Edge Function availability", status: functionError ? "failed" : "healthy", message: functionError ? "The configured health-check function did not respond." : `The ${functionName} Edge Function is available.`, checkedAt });
 
-    const reports = await supabaseReportRepository.listReports({ pageIndex: 0, pageSize: 25 });
-    const recentErrors: SystemHealthIssue[] = reports.items.filter((report) => report.status === "failed").map((report) => ({ id: report.id, category: "application_error", severity: "critical", message: `${report.title} report generation failed.`, createdAt: report.generatedAt ?? checkedAt, referenceId: report.id }));
+    // Reports are no longer surfaced as a page in the admin UI. Keep System
+    // Health independent of generated_reports so a report-table permission
+    // mismatch cannot prevent unrelated health checks from loading.
+    const recentErrors: SystemHealthIssue[] = [];
     const stuckCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
     const { data: stuckRows, error: stuckError } = await client
       .from("event_sessions")
@@ -2561,7 +2577,9 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
 
     const eventEmailResult = await client
       .from("event_email_outbox" as never)
-      .select("id, recipient_email, subject, delivery_status, error_message, created_at" as never)
+      // The admin health view does not use last_attempt_at; avoiding this
+      // column keeps the read within the production system-health grant.
+      .select("id, recipient_email, event_id, notification_type, subject, delivery_status, error_message, created_at" as never)
       .eq("delivery_status" as never, "failed")
       .order("created_at" as never, { ascending: false })
       .limit(50);
@@ -2585,18 +2603,24 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
       .sort()
       .reverse();
     const failedNotifications: FailedNotificationJob[] = [
-      ...((eventEmailResult.data ?? []) as unknown as Row[]).map((row) => ({ id: String(row.id), source: "event_email" as const, recipient: String(row.recipient_email ?? ""), channel: "email" as const, subject: String(row.subject ?? "Email delivery"), status: "failed" as const, lastError: String(row.error_message ?? "Email delivery failed."), updatedAt: String(row.created_at ?? checkedAt) })),
+      ...((eventEmailResult.data ?? []) as unknown as Row[]).map((row) => ({ id: String(row.id), eventId: String(row.event_id ?? "") || undefined, notificationType: String(row.notification_type ?? "") || undefined, source: "event_email" as const, recipient: String(row.recipient_email ?? ""), channel: "email" as const, subject: String(row.subject ?? "Email delivery"), status: "failed" as const, lastError: String(row.error_message ?? "Email delivery failed."), updatedAt: String(row.created_at ?? checkedAt) })),
       ...((requestEmailResult.data ?? []) as unknown as Row[]).map((row) => ({ id: String(row.id), source: "request_email" as const, recipient: String(row.recipient_email ?? ""), channel: "email" as const, subject: String(row.subject ?? "Request update"), status: "failed" as const, lastError: String(row.error_message ?? "Email delivery failed."), updatedAt: String(row.created_at ?? checkedAt) }))
     ];
     return { checks, recentErrors, failedNotifications, stuckSessions, consistencyIssues: [], lastSuccessfulEmailAt: sentTimes[0] ?? null };
   },
   async retryFailedNotification(input, context): Promise<FailedNotificationJob> {
-    requireAdminHealthContext(context);
+    const isDepartmentAdmin = context?.actorRole === "department_admin";
+    if (isDepartmentAdmin) requireDepartmentHealthContext(context);
+    else requireAdminHealthContext(context);
     if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
     const client = getSupabaseBrowserClient();
     if (!input.jobId) throw new RepositoryError("The failed notification id is invalid.", "VALIDATION_ERROR");
     if (input.source !== "event_email") throw new RepositoryError("Only recent participant invitation emails can be retried. Request-update emails remain failed for review.", "VALIDATION_ERROR");
-    const { data, error } = await client.rpc("admin_retry_email_job" as never, { p_job_id: input.jobId, p_source: input.source, p_reason: input.reason } as never);
+    const rpcName = isDepartmentAdmin ? "department_admin_retry_event_email_job" : "admin_retry_email_job";
+    const rpcArgs = isDepartmentAdmin
+      ? { p_job_id: input.jobId, p_reason: input.reason }
+      : { p_job_id: input.jobId, p_source: input.source, p_reason: input.reason };
+    const { data, error } = await client.rpc(rpcName as never, rpcArgs as never);
     throwIfSupabaseError(error);
     if (!data) throw new RepositoryError("Only failed notification jobs can be retried.", "NOT_FOUND");
     const row = data as unknown as Row;
@@ -2604,11 +2628,14 @@ export const supabaseSystemHealthRepository: SystemHealthRepository = {
     return result;
   },
   async recoverAttendanceSession(input, context) {
-    requireAdminHealthContext(context);
+    const isDepartmentAdmin = context?.actorRole === "department_admin";
+    if (isDepartmentAdmin) requireDepartmentHealthContext(context);
+    else requireAdminHealthContext(context);
     if (!input.reason.trim()) throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
     const session = await supabaseAttendanceSessionRepository.getAttendanceSessionById(input.sessionId, context);
     if (session.status !== "active") throw new RepositoryError("Only active stuck sessions can be recovered.", "VALIDATION_ERROR");
-    const { data, error } = await getSupabaseBrowserClient().rpc("admin_recover_attendance_session" as never, { p_session_id: input.sessionId, p_reason: input.reason } as never);
+    const rpcName = isDepartmentAdmin ? "department_admin_recover_stuck_attendance_session" : "admin_recover_attendance_session";
+    const { data, error } = await getSupabaseBrowserClient().rpc(rpcName as never, { p_session_id: input.sessionId, p_reason: input.reason } as never);
     throwIfSupabaseError(error);
     return mapAttendanceSession(data as Row, "event");
   },

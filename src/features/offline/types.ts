@@ -83,6 +83,32 @@ export type PendingAttendanceRecord = LocalAttendanceInput & {
   serverConfirmedAt?: string;
 };
 
+export type PendingWalkInScan = {
+  localScanUuid: string;
+  eventId: string;
+  sessionId: string;
+  identificationMethod: "qr" | "manual";
+  studentNumber: string;
+  timeIn: string;
+  timeOut?: string;
+  syncStatus: "PENDING_SYNC" | "SYNCING" | "RETRY" | "CONFLICT" | "CONFIRMED";
+  syncAttempts: number;
+  lastSyncError?: string;
+  nextAttemptAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OfflineOrganizerIdentity = {
+  userId: string;
+  role: "organizer";
+  displayName: string;
+  email: string;
+  accountStatus?: "active" | "inactive" | "suspended";
+  departmentId?: string;
+  savedAt: number;
+};
+
 export type OfflineStatus = {
   runtimeAvailable: boolean;
   connectivity: "online" | "offline" | "checking";
@@ -109,6 +135,9 @@ export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sess
 export type ScannerCertificateStatus = { configured: boolean; fingerprint?: string; expiresAt?: string };
 
 export interface PLPassDesktopApi {
+  saveOfflineOrganizerIdentity(identity: Omit<OfflineOrganizerIdentity, "savedAt">): Promise<void>;
+  getOfflineOrganizerIdentity(userId?: string): Promise<OfflineOrganizerIdentity | null>;
+  clearOfflineOrganizerIdentity(): Promise<void>;
   prepareEvent(input: PreparedEventPackage, organizerProfileId: string): Promise<OfflineStatus>;
   listPreparedEvents(organizerProfileId: string, manilaDate: string): Promise<OfflinePreparedEventSummary[]>;
   hasUnresolvedWork(organizerProfileId: string): Promise<boolean>;
@@ -123,9 +152,16 @@ export interface PLPassDesktopApi {
   identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   recordScannerAttendance(input: LocalAttendanceInput, phase: AttendanceCapturePhase): Promise<LocalAttendanceResult>;
+  getAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
+  advanceAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
+  queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): Promise<PendingWalkInScan>;
+  listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string): Promise<PendingWalkInScan[]>;
+  beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
+  confirmWalkInSync(localScanUuid: string, student: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
+  failWalkInSync(localScanUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   listPending(eventId: string | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
   beginSync(limit: number, forceRetry: boolean | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
-  confirmSync(localAttendanceUuid: string, serverAttendanceId: string): Promise<void>;
+  confirmSync(localAttendanceUuid: string, serverAttendanceId: string, serverAttendanceStatus?: string, serverTimeOut?: string | null): Promise<void>;
   failSync(localAttendanceUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   recoverInterruptedSync(organizerProfileId: string): Promise<number>;
   cleanupEvent(eventId: string, serverVerified: boolean, eventCompleted: boolean): Promise<CleanupResult>;

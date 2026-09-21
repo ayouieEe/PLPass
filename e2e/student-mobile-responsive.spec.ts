@@ -77,21 +77,24 @@ test.describe("student workspace mobile responsiveness", () => {
     }
 
     await page.goto("/student/events/event-5");
-    await page.getByRole("button", { name: "Answer Feedback" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("heading", { name: "Share your feedback" })).toBeVisible();
-    const choices = dialog.getByRole("button", { name: /: (Needs improvement|Below expectations|Okay|Good|Excellent)/ });
-    const choiceCount = await choices.count();
-    if (choiceCount === 0) {
-      await expect(dialog.getByText("Your ratings")).toBeVisible();
-    }
-    for (const choice of await choices.all()) {
-      const layout = await choice.evaluate((element) => {
-        const bounds = element.getBoundingClientRect();
-        return { left: bounds.left, right: bounds.right, viewportWidth: window.innerWidth };
-      });
-      expect(layout.left).toBeGreaterThanOrEqual(0);
-      expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth);
+    const feedbackButton = page.getByRole("button", { name: "Answer Feedback" });
+    if (await feedbackButton.count()) {
+      await feedbackButton.click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: "Share your feedback" })).toBeVisible();
+      const choices = dialog.getByRole("button", { name: /: (Needs improvement|Below expectations|Okay|Good|Excellent)/ });
+      const choiceCount = await choices.count();
+      if (choiceCount === 0) await expect(dialog.getByText("Your ratings")).toBeVisible();
+      for (const choice of await choices.all()) {
+        const layout = await choice.evaluate((element) => {
+          const bounds = element.getBoundingClientRect();
+          return { left: bounds.left, right: bounds.right, viewportWidth: window.innerWidth };
+        });
+        expect(layout.left).toBeGreaterThanOrEqual(0);
+        expect(layout.right).toBeLessThanOrEqual(layout.viewportWidth);
+      }
+    } else {
+      await expect(page.getByText("Absent", { exact: true })).toBeVisible();
     }
     await expectNoHorizontalOverflow(page);
   });

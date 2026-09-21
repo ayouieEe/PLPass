@@ -79,7 +79,7 @@ describe("mock authentication flow", () => {
     expect(await screen.findByRole("heading", { name: "Admin Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "User Management" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/admin/reports");
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
     expect(screen.getByText("Registered Students")).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe("mock authentication flow", () => {
 
     expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "department_admin navigation" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/department/reports");
+    expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     expect(await screen.findByText("CCS Orientation")).toBeInTheDocument();
     expect(screen.queryByText("Business Forum")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create|approve|start attendance/i })).not.toBeInTheDocument();

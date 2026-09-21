@@ -4,12 +4,12 @@ import { BarChart3, CalendarDays, ClipboardList, Settings, ShieldCheck, Users, t
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAcademicCatalog, useAuditLogs, useAttendanceRecords, useEvents, useReports, useUsers } from "@/hooks/useRepositoryQueries";
+import { useAcademicCatalog, useAuditLogs, useAttendanceRecords, useEvents, useUsers } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
 function useAdminContext() {
   const { session } = useDevelopmentSession();
-  return useMemo(() => session ? { actorUserId: session.userId, actorRole: session.role } : undefined, [session]);
+  return useMemo(() => session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined, [session]);
 }
 
 export function AdminDashboardPage() {
@@ -36,17 +36,16 @@ export function AdminDashboardPage() {
   </div>;
 }
 
-type AdminResourcePageProps = { title: string; description: string; kind: "users" | "events" | "records" | "reports" | "audit" | "catalog" };
+type AdminResourcePageProps = { title: string; description: string; kind: "users" | "events" | "records" | "audit" | "catalog" };
 
 export function AdminResourcePage({ title, description, kind }: AdminResourcePageProps) {
   const context = useAdminContext();
   const users = useUsers({ pageSize: 10 }, context);
   const events = useEvents({ pageSize: 10 }, context);
   const records = useAttendanceRecords({ pageSize: 10 }, context);
-  const reports = useReports({ pageSize: 10 }, context);
   const audit = useAuditLogs({ pageSize: 10 }, context);
   const catalog = useAcademicCatalog({ pageSize: 10 }, context);
-  const result = kind === "users" ? users.data : kind === "events" ? events.data : kind === "records" ? records.data : kind === "reports" ? reports.data : kind === "audit" ? audit.data : catalog.departments.data;
+  const result = kind === "users" ? users.data : kind === "events" ? events.data : kind === "records" ? records.data : kind === "audit" ? audit.data : catalog.departments.data;
   const items = result?.items ?? [];
   return <div className="space-y-5"><PageHeader title={title} description={description} /><section className="rounded-lg border bg-surface p-5 shadow-sm"><p className="text-sm text-muted-foreground">{result ? `${result.total.toLocaleString()} records available to administrators.` : "Loading administrative data…"}</p>{result && !items.length ? <div className="mt-5"><EmptyState title="No records found" description="There are no records available for this section yet." /></div> : <div className="mt-5 space-y-2">{items.map((item, index) => <div key={String((item as { id?: string }).id ?? index)} className="rounded-md border bg-background px-4 py-3 text-sm">{String((item as { title?: string; displayName?: string; action?: string; code?: string }).title ?? (item as { displayName?: string }).displayName ?? (item as { action?: string }).action ?? (item as { code?: string }).code ?? `Record ${index + 1}`)}</div>)}</div>}</section></div>;
 }
@@ -54,7 +53,6 @@ export function AdminResourcePage({ title, description, kind }: AdminResourcePag
 export const AdminUsersPage = () => <AdminResourcePage kind="users" title="Users" description="Manage Student, Organizer, and Admin accounts." />;
 export const AdminEventsPage = () => <AdminResourcePage kind="events" title="Events" description="View and manage all events and approvals." />;
 export const AdminAttendancePage = () => <AdminResourcePage kind="records" title="Attendance Records" description="Review attendance sessions and records across all events." />;
-export const AdminReportsPage = () => <AdminResourcePage kind="reports" title="Reports" description="Review generated reports across all scopes." />;
 export const AdminAuditLogsPage = () => <AdminResourcePage kind="audit" title="Audit Logs" description="Review all system activity and administrative actions." />;
 export const AdminCatalogsPage = () => <AdminResourcePage kind="catalog" title="Academic Catalogs" description="Manage departments, programs, sections, semesters, and event categories." />;
 export const AdminCredentialsPage = () => <AdminResourcePage kind="users" title="Credential Management" description="Manage student QR and facial credential operations." />;

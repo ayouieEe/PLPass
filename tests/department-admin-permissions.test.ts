@@ -70,7 +70,7 @@ describe("department-admin permission contract", () => {
     expect(page).not.toContain("credentialActions");
     expect(page).toContain("canResetCredentials");
     expect(page).toContain("canRevokeCredentials");
-    expect(read("src/features/department/pages/DepartmentAdminPages.tsx")).toContain("return <AuthenticationMethodsPage />;");
+    expect(read("src/features/department/pages/DepartmentWorkspacePages.tsx")).toContain("return <AuthenticationMethodsPage />;");
   });
 
   it("blocks production releases when linked Supabase migration history is missing or drifted", () => {

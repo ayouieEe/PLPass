@@ -78,15 +78,15 @@ export function shouldDisplayInEventTab(
   tab: "today" | "incoming",
   options: {
     activeEventCode?: string;
+    includeActiveEvents?: boolean;
     cancelledCodes: string[];
     completedCodes: Set<string>;
     sessionsList: Array<{ eventId?: string; status?: string; startsAt?: string }>;
   }
 ) {
+  const hasActiveSession = event.status === "ongoing" || hasActiveAttendanceSession(event.id, options.sessionsList);
   if (
-    options.activeEventCode === event.code ||
-    event.status === "ongoing" ||
-    hasActiveAttendanceSession(event.id, options.sessionsList) ||
+    ((options.activeEventCode === event.code || hasActiveSession) && !(options.includeActiveEvents && tab === "today")) ||
     options.cancelledCodes.includes(event.code) ||
     options.completedCodes.has(event.code) ||
     !hasValidEventSchedule(event)

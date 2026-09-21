@@ -14,7 +14,6 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/admin/events") return { title: "Events", description: "View and manage all events and approvals.", breadcrumbs: ["Admin", "Events"] };
   if (pathname === "/admin/attendance") return { title: "Attendance Records", description: "Review attendance across all events.", breadcrumbs: ["Admin", "Attendance"] };
   if (pathname === "/admin/credentials") return { title: "Authentication Methods", description: "Manage QR codes and facial recognition credentials for all students.", breadcrumbs: ["Admin", "Authentication Methods"] };
-  if (pathname === "/admin/reports") return { title: "Reports", description: "Review generated reports across all scopes.", breadcrumbs: ["Admin", "Reports"] };
   if (pathname === "/admin/analytics") return { title: "Analytics", description: "Review institution-wide analytics.", breadcrumbs: ["Admin", "Analytics"] };
   if (pathname === "/admin/audit-logs") return { title: "Audit Logs", description: "Review all system activity.", breadcrumbs: ["Admin", "Audit Logs"] };
   if (pathname === "/admin/catalogs") return { title: "Academic Catalogs", description: "Manage academic and event catalogs.", breadcrumbs: ["Admin", "Catalogs"] };
@@ -87,13 +86,6 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
       title: "Settings",
       description: "Manage preferences for your Organizer account.",
       breadcrumbs: [rolePrefix, "Settings"]
-    };
-  }
-  if (pathname === "/organizer/reports") {
-    return {
-      title: "Reports",
-      description: "Review reports generated for your events.",
-      breadcrumbs: [rolePrefix, "Reports"]
     };
   }
   if (pathname === "/organizer/audit-logs") {

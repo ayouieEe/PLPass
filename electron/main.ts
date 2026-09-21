@@ -122,6 +122,31 @@ function scannerCertificateStore(userDataPath: string): ScannerCertificateStore 
   };
 }
 
+function offlineIdentityStore(userDataPath:string) {
+  const file=path.join(userDataPath,"offline-organizer-identity.json");
+  return {
+    async save(identity:{userId:string;role:string;displayName:string;email:string;accountStatus?:string;departmentId?:string}) {
+      if(!safeStorage.isEncryptionAvailable()) throw new Error("Windows secure storage is unavailable. Offline sign-in cannot be enabled.");
+      if(!identity.userId||identity.role!=="organizer"||identity.accountStatus==="inactive"||identity.accountStatus==="suspended") throw new Error("Only a verified active organizer can enable offline sign-in.");
+      await mkdir(userDataPath,{recursive:true});
+      const serialized=JSON.stringify({...identity,savedAt:Date.now()});
+      const temporary=`${file}.tmp`;
+      await writeFile(temporary,safeStorage.encryptString(serialized).toString("base64"),{encoding:"utf8",mode:0o600});
+      await rename(temporary,file);
+    },
+    async get(userId?:string) {
+      if(!safeStorage.isEncryptionAvailable()) return null;
+      try {
+        const stored=await readFile(file,"utf8");
+        const identity=JSON.parse(safeStorage.decryptString(Buffer.from(stored,"base64"))) as {userId?:unknown;role?:unknown;displayName?:unknown;email?:unknown;accountStatus?:unknown;departmentId?:unknown;savedAt?:unknown};
+        if(typeof identity.userId!=="string"||identity.role!=="organizer"||typeof identity.displayName!=="string"||typeof identity.email!=="string"||!Number.isFinite(identity.savedAt)||Date.now()-Number(identity.savedAt)>24*60*60_000||(userId&&identity.userId!==userId)||["inactive","suspended"].includes(String(identity.accountStatus))) return null;
+        return identity;
+      } catch { return null; }
+    },
+    async clear() { try { await unlink(file); } catch(error) { if((error as NodeJS.ErrnoException).code!=="ENOENT") throw error; } }
+  };
+}
+
 // This must run before Electron becomes ready. Vite's absolute asset paths and
 // React Router need a standard origin instead of a plain file:// document.
 protocol.registerSchemesAsPrivileged([
@@ -137,7 +162,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function registerHandlers() {
+  const identityStore=offlineIdentityStore(app.getPath("userData"));
   const handlers: Record<string, (...args: never[]) => unknown> = {
+    "offline:saveIdentity": (identity) => identityStore.save(identity), "offline:getIdentity": (userId) => identityStore.get(userId), "offline:clearIdentity": () => identityStore.clear(),
     "offline:prepare": (pkg, organizerId) => store.prepareEvent(pkg, organizerId), "offline:listPrepared": (organizerId, day) => store.listPreparedEvents(organizerId, day),
     "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId),
     "offline:startSession": (eventId, sessionId, organizerId, day, at) => store.startOfflineSession(eventId, sessionId, organizerId, day, at),
@@ -147,12 +174,16 @@ function registerHandlers() {
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
     "offline:recordScanner": (input, phase) => phase === "time_out" ? store.recordScannerCheckOut(input) : store.recordScannerCheckIn(input),
+    "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId),
+    "offline:queueWalkin": (input) => store.queueWalkInScan(input), "offline:listWalkins": (eventId,ownerId) => store.listPendingWalkInScans(eventId,ownerId),
+    "offline:beginWalkinSync": (limit,ownerId,forceRetry) => store.beginWalkInSync(limit,ownerId,forceRetry), "offline:confirmWalkinSync": (id,student) => store.confirmWalkInSync(id,student), "offline:failWalkinSync": (id,status,error) => store.failWalkInSync(id,status,error),
     "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
-    "offline:confirmSync": (uuid, serverId) => store.confirmSync(uuid, serverId), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
+    "offline:confirmSync": (uuid, serverId, status, timeOut) => store.confirmSync(uuid, serverId, status, timeOut), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
     "offline:recover": (organizerId) => store.recoverInterruptedSync(organizerId), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
   };
   handlers["scanner:start"] = (eventId, sessionId, phase, ownerId) => {
     if (!store.getPreparedEventForOrganizer(eventId, ownerId)) throw new Error("The event package is not available to this organizer on this device.");
+    if (store.getAttendanceCapturePhase(sessionId,ownerId)!==phase) throw new Error("The scanner phase does not match this event's saved attendance step.");
     return scannerCoordinator.start(eventId, sessionId, phase);
   };
   handlers["scanner:stop"] = () => scannerCoordinator.stop();
@@ -160,7 +191,7 @@ function registerHandlers() {
   handlers["scanner:certificateStatus"] = () => scannerCoordinator.getCertificateStatus();
   handlers["scanner:replaceCertificate"] = () => scannerCoordinator.replaceCertificate();
   handlers["scanner:remove"] = (stationId) => scannerCoordinator.removeStation(stationId);
-  handlers["scanner:setPhase"] = (phase) => scannerCoordinator.setCapturePhase(phase);
+  handlers["scanner:setPhase"] = (phase) => { const scanner=scannerCoordinator.getStatus(); if(!scanner.sessionId||!scanner.eventId) throw new Error("No active scanner session is available."); if(phase==="time_in"&&store.getAttendanceCapturePhase(scanner.sessionId,store.getPreparedEvent(scanner.eventId)?.organizerProfileId??"")==="time_out") throw new Error("Time Out is a one-way step; this event cannot return to Time In."); return scannerCoordinator.setCapturePhase(phase); };
   Object.entries(handlers).forEach(([channel, handler]) => ipcMain.handle(channel, (_event, ...args) => handler(...args as never[])));
 }
 
@@ -182,7 +213,8 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
-  store = new LocalAttendanceDatabase(new DatabaseSync(dbPath));
+  const secureStorage= safeStorage.isEncryptionAvailable() ? { encrypt:(value:string)=>safeStorage.encryptString(value).toString("base64"), decrypt:(value:string)=>safeStorage.decryptString(Buffer.from(value,"base64")) } : undefined;
+  store = new LocalAttendanceDatabase(new DatabaseSync(dbPath),secureStorage,true);
   scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")));
   registerHandlers();
   const preloadPath = path.join(directory, "preload.cjs");

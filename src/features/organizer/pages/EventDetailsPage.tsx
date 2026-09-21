@@ -38,11 +38,6 @@ import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
-import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
-import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -63,7 +58,6 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useReports,
   useStudents,
   useStudentCredentialStatuses
 } from "@/hooks/useRepositoryQueries";
@@ -192,20 +186,21 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
   return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
+    present: finalized.filter((record) => record.status === "present").length,
+    late: finalized.filter((record) => record.status === "late").length,
+    absent: finalized.filter((record) => record.status === "absent").length
   };
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  if (finalized.length === 0) {
     return 0;
   }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
+  const attended = finalized.filter((record) => record.status === "present" || record.status === "late").length;
+  return Math.round((attended / finalized.length) * 100);
 }
 
 function eventLabel(event: Event | undefined) {
@@ -275,7 +270,7 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     id: record.id,
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-    status: record.status === "excused" ? "manual" : record.status,
+    status: record.status,
     timestamp: formatTime(record.recordedAt)
   }));
 }

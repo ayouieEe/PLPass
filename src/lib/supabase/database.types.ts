@@ -14,30 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      legal_acceptances: {
-        Row: {
-          accepted_at: string
-          document_type: string
-          document_version: string
-          id: string
-          user_id: string
-        }
-        Insert: {
-          accepted_at?: string
-          document_type: string
-          document_version: string
-          id?: string
-          user_id: string
-        }
-        Update: {
-          accepted_at?: string
-          document_type?: string
-          document_version?: string
-          id?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       admin_profiles: {
         Row: {
           created_at: string
@@ -155,6 +131,8 @@ export type Database = {
           late_reason: string | null
           late_reason_category: string | null
           late_reason_option_id: string | null
+          late_reason_submitted_at: string | null
+          finalized_at: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
@@ -176,6 +154,8 @@ export type Database = {
           late_reason?: string | null
           late_reason_category?: string | null
           late_reason_option_id?: string | null
+          late_reason_submitted_at?: string | null
+          finalized_at?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -197,6 +177,8 @@ export type Database = {
           late_reason?: string | null
           late_reason_category?: string | null
           late_reason_option_id?: string | null
+          late_reason_submitted_at?: string | null
+          finalized_at?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -1433,6 +1415,30 @@ export type Database = {
           },
         ]
       }
+      legal_acceptances: {
+        Row: {
+          accepted_at: string
+          document_type: string
+          document_version: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          document_type: string
+          document_version: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          document_type?: string
+          document_version?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ml_predictions: {
         Row: {
           event_id: string | null
@@ -2606,6 +2612,42 @@ export type Database = {
           student_id: string
         }[]
       }
+      department_admin_recover_stuck_attendance_session: {
+        Args: { p_reason: string; p_session_id: string }
+        Returns: {
+          actual_end: string | null
+          actual_start: string | null
+          attendance_window_end_at: string | null
+          attendance_window_start_at: string | null
+          created_at: string
+          created_by: string
+          ended_reason: string | null
+          event_id: string
+          id: string
+          late_cutoff_at: string | null
+          mode: string
+          rescheduled_at: string | null
+          rescheduled_reason: string | null
+          scheduled_end: string
+          scheduled_start: string
+          session_archive_status: string | null
+          session_name: string
+          session_status: string
+          superseded_by: string | null
+          updated_at: string
+          venue: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "event_sessions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      department_admin_retry_event_email_job: {
+        Args: { p_job_id: string; p_reason: string }
+        Returns: Json
+      }
       discard_empty_event_session: {
         Args: { p_session_id: string }
         Returns: {
@@ -3190,6 +3232,18 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      sync_offline_walkin_attendance: {
+        Args: {
+          p_event_id: string
+          p_identification_method: string
+          p_local_scan_uuid: string
+          p_session_id: string
+          p_student_number: string
+          p_time_in: string
+          p_time_out?: string
+        }
+        Returns: Json
       }
       update_organizer_event_metadata: {
         Args: {

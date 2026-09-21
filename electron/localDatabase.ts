@@ -1,10 +1,13 @@
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { localMigrations } from "./migrations.js";
-import type { CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflinePreparedEventSummary, OfflineStatus, PendingAttendanceRecord, PreparedEventPackage, PreparedEventParticipant } from "../src/features/offline/types.js";
+import type { AttendanceCapturePhase, CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflinePreparedEventSummary, OfflineStatus, PendingAttendanceRecord, PendingWalkInScan, PreparedEventPackage, PreparedEventParticipant } from "../src/features/offline/types.js";
 import { studentIdentityMatchesPayload } from "../src/lib/credentials/qrCredential.js";
 
 type SqlRow = Record<string, unknown>;
+export type OfflineDataCipher = { encrypt(value: string): string; decrypt(value: string): string };
+type SqlStatement = ReturnType<DatabaseSync["prepare"]>;
+function sqlRun(statement: SqlStatement, ...args: unknown[]) { return (statement as unknown as { run(...params: unknown[]): unknown }).run(...args); }
 
 function value(row: SqlRow | undefined, key: string) { const item=row?.[key]; return item == null ? undefined : String(item); }
 function manilaDate(value: string | Date) { const parts=new Intl.DateTimeFormat("en-US", { timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit" }).formatToParts(new Date(value)); const part=(name:string)=>parts.find((item)=>item.type===name)?.value??""; return `${part("year")}-${part("month")}-${part("day")}`; }
@@ -26,7 +29,7 @@ function repairOfflineColumns(db: DatabaseSync) {
 }
 
 export class LocalAttendanceDatabase {
-  constructor(private readonly db: DatabaseSync) {
+  constructor(private readonly db: DatabaseSync, private readonly cipher?: OfflineDataCipher, private readonly requireSecureStorage = false) {
     db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA secure_delete = ON;");
     db.exec("CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)");
     for (const migration of localMigrations) {
@@ -42,12 +45,48 @@ export class LocalAttendanceDatabase {
     // Keeping this idempotent makes every startup safe for those databases.
     repairOfflineColumns(db);
     db.exec("CREATE INDEX IF NOT EXISTS prepared_events_owner_day_idx ON prepared_events(organizer_profile_id, prepared_manila_date, preparation_status)");
+    if (cipher) this.encryptLegacyCache(cipher);
     this.recoverInterruptedSync();
+  }
+
+  private protect(value: string | null | undefined) {
+    if (value == null) return value;
+    if (!this.cipher) {
+      if (this.requireSecureStorage) throw new Error("Windows secure storage is unavailable. Offline event data cannot be opened or saved on this device.");
+      return value;
+    }
+    return value.startsWith("enc:v1:") ? value : `enc:v1:${this.cipher.encrypt(value)}`;
+  }
+  private reveal(value: string | null | undefined) {
+    if (value == null) return undefined;
+    if (!value.startsWith("enc:v1:")) return value;
+    if (!this.cipher) {
+      if (this.requireSecureStorage) throw new Error("Windows secure storage is unavailable. Offline event data cannot be opened on this device.");
+      return value;
+    }
+    return this.cipher.decrypt(value.slice("enc:v1:".length));
+  }
+  private encryptLegacyCache(cipher: OfflineDataCipher) {
+    const protectRows = (table: string, columns: string[]) => {
+      const rows = this.db.prepare(`SELECT rowid, ${columns.join(",")} FROM ${table}`).all() as SqlRow[];
+      for (const row of rows) {
+        const values = columns.map((column) => row[column]);
+        if (!values.some((item) => typeof item === "string" && !item.startsWith("enc:v1:"))) continue;
+        const assignments = columns.map((column) => `${column}=?`).join(",");
+        const protectedValues = values.map((item) => typeof item === "string" && !item.startsWith("enc:v1:") ? `enc:v1:${cipher.encrypt(item)}` : item);
+        sqlRun(this.db.prepare(`UPDATE ${table} SET ${assignments} WHERE rowid=?`), ...protectedValues, row.rowid);
+      }
+    };
+    this.transaction(() => {
+      protectRows("cached_participants", ["student_number", "display_name", "qr_identifier", "face_embeddings_json"]);
+      protectRows("pending_walkin_scans", ["student_number"]);
+    });
   }
 
   private transaction<T>(operation:()=>T):T { this.db.exec("BEGIN IMMEDIATE"); try { const result=operation(); this.db.exec("COMMIT"); return result; } catch(error) { this.db.exec("ROLLBACK"); throw error; } }
 
   prepareEvent(pkg: PreparedEventPackage, organizerProfileId = pkg.organizerProfileId ?? "test-organizer"): OfflineStatus {
+    if (!this.cipher && this.requireSecureStorage) throw new Error("Windows secure storage is unavailable. Offline event data was not cached.");
     if (!organizerProfileId) throw new Error("An organizer identity is required to scope the offline package.");
     if (!pkg.event.id || !pkg.sessions.length || !pkg.participants.length || pkg.participants.some((p) => !p.studentId || !p.studentNumber)) {
       throw new Error("Event package is incomplete and was not marked ready.");
@@ -69,7 +108,7 @@ export class LocalAttendanceDatabase {
         VALUES(@id,@eventId,@title,@venue,@status,@startsAt,@endsAt,@lateCutoffAt,@attendanceWindowStartAt,@attendanceWindowEndAt,@offlineLifecycle)`);
       pkg.sessions.forEach((item) => session.run({ ...item, offlineLifecycle:item.status==="ongoing"?"STARTED":"NOT_STARTED", lateCutoffAt: item.lateCutoffAt ?? null, attendanceWindowStartAt: item.attendanceWindowStartAt ?? null, attendanceWindowEndAt: item.attendanceWindowEndAt ?? null }));
       const participant = this.db.prepare(`INSERT INTO cached_participants VALUES(@eventId,@studentId,@studentNumber,@displayName,@participantStatus,@qrIdentifier,@faceEmbeddings)`);
-      pkg.participants.forEach((item) => participant.run({ eventId: pkg.event.id, ...item, qrIdentifier: item.qrIdentifier ?? null, faceEmbeddings: JSON.stringify(item.faceEmbeddings) }));
+      pkg.participants.forEach((item) => sqlRun(participant, { eventId: pkg.event.id, studentId:item.studentId, studentNumber:this.protect(item.studentNumber), displayName:this.protect(item.displayName), participantStatus:item.participantStatus, qrIdentifier:this.protect(item.qrIdentifier), faceEmbeddings:this.protect(JSON.stringify(item.faceEmbeddings)) }));
       const attendance = this.db.prepare(`INSERT INTO cached_attendance_state VALUES(@sessionId,@studentId,@attendanceStatus,@timeIn,@timeOut)`);
       pkg.attendance.forEach((item) => attendance.run({ ...item, timeIn: item.timeIn ?? null, timeOut: item.timeOut ?? null }));
       this.db.prepare("UPDATE prepared_events SET preparation_status='READY' WHERE event_id=?").run(pkg.event.id);
@@ -98,7 +137,8 @@ export class LocalAttendanceDatabase {
   hasUnresolvedWork(organizerProfileId:string):boolean {
     const row=this.db.prepare(`SELECT EXISTS(SELECT 1 FROM pending_attendance p JOIN prepared_events e ON e.event_id=p.event_id
       WHERE e.organizer_profile_id=? AND p.sync_status<>'CONFIRMED') OR EXISTS(SELECT 1 FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id
-      WHERE e.organizer_profile_id=? AND s.offline_lifecycle IN ('START_PENDING','END_PENDING','CONFLICT')) unresolved`).get(organizerProfileId,organizerProfileId) as SqlRow;
+      WHERE e.organizer_profile_id=? AND s.offline_lifecycle IN ('START_PENDING','END_PENDING','CONFLICT')) OR EXISTS(SELECT 1 FROM pending_walkin_scans w JOIN prepared_events e ON e.event_id=w.event_id
+      WHERE e.organizer_profile_id=? AND w.sync_status<>'CONFIRMED') unresolved`).get(organizerProfileId,organizerProfileId,organizerProfileId) as SqlRow;
     return Boolean(row.unresolved);
   }
 
@@ -161,36 +201,58 @@ export class LocalAttendanceDatabase {
 
   private participant(row: SqlRow | undefined): PreparedEventParticipant | null {
     if (!row) return null;
-    return { studentId: String(row.student_id), studentNumber: String(row.student_number), displayName: String(row.display_name), participantStatus: String(row.participant_status), qrIdentifier: value(row, "qr_identifier"), faceEmbeddings: JSON.parse(String(row.face_embeddings_json ?? "[]")) as number[][] };
+    return { studentId: String(row.student_id), studentNumber: this.reveal(String(row.student_number)) ?? "", displayName: this.reveal(String(row.display_name)) ?? "", participantStatus: String(row.participant_status), qrIdentifier: this.reveal(value(row, "qr_identifier")), faceEmbeddings: JSON.parse(this.reveal(String(row.face_embeddings_json ?? "[]")) ?? "[]") as number[][] };
   }
   identifyQr(eventId: string, qr: string) {
     const value = qr.trim();
     const rows = this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[];
-    return this.participant(rows.find((row) => studentIdentityMatchesPayload(value, String(row.student_number ?? ""), String(row.display_name ?? ""))));
+    return this.participant(rows.find((row) => studentIdentityMatchesPayload(value, this.reveal(String(row.student_number ?? "")) ?? "", this.reveal(String(row.display_name ?? "")) ?? "")));
   }
   getAttendanceState(sessionId: string, studentId: string) {
     const row = this.db.prepare("SELECT time_in, time_out FROM cached_attendance_state WHERE session_id=? AND student_id=?").get(sessionId, studentId) as SqlRow | undefined;
     return row ? { timeIn: value(row, "time_in"), timeOut: value(row, "time_out") } : null;
   }
-  identifyManual(eventId: string, input: string) { return this.participant(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed' AND (lower(student_number)=lower(?) OR lower(display_name)=lower(?))").get(eventId, input.trim(), input.trim()) as SqlRow | undefined); }
-  listFaceCandidates(eventId: string) { return (this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed' AND face_embeddings_json<>'[]'").all(eventId) as SqlRow[]).map((row) => this.participant(row)).filter((p):p is PreparedEventParticipant=>p!==null); }
+  identifyManual(eventId: string, input: string) { const rows=this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]; return this.participant(rows.find((row)=>{const item=this.participant(row);return item && (item.studentNumber.toLowerCase()===input.trim().toLowerCase()||item.displayName.toLowerCase()===input.trim().toLowerCase());})); }
+  listFaceCandidates(eventId: string) { return (this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]).map((row) => this.participant(row)).filter((p):p is PreparedEventParticipant=>Boolean(p?.faceEmbeddings.length)); }
 
   // Phone scanner stations are intentionally check-in only.  A continuously
   // visible QR must never turn a successful Time In into a Time Out simply
   // because the camera reads it again.
+  getAttendanceCapturePhase(sessionId: string, organizerProfileId: string): AttendanceCapturePhase {
+    const row = this.db.prepare("SELECT s.capture_phase FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id WHERE s.session_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'").get(sessionId, organizerProfileId) as SqlRow | undefined;
+    if (!row) throw new Error("This attendance session is not available to this organizer on this device.");
+    return String(row.capture_phase) === "time_out" ? "time_out" : "time_in";
+  }
+
+  advanceAttendanceCapturePhase(sessionId: string, organizerProfileId: string): AttendanceCapturePhase {
+    const row = this.db.prepare("SELECT s.capture_phase,s.offline_lifecycle FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id WHERE s.session_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'").get(sessionId, organizerProfileId) as SqlRow | undefined;
+    if (!row || !["START_PENDING", "STARTED"].includes(String(row.offline_lifecycle))) throw new Error("Only an active offline event can advance to Time Out.");
+    this.db.prepare("UPDATE cached_sessions SET capture_phase='time_out' WHERE session_id=? AND capture_phase='time_in'").run(sessionId);
+    return "time_out";
+  }
+
   recordScannerCheckIn(input: LocalAttendanceInput): LocalAttendanceResult {
-    return this.recordAttendance(input, false);
+    return this.recordAttendanceForPhase(input, "time_in");
   }
 
   recordScannerCheckOut(input: LocalAttendanceInput): LocalAttendanceResult {
-    return this.recordAttendance(input, true, true);
+    return this.recordAttendanceForPhase(input, "time_out");
   }
 
-  recordAttendance(input: LocalAttendanceInput, allowCheckOut = true, requireExistingCheckIn = false): LocalAttendanceResult {
+  recordAttendance(input: LocalAttendanceInput): LocalAttendanceResult {
+    return this.recordAttendanceForPhase(input, "time_in");
+  }
+
+  recordAttendanceForCapturePhase(input: LocalAttendanceInput, phase: AttendanceCapturePhase): LocalAttendanceResult {
+    return this.recordAttendanceForPhase(input, phase);
+  }
+
+  private recordAttendanceForPhase(input: LocalAttendanceInput, phase: AttendanceCapturePhase): LocalAttendanceResult {
     const now = input.attendanceTimestamp;
     const result = this.transaction(() => {
       const session = this.db.prepare("SELECT * FROM cached_sessions WHERE session_id=? AND event_id=?").get(input.sessionId, input.eventId) as SqlRow | undefined;
       if (!session || String(session.session_status) !== "ongoing") throw new Error("No active prepared event session is available.");
+      if (String(session.capture_phase ?? "time_in") !== phase) throw new Error(`This event is now in ${String(session.capture_phase).replace("_", " ")} mode; ${phase.replace("_", " ")} scans are locked.`);
       const attendanceWindowStart = value(session, "attendance_window_start_at") ?? String(session.starts_at);
       const attendanceWindowEnd = value(session, "attendance_window_end_at");
       if (now < attendanceWindowStart || (attendanceWindowEnd && now > attendanceWindowEnd)) throw new Error("Attendance is outside the prepared session window.");
@@ -200,15 +262,15 @@ export class LocalAttendanceDatabase {
       const existing = this.db.prepare("SELECT * FROM pending_attendance WHERE session_id=? AND student_id=?").get(input.sessionId, input.studentId) as SqlRow | undefined;
       if (existing?.time_out) return { action: "already_recorded" as const, row: existing };
       if (existingServer?.time_out) throw new Error("Attendance was already recorded and completed in Supabase.");
-      if (existing && !allowCheckOut) return { action: "already_recorded" as const, row: existing };
       if (existing) {
+        if (phase === "time_in") return { action: "already_recorded" as const, row: existing };
         if (new Date(now).getTime() < new Date(String(existing.time_in)).getTime() + 60_000) throw new Error("Time Out can be recorded at least one minute after Time In.");
         const existingUuid=String(existing.local_attendance_uuid);
         this.db.prepare("UPDATE pending_attendance SET time_out=?, checkout_identification_method=?, attendance_timestamp=?, sync_status='PENDING_SYNC', updated_at=? WHERE local_attendance_uuid=?").run(now, input.identificationMethod, now, now, existingUuid);
         return { action: "checked_out" as const, row: this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=?").get(existingUuid) as SqlRow };
       }
       if (existingServer?.time_in) {
-        if (!allowCheckOut) return { action: "already_recorded" as const, row: existingServer };
+        if (phase === "time_in") return { action: "already_recorded" as const, row: existingServer };
         const timeIn = String(existingServer.time_in);
         if (now < new Date(new Date(timeIn).getTime() + 60_000).toISOString()) throw new Error("Time Out can be recorded at least one minute after Time In.");
         const uuid = randomUUID();
@@ -217,7 +279,7 @@ export class LocalAttendanceDatabase {
         this.db.prepare("UPDATE cached_attendance_state SET time_out=? WHERE session_id=? AND student_id=?").run(now,input.sessionId,input.studentId);
         return { action:"checked_out" as const, row:this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow };
       }
-      if (requireExistingCheckIn) throw new Error("No Time In is recorded for this student.");
+      if (phase === "time_out") throw new Error("No Time In is recorded for this student. Time Out requires a previous Time In.");
       const status = input.attendanceStatus ?? (now > String(session.late_cutoff_at ?? session.starts_at) ? "late" : "present");
       const uuid = randomUUID();
       this.db.prepare(`INSERT INTO pending_attendance(local_attendance_uuid,event_id,session_id,student_id,identification_method,attendance_timestamp,attendance_status,time_in,device_id,remarks,late_reason,sync_status,created_at,updated_at)
@@ -231,11 +293,35 @@ export class LocalAttendanceDatabase {
 
   private mapPending(row: SqlRow): PendingAttendanceRecord { return { localAttendanceUuid:String(row.local_attendance_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),studentId:String(row.student_id),identificationMethod:String(row.identification_method) as PendingAttendanceRecord["identificationMethod"],checkoutIdentificationMethod:value(row,"checkout_identification_method") as PendingAttendanceRecord["checkoutIdentificationMethod"],attendanceTimestamp:String(row.attendance_timestamp),attendanceStatus:String(row.attendance_status) as "present"|"late",timeIn:String(row.time_in),timeOut:value(row,"time_out"),deviceId:value(row,"device_id"),remarks:value(row,"remarks"),lateReason:value(row,"late_reason"),syncStatus:String(row.sync_status) as PendingAttendanceRecord["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncAttemptAt:value(row,"last_sync_attempt_at"),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at),serverAttendanceId:value(row,"server_attendance_id"),serverConfirmedAt:value(row,"server_confirmed_at") }; }
   listPending(eventId?: string,organizerProfileId?:string) { const rows = organizerProfileId ? eventId ? this.db.prepare("SELECT p.* FROM pending_attendance p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? ORDER BY p.created_at").all(organizerProfileId,eventId) : this.db.prepare("SELECT p.* FROM pending_attendance p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? ORDER BY p.created_at").all(organizerProfileId) : eventId ? this.db.prepare("SELECT * FROM pending_attendance WHERE event_id=? ORDER BY created_at").all(eventId) : this.db.prepare("SELECT * FROM pending_attendance ORDER BY created_at").all(); return (rows as SqlRow[]).map((row) => this.mapPending(row)); }
+  queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): PendingWalkInScan {
+    if (this.requireSecureStorage && !this.cipher) throw new Error("Windows secure storage is unavailable. This walk-in ID was not saved.");
+    if (!/^\d{2}-\d{5}$/.test(input.studentNumber)) throw new Error("Enter a valid student number to queue this walk-in for verification.");
+    const session=this.db.prepare("SELECT s.session_status,s.capture_phase,s.offline_lifecycle FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id WHERE s.session_id=? AND s.event_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'").get(input.sessionId,input.eventId,input.organizerProfileId) as SqlRow|undefined;
+    if(!session||String(session.session_status)!=="ongoing"||!["START_PENDING","STARTED"].includes(String(session.offline_lifecycle))) throw new Error("An active, organizer-owned offline session is required.");
+    if(String(session.capture_phase??"time_in")!==input.capturePhase) throw new Error("This event has advanced to a different attendance step.");
+    const normalized=input.studentNumber.trim().toUpperCase();
+    const hash=createHash("sha256").update(normalized).digest("hex");
+    const existing=this.db.prepare("SELECT * FROM pending_walkin_scans WHERE session_id=? AND student_number_hash=?").get(input.sessionId,hash) as SqlRow|undefined;
+    if(input.capturePhase==="time_in") {
+      if(existing) throw new Error("This walk-in already has a Time In.");
+      const id=randomUUID();
+      sqlRun(this.db.prepare(`INSERT INTO pending_walkin_scans(local_scan_uuid,event_id,session_id,identification_method,student_number,student_number_hash,time_in,sync_status,sync_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'PENDING_SYNC',0,?,?)`),id,input.eventId,input.sessionId,input.identificationMethod,this.protect(normalized),hash,input.attendanceTimestamp,input.attendanceTimestamp,input.attendanceTimestamp);
+      return this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(id) as SqlRow);
+    }
+    if(!existing) throw new Error("This walk-in has no Time In. Record Time In before Time Out.");
+    if(existing.time_out) throw new Error("This walk-in already has a Time Out.");
+    if(new Date(input.attendanceTimestamp).getTime()<new Date(String(existing.time_in)).getTime()+60_000) throw new Error("Time Out can be recorded at least one minute after Time In.");
+    sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET time_out=?,sync_status='PENDING_SYNC',next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),input.attendanceTimestamp,input.attendanceTimestamp,existing.local_scan_uuid);
+    return this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(existing.local_scan_uuid as string) as SqlRow);
+  }
+  private mapWalkIn(row:SqlRow):PendingWalkInScan{return{localScanUuid:String(row.local_scan_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),identificationMethod:String(row.identification_method) as "qr"|"manual",studentNumber:this.reveal(String(row.student_number))??"",timeIn:String(row.time_in),timeOut:value(row,"time_out"),syncStatus:String(row.sync_status) as PendingWalkInScan["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};}
+  listPendingWalkInScans(eventId:string|undefined,organizerProfileId:string){const rows=(eventId?this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? ORDER BY p.created_at").all(organizerProfileId,eventId):this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? ORDER BY p.created_at").all(organizerProfileId)) as SqlRow[];return rows.map((row)=>this.mapWalkIn(row));}
+  beginWalkInSync(limit:number,organizerProfileId:string,forceRetry=false){const due=forceRetry?"":" AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=datetime('now'))";const rows=this.db.prepare(`SELECT p.local_scan_uuid FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id JOIN cached_sessions s ON s.session_id=p.session_id WHERE e.organizer_profile_id=? AND p.sync_status IN ('PENDING_SYNC','RETRY') AND s.offline_lifecycle IN ('STARTED','END_PENDING','ENDED')${due} ORDER BY p.created_at LIMIT ?`).all(organizerProfileId,Math.max(1,Math.min(limit,50))) as SqlRow[];const now=new Date().toISOString();const update=this.db.prepare("UPDATE pending_walkin_scans SET sync_status='SYNCING',sync_attempts=sync_attempts+1,updated_at=? WHERE local_scan_uuid=? AND sync_status IN ('PENDING_SYNC','RETRY')");this.transaction(()=>rows.forEach((row)=>update.run(now,row.local_scan_uuid as string)));return rows.map((row)=>this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(row.local_scan_uuid as string) as SqlRow));}
+   confirmWalkInSync(uuid:string,student:{id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}){const local=this.db.prepare("SELECT event_id,session_id FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;if(!local)return;this.transaction(()=>{const eventId=String(local.event_id);const sessionId=String(local.session_id);sqlRun(this.db.prepare("INSERT OR IGNORE INTO cached_participants(event_id,student_id,student_number,display_name,participant_status,qr_identifier,face_embeddings_json) VALUES(?,?,?,?, 'invited',NULL,?)"),eventId,student.id,this.protect(student.studentNumber),this.protect(student.displayName),this.protect("[]"));sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),sessionId,student.id,student.attendanceStatus,student.timeIn,student.timeOut??null);sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET sync_status='CONFIRMED',last_sync_error=NULL,next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),new Date().toISOString(),uuid);});}
+  failWalkInSync(uuid:string,status:"RETRY"|"CONFLICT",safeError:string){const row=this.db.prepare("SELECT sync_attempts FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;const attempts=Number(row?.sync_attempts??0);const next=status==="CONFLICT"?null:attempts>=4?"9999-12-31T23:59:59.999Z":new Date(Date.now()+Math.min(300,2**attempts)*1000).toISOString();this.db.prepare("UPDATE pending_walkin_scans SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_scan_uuid=?").run(status,`${safeError.slice(0,240)}${attempts>=4?" Automatic retry limit reached; queued for manual retry.":""}`,next,new Date().toISOString(),uuid);}
   beginSync(limit: number, forceRetry = false,organizerProfileId="test-organizer") { const due = forceRetry ? "" : " AND (p.next_attempt_at IS NULL OR p.next_attempt_at <= datetime('now'))"; const rows = this.db.prepare(`SELECT p.local_attendance_uuid FROM pending_attendance p JOIN cached_sessions s ON s.session_id=p.session_id JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.sync_status IN ('PENDING_SYNC','RETRY') AND s.offline_lifecycle IN ('STARTED','END_PENDING','ENDED')${due} ORDER BY p.created_at LIMIT ?`).all(organizerProfileId,Math.max(1, Math.min(limit, 50))) as SqlRow[]; const now=new Date().toISOString(); const update=this.db.prepare("UPDATE pending_attendance SET sync_status='SYNCING',sync_attempts=sync_attempts+1,last_sync_attempt_at=?,updated_at=? WHERE local_attendance_uuid=? AND sync_status IN ('PENDING_SYNC','RETRY')"); this.transaction(()=>rows.forEach(r=>update.run(now,now,r.local_attendance_uuid as string))); return rows.map(r=>this.mapPending(this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=? AND sync_status='SYNCING'").get(r.local_attendance_uuid as string) as SqlRow)).filter(Boolean); }
-  confirmSync(uuid: string, serverId: string) { const row=this.db.prepare("SELECT event_id FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; if(!row) return; this.transaction(()=>{ this.db.prepare("UPDATE pending_attendance SET sync_status='CONFIRMED',server_attendance_id=?,server_confirmed_at=?,updated_at=? WHERE local_attendance_uuid=?").run(serverId,new Date().toISOString(),new Date().toISOString(),uuid); this.db.prepare("DELETE FROM pending_attendance WHERE local_attendance_uuid=? AND sync_status='CONFIRMED'").run(uuid); this.db.prepare("UPDATE prepared_events SET last_successful_sync_at=? WHERE event_id=?").run(new Date().toISOString(),row.event_id as string); }); }
+   confirmSync(uuid: string, serverId: string, serverStatus?:string, serverTimeOut?:string|null) { const row=this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; if(!row) return; const now=new Date().toISOString();this.transaction(()=>{sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),row.session_id,row.student_id,serverStatus??row.attendance_status,row.time_in,serverTimeOut===undefined?(row.time_out??null):serverTimeOut);sqlRun(this.db.prepare("UPDATE pending_attendance SET sync_status='CONFIRMED',server_attendance_id=?,server_confirmed_at=?,updated_at=? WHERE local_attendance_uuid=?"),serverId,now,now,uuid);sqlRun(this.db.prepare("DELETE FROM pending_attendance WHERE local_attendance_uuid=? AND sync_status='CONFIRMED'"),uuid);sqlRun(this.db.prepare("UPDATE prepared_events SET last_successful_sync_at=? WHERE event_id=?"),now,row.event_id as string);}); }
   failSync(uuid:string,status:"RETRY"|"CONFLICT",error:string){ const now=new Date(); const row=this.db.prepare("SELECT sync_attempts FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; const attempts=Number(row?.sync_attempts ?? 0); const exhausted=status === "RETRY" && attempts >= 4; const delaySeconds=Math.min(8,2 ** Math.max(0, attempts - 1)); const next=status === "CONFLICT" ? null : exhausted ? "9999-12-31T23:59:59.999Z" : new Date(now.getTime()+delaySeconds*1000).toISOString(); this.db.prepare("UPDATE pending_attendance SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_attendance_uuid=?").run(status,`${error.slice(0,260)}${exhausted?" Automatic retry limit reached; queued for manual retry.":""}`,next,now.toISOString(),uuid); }
-  recoverInterruptedSync(organizerProfileId?:string){ return organizerProfileId
-    ? this.db.prepare(`UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING' AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(new Date().toISOString(),organizerProfileId).changes
-    : this.db.prepare("UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING'").run(new Date().toISOString()).changes; }
-  cleanupEvent(eventId:string,serverVerified:boolean,eventCompleted:boolean):CleanupResult { const unresolved=Number((this.db.prepare("SELECT COUNT(*) count FROM pending_attendance WHERE event_id=? AND sync_status<>'CONFIRMED'").get(eventId) as SqlRow).count); if(!eventCompleted) return {cleaned:false,message:"Cleanup blocked - the event is not completed."}; if(unresolved) return {cleaned:false,message:`Cleanup blocked - ${unresolved} record${unresolved===1?"":"s"} still require synchronization.`}; if(!serverVerified) return {cleaned:false,message:"Cleanup blocked - Supabase verification is required."}; this.db.prepare("DELETE FROM prepared_events WHERE event_id=?").run(eventId); this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); return {cleaned:true,message:"Cleanup completed. Temporary event and biometric cache data were removed."}; }
+  recoverInterruptedSync(organizerProfileId?:string){const now=new Date().toISOString();if(!organizerProfileId){const attendance=this.db.prepare("UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING'").run(now).changes;this.db.prepare("UPDATE pending_walkin_scans SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING'").run(now);return attendance;}const attendance=this.db.prepare(`UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING' AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(now,organizerProfileId).changes;this.db.prepare(`UPDATE pending_walkin_scans SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING' AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(now,organizerProfileId);return attendance; }
+  cleanupEvent(eventId:string,serverVerified:boolean,eventCompleted:boolean):CleanupResult { const unresolved=Number((this.db.prepare("SELECT (SELECT COUNT(*) FROM pending_attendance WHERE event_id=? AND sync_status<>'CONFIRMED')+(SELECT COUNT(*) FROM pending_walkin_scans WHERE event_id=? AND sync_status<>'CONFIRMED') count").get(eventId,eventId) as SqlRow).count); if(!eventCompleted) return {cleaned:false,message:"Cleanup blocked - the event is not completed."}; if(unresolved) return {cleaned:false,message:`Cleanup blocked - ${unresolved} record${unresolved===1?"":"s"} still require synchronization.`}; if(!serverVerified) return {cleaned:false,message:"Cleanup blocked - Supabase verification is required."}; this.db.prepare("DELETE FROM prepared_events WHERE event_id=?").run(eventId); this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); return {cleaned:true,message:"Cleanup completed. Temporary event and biometric cache data were removed."}; }
 }

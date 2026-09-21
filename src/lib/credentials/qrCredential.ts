@@ -1,3 +1,5 @@
+import { formatStudentNumber, isStudentNumber } from "@/lib/utils/studentNumber";
+
 export function buildStudentQrPayload(studentNumber: string) {
   // The school ID and PLPass must identify the student with the same value.
   // The credential record is validated separately during scanning.
@@ -16,7 +18,8 @@ export function extractQrCredentialId(rawCode: string) {
 
 export function extractStudentNumber(rawCode: string) {
   const normalized = extractQrCredentialId(rawCode);
-  return /^\d{2}-\d{5}$/.test(normalized) ? normalized : "";
+  const formatted = formatStudentNumber(normalized);
+  return isStudentNumber(formatted) ? formatted : "";
 }
 
 export function normalizeStudentLookupValue(rawValue: string) {
@@ -37,6 +40,10 @@ export function normalizeStudentIdentityValue(rawValue: string) {
 export function studentIdentityMatchesPayload(payload: string, studentNumber: string, fullName: string) {
   const value = normalizeStudentIdentityValue(payload);
   if (!value) return false;
+
+  const scannedStudentNumber = extractStudentNumber(payload);
+  const knownStudentNumber = extractStudentNumber(studentNumber);
+  if (scannedStudentNumber && knownStudentNumber && scannedStudentNumber === knownStudentNumber) return true;
 
   const studentId = normalizeStudentIdentityValue(studentNumber);
   if (studentId && value.includes(studentId)) return true;

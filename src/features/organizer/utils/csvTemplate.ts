@@ -1,7 +1,6 @@
 export function downloadStudentCsvTemplate() {
   const headers = [
     "Student Number",
-    "Email",
     "First Name",
     "Middle Name",
     "Last Name",
@@ -13,7 +12,6 @@ export function downloadStudentCsvTemplate() {
 
   const exampleRow = [
     "23-00265",
-    "jdelacruz@example.edu.ph",
     "Juan",
     "Perez",
     "Dela Cruz",

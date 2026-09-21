@@ -163,7 +163,7 @@ describe("student UI flows", () => {
     expect(screen.queryByRole("button", { name: "Calendar View" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close modal" }));
 
-    expect(screen.queryByText(/EVT-2026-005/)).not.toBeInTheDocument();
+    expect(screen.getByText(/EVT-2026-005/)).toBeInTheDocument();
   });
 
   it("opens feedback-due attendance tasks from dashboard metrics", async () => {
@@ -177,29 +177,24 @@ describe("student UI flows", () => {
     const feedbackDialog = await screen.findByRole("dialog");
     expect(within(feedbackDialog).getByRole("heading", { name: "Pending Tasks" })).toBeInTheDocument();
     expect(within(feedbackDialog).getByText("PLP Campus Sustainability Series")).toBeInTheDocument();
-    expect(within(feedbackDialog).getByText("PLP Tech & Leadership Simulation Day")).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("PLP Student General Assembly")).toBeInTheDocument();
     const presentTask = within(feedbackDialog).getByText("PLP Campus Sustainability Series").closest("article");
     expect(presentTask).not.toBeNull();
     expect(within(presentTask as HTMLElement).getByText("present")).toBeInTheDocument();
-    expect(within(feedbackDialog).getByText(/Submit your late reason before event feedback/i)).toBeInTheDocument();
+    expect(within(feedbackDialog).queryByText(/Submit your late reason before event feedback/i)).not.toBeInTheDocument();
     const feedbackLinks = within(feedbackDialog).getAllByRole("link", { name: "Answer Feedback" });
     expect(feedbackLinks.length).toBeGreaterThan(0);
     expect(feedbackLinks[0]).toHaveAttribute("href", expect.stringMatching(/^\/student\/events\//));
   });
 
-  it("locks event feedback until a late reason is submitted", async () => {
+  it("does not allow a late reason to be submitted after the session has closed", async () => {
     storeSession(studentSession);
     setRoute("/student/events/event-4");
     render(<App />);
-    const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "PLP Tech & Leadership Simulation Day" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Choose Late Reason" }));
-    const lateReasonDialog = await screen.findByRole("dialog");
-    expect(within(lateReasonDialog).getByRole("heading", { name: "Tell us why you were late" })).toBeInTheDocument();
-    expect(within(lateReasonDialog).getByRole("button", { name: "Traffic / Commute" })).toBeInTheDocument();
-    await user.click(within(lateReasonDialog).getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Choose Late Reason" })).not.toBeInTheDocument();
+    expect(screen.getByText(/absent/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Attendance Records" })).not.toBeInTheDocument();
   });
 
@@ -214,9 +209,10 @@ describe("student UI flows", () => {
     const feedbackDialog = await screen.findByRole("dialog");
     expect(within(feedbackDialog).getByRole("heading", { name: "Pending Tasks" })).toBeInTheDocument();
     expect(within(feedbackDialog).getByText("PLP Campus Sustainability Series")).toBeInTheDocument();
-    expect(within(feedbackDialog).getByText("PLP Tech & Leadership Simulation Day")).toBeInTheDocument();
+    expect(within(feedbackDialog).getByText("PLP Student General Assembly")).toBeInTheDocument();
 
-    await user.click(within(feedbackDialog).getAllByRole("link", { name: "Answer Feedback" })[0]);
+    const sustainabilityTask = within(feedbackDialog).getByText("PLP Campus Sustainability Series").closest("article");
+    await user.click(within(sustainabilityTask as HTMLElement).getByRole("link", { name: "Answer Feedback" }));
     expect(await screen.findByRole("heading", { name: "PLP Campus Sustainability Series" })).toBeInTheDocument();
   });
 

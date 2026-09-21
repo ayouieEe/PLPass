@@ -148,16 +148,6 @@ function mapEmploymentStatus(value: string): FacultyProfile["employmentStatus"] 
   return "active";
 }
 
-function generateMockTurnout(id: string): number {
-  if (!id) return 0;
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = ((hash << 5) - hash) + id.charCodeAt(i);
-    hash |= 0;
-  }
-  return 55 + (Math.abs(hash) % 41);
-}
-
 function mapEventStatus(row: Row): EventStatus {
   const eventStatus = stringValue(row, ["event_status", "status"], "pending");
   if (eventStatus === "ongoing" || eventStatus === "completed" || eventStatus === "cancelled") {
@@ -340,7 +330,7 @@ export function mapEvent(row: Row): Event {
     priorityScore: nullableNumberValue(row, ["priority_score"]) ?? 0,
     priorityTier: optionalString(row, ["priority_tier"]) as Event["priorityTier"],
     fixedPriority: Boolean(row.fixed_priority),
-    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]) ?? generateMockTurnout(stringValue(row, ["id", "event_id"])),
+    predictedTurnout: nullableNumberValue(row, ["predicted_turnout_percent"]),
     requestedBy: optionalString(row, ["requested_by"]),
     collegeOffice: optionalString(row, ["college_office"]),
     numberOfPax: nullableNumberValue(row, ["number_of_pax"]),
@@ -461,7 +451,9 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     lateReasonOptionId: optionalString(row, ["late_reason_option_id"]),
     timeIn: optionalString(row, ["time_in"]),
     checkedOutAt: optionalString(row, ["time_out"]),
-    lateReason: optionalString(row, ["late_reason"])
+    lateReason: optionalString(row, ["late_reason"]),
+    finalizedAt: optionalString(row, ["finalized_at"]),
+    lateReasonSubmittedAt: optionalString(row, ["late_reason_submitted_at"])
   };
   return base as AttendanceRecord;
 }

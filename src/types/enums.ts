@@ -9,7 +9,7 @@ export type StudentStatus = (typeof STUDENT_STATUSES)[number];
 export const FACULTY_EMPLOYMENT_STATUSES = ["active", "part_time", "on_leave", "separated"] as const;
 export type FacultyEmploymentStatus = (typeof FACULTY_EMPLOYMENT_STATUSES)[number];
 
-export const ATTENDANCE_STATUSES = ["present", "late", "absent", "excused"] as const;
+export const ATTENDANCE_STATUSES = ["present", "late", "absent"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
 export const SESSION_STATUSES = ["draft", "active", "completed", "cancelled"] as const;

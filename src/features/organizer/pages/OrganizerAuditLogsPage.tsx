@@ -47,10 +47,11 @@ export function OrganizerAuditLogsPage() {
   const [isReverting, setIsReverting] = useState(false);
 
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
-  const canExportAudit = session ? hasCapability(session.role, "audit.export") : false;
+  const isDepartmentAdmin = session?.role === "department_admin";
+  const canExportAudit = session ? hasCapability(session.role, isDepartmentAdmin ? "audit.export.department" : "audit.export") : false;
 
   // Queries
   const queryParams = useMemo(
@@ -255,7 +256,7 @@ export function OrganizerAuditLogsPage() {
 
   return (
     <div className="space-y-6 font-sans text-sm">
-      <PageHeader title="Audit Logs" description={session?.role === "admin" ? "Centralized record of system activity, credential issuance, and administrative actions." : "Review activity recorded by your account."} />
+      <PageHeader title="Audit Logs" description={session?.role === "admin" ? "Centralized record of system activity, credential issuance, and administrative actions." : isDepartmentAdmin ? "Review activity related to users, events, and attendance in your department." : "Review activity recorded by your account."} />
 
       <section className="space-y-4">
         {/* Search and Filters Bar */}
@@ -287,8 +288,8 @@ export function OrganizerAuditLogsPage() {
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
                 PDF
               </Button> : null}
-              <Button
-                type="button"
+            <Button
+              type="button"
                 variant="outline"
                 onClick={() => void auditLogsQuery.refetch()}
                 disabled={auditLogsQuery.isFetching}
@@ -296,7 +297,7 @@ export function OrganizerAuditLogsPage() {
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${auditLogsQuery.isFetching ? "animate-spin" : ""}`} aria-hidden="true" />
                 Refresh
-              </Button>
+            </Button>
             </div>
           </div>
 
@@ -436,14 +437,14 @@ export function OrganizerAuditLogsPage() {
           onClose={() => setSelectedLog(null)}
           footer={
             <div className="flex w-full items-center justify-between gap-3">
-              <Button
+              {!isDepartmentAdmin ? <Button
                 type="button"
                 variant="destructive"
                 disabled={isReverting || selectedLog.action === "audit_log.reviewed"}
                 onClick={markAuditLogReviewed}
               >
                 {isReverting ? "Recording..." : "Mark as reviewed"}
-              </Button>
+              </Button> : <span />}
               <Button type="button" variant="secondary" onClick={() => setSelectedLog(null)}>Close</Button>
             </div>
           }

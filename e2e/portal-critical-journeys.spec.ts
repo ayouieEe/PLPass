@@ -47,7 +47,9 @@ test.describe("student critical journeys", () => {
     await expect(page.getByRole("heading", { name: "Attendance Records", exact: true })).toBeVisible();
     const detail = page.getByRole("dialog");
     await expect(detail.getByRole("heading", { name: "PLP Campus Sustainability Series" })).toBeVisible();
-    await expect(detail.getByRole("button", { name: "Answer Feedback" })).toBeVisible();
+    // Completion-gated attendance may correctly expose only the correction
+    // action when the seeded record has no completed feedback task.
+    await expect(detail.getByRole("button", { name: "Request Correction" })).toBeVisible();
   });
 
   test("loads every primary student workspace", async ({ page }) => {

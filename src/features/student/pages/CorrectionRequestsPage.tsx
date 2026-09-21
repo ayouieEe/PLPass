@@ -50,7 +50,7 @@ type CorrectionHistoryRow = {
 const correctionFormSchema = z.object({
   code: z.string().min(1, "Please select an event code."),
   name: z.string().min(1, "Name is required."),
-  requestType: z.enum(["excused", "present", "late"]),
+  requestType: z.enum(["present", "late"]),
   reason: z.string().min(12, "Explanation must be at least 12 characters."),
   recordId: z.string().min(1, "Select a related attendance record.")
 });
@@ -77,7 +77,7 @@ export function CorrectionRequestsPage() {
     defaultValues: {
       code: urlCode,
       name: urlName,
-      requestType: "excused",
+      requestType: "present",
       reason: "",
       recordId: urlRecordId
     }
@@ -107,7 +107,7 @@ export function CorrectionRequestsPage() {
   const selectedRequestTypes = selectedStudentEventRecord ? getCorrectionRequestTypes(selectedStudentEventRecord.status) : undefined;
   const requestTypeOptions = selectedStudentEventRecord
     ? selectedRequestTypes ?? []
-    : (["excused", "present", "late"] as CorrectionFormValues["requestType"][]);
+    : (["present", "late"] as CorrectionFormValues["requestType"][]);
 
   const codeOptions = events.map((event) => ({ label: `${event.code} - ${event.title}`, value: event.code }));
   const attendanceRecordOptions = studentEventRecords.map((record) => ({
@@ -208,7 +208,7 @@ export function CorrectionRequestsPage() {
       reset({
         code: "",
         name: "",
-        requestType: "excused",
+        requestType: "present",
         reason: "",
         recordId: ""
       });
@@ -229,7 +229,7 @@ export function CorrectionRequestsPage() {
     id: request.id,
     submittedDate: formatDisplayDate(request.requestedAt, "N/A"),
     subjectOrEventId: request.eventId ?? "Session Record",
-    type: request.requestedStatus === "excused" ? "Excused Absence" : "Correction",
+    type: "Correction",
     status: request.status,
     request
   }));

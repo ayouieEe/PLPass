@@ -11,6 +11,18 @@ export default defineConfig({
     }
   },
   build: {
+    modulePreload: {
+      polyfill: false,
+      resolveDependencies(_filename, dependencies) {
+        // Keep only the React runtime in the document's preload set. The
+        // remaining vendor chunks are still normal ESM dependencies and are
+        // fetched by the entry module when the corresponding providers or
+        // routes are evaluated. This prevents the initial document from
+        // eagerly downloading query, Supabase, and icon code before it is
+        // needed.
+        return dependencies.filter((dependency) => dependency.includes("react-vendor"));
+      }
+    },
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),

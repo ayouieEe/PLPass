@@ -11,7 +11,7 @@ export function LegalPolicyPage({ document }: LegalPolicyPageProps) {
   const title = isTerms ? "Terms of Use" : "Privacy Policy";
 
   return (
-    <AuthLayout title={title} description={`PLPass student account information • Version ${LEGAL_POLICY_VERSION}`} wide>
+    <AuthLayout title={title} description={`PLPass student account information • Version ${LEGAL_POLICY_VERSION}`} wide legal>
       <article className="space-y-6 text-sm leading-7 text-muted-foreground">
         <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-foreground">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />

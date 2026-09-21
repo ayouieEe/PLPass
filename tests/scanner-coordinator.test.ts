@@ -66,6 +66,20 @@ describe("scanner coordinator", () => {
     } finally { await coordinator.stop(); }
   });
 
+  it("requires explicit confirmation before saving an unlisted walk-in QR scan and shows its device timestamp",async()=>{
+    const store=new LocalAttendanceDatabase(new DatabaseSync(":memory:"));store.prepareEvent(eventPackage(),"organizer-a");
+    const coordinator=new ScannerCoordinator(store,path.resolve(process.cwd(),"dist"),()=>{});
+    try{
+      const active=await coordinator.start("event-1","session-1");const join=new URL(active.joinUrl??"");const base=active.addresses[0];
+      const station=await post(`${base}/api/join`,{joinToken:join.searchParams.get("join"),scannerId:"walk-in-phone"});const token=String(station.body.stationToken);
+      const unlisted=await post(`${base}/api/scan`,{credentialCode:"23-00265",scanAttemptId:"unknown-1"},token);
+      expect(unlisted.body.requiresWalkInConfirmation).toBe(true);expect(unlisted.body.accepted).toBe(false);
+      const saved=await post(`${base}/api/walk-in`,{studentNumber:"23-00265"},token);
+      expect(saved.body.accepted).toBe(true);expect(saved.body.recordedAt).toEqual(expect.any(String));
+      expect(store.listPendingWalkInScans("event-1","organizer-a")).toHaveLength(1);
+    }finally{await coordinator.stop();}
+  });
+
   it("reuses one station when the same phone rejoins and acknowledges a cached check-in", async () => {
     const store = new LocalAttendanceDatabase(new DatabaseSync(":memory:"));
     const now = new Date().toISOString();

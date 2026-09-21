@@ -787,15 +787,6 @@ export function useAllEventFeedback(query?: ListQuery, context?: RepositoryConte
   });
 }
 
-export function useReports(query?: Partial<ListQuery>, context?: RepositoryContext) {
-  const listQuery = queryWithDefaults(query);
-  return useQuery({
-    queryKey: ["reports", listQuery, context],
-    queryFn: () => repositories.reports.listReports(listQuery, context),
-    enabled: Boolean(context)
-  });
-}
-
 export function useNotifications(query?: Partial<ListQuery>, context?: RepositoryContext) {
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();

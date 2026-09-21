@@ -10,5 +10,4 @@ export { OrganizerAnalyticsPage } from "./OrganizerAnalyticsPage";
 export { OrganizerProfilePage } from "./OrganizerProfilePage";
 export { OrganizerCorrectionRequestsPage } from "./OrganizerCorrectionRequestsPage";
 export { OrganizerAuditLogsPage } from "./OrganizerAuditLogsPage";
-export { OrganizerReportsPage } from "./OrganizerReportsPage";
 export { AdminSystemSettingsPage } from "./OrganizerSettingsPage";

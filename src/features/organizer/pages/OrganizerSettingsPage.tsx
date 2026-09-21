@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Bell, BookOpen, Check, ChevronRight, Clock3, Layers3, Save, Settings2, ShieldCheck, Tag, Users } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -54,7 +54,7 @@ export function AdminSystemSettingsPage({ initialTab = "overview" }: { initialTa
   const programs = catalog.programs.data?.items ?? [];
   const sections = catalog.sections.data?.items ?? [];
   const categories = catalog.categories.data?.items ?? [];
-  const semesters = catalog.semesters.data?.items ?? [];
+  const semesters = useMemo(() => catalog.semesters.data?.items ?? [], [catalog.semesters.data?.items]);
   const currentSchoolYearSemesters = semesters.filter((item) => item.schoolYear === form.currentSchoolYear?.trim());
   const isDirty = JSON.stringify(form) !== JSON.stringify(savedForm);
   const update = (key: keyof UpdateSystemSettingsInput, value: string | number | boolean | string[]) => setForm((current) => ({ ...current, [key]: value }));

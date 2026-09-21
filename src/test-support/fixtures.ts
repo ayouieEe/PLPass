@@ -174,16 +174,22 @@ export const attendanceRecordFixtures: AttendanceRecord[] = [
   { id: "record-1", sessionId: "session-1", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-06-24T00:01:00.000Z" },
   { id: "record-2", sessionId: "session-1", studentId: "student-2", status: "late", verificationMethod: "qr", recordedAt: "2026-06-24T00:18:00.000Z" },
   { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No check-in received" },
-  { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "excused", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
+  { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
   { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "facial", recordedAt: "2026-06-26T00:02:00.000Z" },
   { id: "record-6", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-02-10T00:04:00.000Z", note: "Feedback submitted" },
   { id: "record-7", sessionId: "session-4", studentId: "student-1", status: "absent", verificationMethod: "manual", recordedAt: "2026-02-24T09:00:00.000Z", note: "No attendance scan received" },
-  { id: "record-8", sessionId: "session-5", studentId: "student-1", status: "late", verificationMethod: "manual", recordedAt: "2026-03-05T01:18:00.000Z", note: "Late reason: Traffic / Commute" },
-  { id: "record-9", sessionId: "session-6", studentId: "student-1", status: "late", verificationMethod: "qr", recordedAt: "2026-03-19T00:57:00.000Z" },
-  { id: "record-10", sessionId: "session-7", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-04-02T05:34:00.000Z" },
+  { id: "record-8", sessionId: "session-5", studentId: "student-1", status: "late", verificationMethod: "manual", recordedAt: "2026-03-05T01:18:00.000Z", timeIn: "2026-03-05T01:18:00.000Z", checkedOutAt: "2026-03-05T03:00:00.000Z", lateReasonSubmittedAt: "2026-03-05T03:01:00.000Z", note: "Late reason: Traffic / Commute" },
+  { id: "record-9", sessionId: "session-6", studentId: "student-1", status: "absent", verificationMethod: "qr", recordedAt: "2026-03-19T00:57:00.000Z", note: "Time In/Out, late reason, or feedback was not completed." },
+  { id: "record-10", sessionId: "session-7", studentId: "student-1", status: "absent", verificationMethod: "qr", recordedAt: "2026-04-02T05:34:00.000Z", note: "Required Time Out and feedback were not recorded." },
   { id: "record-11", sessionId: "session-8", studentId: "student-1", status: "present", verificationMethod: "manual", recordedAt: "2026-04-18T01:07:00.000Z", note: "Feedback submitted" },
-  { id: "record-12", sessionId: "session-5", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-03-05T01:04:00.000Z" }
+  { id: "record-12", sessionId: "session-5", studentId: "student-7", status: "present", verificationMethod: "qr", recordedAt: "2026-03-05T01:04:00.000Z" },
+  // A completed in/out pair awaiting objective ratings remains provisional.
+  { id: "record-13", sessionId: "session-7", studentId: "student-1", status: "absent", verificationMethod: "qr", recordedAt: "2026-04-02T05:34:00.000Z", timeIn: "2026-04-02T05:34:00.000Z", checkedOutAt: "2026-04-02T08:00:00.000Z" }
 ];
+
+// Seed attendance is pre-finalized development history. Real sessions remain
+// provisional until the database workflow completes the required steps.
+attendanceRecordFixtures.forEach((record) => { if (record.id !== "record-8" && record.id !== "record-13") record.finalizedAt ??= record.recordedAt; });
 
 export const attendanceAttemptFixtures: AttendanceAttempt[] = [
   { id: "attempt-1", sessionId: "session-2", studentId: "student-1", accepted: false, attemptedAt: now, message: "Student not enrolled" },
@@ -193,7 +199,7 @@ export const attendanceAttemptFixtures: AttendanceAttempt[] = [
 
 export const correctionRequestFixtures: CorrectionRequest[] = [
   { id: "correction-1", studentId: "student-2", attendanceRecordId: "record-2", classId: "class-1", requestedStatus: "present", reason: "Tapped before grace period ended.", status: "pending", requestedAt: now },
-  { id: "correction-2", studentId: "student-3", attendanceRecordId: "record-3", classId: "class-1", requestedStatus: "excused", reason: "Medical appointment.", status: "approved", requestedAt: now, reviewedByUserId: "user-faculty-1", reviewedAt: now },
+  { id: "correction-2", studentId: "student-3", attendanceRecordId: "record-3", classId: "class-1", requestedStatus: "absent", reason: "Medical appointment.", status: "approved", requestedAt: now, reviewedByUserId: "user-faculty-1", reviewedAt: now },
   { id: "correction-3", studentId: "student-7", attendanceRecordId: "record-12", eventId: "event-3", requestedStatus: "late", reason: "Wrong event time.", status: "rejected", requestedAt: now, reviewedByUserId: "user-organizer-1", reviewedAt: now },
   { id: "correction-4", studentId: "student-1", attendanceRecordId: "record-1", eventId: "event-1", requestedStatus: "present", reason: "Class conflict during check-in.", status: "pending", requestedAt: now }
 ];

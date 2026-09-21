@@ -67,11 +67,12 @@ function EventDetail({ label, value, detail }: { label: string; value: string; d
   return <div className="min-w-0 border-l border-border pl-3 first:border-l-0 first:pl-0"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-1 truncate text-sm font-semibold text-foreground" title={value}>{value}</p><p className="mt-0.5 truncate text-xs text-muted-foreground" title={detail}>{detail}</p></div>;
 }
 
-export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?: "organizer" | "admin" }) {
+export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?: "organizer" | "admin" | "department" }) {
   const isAdminWorkspace = workspace === "admin";
+  const isDepartmentWorkspace = workspace === "department";
   const { session } = useDevelopmentSession();
   const [predictionPage, setPredictionPage] = useState(0);
-  const context = useMemo(() => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined), [session]);
+  const context = useMemo(() => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined), [session]);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
   const organizerProfilesQuery = useOrganizerProfiles({ pageSize: 1 }, context);
   const systemHealthQuery = useQuery({
@@ -107,6 +108,13 @@ export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?
     users: APP_ROUTES.adminUsers,
     settings: APP_ROUTES.adminSettings,
     createEvent: undefined
+  } : isDepartmentWorkspace ? {
+    dashboard: APP_ROUTES.departmentDashboard,
+    events: APP_ROUTES.departmentEvents,
+    analytics: APP_ROUTES.departmentAnalytics,
+    users: APP_ROUTES.departmentUsers,
+    settings: APP_ROUTES.departmentSettings,
+    createEvent: undefined
   } : {
     dashboard: APP_ROUTES.organizerDashboard,
     events: APP_ROUTES.organizerEvents,
@@ -133,14 +141,14 @@ export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?
 
   return (
     <div className="space-y-4 lg:space-y-5">
-      <PageHeader title={isAdminWorkspace ? "Admin Dashboard" : "Dashboard"} description={isAdminWorkspace ? "Monitor institution-wide activity and system operations." : "See live sessions, event schedules, and attendance trends."} actions={routes.createEvent ? <Button asChild size="sm"><NavLink to={routes.createEvent}>Create Event</NavLink></Button> : <Button asChild size="sm" variant="outline"><NavLink to={APP_ROUTES.adminSystemHealth}>System Health</NavLink></Button>} />
+      <PageHeader title={isAdminWorkspace ? "Admin Dashboard" : isDepartmentWorkspace ? "Department Dashboard" : "Dashboard"} description={isAdminWorkspace ? "Monitor institution-wide activity and system operations." : isDepartmentWorkspace ? "Monitor events, organizers, students, and attendance for your assigned department." : "See live sessions, event schedules, and attendance trends."} actions={routes.createEvent ? <Button asChild size="sm"><NavLink to={routes.createEvent}>Create Event</NavLink></Button> : <Button asChild size="sm" variant="outline"><NavLink to={isDepartmentWorkspace ? APP_ROUTES.departmentSystemHealth : APP_ROUTES.adminSystemHealth}>System Health</NavLink></Button>} />
 
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetricCard title="Total Events" value={activeEvents.length.toLocaleString()} detail={activeSemester ? `${isAdminWorkspace ? "Institution-wide events" : "Published events"} for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={routes.events} />
-        {isAdminWorkspace ? <DashboardMetricCard title="System Health" value={systemHealthStatus} detail={systemHealthDetail} icon={ShieldCheck} tone={unhealthyChecks || systemHealthQuery.isError ? "warning" : "success"} to={APP_ROUTES.adminSystemHealth} /> : <DashboardMetricCard title="Registered Organizers" value={(organizerProfilesQuery.data?.total ?? 0).toLocaleString()} detail="Organizer accounts registered in your available scope." icon={Users} />}
-        <DashboardMetricCard title={isAdminWorkspace ? "Registered Organizers" : "Registered Students"} value={(isAdminWorkspace ? (organizerProfilesQuery.data?.total ?? 0) : (studentsQuery.data?.total ?? 0)).toLocaleString()} detail={isAdminWorkspace ? "Organizer accounts registered in the system." : "Total students enrolled in the system."} icon={Users} to={routes.users} />
-        <DashboardMetricCard title={isAdminWorkspace ? "Registered Students" : "Next Event Turnout"} value={isAdminWorkspace ? (studentsQuery.data?.total ?? 0).toLocaleString() : (nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A")} detail={isAdminWorkspace ? "Total students enrolled in the system." : (nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled.")} icon={isAdminWorkspace ? Users : TrendingUp} tone="success" to={isAdminWorkspace ? routes.users : routes.analytics} />
+        <DashboardMetricCard title={isDepartmentWorkspace ? "Department Events" : "Total Events"} value={activeEvents.length.toLocaleString()} detail={isDepartmentWorkspace ? "Events owned by organizers in your department." : activeSemester ? `${isAdminWorkspace ? "Institution-wide events" : "Published events"} for ${activeSemester.label}, ${activeSemester.schoolYear}.` : "Published events in the current data set."} icon={CalendarCheck} to={routes.events} />
+        {isAdminWorkspace ? <DashboardMetricCard title="System Health" value={systemHealthStatus} detail={systemHealthDetail} icon={ShieldCheck} tone={unhealthyChecks || systemHealthQuery.isError ? "warning" : "success"} to={APP_ROUTES.adminSystemHealth} /> : <DashboardMetricCard title={isDepartmentWorkspace ? "Department Organizers" : "Registered Organizers"} value={(organizerProfilesQuery.data?.total ?? 0).toLocaleString()} detail={isDepartmentWorkspace ? "Organizer accounts assigned to your department." : "Organizer accounts registered in your available scope."} icon={Users} to={isDepartmentWorkspace ? routes.users : undefined} />}
+        <DashboardMetricCard title={isAdminWorkspace ? "Registered Organizers" : isDepartmentWorkspace ? "Department Students" : "Registered Students"} value={(isAdminWorkspace || isDepartmentWorkspace ? (isAdminWorkspace ? organizerProfilesQuery.data?.total ?? 0 : studentsQuery.data?.total ?? 0) : studentsQuery.data?.total ?? 0).toLocaleString()} detail={isAdminWorkspace ? "Organizer accounts registered in the system." : isDepartmentWorkspace ? "Students assigned to your department." : "Total students enrolled in the system."} icon={Users} to={isDepartmentWorkspace ? routes.users : isAdminWorkspace ? routes.users : undefined} />
+        <DashboardMetricCard title={isAdminWorkspace ? "Registered Students" : isDepartmentWorkspace ? "Attendance Rate" : "Next Event Turnout"} value={isAdminWorkspace ? (studentsQuery.data?.total ?? 0).toLocaleString() : isDepartmentWorkspace ? `${averageRate}%` : (nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A")} detail={isAdminWorkspace ? "Total students enrolled in the system." : isDepartmentWorkspace ? "Average across completed department sessions." : (nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled.")} icon={isAdminWorkspace || isDepartmentWorkspace ? Users : TrendingUp} tone="success" to={isAdminWorkspace ? routes.users : routes.analytics} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">

@@ -17,9 +17,10 @@ export type DevelopmentSessionContextValue = {
   isOfflineMode: boolean;
   offlineResumeAvailable: boolean;
   hasOfflineWork: boolean;
+  offlineConflictCount: number;
   authError?: string;
   continueOffline: () => Promise<DevelopmentSession | null>;
-  reconnectOnline: () => Promise<boolean>;
+  reconnectOnline: (forceRetry?: boolean) => Promise<boolean>;
   refreshOfflineWork: () => Promise<boolean>;
   signInWithPassword: (email: string, password: string) => Promise<DevelopmentSession | null>;
   logout: () => Promise<void>;

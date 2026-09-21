@@ -59,7 +59,8 @@ export function LoginPage() {
       setInputError("Please enter a valid email address (e.g. user@plpasig.edu.ph).");
       return;
     }
-    if (!password) {
+    const canUseCachedOfflineSignIn = Boolean(offlineResumeAvailable && window.plpassDesktop && !navigator.onLine);
+    if (!password && !canUseCachedOfflineSignIn) {
       setInputError("Please enter your password.");
       return;
     }
@@ -104,7 +105,7 @@ export function LoginPage() {
             </button>
           </span>
         </div>
-        <Button type="submit" className="h-12 w-full rounded-lg" disabled={!email || !password || isSubmitting}>{isSubmitting ? "Signing in..." : "Sign in"}</Button>
+        <Button type="submit" className="h-12 w-full rounded-lg" disabled={!email || (!password && !(offlineResumeAvailable && window.plpassDesktop && !navigator.onLine)) || isSubmitting}>{isSubmitting ? "Signing in..." : offlineResumeAvailable && !navigator.onLine ? "Sign in offline" : "Sign in"}</Button>
         {offlineResumeAvailable && window.plpassDesktop ? <Button type="button" variant="outline" className="h-12 w-full rounded-lg" onClick={() => void handleContinueOffline()}>Continue offline</Button> : null}
         <Button type="button" variant="link" asChild><a href={APP_ROUTES.forgotPassword}>Forgot password?</a></Button>
       </form>

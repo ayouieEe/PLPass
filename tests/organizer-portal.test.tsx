@@ -361,24 +361,23 @@ describe("organizer UI flows", () => {
     expect(await screen.findByRole("dialog", { name: "Completed event report" })).toBeInTheDocument();
   });
 
-  it("renders the organizer reports route", async () => {
+  it("removes Reports routes while preserving the catalogs workspace", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/reports");
-    render(<App />);
+    const organizerView = render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
-    expect(screen.getAllByText("Review reports generated for your events.").length).toBeGreaterThan(0);
-  });
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    organizerView.unmount();
 
-  it("renders admin reports and catalogs as functional workspaces", async () => {
+    window.localStorage.clear();
+    queryClient.clear();
     storeSession(adminSession);
     setRoute("/admin/reports");
-    const reportsView = render(<App />);
+    const adminView = render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
-    expect(screen.getAllByText("Review generated reports across all scopes.").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
 
-    reportsView.unmount();
+    adminView.unmount();
     setRoute("/admin/catalogs");
     queryClient.clear();
     const view = render(<App />);
@@ -454,7 +453,7 @@ describe("organizer UI flows", () => {
     expect(screen.getByRole("heading", { name: "Add student" })).toBeInTheDocument();
   });
 
-  it("shows admin system health checks and recoverable failure states", async () => {
+  it("shows admin system health checks while keeping organizer-event recovery read-only", async () => {
     storeSession(adminSession);
     setRoute("/admin/system-health");
     render(<App />);
@@ -463,7 +462,9 @@ describe("organizer UI flows", () => {
     expect(screen.getByText("Supabase connectivity")).toBeInTheDocument();
     expect(screen.getByText("Dean Summary report generation failed.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Finish event" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Finish event" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recover session" })).not.toBeInTheDocument();
+    expect(screen.getByText(/cannot recover or finish organizer events/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run consistency check" })).toBeInTheDocument();
   });
 

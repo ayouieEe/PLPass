@@ -35,11 +35,6 @@ import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
-import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
-import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -59,14 +54,16 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useReports,
   useStudents,
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
-import { identifyOfflineStudent, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { desktopApi, identifyOfflineStudent, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
+import type { AttendanceCapturePhase } from "@/features/offline/types";
+import { readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -200,20 +197,21 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
   return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
+    present: finalized.filter((record) => record.status === "present").length,
+    late: finalized.filter((record) => record.status === "late").length,
+    absent: finalized.filter((record) => record.status === "absent").length
   };
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  if (finalized.length === 0) {
     return 0;
   }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
+  const attended = finalized.filter((record) => record.status === "present" || record.status === "late").length;
+  return Math.round((attended / finalized.length) * 100);
 }
 
 function eventLabel(event: Event | undefined) {
@@ -267,7 +265,7 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     id: record.id,
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-    status: record.status === "excused" ? "manual" : record.status,
+    status: record.status,
     timestamp: record.recordedAt,
     timeIn: record.timeIn ?? record.recordedAt,
     timeOut: record.checkedOutAt
@@ -324,6 +322,7 @@ function SessionCard({ session }: { session: AttendanceSession }) {
 export function EventAttendancePage() {
   const { sessionId } = useParams();
   const scope = useOrganizerScope();
+  const { session:authSession } = useDevelopmentSession();
   const navigate = useNavigate();
   const { setHeaderOverride } = useHeader();
   const sessionQuery = useAttendanceSession(sessionId, scope.context);
@@ -337,6 +336,7 @@ export function EventAttendancePage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const offline = useOfflineEvent(sessionQuery.data?.eventId, sessionId);
   const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
+  const [offlineCapturePhase,setOfflineCapturePhase]=useState<AttendanceCapturePhase>("time_in");
   const [manualStudentId, setManualStudentId] = useState("");
   const [manualReason, setManualReason] = useState("");
   const [manualRemarks, setManualRemarks] = useState("");
@@ -357,6 +357,24 @@ export function EventAttendancePage() {
 
   const selectedSession = sessionQuery.data;
   const selectedEvent = eventsQuery.data?.items.find((item) => item.id === selectedSession?.eventId);
+
+  useEffect(()=>{
+    const api=desktopApi();
+    if(!sessionId)return;
+    const cached=readAttendancePhase(window.sessionStorage,sessionId);
+    setOfflineCapturePhase(cached);setFacialActionMode(cached==="time_out"?"check_out":"check_in");
+    if(!api||!authSession?.userId)return;
+    void api.getAttendanceCapturePhase(sessionId,authSession.userId).then((phase)=>{setOfflineCapturePhase(phase);setFacialActionMode(phase==="time_out"?"check_out":"check_in");writeAttendancePhase(window.sessionStorage,sessionId,phase);}).catch(()=>undefined);
+  },[authSession?.userId,sessionId]);
+
+  async function advanceOfflineCapturePhase(){
+    if(!sessionId||offlineCapturePhase==="time_out")return;
+    try{
+      const api=desktopApi();
+      if(api&&authSession?.userId&&selectedEvent&&await api.getPreparedEvent(selectedEvent.id,authSession.userId)) await api.advanceAttendanceCapturePhase(sessionId,authSession.userId);
+      setOfflineCapturePhase("time_out");setFacialActionMode("check_out");writeAttendancePhase(window.sessionStorage,sessionId,"time_out");
+    }catch(error){toast.error(error instanceof Error?error.message:"Could not advance to Time Out.");}
+  }
 
   useEffect(() => {
     if (selectedSession) {
@@ -467,7 +485,23 @@ export function EventAttendancePage() {
   const cachedEvent=preparedEvent?.event;
   const event = eventsQuery.data?.items.find((item) => item.id === session.eventId) ?? (cachedEvent ? ({id:cachedEvent.id,code:cachedEvent.code,title:cachedEvent.title,status:"approved",startsAt:cachedEvent.startsAt,endsAt:cachedEvent.endsAt,venue:cachedSession?.venue??"Event venue",organizerId:"offline-cache",category:"Event",priorityLevel:"Flexible",impactScore:null,predictedTurnout:null} as Event) : undefined);
   const cachedRecords: AttendanceRecord[]=(preparedEvent?.attendance??[]).filter((item)=>item.sessionId===session.id).map((item)=>({id:`cached-${item.sessionId}-${item.studentId}`,sessionId:item.sessionId,studentId:item.studentId,status:item.attendanceStatus as AttendanceRecord["status"],verificationMethod:"manual",recordedAt:item.timeIn??preparedEvent?.preparedAt??new Date().toISOString(),timeIn:item.timeIn,checkedOutAt:item.timeOut}));
-  const records = recordsQuery.data?.items ? recordsQuery.data.items.filter((record) => record.sessionId === session.id) : cachedRecords;
+  const onlineRecords = recordsQuery.data?.items?.filter((record) => record.sessionId === session.id) ?? [];
+  const recordsByStudent = new Map<string, AttendanceRecord>(cachedRecords.map((record) => [record.studentId, record]));
+  onlineRecords.forEach((record) => {
+    const cached = recordsByStudent.get(record.studentId);
+    recordsByStudent.set(record.studentId, cached
+      ? {
+          ...cached,
+          ...record,
+          timeIn: record.timeIn ?? cached.timeIn,
+          checkedOutAt: record.checkedOutAt ?? cached.checkedOutAt,
+          finalizedAt: record.finalizedAt ?? cached.finalizedAt,
+          lateReason: record.lateReason ?? cached.lateReason,
+          lateReasonSubmittedAt: record.lateReasonSubmittedAt ?? cached.lateReasonSubmittedAt
+        }
+      : record);
+  });
+  const records = [...recordsByStudent.values()];
   const cachedStudents: Student[]=(preparedEvent?.participants??[]).map((item)=>({id:item.studentId,userId:"offline-cache",studentNumber:item.studentNumber,status:"enrolled",programId:"offline-cache",departmentId:"offline-cache",yearLevel:1,section:"",fullName:item.displayName,formattedName:item.displayName,createdAt:preparedEvent?.preparedAt??new Date().toISOString()}));
   const students = studentsQuery.data?.items ?? cachedStudents;
   const participants = participantQuery.data?.items ?? (preparedEvent?.participants??[]).map((item)=>({id:`cached-${item.studentId}`,eventId:preparedEvent?.event.id??"",studentId:item.studentId,registeredAt:preparedEvent?.preparedAt??new Date().toISOString()}));
@@ -508,7 +542,7 @@ export function EventAttendancePage() {
       ? {
           studentName: studentName(students.find((student) => student.id === records[0].studentId)),
           studentNumber: students.find((student) => student.id === records[0].studentId)?.studentNumber,
-          status: records[0].status === "excused" ? "manual" as const : records[0].status,
+          status: records[0].status,
           message: "Most recent attendance record.",
           timestamp: formatTime(records[0].recordedAt),
           resultLabel: records[0].status,
@@ -527,9 +561,10 @@ export function EventAttendancePage() {
   async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
     try {
       if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
+        const recordedAt=simulatedTime(outcome)??new Date().toISOString();
         const student=await identifyOfflineStudent(event.id,method,code);
-        if(!student) throw new Error("No eligible participant matched the local event package.");
-        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:simulatedTime(outcome)??new Date().toISOString()});
+        if(!student){const studentNumber=method==="qr"?extractSchoolStudentNumber(code):"";if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save as an unverified walk-in for later review?`))throw new Error("No eligible participant matched the local event package; no scan was saved.");const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The walk-in scan could not be securely saved.");setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:"absent",verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${queued.studentNumber} ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;}
+        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:recordedAt},offlineCapturePhase);
         setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}}); toast.success("Attendance recorded locally",{description:local.safeMessage}); await offline.refresh(); return;
       }
       const result = await attendanceMutations.credentialScanMutation.mutateAsync({
@@ -542,7 +577,7 @@ export function EventAttendancePage() {
       setLatestResult(result);
       toast(result.resultStatus, { description: result.safeMessage });
     } catch {
-      if(canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,method,code);if(student){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:simulatedTime(outcome)??new Date().toISOString()});setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;}}catch{/* Show the safe failure below. */}}
+      if(canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,method,code);if(student){const at=simulatedTime(outcome)??new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:at},offlineCapturePhase);setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:at,safeMessage:local.safeMessage,summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${student.displayName}: saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();return;}}catch{/* Show the safe failure below. */}}
       toast.error("Attendance was not saved", { description: "Neither the central service nor the prepared local package could confirm this scan." });
     }
   }
@@ -557,6 +592,12 @@ export function EventAttendancePage() {
     setFacialStatus("Identifying one live face and searching enrolled event participants…");
     try {
       const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
+      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){
+        const student=await identifyOfflineStudent(event.id,"facial",video);
+        if(!student)throw new Error("No enrolled participant matched the saved offline face package.");
+        const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:at},offlineCapturePhase);
+        setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved locally at ${new Date(at).toLocaleTimeString()}; not synced.`);toast.success(`${student.displayName} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();setFacialCameraOpen(false);return;
+      }
       const client = getSupabaseBrowserClient();
       const { data: candidates, error: candidatesError } = await client.rpc("get_live_facial_candidates", {
         p_event_session_id: activeSession.id
@@ -597,6 +638,7 @@ export function EventAttendancePage() {
       setFacialCameraOpen(false);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Face verification could not be completed.";
+      if(canUsePreparedCache&&event&&facialVideoRef.current){try{const student=await identifyOfflineStudent(event.id,"facial",facialVideoRef.current);if(student){const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:at},offlineCapturePhase);setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved locally at ${new Date(at).toLocaleTimeString()}; not synced.`);toast.success(`${student.displayName} saved locally`,{description:"Saved on this device; not synced."});await offline.refresh();setFacialCameraOpen(false);return;}}catch{/* Preserve the original online failure message below. */}}
       setFacialStatus(!navigator.onLine || /failed to fetch|network|offline/i.test(errorMessage)
         ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR attendance."
         : errorMessage);
@@ -611,6 +653,13 @@ export function EventAttendancePage() {
         student.id === manualStudentId || student.studentNumber.toLowerCase() === lookup || studentName(student).toLowerCase() === lookup
       );
       if (!selectedStudent) {
+        const studentNumber=extractSchoolStudentNumber(manualStudentId);
+        if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event&&studentNumber&&window.confirm(`Student ${studentNumber} is not in the downloaded roster. Save as an unverified walk-in for later review?`)){
+          const at=new Date().toISOString();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"manual",capturePhase:offlineCapturePhase,attendanceTimestamp:at,organizerProfileId:authSession?.userId??""});
+          if(!queued)throw new Error("The walk-in scan could not be securely saved.");
+          setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:"absent",verificationMethod:"manual",recordedAt:at,safeMessage:"Saved on this device; not synced.",summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});
+          toast.success(`${queued.studentNumber} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;
+        }
         toast.error("Select an assigned participant by student ID or exact name.");
         return;
       }
@@ -619,7 +668,7 @@ export function EventAttendancePage() {
         return;
       }
       if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){
-        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.id,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),attendanceStatus:manualStatus,remarks:[manualReason,manualRemarks].filter(Boolean).join(": "),lateReason:manualLateReason||undefined});
+        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.id,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),remarks:[manualReason,manualRemarks].filter(Boolean).join(": ")},offlineCapturePhase);
         setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:studentName(selectedStudent),studentNumber:selectedStudent.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:"manual",recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}});
         setManualStudentId("");setManualReason("");setManualRemarks("");setManualStatus("present");setManualLateReason("");toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;
       }
@@ -647,7 +696,7 @@ export function EventAttendancePage() {
         metadata: { studentId: selectedStudent.id, sessionId: activeSession.id, status: manualStatus }
       });
     } catch {
-      if(canUsePreparedCache&&event){try{const selectedStudent=await identifyOfflineStudent(event.id,"manual",manualStudentId);if(selectedStudent){const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.studentId,identificationMethod:"manual",attendanceTimestamp:new Date().toISOString(),attendanceStatus:manualStatus,remarks:[manualReason,manualRemarks].filter(Boolean).join(": "),lateReason:manualLateReason||undefined});toast.success("Attendance recorded locally",{description:local.safeMessage});await offline.refresh();return;}}catch{/* Show safe failure below. */}}
+      if(canUsePreparedCache&&event){try{const selectedStudent=await identifyOfflineStudent(event.id,"manual",manualStudentId);if(selectedStudent){const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.studentId,identificationMethod:"manual",attendanceTimestamp:at,remarks:[manualReason,manualRemarks].filter(Boolean).join(": ")},offlineCapturePhase);toast.success(`Attendance saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();return;}}catch{/* Show safe failure below. */}}
       toast.error("Manual attendance was not saved", { description: "Neither the central service nor the prepared local package confirmed the record." });
     }
   }
@@ -685,6 +734,7 @@ export function EventAttendancePage() {
       </div>
       <ActiveSessionHeader title={eventLabel(event)} venue={event?.venue ?? "Event venue"} startedAt={`${formatDate(session.startsAt)} ${formatTime(session.startsAt)}`} statusLabel={session.status} />
       <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync(true).then(()=>toast.success("Synchronization attempt completed."))} />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-surface p-4"><p className="text-sm font-medium">Capture step: {offlineCapturePhase==="time_in"?"Time In":"Time Out"}</p>{offlineCapturePhase==="time_in"?<Button type="button" variant="outline" onClick={()=>void advanceOfflineCapturePhase()}>Advance to Time Out</Button>:<p className="text-sm text-muted-foreground">Time In is closed for this session.</p>}</div>
       <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
         <div className="min-w-0 space-y-4">
           <div className="rounded-lg border bg-highlight-soft p-4 text-sm text-foreground">
@@ -697,10 +747,7 @@ export function EventAttendancePage() {
             <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Open this only after QR cannot be read, then scan one enrolled participant at a time. Use manual ID if face verification is unavailable.</p>
             <label className="mt-3 block text-sm font-medium">
               Attendance action
-              <select className="plpass-field mt-1 h-10 w-full rounded-md border px-3 text-sm" value={facialActionMode} onChange={(event) => setFacialActionMode(event.target.value as "check_in" | "check_out")}>
-                <option value="check_in">Check in students</option>
-                <option value="check_out">Check out students</option>
-              </select>
+              <span className="mt-1 block rounded-md border px-3 py-2 text-sm">{facialActionMode==="check_in"?"Time In":"Time Out"} — one-way session step</span>
             </label>
             {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover scale-x-[-1]" /> : null}
             <div className="mt-3 flex flex-wrap gap-2">

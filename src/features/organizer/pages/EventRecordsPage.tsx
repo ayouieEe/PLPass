@@ -564,8 +564,9 @@ export function EventRecordsPage() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   const { session } = useDevelopmentSession();
+  const isDepartmentAdmin = session?.role === "department_admin";
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
   const auditLogMutations = useAuditLogMutations(context);
@@ -607,7 +608,7 @@ export function EventRecordsPage() {
     };
 
     void fetchObjectives();
-  }, [eventsQuery.data?.items]);
+  }, [eventsQuery.data?.items, location.pathname]);
 
   const repositoryCompletedEvents = useMemo<CompletedRecord[]>(() => {
     return (eventsQuery.data?.items ?? [])
@@ -672,7 +673,7 @@ export function EventRecordsPage() {
 
     setCompletedModal(event);
     navigate(getWorkspaceRoute(location.pathname, APP_ROUTES.organizerRecords, APP_ROUTES.adminAttendance), { replace: true });
-  }, [completedRows, location.search, navigate]);
+  }, [completedRows, location.pathname, location.search, navigate]);
 
 
 
@@ -803,7 +804,7 @@ export function EventRecordsPage() {
 
   return (
     <div className="space-y-5 lg:space-y-6">
-      <PageHeader title="Event Records" description={session?.role === "admin" ? "Review institution-wide completed events and attendance outcomes." : "Review your completed events and attendance outcomes."} />
+      <PageHeader title="Event Records" description={session?.role === "admin" ? "Review institution-wide completed events and attendance outcomes." : isDepartmentAdmin ? "Review completed events and attendance outcomes for organizers in your department." : "Review your completed events and attendance outcomes."} />
 
       <section aria-label="Completed event summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <EventMetricCard title="Completed events" value={String(pastEventsStats.totalEvents)} icon={CalendarCheck} />
@@ -817,7 +818,7 @@ export function EventRecordsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold text-foreground">{session?.role === "admin" ? "Completed events" : "Your completed events"}</h2>
+                <h2 className="text-lg font-semibold text-foreground">{session?.role === "admin" ? "Completed events" : isDepartmentAdmin ? "Department completed events" : "Your completed events"}</h2>
               </div>
               <p className="mt-1 text-sm text-muted-foreground">Select an event to view its attendance record.</p>
             </div>

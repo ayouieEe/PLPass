@@ -316,8 +316,10 @@ export function StudentEventDetailsPage() {
   const allObjectivesRated = taskObjectives.length > 0 && taskObjectives.every((objective) => ratings[objective.id] > 0);
   const feedbackTaskIsActionable = feedbackTask?.status === "pending" && new Date(feedbackTask.dueAt).getTime() > Date.now();
   const feedbackReady = feedbackTaskIsActionable && !workflow.requiresLateReason;
-  const lateReasonRequired = Boolean(currentRecord && workflow.requiresLateReason);
-  const lateReasonLocked = Boolean(currentRecord?.status === "late" && currentRecord.lateReason);
+  const lateReasonRequired = workflow.requiresLateReason;
+  const lateReasonLocked = Boolean(currentRecord?.lateReasonSubmittedAt && currentRecord.timeOut
+    && new Date(currentRecord.lateReasonSubmittedAt).getTime() > new Date(currentRecord.timeOut).getTime()
+    && (currentRecord.lateReason || currentRecord.lateReasonCategory));
   const eventResources = resourcesQuery.data?.items ?? [];
 
   async function openEventResource(resource: EventResource) {
@@ -330,7 +332,7 @@ export function StudentEventDetailsPage() {
   }
 
   async function submitLateReason() {
-    if (!currentRecord || !selectedLateReasonCategory) return;
+    if (!eventSession || !selectedLateReasonCategory) return;
     const selectedOption = lateReasonOptions.find((option) => option.id === selectedLateReasonCategory);
     if (!selectedOption) return;
     if (selectedOption.code === "other" && customLateReason.trim().length < 5) {
@@ -339,14 +341,14 @@ export function StudentEventDetailsPage() {
     }
     try {
       await submitLateReasonMutation.mutateAsync({
-        attendanceRecordId: currentRecord.id,
+        eventSessionId: eventSession.id,
         reasonOptionId: selectedOption.id,
         customReason: customLateReason.trim() || undefined
       });
       setLateReasonModalOpen(false);
       setSelectedLateReasonCategory("");
       setCustomLateReason("");
-      toast.success("Late reason submitted. Event feedback is now available.");
+      toast.success("Late reason recorded. You can now complete event feedback.");
     } catch {
       toast.error("Unable to submit late reason. Please try again.");
     }
@@ -435,7 +437,7 @@ export function StudentEventDetailsPage() {
       {lateReasonRequired && (
         <section className="rounded-2xl border border-warning/30 bg-warning/10 p-5">
           <p className="font-semibold text-warning">Late reason required before feedback</p>
-          <p className="mt-1 text-sm text-muted-foreground">Choose your reason once. It will be locked after submission.</p>
+          <p className="mt-1 text-sm text-muted-foreground">After Time In and Time Out are recorded, submit your late reason before opening event feedback to receive a Late result.</p>
           <div className="mt-4 flex justify-end">
             <Button type="button" onClick={() => setLateReasonModalOpen(true)}>
               Choose Late Reason

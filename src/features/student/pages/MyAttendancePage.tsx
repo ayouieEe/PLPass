@@ -73,7 +73,7 @@ function formatRecordTime(record: StudentEventRecord) {
 }
 
 function getDefaultRequestType(status: StudentEventRecord["status"]) {
-  return getCorrectionRequestTypes(status)[0] ?? "excused";
+  return getCorrectionRequestTypes(status)[0] ?? "present";
 }
 
 function formatAttendanceMethod(method: string) {
@@ -98,8 +98,8 @@ export function MyAttendancePage() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") ?? "");
   const [yearFilter, setYearFilter] = useState("");
   const [recordsPage, setRecordsPage] = useState(0);
-  const attendanceStatusFilter = ["present", "late", "absent", "excused"].includes(statusFilter)
-    ? statusFilter as "present" | "late" | "absent" | "excused"
+  const attendanceStatusFilter = ["present", "late", "absent"].includes(statusFilter)
+    ? statusFilter as "present" | "late" | "absent"
     : undefined;
   const eventsQuery = useEvents({ pageSize: 25 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 25 }, scope.context);
@@ -116,7 +116,7 @@ export function MyAttendancePage() {
   const feedbackTasksQuery = useStudentFeedbackTasks(scope.student?.id, scope.context);
   const [selectedRecord, setSelectedRecord] = useState<StudentEventRecord | null>(null);
   const [search, setSearch] = useState("");
-  const [requestType, setRequestType] = useState<CorrectionRequestType>("excused");
+  const [requestType, setRequestType] = useState<CorrectionRequestType>("present");
   const [explanation, setExplanation] = useState("");
   const [feedbackDueModalOpen, setFeedbackDueModalOpen] = useState(false);
   const [focusedRecordOpened, setFocusedRecordOpened] = useState<string | null>(null);
@@ -183,21 +183,18 @@ export function MyAttendancePage() {
     const task = taskForRecord(record);
     return task?.status === "pending" && new Date(task.dueAt).getTime() > Date.now();
   };
-  const isFeedbackSubmitted = (record: StudentEventRecord) => taskForRecord(record)?.status === "completed";
-  const needsLateReason = (record: StudentEventRecord) => record.status === "late" && !record.lateReason;
+  const needsLateReason = (record: StudentEventRecord) => record.status === "late" && !record.lateReasonSubmittedAt && !record.lateReasonCategory;
   const isCompletedAttendedRecord = (record: StudentEventRecord) => (
-    (record.status === "present" || record.status === "late")
+    record.finalized === true
+    && (record.status === "present" || record.status === "late")
     && !needsLateReason(record)
-    && isFeedbackSubmitted(record)
   );
   const pendingTaskRecords = (summaryQuery.data?.tasks ?? [])
     .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
     .map((task) => records.find((record) => record.id === task.attendanceRecordId || record.eventId === task.eventId))
     .filter((record): record is StudentEventRecord => Boolean(record));
-  const finalizedRecords = records.filter((record) => (
-    record.status === "absent"
-    || record.status === "excused"
-    || isCompletedAttendedRecord(record)
+  const finalizedRecords = records.filter((record) => record.finalized === true && (
+    record.status === "absent" || isCompletedAttendedRecord(record)
   ));
   const pendingTaskCount = summaryQuery.data?.pendingTaskCount ?? pendingTaskRecords.length;
   const yearOptions = (finalizedEventYearsQuery.data ?? []).map(String);
@@ -385,7 +382,6 @@ export function MyAttendancePage() {
               <option value="present">Present</option>
               <option value="late">Late</option>
               <option value="absent">Absent</option>
-              <option value="excused">Excused</option>
             </select>
           </label>
           <Button
@@ -464,7 +460,6 @@ export function MyAttendancePage() {
                         "relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-4 border-surface bg-primary/10 text-primary shadow-sm",
                         record.status === "late" && "bg-warning/10 text-warning",
                         record.status === "absent" && "bg-danger/10 text-danger",
-                        record.status === "excused" && "bg-info/10 text-info"
                       )}>
                         <CalendarDays className="h-4 w-4" />
                       </span>
@@ -514,7 +509,7 @@ export function MyAttendancePage() {
               ))}
             </div>
           ) : (
-            <EmptyState title="No completed event records" description="Completed, absent, and excused event records will appear here." />
+            <EmptyState title="No completed event records" description="Completed and absent event records will appear here." />
           )}
         </div>
         <div className="mt-5 border-t pt-4">

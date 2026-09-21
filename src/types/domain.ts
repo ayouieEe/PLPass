@@ -279,7 +279,6 @@ export type StudentDashboardSummary = {
   presentCount: number;
   lateCount: number;
   absentCount: number;
-  excusedCount: number;
   attendedCount: number;
   attendanceRate: number;
   lateReasonTaskCount: number;
@@ -321,6 +320,8 @@ export type AttendanceRecord = {
   timeIn?: string;
   checkedOutAt?: string;
   lateReason?: string;
+  finalizedAt?: ISODateString;
+  lateReasonSubmittedAt?: ISODateString;
 };
 
 export type AttendanceAttempt = {

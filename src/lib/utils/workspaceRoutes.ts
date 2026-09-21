@@ -6,6 +6,25 @@ import type { UserRole } from "@/types/roles";
  * must remain in the admin namespace.
  */
 export function getWorkspaceRoute(pathname: string, organizerRoute: string, adminRoute: string) {
+  if (pathname.startsWith("/department")) {
+    const mappings: Array<[string, string]> = [
+      ["/admin/events", "/department/events"],
+      ["/organizer/events", "/department/events"],
+      ["/admin/attendance", "/department/records"],
+      ["/organizer/records", "/department/records"],
+      ["/admin/credentials", "/department/credentials"],
+      ["/organizer/credentials", "/department/credentials"],
+      ["/admin/analytics", "/department/analytics"],
+      ["/organizer/analytics", "/department/analytics"],
+      ["/admin/audit-logs", "/department/audit-logs"],
+      ["/organizer/audit-logs", "/department/audit-logs"],
+      ["/admin/profile", "/department/profile"],
+      ["/organizer/profile", "/department/profile"],
+      ["/organizer/users", "/department/users"]
+    ];
+    const match = mappings.find(([source]) => source === adminRoute || source === organizerRoute);
+    return match?.[1] ?? "/department/events";
+  }
   return pathname.startsWith("/admin") ? adminRoute : organizerRoute;
 }
 

@@ -34,11 +34,6 @@ import { ManualLookupPanel } from "@/features/attendance/ManualLookupPanel";
 import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
-import { GenerateReportModal } from "@/features/reports/GenerateReportModal";
-import { ReportFilterPanel } from "@/features/reports/ReportFilterPanel";
-import { ReportHistoryTable } from "@/features/reports/ReportHistoryTable";
-import { ReportPreviewCard } from "@/features/reports/ReportPreviewCard";
-import type { ReportHistoryRecord } from "@/features/reports/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -53,13 +48,11 @@ import {
   useEvents,
   useMlPredictions,
   useOrganizerProfiles,
-  useReports,
   useStudents,
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { repositories } from "@/services/repositories";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import {
   formatResourceFileSize,
@@ -273,20 +266,21 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
   return {
-    present: records.filter((record) => record.status === "present").length,
-    late: records.filter((record) => record.status === "late").length,
-    absent: records.filter((record) => record.status === "absent").length,
-    excused: records.filter((record) => record.status === "excused").length
+    present: finalized.filter((record) => record.status === "present").length,
+    late: finalized.filter((record) => record.status === "late").length,
+    absent: finalized.filter((record) => record.status === "absent").length
   };
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  if (records.length === 0) {
+  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  if (finalized.length === 0) {
     return 0;
   }
-  const attended = records.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / records.length) * 100);
+  const attended = finalized.filter((record) => record.status === "present" || record.status === "late").length;
+  return Math.round((attended / finalized.length) * 100);
 }
 
 function eventLabel(event: Event | undefined) {
@@ -338,7 +332,7 @@ function buildLiveRecords(records: AttendanceRecord[], students: Student[]): Liv
     id: record.id,
     studentName: studentName(students.find((student) => student.id === record.studentId)),
     identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
-    status: record.status === "excused" ? "manual" : record.status,
+    status: record.status,
     timestamp: formatTime(record.recordedAt)
   }));
 }
@@ -649,7 +643,7 @@ export function CreateEventPage() {
 
     const selectedStudentIds = new Set(selectedStudents.map((student) => student.id));
     const historicalRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => selectedStudentIds.has(record.studentId));
-    const attendedRecords = historicalRecords.filter((record) => record.status === "present" || record.status === "late");
+    const attendedRecords = historicalRecords.filter((record) => record.finalizedAt && (record.status === "present" || record.status === "late"));
     const studentsWithHistory = new Set(historicalRecords.map((record) => record.studentId));
     const yearLevelCounts = selectedStudents.reduce((counts, student) => {
       counts.set(student.yearLevel, (counts.get(student.yearLevel) ?? 0) + 1);
@@ -845,12 +839,12 @@ export function CreateEventPage() {
       }
       setUploadingResourceId(null);
 
-      const { error: emailError } = await getSupabaseBrowserClient().functions.invoke("send-event-emails", {
-        body: { eventId: event.id }
-      });
-      if (emailError) {
-        toast.warning("Event published, but invitation emails are still waiting to send.");
-      }
+      // Invitation rows are queued by the database when participants are
+      // attached to the event and delivered by the scheduled worker. Do not
+      // invoke the worker-only dispatch endpoint from the browser here: that
+      // request is correctly rejected and used to produce a false pending
+      // email warning even when delivery later succeeded.
+      toast.success("Event published. Invitation emails are delivered automatically; check Event Details for delivery status.");
 
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Published Event",

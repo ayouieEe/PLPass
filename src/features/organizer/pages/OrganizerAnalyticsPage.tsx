@@ -79,8 +79,6 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useReports,
-  useStudents,
   useAuditLogMutations,
   useAllEventObjectives,
   useAllEventSummarySnapshots,
@@ -120,32 +118,10 @@ type OrganizerScope = {
 
 type ActiveTab = "prediction" | "attendance" | "sentiment" | "late";
 
-const EMPTY_LATE_REASON_FREQUENCY: Array<{ category: string; share: number }> = [
-  { category: "Traffic / Commute", share: 0 },
-  { category: "Class / Academic Conflict", share: 0 },
-  { category: "Personal / Health", share: 0 },
-  { category: "Weather / Force Majeure", share: 0 },
-  { category: "Other", share: 0 }
-];
-
-const EMPTY_SENTIMENT: Array<{ eventCode: string; positive: number; neutral: number; negative: number; overall: string }> = [
-  { eventCode: "N/A", positive: 0, neutral: 0, negative: 0, overall: "Neutral" }
-];
-
-const EMPTY_SESSION_SUMMARY: Array<{ eventCode: string; date: string; present: number; late: number; absent: number; totalRegistered: number; attendanceRate: number }> = [
-  { eventCode: "N/A", date: "N/A", present: 0, late: 0, absent: 0, totalRegistered: 0, attendanceRate: 0 }
-];
-
-const EMPTY_SUMMARY = {
-  predictedTurnoutNextEvent: { value: 0 },
-  totalRegisteredStudents: 0,
-  topLateArrivalReason: { category: "No late arrivals", share: 0 }
-};
-
 function useOrganizerScope(): OrganizerScope {
   const { session } = useDevelopmentSession();
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
@@ -512,12 +488,12 @@ export function OrganizerAnalyticsPage() {
   const [selectedPdpFeature, setSelectedPdpFeature] = useState<string>("");
   const { session } = useDevelopmentSession();
   const isAdmin = session?.role === "admin";
+  const isDepartmentAdmin = session?.role === "department_admin";
   const scope = useOrganizerScope();
   const auditLogMutations = useAuditLogMutations(scope.context);
   const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 1000 }, scope.context);
-  const studentsQuery = useStudents({ pageSize: 1000 }, scope.context);
   const objectivesQuery = useAllEventObjectives({ pageIndex: 0, pageSize: 1000 }, scope.context);
   const summariesQuery = useAllEventSummarySnapshots({ pageIndex: 0, pageSize: 200 }, scope.context);
   const feedbackQuery = useAllEventFeedback({ pageIndex: 0, pageSize: 1000 }, scope.context);
@@ -562,7 +538,7 @@ export function OrganizerAnalyticsPage() {
         date: dateKey(event.startsAt),
         startsAt: event.startsAt,
         time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-        predictedTurnout: event.predictedTurnout ?? 0
+        predictedTurnout: event.predictedTurnout
       })),
     [eventsQuery.data?.items]
   );
@@ -582,7 +558,7 @@ export function OrganizerAnalyticsPage() {
       const eventById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
       return (sessionsQuery.data?.items ?? []).filter((session) => session.type === "event" && session.status === "completed" && session.eventId).map((session) => {
         const event = eventById.get(session.eventId ?? "");
-        const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
+        const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id && record.finalizedAt);
         const present = records.filter((record) => record.status === "present").length;
         const late = records.filter((record) => record.status === "late").length;
         const absent = records.filter((record) => record.status === "absent").length;
@@ -603,7 +579,6 @@ export function OrganizerAnalyticsPage() {
     });
   }, [sessionSummaryData, eventFilter, effectiveDateBounds]);
 
-  const sentimentData = useMemo<Array<{ eventCode: string; overall: string; positive: number; neutral: number; negative: number }>>(() => [], []);
   const eventLookup = useMemo(() => new Map(eventData.map((event) => [event.code, event])), [eventData]);
 
   const trendData = useMemo(() => {
@@ -629,7 +604,7 @@ export function OrganizerAnalyticsPage() {
       title: event.title,
       date: event.date,
       predictedAttend: event.predictedTurnout,
-      predictedMiss: 100 - event.predictedTurnout
+      predictedMiss: event.predictedTurnout == null ? null : 100 - event.predictedTurnout
     }));
   }, [filteredEventData]);
 
@@ -638,10 +613,13 @@ export function OrganizerAnalyticsPage() {
     return predictionOverviewData.slice(predictionPage * 10, (predictionPage + 1) * 10);
   }, [predictionOverviewData, predictionPage]);
 
-  const sentimentOverview = useMemo(() => {
-    const sourceSummaries = summariesQuery.data?.items ?? [];
+  const filteredSentimentSummaries = useMemo(() => {
     const validEventIds = new Set(filteredEventData.map((e) => e.id));
-    const filteredSummaries = sourceSummaries.filter((row) => validEventIds.has(row.eventId));
+    return (summariesQuery.data?.items ?? []).filter((row) => validEventIds.has(row.eventId));
+  }, [filteredEventData, summariesQuery.data?.items]);
+
+  const sentimentOverview = useMemo(() => {
+    const filteredSummaries = filteredSentimentSummaries;
     
     if (filteredSummaries.length === 0) {
       return [
@@ -666,7 +644,7 @@ export function OrganizerAnalyticsPage() {
       { name: "Neutral", value: Math.round(totals.neutral / count) },
       { name: "Negative", value: Math.round(totals.negative / count) }
     ];
-  }, [filteredEventData, summariesQuery.data?.items]);
+  }, [filteredSentimentSummaries]);
 
   const filteredLateReasons = useMemo(() => {
     const validEventIds = new Set(filteredEventData.map((e) => e.id));
@@ -676,7 +654,7 @@ export function OrganizerAnalyticsPage() {
         .map((session) => session.id)
     );
     const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter(
-      (row) => (sessionIds.size === 0 || sessionIds.has(row.sessionId)) && row.status === "late"
+      (row) => Boolean(row.finalizedAt) && (sessionIds.size === 0 || sessionIds.has(row.sessionId)) && row.status === "late"
     );
 
     const categories = [
@@ -697,27 +675,12 @@ export function OrganizerAnalyticsPage() {
       return "other";
     }
 
-    const baselineCounts: Record<string, number> = {
-      traffic: 18,
-      class: 14,
-      personal: 9,
-      weather: 6,
-      other: 4
-    };
-
     const countMap: Record<string, number> = { traffic: 0, class: 0, personal: 0, weather: 0, other: 0 };
-
-    if (lateRows.length > 0) {
-      lateRows.forEach((row) => {
-        const catKey = matchCategory(row.lateReason || row.lateReasonCategory);
-        countMap[catKey] = (countMap[catKey] || 0) + 1;
-      });
-    } else {
-      const multiplier = eventFilter === "all" ? 1 : 0.5;
-      Object.keys(baselineCounts).forEach((key) => {
-        countMap[key] = Math.round(baselineCounts[key] * multiplier);
-      });
-    }
+    lateRows.forEach((row) => {
+      const catKey = matchCategory(row.lateReason || row.lateReasonCategory);
+      countMap[catKey] = (countMap[catKey] || 0) + 1;
+    });
+    if (lateRows.length === 0) return [];
 
     const totalLate = Object.values(countMap).reduce((a, b) => a + b, 0);
 
@@ -729,7 +692,7 @@ export function OrganizerAnalyticsPage() {
         share: totalLate > 0 ? Math.round((count / totalLate) * 100) : 0
       };
     });
-  }, [attendanceRecordsQuery.data?.items, filteredEventData, sessionsQuery.data?.items, eventFilter]);
+  }, [attendanceRecordsQuery.data?.items, filteredEventData, sessionsQuery.data?.items]);
 
   const totalLatePages = Math.ceil(filteredLateReasons.length / 10);
   const paginatedLateReasons = useMemo(() => {
@@ -743,7 +706,7 @@ export function OrganizerAnalyticsPage() {
         .filter((session) => session.eventId && validEventIds.has(session.eventId))
         .map((session) => session.id)
     );
-    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
+    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => row.finalizedAt && sessionIds.has(row.sessionId) && row.status === "late");
     
     return lateRows
       .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !(lateReasons as string[]).includes(row.lateReason))
@@ -759,17 +722,19 @@ export function OrganizerAnalyticsPage() {
   const nextEvent = eventData.filter((event) => new Date(event.startsAt) >= new Date()).sort((first, second) => first.startsAt.localeCompare(second.startsAt))[0];
   const targetEventId = eventFilter === "all" ? nextEvent?.id : eventLookup.get(eventFilter)?.id;
   
-  const studentIds = useMemo(() => studentsQuery.data?.items.map(s => s.id) ?? [], [studentsQuery.data]);
-  const registeredStudents = studentIds.length || 1;
+  const participantsQuery = useEventParticipants(targetEventId ?? "", { pageIndex: 0, pageSize: 1000 }, scope.context);
+  const studentIds = useMemo(() => [...new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId))], [participantsQuery.data]);
 
   const { data: insightsData } = useModelInsights();
-  const { data: batchData, isFetching: isPredicting } = useBatchPrediction(targetEventId ?? "", studentIds);
+  // This API currently gathers institution-wide student histories; do not call
+  // it from a department-only view. Department Admins use saved event forecasts.
+  const { data: batchData, isFetching: isPredicting } = useBatchPrediction(isDepartmentAdmin ? "" : targetEventId ?? "", studentIds);
 
   const selectedPrediction = useMemo(() => {
     if (batchData && studentIds.length > 0) {
       return Math.round((batchData.aggregate_expected_turnout / studentIds.length) * 100);
     }
-    return eventFilter === "all" ? nextEvent?.predictedTurnout ?? 0 : eventLookup.get(eventFilter)?.predictedTurnout ?? 0;
+    return eventFilter === "all" ? nextEvent?.predictedTurnout ?? null : eventLookup.get(eventFilter)?.predictedTurnout ?? null;
   }, [batchData, studentIds, eventFilter, nextEvent, eventLookup]);
 
   const topLateReason = useMemo(() => {
@@ -781,23 +746,15 @@ export function OrganizerAnalyticsPage() {
   }, [filteredLateReasons]);
 
   const activePdpFeature = useMemo(() => {
+    if (isDepartmentAdmin) return "";
     const features = insightsData?.partial_dependence ? Object.keys(insightsData.partial_dependence) : [];
-    if (features.length === 0) {
-      const mockIds = ["rolling_participation_rate", "previous_event_participation", "time_of_day", "event_category", "venue_accessibility"];
-      return selectedPdpFeature || mockIds[0];
-    }
+    if (features.length === 0) return "";
     return selectedPdpFeature && features.includes(selectedPdpFeature) ? selectedPdpFeature : features[0];
-  }, [insightsData, selectedPdpFeature]);
+  }, [insightsData, selectedPdpFeature, isDepartmentAdmin]);
 
   const pdpData = useMemo(() => {
     const pd = insightsData?.partial_dependence;
-    if (!pd || !pd[activePdpFeature]) {
-      if (!activePdpFeature) return null;
-      return Array.from({ length: 6 }).map((_, i) => ({
-        value: i * 20,
-        probability: Math.round(50 + Math.sin(i) * 30 + (i * 2))
-      }));
-    }
+    if (!pd || !pd[activePdpFeature]) return null;
     const data = pd[activePdpFeature] as { grid_values?: number[]; average?: number[] };
     const { grid_values, average } = data;
     if (!grid_values || !average) return null;
@@ -808,35 +765,26 @@ export function OrganizerAnalyticsPage() {
   }, [insightsData, activePdpFeature]);
 
   const predictionFactors = useMemo(() => {
-    const baseFactors = [
-      { id: "rolling_participation_rate", name: "Attendance history", strength: 92, detail: "Strongest signal in repeat turnout patterns", type: "inherent", insight: "Students with high past participation are very likely to attend. Ensure reminders are sent to those with dropping rates." },
-      { id: "previous_event_participation", name: "Previous event participation", strength: 81, detail: "Students who joined earlier sessions return more often", type: "inherent", insight: "Leverage momentum by scheduling related events closely." },
-      { id: "time_of_day", name: "Time of day", strength: 74, detail: "Specific time blocks show stronger attendance", type: "actionable", insight: "Avoid late afternoon slots; morning sessions (9AM-11AM) maximize probability." },
-      { id: "event_category", name: "Event category", strength: 69, detail: "Skills training shows stronger attendance than general seminars", type: "actionable", insight: "Consider framing generic seminars as skill-building workshops." },
-      { id: "venue_accessibility", name: "Venue accessibility", strength: 64, detail: "Convenient locations improve attendance confidence", type: "actionable", insight: "Book centralized venues for events targeting broad audiences." }
-    ];
-    
-    if (insightsData?.feature_importance && insightsData.feature_importance.length > 0) {
-      const maxImp = Math.max(0.0001, ...insightsData.feature_importance.map(f => f.importance_mean));
-      return insightsData.feature_importance.slice(0, 5).map(f => {
+    if (isDepartmentAdmin || !insightsData?.feature_importance?.length) return [];
+    const positiveImportance = insightsData.feature_importance.filter((factor) => factor.importance_mean > 0).slice(0, 5);
+    if (positiveImportance.length > 0) {
+      const maxImp = Math.max(...positiveImportance.map(f => f.importance_mean));
+      return positiveImportance.map(f => {
         const formattedName = f.feature.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         const actionableFeatures = ['time', 'category', 'venue', 'duration', 'day'];
         const isActionable = actionableFeatures.some(key => f.feature.toLowerCase().includes(key));
         return {
           id: f.feature,
           name: formattedName,
-          strength: Math.min(100, Math.max(1, Math.round((f.importance_mean / maxImp) * 100))),
-          detail: `Relative importance derived from Random Forest permutation.`,
+          strength: Math.round((f.importance_mean / maxImp) * 100),
+          detail: "Relative feature importance from the model evaluation dataset; not a causal effect.",
           type: isActionable ? "actionable" : "inherent",
-          insight: isActionable ? `Adjust this factor to directly influence predicted attendance.` : `Use this audience insight to target your communications.`
+          insight: "This is a model-level association, not a guarantee that changing this factor will change attendance."
         };
       });
     }
-
-    if (eventFilter === "all") return baseFactors;
-    const event = eventLookup.get(eventFilter);
-    return event ? baseFactors.map(f => ({ ...f, detail: `Based on ${event.code} data: ${f.detail.split(": ")[1] || f.detail}` })) : baseFactors;
-  }, [eventFilter, eventLookup, insightsData]);
+    return [];
+  }, [insightsData, isDepartmentAdmin]);
 
   async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; eventCode: string; category: string; range: string; format: "xlsx" | "pdf" }) {
     const selectedEvent = request.eventCode === "all" ? undefined : eventLookup.get(request.eventCode);
@@ -849,7 +797,7 @@ export function OrganizerAnalyticsPage() {
     const eventLookupForId = (events: typeof eventData, eventId: string) => events.find((event) => event.id === eventId)?.code ?? eventId;
     const reportNames = { master: "PLPass Master Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Prediction Report", sentiment: "PLPass Performance and Sentiment Report", late: "PLPass Late Arrival Patterns Report" };
     const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered }));
-    const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Predicted Attendance": `${event.predictedTurnout}%`, "Predicted Absences": `${100 - event.predictedTurnout}%` }));
+    const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Predicted Attendance": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%`, "Predicted Absences": event.predictedTurnout == null ? "Not available" : `${100 - event.predictedTurnout}%` }));
     const summaryRows = (summariesQuery.data?.items ?? []).filter((row) => Boolean(row.eventId) && selectedIds.has(row.eventId)).map((row) => ({ "Event Code": eventLookupForId(eventData, row.eventId ?? ""), Positive: `${row.positivePercentage ?? 0}%`, Neutral: `${row.neutralPercentage ?? 0}%`, Negative: `${row.negativePercentage ?? 0}%` }));
     const lateRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, Late: row.late, "Late Rate": `${row.totalRegistered ? Math.round((row.late / row.totalRegistered) * 100) : 0}%` }));
     const sections: ReportExportSection[] = request.reportType === "master" ? [{ name: "Attendance Summary", rows: attendanceRows }, { name: "Turnout Prediction", rows: predictionRows }, { name: "Performance and Sentiment", rows: summaryRows }, { name: "Late Arrival Patterns", rows: lateRows }] : [{ name: reportNames[request.reportType].replace("PLPass ", "").replace(" Report", ""), rows: request.reportType === "attendance" ? attendanceRows : request.reportType === "prediction" ? predictionRows : request.reportType === "sentiment" ? summaryRows : lateRows }];
@@ -859,9 +807,9 @@ export function OrganizerAnalyticsPage() {
 
     // KPI Summary Cards
     const summaryCards: ReportSummaryCard[] = [
-      { label: "Overall Attendance", value: `${overallAttendanceRate}%`, subtitle: "Average across session logs", colorTheme: "emerald" },
-      { label: "Turnout Forecast", value: `${selectedPrediction}%`, subtitle: "Random Forest predicted turnout", colorTheme: "blue" },
-      { label: "Positive Sentiment", value: `${positiveSentimentShare}%`, subtitle: "Favorable feedback share", colorTheme: "amber" },
+      { label: "Overall Attendance", value: overallAttendanceLabel, subtitle: "Average across completed sessions", colorTheme: "emerald" },
+      { label: "Turnout Forecast", value: selectedPrediction == null ? "Not available" : `${selectedPrediction}%`, subtitle: isDepartmentAdmin ? "Saved event estimate only; live department inference is unavailable" : "Experimental model estimate for selected event participants", colorTheme: "blue" },
+      { label: "Positive Sentiment", value: positiveSentimentLabel, subtitle: "Favorable feedback share", colorTheme: "amber" },
       { label: "Top Tardiness Cause", value: topLateReason.category, subtitle: topLateReason.count > 0 ? `${topLateReason.count} check-ins (${topLateReason.share}%)` : "No late check-ins", colorTheme: "purple" }
     ];
 
@@ -870,60 +818,46 @@ export function OrganizerAnalyticsPage() {
     if (request.reportType === "master") {
       insightsNarrative = {
         title: "EXECUTIVE ANALYTICAL SUMMARY & INSIGHTS",
-        executiveSummary: `This Master Analytics Report synthesizes student participation trends, machine learning turnout forecasts, student feedback sentiment, and late arrival patterns across Pamantasan ng Lungsod ng Pasig events. Overall session attendance averages ${overallAttendanceRate}%, while ML predictive modeling projects a turnout rate of ${selectedPrediction}% for upcoming sessions.`,
+        executiveSummary: `This report summarizes recorded attendance, saved feedback summaries, available event forecasts, and late-arrival records for the selected scope. Average recorded attendance is ${overallAttendanceLabel}.`,
         keyFindings: [
-          `Overall session attendance rate is ${overallAttendanceRate}%, with top sessions achieving up to ${selectedSummaries.length ? Math.max(...selectedSummaries.map(s => s.attendanceRate)) : overallAttendanceRate}% turnout.`,
-          `Machine learning Random Forest model predicts an average turnout of ${selectedPrediction}%, with historical participation rate and event schedule timing identified as primary determinants.`,
-          `Post-event student feedback reflects a ${positiveSentimentShare}% positive sentiment rate.`,
+          `Overall session attendance rate is ${overallAttendanceLabel}${selectedSummaries.length ? `; the highest selected session rate is ${Math.max(...selectedSummaries.map((s) => s.attendanceRate))}%.` : "; no completed session records are available."}`,
+          `Saved forecast for the selected event: ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}.`,
+          `Post-event student feedback reflects a ${positiveSentimentLabel} positive sentiment rate.`,
           `The primary root cause for check-in tardiness is '${topLateReason.category}', accounting for ${topLateReason.share}% of recorded late check-ins.`
         ],
-        recommendations: [
-          "Schedule core events during high-turnout morning windows (9:00 AM - 11:00 AM) to optimize attendance.",
-          "Provide automated event reminders 48 hours and 2 hours prior to scheduled start times.",
-          "Implement a 15-minute grace period buffer for early morning events to mitigate commute-related check-in delays."
-        ]
+        recommendations: ["Use recorded event-level metrics as a baseline and review event context before changing schedules or attendance procedures."]
       };
     } else if (request.reportType === "attendance") {
       insightsNarrative = {
         title: "ATTENDANCE TRENDS & TURN-OUT ANALYSIS",
-        executiveSummary: `Analysis of event participation logs reveals an average attendance rate of ${overallAttendanceRate}%. Registered student participation across sessions shows steady engagement, with peak attendance recorded during mid-week academic sessions.`,
+        executiveSummary: `Recorded attendance rows across the selected completed sessions show an average attendance rate of ${overallAttendanceLabel}.`,
         keyFindings: [
-          `Average attendance rate across monitored sessions: ${overallAttendanceRate}%.`,
+          `Average attendance rate across monitored sessions: ${overallAttendanceLabel}.`,
           `Total present check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.present, 0)} participants; Late check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.late, 0)} participants.`,
-          `Sessions with advance registration reminders exhibited a ~12% higher turnout rate.`
+          `The report includes ${selectedSummaries.length} completed session summary row(s).`
         ],
-        recommendations: [
-          "Leverage early QR registration and check-in kiosks to reduce queue waiting times during peak arrivals.",
-          "Establish minimum attendance thresholds for recurring academic workshops."
-        ]
+        recommendations: ["Compare these observed rates with event registration and schedule before making operational changes."]
       };
     } else if (request.reportType === "prediction") {
       insightsNarrative = {
         title: "TURNOUT FORECAST & ML DETERMINANT ANALYSIS",
-        executiveSummary: `Forecast modeling generated via Random Forest regression projects an average turnout of ${selectedPrediction}% for evaluated events. Feature importance permutation analysis identifies student historical attendance rate as the strongest predictive driver.`,
+        executiveSummary: `The experimental attendance model estimate for the selected event is ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}. Model-level feature importance is distinct from department-specific attendance data.`,
         keyFindings: [
-          `Predicted turnout rate: ${selectedPrediction}%.`,
-          `Top positive attendance factors: ${predictionFactors.slice(0, 3).map((f) => f.name).join(", ")}.`,
-          `Events held in centralized campus venues show a +14% higher turnout probability compared to remote halls.`
+          `Predicted turnout rate: ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}.`,
+          ...(predictionFactors.length ? [`Top positive model features: ${predictionFactors.slice(0, 3).map((f) => f.name).join(", ")}.`] : []),
+          `This forecast is an estimate and should not be interpreted as a causal effect.`
         ],
-        recommendations: [
-          "Focus promotional outreach on student segments with dropping attendance history.",
-          "Adjust event timing and venue selection based on actionable factor recommendations to maximize attendance."
-        ]
+        recommendations: ["Treat the estimate as exploratory; validate it against observed attendance before making decisions."]
       };
     } else if (request.reportType === "sentiment") {
       insightsNarrative = {
         title: "FEEDBACK SENTIMENT & OBJECTIVE EVALUATION",
-        executiveSummary: `Student sentiment evaluation collected post-event indicates ${positiveSentimentShare}% positive sentiment. Objective achievement ratings across events average ${objectivePerformance.length > 0 ? (objectivePerformance.reduce((s, o) => s + o.score, 0) / objectivePerformance.length).toFixed(1) : "4.5"} out of 5.0.`,
+        executiveSummary: `Saved event feedback summaries indicate ${positiveSentimentLabel} positive sentiment. Objective ratings are shown only where submitted ratings exist.`,
         keyFindings: [
-          `Feedback sentiment breakdown: ${positiveSentimentShare}% Positive, ${sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0}% Neutral, ${sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0}% Negative.`,
-          `Key positive feedback highlights include strong speaker engagement and practical content relevance.`,
-          `Areas for improvement center around venue room temperature and audio equipment setup.`
+          `Feedback sentiment breakdown: ${positiveSentimentLabel} Positive, ${filteredSentimentSummaries.length ? `${sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0}%` : "N/A"} Neutral, ${filteredSentimentSummaries.length ? `${sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0}%` : "N/A"} Negative.`,
+          `Objective rating records available in this scope: ${objectivePerformance.length}.`
         ],
-        recommendations: [
-          "Standardize audio-visual setup checklists prior to session start.",
-          "Recognize and reward high-performing event facilitators based on student feedback scores."
-        ]
+        recommendations: ["Review the underlying feedback and objective ratings before drawing qualitative conclusions."]
       };
     } else {
       insightsNarrative = {
@@ -931,13 +865,9 @@ export function OrganizerAnalyticsPage() {
         executiveSummary: `Analysis of tardiness logs indicates that late check-ins account for approximately ${selectedSummaries.length ? Math.round((selectedSummaries.reduce((s, row) => s + row.late, 0) / Math.max(selectedSummaries.reduce((s, row) => s + row.totalRegistered, 0), 1)) * 100) : 0}% of total registered participants. The primary driver is '${topLateReason.category}'.`,
         keyFindings: [
           `Leading tardiness cause: ${topLateReason.category} (${topLateReason.share}% of total late check-ins).`,
-          `Late check-ins peak within the first 20 minutes following the official session start time.`,
-          `Academic schedule overlap accounts for the second largest share of late arrivals.`
+          `Category counts use recorded late-arrival reason fields for the selected events.`
         ],
-        recommendations: [
-          "Offer flexible 15-minute check-in windows before marking participants as late.",
-          "Coordinate with academic department heads to avoid scheduling mandatory events immediately following core lecture hours."
-        ]
+        recommendations: ["Treat recorded reasons as discussion points; they do not establish a cause or remedy by themselves."]
       };
     }
 
@@ -970,11 +900,12 @@ export function OrganizerAnalyticsPage() {
     }
 
     if (request.reportType === "master" || request.reportType === "prediction") {
-      const predCategories = selectedEvents.slice(0, 8).map((e) => e.code);
-      const predSeries = selectedEvents.slice(0, 8).map((e) => e.predictedTurnout);
+      const predictionEvents = selectedEvents.filter((event) => event.predictedTurnout != null).slice(0, 8);
+      const predCategories = predictionEvents.map((event) => event.code);
+      const predSeries = predictionEvents.map((event) => event.predictedTurnout as number);
       if (predCategories.length > 0) {
         charts.push({
-          title: "Random Forest Predicted Turnout by Event (%)",
+          title: "Saved Predicted Turnout by Event (%)",
           imageDataUrl: generateBarChartPng({
             title: "Forecasted Turnout (%)",
             categories: predCategories,
@@ -984,18 +915,15 @@ export function OrganizerAnalyticsPage() {
             width: 580,
             height: 280
           }),
-          caption: "Figure 2: ML-projected turnout probabilities per scheduled event.",
-          description: "Machine learning turnout projections generated using Random Forest regression. Evaluates student attendance history, venue accessibility, and event categorization to forecast expected turnout percentage.",
-          recommendations: [
-            "Focus promotional outreach on student segments with declining historical attendance records.",
-            "Relocate events predicting turnout below 60% to central campus facilities to boost attendance confidence."
-          ]
+          caption: "Figure 2: Saved event turnout estimates (events without a saved estimate are omitted).",
+          description: "Values are read from the event predicted_turnout_percent field and are not observed attendance.",
+          recommendations: ["Validate saved estimates against actual completed-session attendance before using them for planning."]
         });
       }
     }
 
-    if (request.reportType === "master" || request.reportType === "sentiment") {
-      const pos = positiveSentimentShare;
+    if ((request.reportType === "master" || request.reportType === "sentiment") && filteredSentimentSummaries.length > 0) {
+      const pos = positiveSentimentShare ?? 0;
       const neu = sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0;
       const neg = sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0;
       charts.push({
@@ -1013,15 +941,12 @@ export function OrganizerAnalyticsPage() {
           height: 270
         }),
         caption: "Figure 3: Distribution of student feedback sentiment labels.",
-          description: "Post-event student feedback sentiment breakdown measured using VADER sentiment analysis. High positive sentiment correlates directly with speaker quality and practical learning outcomes.",
-          recommendations: [
-            "Re-engage top-rated facilitators and maintain interactive hands-on session formats.",
-            "Promptly resolve recurring venue issues (e.g. room temperature, audio setup) highlighted in feedback comments."
-          ]
+          description: "Summary percentages are read from saved event feedback summary rows. They are descriptive and do not identify the cause of sentiment.",
+          recommendations: ["Review the underlying event comments and ratings before making qualitative conclusions."]
       });
     }
 
-    if (request.reportType === "master" || request.reportType === "late") {
+    if ((request.reportType === "master" || request.reportType === "late") && filteredLateReasons.length > 0) {
       const lateCategories = filteredLateReasons.map((r) => r.category.split(" ")[0]);
       const lateShares = filteredLateReasons.map((r) => r.share);
       charts.push({
@@ -1036,11 +961,8 @@ export function OrganizerAnalyticsPage() {
           height: 270
         }),
         caption: "Figure 4: Breakdown of reported tardiness reasons among participants.",
-          description: "Categorized distribution of late check-in reasons submitted by students. Identifying primary tardiness drivers informs administrative policy on check-in grace periods and event scheduling.",
-          recommendations: [
-            "Establish a 15-minute grace period buffer for early morning sessions to accommodate commute delays.",
-            "Avoid scheduling mandatory campus events immediately following peak academic lecture hours."
-          ]
+          description: "Categories are derived from late-reason fields on recorded late attendance rows; this distribution alone does not establish root causes.",
+          recommendations: ["Use recorded reasons as discussion points, not proof of a cause or remedy."]
       });
     }
 
@@ -1106,25 +1028,18 @@ export function OrganizerAnalyticsPage() {
       .slice(0, 10);
   }, [filteredEventData, feedbackQuery.data?.items]);
 
-  const lateArrivalTrend = useMemo(() => {
-    const baseTrend = [
-      { month: "Jan", count: 18 },
-      { month: "Feb", count: 24 },
-      { month: "Mar", count: 21 },
-      { month: "Apr", count: 29 }
-    ];
-    if (eventFilter === "all") return baseTrend;
-    return baseTrend.map(t => ({ ...t, count: Math.round(t.count * 0.5) }));
-  }, [eventFilter]);
-
-  const overallAttendanceRate = useMemo(() => {
-    return Math.round(trendData.reduce((acc: number, row: { attendanceRate?: number }) => acc + (row.attendanceRate ?? 0), 0) / Math.max(trendData.length, 1));
+  const overallAttendanceRate = useMemo<number | null>(() => {
+    if (trendData.length === 0) return null;
+    return Math.round(trendData.reduce((acc: number, row: { attendanceRate?: number }) => acc + (row.attendanceRate ?? 0), 0) / trendData.length);
   }, [trendData]);
 
-  const positiveSentimentShare = useMemo(() => {
+  const overallAttendanceLabel = overallAttendanceRate == null ? "N/A" : `${overallAttendanceRate}%`;
+  const positiveSentimentShare = useMemo<number | null>(() => {
+    if (filteredSentimentSummaries.length === 0) return null;
     const posObj = sentimentOverview.find(s => s.name === "Positive");
-    return posObj ? posObj.value : 0;
-  }, [sentimentOverview]);
+    return posObj?.value ?? null;
+  }, [filteredSentimentSummaries.length, sentimentOverview]);
+  const positiveSentimentLabel = positiveSentimentShare == null ? "N/A" : `${positiveSentimentShare}%`;
 
   const tabs: Array<{ id: ActiveTab; label: string; icon: typeof BarChart3 }> = [
     { id: "prediction", label: "Turnout Forecast", icon: Sparkles },
@@ -1137,7 +1052,7 @@ export function OrganizerAnalyticsPage() {
     <div className="space-y-6 pb-12">
       <PageHeader
         title="Analytics Insights"
-        description={isAdmin ? "Review institution-wide attendance trends, turnout forecasts, and feedback sentiment." : "Monitor attendance trends, turnout forecasts, and feedback sentiment across your events."}
+        description={isAdmin ? "Review institution-wide attendance trends, turnout forecasts, and feedback sentiment." : isDepartmentAdmin ? "Review attendance trends, turnout forecasts, and feedback sentiment for your department’s events." : "Monitor attendance trends, turnout forecasts, and feedback sentiment across your events."}
         actions={
           <>
             <Button
@@ -1174,7 +1089,7 @@ export function OrganizerAnalyticsPage() {
               <TrendingUp className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{overallAttendanceRate}%</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{overallAttendanceLabel}</p>
           <p className="mt-1 text-[11px] text-slate-500 font-medium">Average across filtered sessions</p>
         </article>
 
@@ -1185,8 +1100,8 @@ export function OrganizerAnalyticsPage() {
               {isPredicting ? <span className="animate-spin h-4 w-4 block rounded-full border-2 border-emerald-600 border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{selectedPrediction}%</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">{isPredicting ? "Calculating via Random Forest..." : "Predicted turnout for selected event"}</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{isPredicting ? "…" : selectedPrediction == null ? "N/A" : `${selectedPrediction}%`}</p>
+          <p className="mt-1 text-[11px] text-slate-500 font-medium">{isPredicting ? "Calculating for registered event participants…" : isDepartmentAdmin ? "Saved event estimate only; live department inference unavailable" : "Experimental model estimate; N/A means unavailable"}</p>
         </article>
 
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
@@ -1196,7 +1111,7 @@ export function OrganizerAnalyticsPage() {
               <MessageSquareQuote className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{positiveSentimentShare}%</p>
+          <p className="mt-2 text-2xl font-bold text-slate-900">{positiveSentimentLabel}</p>
           <p className="mt-1 text-[11px] text-slate-500 font-medium">Favorable student feedback</p>
         </article>
 
@@ -1213,6 +1128,17 @@ export function OrganizerAnalyticsPage() {
           </p>
         </article>
       </div>
+
+      <details className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm text-slate-600 shadow-xs">
+        <summary className="cursor-pointer font-semibold text-slate-800">Where these analytics come from</summary>
+        <div className="mt-3 space-y-2 text-xs leading-relaxed">
+          <p><strong>Scope:</strong> event, session, attendance, student, summary, and feedback records are read through Supabase repositories and row-level security{isDepartmentAdmin ? "; Department Admin events are limited to the assigned department" : ""}.</p>
+          <p><strong>Attendance:</strong> calculated from recorded attendance rows attached to completed event sessions. Late-arrival categories use recorded late reasons; with no late records, the chart is empty rather than filled with sample counts.</p>
+          <p><strong>Sentiment:</strong> read from saved event-summary snapshots generated from submitted event feedback.</p>
+          <p><strong>Turnout estimate:</strong> {isDepartmentAdmin ? "Department Admins see only a saved event estimate. Live inference is disabled because the current prediction API uses institution-wide student history." : <>the selected event and its registered participant IDs are sent to the PLPass prediction API. The inference model is trained separately from live department data; the checked-in training pipeline references demonstration/sample workbooks under <code>ml/data</code>. Treat the result as experimental, not observed attendance.</>}</p>
+          {isDepartmentAdmin ? <p><strong>Model explanation:</strong> global model-level feature explanations are intentionally omitted because they are not department-specific.</p> : null}
+        </div>
+      </details>
 
       {/* Analytics navigation tabs */}
       <div className="sticky top-0 z-20 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-md backdrop-blur-md">
@@ -1368,7 +1294,7 @@ export function OrganizerAnalyticsPage() {
               </div>
 
               <div className="space-y-3">
-                {predictionFactors.map((factor) => {
+                {isDepartmentAdmin ? <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">Department-level factor attribution is not available. Global model explanations are intentionally omitted so they are not mistaken for findings from this department.</div> : predictionFactors.length === 0 ? <div className="rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">No model feature-importance data is available.</div> : predictionFactors.map((factor) => {
                   const isActive = activePdpFeature === factor.id;
                   const isActionable = factor.type === "actionable";
                   return (
@@ -1392,7 +1318,7 @@ export function OrganizerAnalyticsPage() {
                         </div>
                         <div className="flex items-center gap-4 shrink-0">
                           <div className="text-right hidden sm:block">
-                            <span className="text-xs font-bold text-primary">{factor.strength}% Impact</span>
+                            <span className="text-xs font-bold text-primary">{factor.strength}% Relative weight</span>
                             <div className="mt-1.5 h-1.5 w-24 overflow-hidden rounded-full bg-muted">
                               <div className="h-full rounded-full bg-primary" style={{ width: `${factor.strength}%` }} />
                             </div>
@@ -1405,7 +1331,7 @@ export function OrganizerAnalyticsPage() {
                       {isActive && pdpData && (
                         <div className="border-t border-primary/10 bg-white/50 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
                           <div className="mb-4 rounded-lg bg-blue-50/80 border border-blue-100 p-3">
-                            <h5 className="text-[10px] font-bold uppercase tracking-wider text-blue-800 mb-1">AI Recommendation</h5>
+                            <h5 className="text-[10px] font-bold uppercase tracking-wider text-blue-800 mb-1">Model note</h5>
                             <p className="text-xs font-medium text-blue-900 leading-relaxed">{factor.insight}</p>
                           </div>
                           
@@ -1431,7 +1357,7 @@ export function OrganizerAnalyticsPage() {
 
             {/* Right Column: Prediction Overview Context (38%) */}
             <div className="space-y-4">
-              <ChartPanel title="Prediction Overview" description="Predicted turnout vs expected absence." empty={paginatedPredictionData.length === 0} emptyMessage="No turnout forecast data available for the selected filters.">
+              <ChartPanel title="Prediction Overview" description="Persisted turnout estimates; missing predictions are not replaced with synthetic values." empty={paginatedPredictionData.length === 0 || paginatedPredictionData.every((row) => row.predictedAttend == null)} emptyMessage="No turnout forecast data available for the selected filters.">
                 <div className="flex h-full w-full min-h-0 flex-col">
                   <div className="min-h-0 flex-1 w-full">
                     <ResponsiveContainer width="100%" height="100%">
@@ -1450,11 +1376,11 @@ export function OrganizerAnalyticsPage() {
                                     <div className="pt-1 border-t space-y-1">
                                       <div className="flex justify-between gap-4 text-emerald-600 font-semibold">
                                         <span>Predicted to Attend:</span>
-                                        <span>{data.predictedAttend}%</span>
+                                        <span>{data.predictedAttend == null ? "N/A" : `${data.predictedAttend}%`}</span>
                                       </div>
                                       <div className="flex justify-between gap-4 text-red-600 font-semibold">
                                         <span>Predicted to Miss:</span>
-                                        <span>{data.predictedMiss}%</span>
+                                        <span>{data.predictedMiss == null ? "N/A" : `${data.predictedMiss}%`}</span>
                                       </div>
                                     </div>
                                   </div>
@@ -1578,7 +1504,7 @@ export function OrganizerAnalyticsPage() {
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-medium text-muted-foreground">Overall Attendance Rate</span>
-                    <span className="font-bold text-foreground">{overallAttendanceRate}%</span>
+                    <span className="font-bold text-foreground">{overallAttendanceLabel}</span>
                   </div>
                 </div>
               </article>

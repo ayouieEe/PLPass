@@ -5,6 +5,8 @@ import type { RepositoryContext } from "@/services/repositoryUtils";
 
 const adminContext: RepositoryContext = { actorUserId: "user-admin-1", actorRole: "admin" };
 const organizerContext: RepositoryContext = { actorUserId: "user-organizer-1", actorRole: "organizer" };
+const ccsDepartmentAdminContext: RepositoryContext = { actorUserId: "department-admin-ccs", actorRole: "department_admin", departmentId: "dept-ccs" };
+const cbaDepartmentAdminContext: RepositoryContext = { actorUserId: "department-admin-cba", actorRole: "department_admin", departmentId: "dept-cba" };
 
 beforeEach(() => resetSimulatedRepositoryState());
 
@@ -30,6 +32,19 @@ describe("admin system health", () => {
     const afterRecovery = await repositories.systemHealth.getHealthSnapshot(adminContext);
     expect(afterRecovery.failedNotifications).toHaveLength(0);
     expect(afterRecovery.stuckSessions).toHaveLength(0);
+  });
+
+  it("scopes Department Admin health and retry controls to that department's event jobs", async () => {
+    const ccsSnapshot = await repositories.systemHealth.getHealthSnapshot(ccsDepartmentAdminContext);
+    const cbaSnapshot = await repositories.systemHealth.getHealthSnapshot(cbaDepartmentAdminContext);
+
+    expect(ccsSnapshot.recentErrors).toHaveLength(0);
+    expect(ccsSnapshot.failedNotifications.map((job) => job.eventId)).toEqual(["event-1"]);
+    expect(cbaSnapshot.failedNotifications).toHaveLength(0);
+    await expect(repositories.systemHealth.retryFailedNotification({ jobId: "notification-job-1", source: "event_email", reason: "Retry after provider recovery." }, cbaDepartmentAdminContext)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+
+    const retried = await repositories.systemHealth.retryFailedNotification({ jobId: "notification-job-1", source: "event_email", reason: "Retry after provider recovery." }, ccsDepartmentAdminContext);
+    expect(retried.status).toBe("retrying");
   });
 
   it("records controlled actions in the audit log", async () => {

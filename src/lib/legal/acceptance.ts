@@ -21,7 +21,11 @@ function getLocalAcceptances(userId: string): Set<LegalDocumentType> {
 }
 
 export async function getLegalAcceptanceStatus(userId: string): Promise<Record<LegalDocumentType, boolean>> {
-  if (isTestMode()) return { terms: true, privacy: true };
+  // The E2E browser runs the production build against mock repositories. Treat
+  // its seeded development identities like unit-test identities so journeys
+  // test their intended workspace instead of being diverted by the real
+  // Supabase legal-acceptance gate.
+  if (isTestMode() || import.meta.env.VITE_DATA_SOURCE === "mock") return { terms: true, privacy: true };
   if (isLocalMode()) {
     const accepted = getLocalAcceptances(userId);
     return { terms: accepted.has("terms"), privacy: accepted.has("privacy") };

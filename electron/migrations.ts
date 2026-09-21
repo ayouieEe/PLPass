@@ -72,6 +72,31 @@ export const localMigrations = [
     // databases upgrade safely instead of trusting the old version marker.
     version: 4,
     sql: `CREATE INDEX IF NOT EXISTS prepared_events_owner_day_idx ON prepared_events(organizer_profile_id, prepared_manila_date, preparation_status);`
+  },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE cached_sessions ADD COLUMN capture_phase TEXT NOT NULL DEFAULT 'time_in' CHECK(capture_phase IN ('time_in','time_out'));
+      CREATE TABLE pending_walkin_scans(
+        local_scan_uuid TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        identification_method TEXT NOT NULL CHECK(identification_method IN ('qr','manual')),
+        student_number TEXT NOT NULL,
+        student_number_hash TEXT NOT NULL,
+        time_in TEXT NOT NULL,
+        time_out TEXT,
+        sync_status TEXT NOT NULL DEFAULT 'PENDING_SYNC' CHECK(sync_status IN ('PENDING_SYNC','SYNCING','RETRY','CONFLICT','CONFIRMED')),
+        sync_attempts INTEGER NOT NULL DEFAULT 0,
+        last_sync_error TEXT,
+        next_attempt_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(session_id, student_number_hash)
+      );
+      CREATE INDEX pending_walkin_scans_sync_idx ON pending_walkin_scans(sync_status, next_attempt_at, created_at);
+      CREATE INDEX pending_walkin_scans_event_idx ON pending_walkin_scans(event_id, session_id);
+    `
   }
 ] as const;
 

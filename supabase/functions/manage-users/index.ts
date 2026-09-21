@@ -30,6 +30,32 @@ function normalizeNameFields(value: unknown) {
   }
 }
 
+function compactNamePart(value: unknown) {
+  return (typeof value === "string" ? value : "")
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]/gu, "")
+    .toLowerCase();
+}
+
+function generatedAccountEmail(lastName: unknown, firstName: unknown, middleName: unknown) {
+  const surname = compactNamePart(lastName);
+  const givenNames = `${compactNamePart(firstName)}${compactNamePart(middleName)}`;
+  if (!surname || !givenNames) throw new Error("First name and last name are required to generate the account email.");
+  return `${surname}_${givenNames}@plpasig.edu.ph`;
+}
+
+function resolveAccountEmail(account: Record<string, unknown>) {
+  return generatedAccountEmail(account.lastName, account.firstName, account.middleName);
+}
+
+function normalizeStudentNumber(value: unknown) {
+  const digits = (typeof value === "string" ? value : "").replace(/\D/g, "");
+  if (digits.length !== 7) throw new Error("Student number must use the format 00-00000.");
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+}
+
 async function nextEmployeeId(supabase: ReturnType<typeof createClient>, table: "organizers" | "admin_profiles", column: "employee_id" | "employee_number", prefix: "O" | "A") {
   const { data, error } = await supabase.from(table).select(column).like(column, `${prefix}-%`);
   if (error) throw new Error(`Could not generate an employee ID: ${error.message}`);
@@ -242,10 +268,11 @@ Deno.serve(async (request) => {
     let success = 0;
     const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
     for (const [index, organizer] of organizers.entries()) {
-      const { email, firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer ?? {};
+      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer ?? {};
+      const email = resolveAccountEmail({ firstName, middleName, lastName });
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       try {
-        if (!email || !firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
+        if (!firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
         if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) throw new Error("The selected name extension is not valid.");
         if (isDepartmentAdmin && !departmentMatches(departmentId)) throw new Error("Department administrators can only create organizers in their own department.");
         const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
@@ -270,9 +297,10 @@ Deno.serve(async (request) => {
     if (!isUniversityAdmin && !isDepartmentAdmin) return json({ error: "This action is not available for your role." }, 403);
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
-      const { email, firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer;
+      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer;
+      const email = resolveAccountEmail({ firstName, middleName, lastName });
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
-    if (!email || !firstName || !lastName || !organizationName || !position) {
+    if (!firstName || !lastName || !organizationName || !position) {
       return json({ error: "Please complete all required organizer information." }, 400);
     }
     if (isDepartmentAdmin && !departmentMatches(departmentId)) return json({ error: "Department administrators can only create organizers in their own department." }, 403);
@@ -306,10 +334,11 @@ Deno.serve(async (request) => {
     if (universityOnly) return universityOnly;
     const admin = requestBody.admin;
     if (!admin) return json({ error: "No admin provided." }, 400);
-    const { email, firstName, middleName, lastName, nameExtension, departmentId, officeName, adminRole = "admin" } = admin;
+    const { firstName, middleName, lastName, nameExtension, departmentId, officeName, adminRole = "admin" } = admin;
+    const email = resolveAccountEmail({ firstName, middleName, lastName });
     const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     const normalizedOfficeName = typeof officeName === "string" ? officeName.trim() : "";
-    if (!email || !firstName || !lastName || !departmentId || (adminRole === "admin" && !normalizedOfficeName)) return json({ error: "Please complete all required admin information." }, 400);
+    if (!firstName || !lastName || !departmentId || (adminRole === "admin" && !normalizedOfficeName)) return json({ error: "Please complete all required admin information." }, 400);
     if (!["admin", "department_admin"].includes(adminRole)) return json({ error: "The selected administrator type is not valid." }, 400);
     if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
@@ -583,7 +612,9 @@ Deno.serve(async (request) => {
 
   for (const [index, student] of students.entries()) {
     try {
-      const { email, firstName, middleName, lastName, nameExtension, studentNumber, programId, departmentId, sectionId, yearLevel } = student;
+      const { firstName, middleName, lastName, nameExtension, programId, departmentId, sectionId, yearLevel } = student;
+      const studentNumber = normalizeStudentNumber(student.studentNumber);
+      const email = resolveAccountEmail({ firstName, middleName, lastName });
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) {
         throw new Error("The selected name extension is not valid.");
@@ -599,7 +630,7 @@ Deno.serve(async (request) => {
       const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
       const { data: selectedProgram, error: selectedProgramError } = await supabase.from("programs").select("department_id").eq("id", programId).maybeSingle();
       if (selectedProgramError || !selectedProgram || selectedProgram.department_id !== effectiveDepartmentId) throw new Error("The selected program is not available for this department.");
-      const defaultPassword = studentNumber;
+      const defaultPassword = `${studentNumber}${lastName}`;
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
       let actualSectionId = sectionId;
 

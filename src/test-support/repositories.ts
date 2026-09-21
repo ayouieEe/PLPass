@@ -61,6 +61,8 @@ import type {
   UpdateOrganizerBrandingInput,
   UserManagementRepository
 } from "@/services/contracts";
+import { generateAccountEmail } from "@/lib/utils/accountEmail";
+import { formatStudentNumber } from "@/lib/utils/studentNumber";
 import {
   applySimulationMode,
   assertRole,
@@ -300,13 +302,16 @@ let systemSettingsState = { ...systemSettingsFixture };
 let failedNotificationState: FailedNotificationJob[] = [
   {
     id: "notification-job-1",
+    eventId: "event-1",
+    notificationType: "participant_added",
+    lastAttemptAt: new Date(Date.now() - 16 * 60_000).toISOString(),
     source: "event_email",
     recipient: "admin.one@plpass.test",
     channel: "email",
-    subject: "Dean Summary report failed",
+    subject: "CCS event participant invitation",
     status: "failed",
-    lastError: "Provider rejected the delivery request.",
-    updatedAt: "2026-06-26T08:05:00.000Z"
+    lastError: "The email provider rejected the participant invitation.",
+    updatedAt: new Date(Date.now() - 60 * 60_000).toISOString()
   }
 ];
 
@@ -329,13 +334,16 @@ export function resetSimulatedRepositoryState() {
   failedNotificationState = [
     {
       id: "notification-job-1",
+      eventId: "event-1",
+      notificationType: "participant_added",
+      lastAttemptAt: new Date(Date.now() - 16 * 60_000).toISOString(),
       source: "event_email",
       recipient: "admin.one@plpass.test",
       channel: "email",
-      subject: "Dean Summary report failed",
+      subject: "CCS event participant invitation",
       status: "failed",
-      lastError: "Provider rejected the delivery request.",
-      updatedAt: "2026-06-26T08:05:00.000Z"
+      lastError: "The email provider rejected the participant invitation.",
+      updatedAt: new Date(Date.now() - 60 * 60_000).toISOString()
     }
   ];
 }
@@ -472,7 +480,7 @@ function completeAttendanceRecord(input: {
   note?: string;
   statusOverride?: Extract<AttendanceStatus, "present" | "late">;
 }): AttendanceSubmissionResult {
-  const existing = attendanceRecordState.find((record) => record.sessionId === input.session.id && record.studentId === input.studentId && record.status !== "excused");
+  const existing = attendanceRecordState.find((record) => record.sessionId === input.session.id && record.studentId === input.studentId);
   if (existing) {
     addSafeAttendanceAttempt({ sessionId: input.session.id, studentId: input.studentId, accepted: false, attemptedAt: input.occurredAt, message: "Already recorded", context: input.context });
     addSafeAudit(input.context, `${input.method}_attendance.duplicate`, "attendance_session", input.session.id, { studentId: input.studentId, method: input.method });
@@ -635,17 +643,18 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
   },
   async createStudent(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
+    const studentNumber = formatStudentNumber(input.studentNumber);
     const newStudent: Student = {
       id: `student-simulated-${Date.now()}`,
       userId: `user-simulated-${Date.now()}`,
-      studentNumber: input.studentNumber,
+      studentNumber,
       status: "enrolled",
       programId: input.programId,
       departmentId: input.departmentId,
       yearLevel: input.yearLevel,
       section: input.sectionId,
       createdAt: new Date().toISOString(),
-      email: input.email,
+      email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
@@ -683,21 +692,22 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const errors: Array<{ row: number; email: string; studentNumber: string; error: string }> = [];
     const existingStudentNumbers = new Set(studentFixtures.map((student) => student.studentNumber));
     for (const [index, input] of inputs.entries()) {
-      if (existingStudentNumbers.has(input.studentNumber)) {
-        errors.push({ row: index + 2, email: input.email, studentNumber: input.studentNumber, error: `Student ID "${input.studentNumber}" already exists.` });
+      const studentNumber = formatStudentNumber(input.studentNumber);
+      if (existingStudentNumbers.has(studentNumber)) {
+        errors.push({ row: index + 2, email: generateAccountEmail(input.lastName, input.firstName, input.middleName), studentNumber, error: `Student ID "${studentNumber}" already exists.` });
         continue;
       }
       const newStudent: Student = {
         id: `student-simulated-${Date.now()}-${success}`,
         userId: `user-simulated-${Date.now()}-${success}`,
-        studentNumber: input.studentNumber,
+        studentNumber,
         status: "enrolled",
         programId: input.programId,
         departmentId: input.departmentId,
         yearLevel: input.yearLevel,
         section: input.sectionId,
         createdAt: new Date().toISOString(),
-        email: input.email,
+        email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
         firstName: input.firstName,
         middleName: input.middleName,
         lastName: input.lastName,
@@ -705,7 +715,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
         fullName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" ")
       };
       studentFixtures.push(newStudent);
-      existingStudentNumbers.add(input.studentNumber);
+      existingStudentNumbers.add(studentNumber);
       success++;
     }
     return { success, failed: errors.length, errors };
@@ -768,7 +778,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     userFixtures.push({
       id: userId,
       role: "organizer",
-      email: input.email,
+      email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
       displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
       isActive: true,
       createdAt: new Date().toISOString()
@@ -805,7 +815,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const userId = `admin-user-${stamp}`;
     const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^A-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
     const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `A-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
-    userFixtures.push({ id: userId, role: "admin", email: input.email, displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
+    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName), displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
     adminProfileFixtures.push(profile);
     return profile;
   },
@@ -848,7 +858,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       userFixtures.push({
         id: userId,
         role: "organizer",
-        email: input.email,
+        email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
         displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
         isActive: true,
         createdAt: new Date().toISOString()
@@ -1389,7 +1399,7 @@ export const simulatedAttendanceSessionRepository: AttendanceSessionRepository =
     const endedAt = new Date().toISOString();
     const expectedStudentIds = expectedStudentIdsForSession(session);
     const generatedAbsences: AttendanceRecord[] = expectedStudentIds
-      .filter((studentId) => !attendanceRecordState.some((record) => record.sessionId === session.id && record.studentId === studentId && ["present", "late", "excused"].includes(record.status)))
+      .filter((studentId) => !attendanceRecordState.some((record) => record.sessionId === session.id && record.studentId === studentId && ["present", "late"].includes(record.status)))
       .map((studentId) => ({
         id: `record-absent-${session.id}-${studentId}-${Date.now()}`,
         sessionId: session.id,
@@ -1466,18 +1476,36 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     await beforeRead("attendanceRecords", context, ["student"]);
     const currentContext = contextOrDefault(context);
     const student = getStudentForContext(currentContext);
-    const index = attendanceRecordState.findIndex((record) => record.id === input.attendanceRecordId);
-    if (index < 0) {
-      throw new RepositoryError("Attendance record was not found.", "NOT_FOUND");
+    if (!student) throw new RepositoryError("A student profile is required to submit a late reason.", "PERMISSION_DENIED");
+    const session = getOrThrow(attendanceSessionState, input.eventSessionId, "Attendance session");
+    const index = attendanceRecordState.findIndex((record) => record.sessionId === input.eventSessionId && record.studentId === student?.id);
+    const record = index >= 0 ? attendanceRecordState[index] : undefined;
+    const checkedOutAt = record?.checkedOutAt;
+    if (!record?.timeIn || !checkedOutAt) {
+      throw new RepositoryError("Complete Time In and Time Out before submitting a late reason.", "VALIDATION_ERROR");
     }
-    const record = attendanceRecordState[index];
-    if (record.studentId !== student?.id || record.status !== "late") {
-      throw new RepositoryError("Students can only submit late reasons for their own late records.", "PERMISSION_DENIED");
+    const cutoff = new Date(session.lateCutoffAt ?? session.startsAt).getTime();
+    if (new Date(record.timeIn).getTime() <= cutoff) {
+      throw new RepositoryError("A late reason is only required when Time In is after the late cutoff.", "VALIDATION_ERROR");
+    }
+    if (Date.now() <= new Date(checkedOutAt).getTime()) {
+      throw new RepositoryError("Submit your late reason after Time Out.", "VALIDATION_ERROR");
+    }
+    if (completedFeedbackTaskIds.has(`feedback-task-${record.id}`) || record.note?.includes("Feedback submitted")) {
+      throw new RepositoryError("The late reason must be submitted before event feedback.", "VALIDATION_ERROR");
+    }
+    if (record.lateReasonSubmittedAt && new Date(record.lateReasonSubmittedAt).getTime() > new Date(checkedOutAt).getTime()) {
+      throw new RepositoryError("A late reason has already been submitted for this attendance record.", "VALIDATION_ERROR");
+    }
+    if (session.status === "completed" && Date.now() > new Date(session.endsAt ?? session.startsAt).getTime() + 24 * 60 * 60 * 1000) {
+      throw new RepositoryError("The late-reason deadline has passed.", "VALIDATION_ERROR");
     }
     const option = (await this.listLateReasonOptions()).find((entry) => entry.id === input.reasonOptionId);
     if (!option) throw new RepositoryError("Invalid late reason option.", "VALIDATION_ERROR");
-    const updated = { ...record, lateReasonCategory: option.label, note: record.note ?? `Late reason: ${option.label}` };
-    attendanceRecordState[index] = updated;
+    const submittedAt = new Date().toISOString();
+    const updated: AttendanceRecord = { ...record, lateReasonCategory: option.label, lateReasonSubmittedAt: submittedAt, note: record.note ?? `Late reason: ${option.label}`, finalizedAt: undefined };
+    if (index >= 0) attendanceRecordState[index] = updated;
+    else attendanceRecordState = [updated, ...attendanceRecordState];
     return updated;
   },
   async listFinalizedEventYears(context) {
@@ -1485,7 +1513,7 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
     const student = getStudentForContext(contextOrDefault(context));
     return Array.from(new Set(
       attendanceRecordState
-        .filter((record) => record.studentId === student?.id && ["present", "late", "absent", "excused"].includes(record.status))
+        .filter((record) => record.studentId === student?.id && ["present", "late", "absent"].includes(record.status))
         .map((record) => new Date(record.recordedAt).getFullYear())
         .filter((year) => Number.isInteger(year))
     )).sort((left, right) => right - left);
@@ -1499,9 +1527,15 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
       const event = eventState.find((entry) => entry.id === session?.eventId);
       if (!session?.eventId || !event) return [];
 
-      const lateReason = record.lateReasonCategory
-        ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined);
-      if (record.status === "late" && !lateReason) {
+      const hasValidLateReason = Boolean(record.lateReasonSubmittedAt && record.checkedOutAt
+        && new Date(record.lateReasonSubmittedAt).getTime() > new Date(record.checkedOutAt).getTime());
+      const provisionalStatus = record.finalizedAt
+        ? record.status
+        : record.timeIn && session.lateCutoffAt && new Date(record.timeIn).getTime() > new Date(session.lateCutoffAt).getTime()
+          ? "late"
+          : "present";
+      const hasCompletedCheckInOut = Boolean(record.timeIn && record.checkedOutAt);
+      if (provisionalStatus === "late" && hasCompletedCheckInOut && !hasValidLateReason && !record.finalizedAt) {
         return [{
           id: `late-reason-${record.id}`,
           kind: "late_reason" as const,
@@ -1510,7 +1544,7 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
           title: event.title,
           code: event.code,
           category: event.category,
-          status: record.status,
+          status: provisionalStatus,
           startsAt: session.startsAt,
           dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         }];
@@ -1518,7 +1552,9 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
 
       const feedbackTaskId = `feedback-task-${record.id}`;
       const feedbackComplete = completedFeedbackTaskIds.has(feedbackTaskId) || Boolean(record.note?.includes("Feedback submitted"));
-      if (["present", "late"].includes(record.status) && !feedbackComplete) {
+      const awaitingFeedback = !record.finalizedAt && hasCompletedCheckInOut
+        && (record.status !== "late" || hasValidLateReason);
+      if ((["present", "late"].includes(record.status) || awaitingFeedback) && !feedbackComplete) {
         return [{
           id: feedbackTaskId,
           kind: "feedback" as const,
@@ -1527,7 +1563,7 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
           title: event.title,
           code: event.code,
           category: event.category,
-          status: record.status,
+          status: provisionalStatus,
           startsAt: session.startsAt,
           dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         }];
@@ -1535,16 +1571,16 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
       return [];
     });
     const rejectedCorrections = correctionRequestState.filter((request) => request.studentId === student?.id && request.status === "rejected");
-    const count = (status: string) => records.filter((record) => record.status === status).length;
+    const finalizedRecords = records.filter((record) => Boolean(record.finalizedAt));
+    const count = (status: string) => finalizedRecords.filter((record) => record.status === status).length;
     const presentCount = count("present");
     const lateCount = count("late");
-    const totalCount = records.length;
+    const totalCount = finalizedRecords.length;
     return {
       totalCount,
       presentCount,
       lateCount,
       absentCount: count("absent"),
-      excusedCount: count("excused"),
       attendedCount: presentCount + lateCount,
       attendanceRate: totalCount ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 0,
       lateReasonTaskCount: tasks.filter((task) => task.kind === "late_reason").length,
@@ -1830,7 +1866,12 @@ export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
   async listStudentFeedbackTasks(studentId) {
     return attendanceRecordState.flatMap((record): EventFeedbackTask[] => {
       const session = attendanceSessionState.find((entry) => entry.id === record.sessionId);
-      if (record.studentId !== studentId || !session?.eventId || !["present", "late"].includes(record.status)) return [];
+      const hasCompletedCheckInOut = Boolean(record.timeIn && record.checkedOutAt);
+      const hasValidLateReason = Boolean(record.lateReasonSubmittedAt && record.checkedOutAt
+        && new Date(record.lateReasonSubmittedAt).getTime() > new Date(record.checkedOutAt).getTime());
+      const awaitingFeedback = !record.finalizedAt && hasCompletedCheckInOut
+        && (record.status !== "late" || hasValidLateReason);
+      if (record.studentId !== studentId || !session?.eventId || (!(["present", "late"].includes(record.status)) && !awaitingFeedback)) return [];
       const id = `feedback-task-${record.id}`;
       const status = completedFeedbackTaskIds.has(id) || Boolean(record.note?.includes("Feedback submitted")) ? "completed" : "pending";
       const completedAt = record.checkedOutAt ?? session.endsAt ?? record.recordedAt;
@@ -2037,16 +2078,24 @@ function requireHealthReason(reason: string) {
 
 export const simulatedSystemHealthRepository: SystemHealthRepository = {
   async getHealthSnapshot(context): Promise<SystemHealthSnapshot> {
-    await beforeRead("systemHealth", context, ["admin"]);
+    await beforeRead("systemHealth", context, ["admin", "department_admin"]);
+    const scopedContext = contextOrDefault(context);
+    if (scopedContext.actorRole === "department_admin" && !scopedContext.departmentId) throw new RepositoryError("An assigned department is required.", "PERMISSION_DENIED");
     const checkedAt = new Date().toISOString();
+    const departmentEventIds = scopedContext.actorRole === "department_admin"
+      ? new Set(eventState.filter((event) => event.departmentId === scopedContext.departmentId).map((event) => event.id))
+      : undefined;
     return {
-      checks: [
+      checks: scopedContext.actorRole === "department_admin" ? [
+        { key: "database", label: "Department data", status: "healthy", message: "Department health data is responding.", checkedAt },
+        { key: "auth", label: "Authentication status", status: "healthy", message: "The department administrator session is active.", checkedAt }
+      ] : [
         { key: "database", label: "Supabase connectivity", status: "healthy", message: "The application data layer is responding.", checkedAt },
         { key: "auth", label: "Authentication status", status: "healthy", message: "The administrator session is active.", checkedAt },
         { key: "storage", label: "Storage availability", status: "healthy", message: "Configured storage access is available.", checkedAt },
         { key: "edge-functions", label: "Edge Function availability", status: "healthy", message: "The configured application functions are available.", checkedAt }
       ],
-      recentErrors: reportFixtures.filter((report) => report.status === "failed").map((report) => ({
+      recentErrors: scopedContext.actorRole === "department_admin" ? [] : reportFixtures.filter((report) => report.status === "failed").map((report) => ({
         id: report.id,
         category: "application_error",
         severity: "critical",
@@ -2054,17 +2103,20 @@ export const simulatedSystemHealthRepository: SystemHealthRepository = {
         createdAt: report.generatedAt ?? "2026-06-26T08:00:00.000Z",
         referenceId: report.id
       })),
-      failedNotifications: failedNotificationState.filter((job) => job.status === "failed"),
-      stuckSessions: attendanceSessionState.filter((session) => session.status === "active" && new Date(session.endsAt ?? session.startsAt).getTime() < Date.now() - 30 * 60_000),
+      failedNotifications: failedNotificationState.filter((job) => job.status === "failed" && (!departmentEventIds || Boolean(job.eventId && departmentEventIds.has(job.eventId)))),
+      stuckSessions: attendanceSessionState.filter((session) => (!departmentEventIds || (session.type === "event" && Boolean(session.eventId) && departmentEventIds.has(session.eventId as string))) && session.status === "active" && new Date(session.endsAt ?? session.startsAt).getTime() < Date.now() - 30 * 60_000),
       consistencyIssues: [],
-      lastSuccessfulEmailAt: "2026-09-16T08:00:00.000Z"
+      lastSuccessfulEmailAt: scopedContext.actorRole === "department_admin" ? null : "2026-09-16T08:00:00.000Z"
     };
   },
   async retryFailedNotification(input, context) {
-    await beforeRead("systemHealth", context, ["admin"]);
+    await beforeRead("systemHealth", context, ["admin", "department_admin"]);
     requireHealthReason(input.reason);
     const job = failedNotificationState.find((entry) => entry.id === input.jobId);
     if (!job) throw new RepositoryError("The failed notification could not be found.", "NOT_FOUND");
+    const scopedContext = contextOrDefault(context);
+    if (scopedContext.actorRole === "department_admin" && (!scopedContext.departmentId || !job.eventId || eventState.find((event) => event.id === job.eventId)?.departmentId !== scopedContext.departmentId)) throw new RepositoryError("The failed email job is outside your department.", "PERMISSION_DENIED");
+    if (scopedContext.actorRole === "department_admin" && input.source !== "event_email") throw new RepositoryError("Only department event invitation email jobs can be retried.", "VALIDATION_ERROR");
     if (job.source !== input.source) throw new RepositoryError("The failed notification source is invalid.", "VALIDATION_ERROR");
     if (job.status !== "failed") throw new RepositoryError("Only failed notifications can be retried.", "VALIDATION_ERROR");
     const updated = { ...job, status: "retrying" as const, updatedAt: new Date().toISOString() };
@@ -2073,10 +2125,13 @@ export const simulatedSystemHealthRepository: SystemHealthRepository = {
     return updated;
   },
   async recoverAttendanceSession(input, context) {
-    await beforeRead("systemHealth", context, ["admin"]);
+    await beforeRead("systemHealth", context, ["admin", "department_admin"]);
     requireHealthReason(input.reason);
     const session = attendanceSessionState.find((entry) => entry.id === input.sessionId);
     if (!session) throw new RepositoryError("The attendance session could not be found.", "NOT_FOUND");
+    const scopedContext = contextOrDefault(context);
+    if (scopedContext.actorRole === "department_admin" && (!scopedContext.departmentId || session.type !== "event" || eventState.find((event) => event.id === session.eventId)?.departmentId !== scopedContext.departmentId)) throw new RepositoryError("The attendance session is outside your department.", "PERMISSION_DENIED");
+    if (scopedContext.actorRole === "department_admin" && new Date(session.endsAt ?? session.startsAt).getTime() >= Date.now() - 30 * 60_000) throw new RepositoryError("Only sessions at least 30 minutes past their scheduled end can be recovered.", "VALIDATION_ERROR");
     if (session.status !== "active") throw new RepositoryError("Only active stuck sessions can be recovered.", "VALIDATION_ERROR");
     const recovered = { ...session, status: "completed" as const, endsAt: new Date().toISOString() };
     attendanceSessionState = attendanceSessionState.map((entry) => entry.id === session.id ? recovered : entry);

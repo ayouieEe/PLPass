@@ -8,6 +8,7 @@ import selfsigned from "selfsigned";
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LocalAttendanceDatabase } from "./localDatabase.js";
+import { extractSchoolStudentNumber } from "../src/lib/credentials/qrCredential.js";
 
 export type ScannerStation = { id: string; name: string; joinedAt: string; lastSeenAt: string; lastScanAt?: string };
 export type ScannerCoordinatorStatus = {
@@ -180,6 +181,22 @@ export class ScannerCoordinator {
         station.lastSeenAt = new Date().toISOString();
         return json(response, 200, { ok: true, capturePhase: this.capturePhase });
       }
+      if (request.method === "POST" && url.pathname === "/api/walk-in") {
+        const auth=request.headers.authorization?.replace(/^Bearer\s+/i,"")??"";const station=this.stationFromToken(auth);
+        if(!station||!this.eventId||!this.sessionId) return json(response,401,{error:"Scanner station is no longer connected. Rejoin from the organizer session QR."});
+        const input=await this.body(request) as {studentNumber?:string};
+        const studentNumber=input.studentNumber?.trim()??"";
+        if(!/^\d{2}-\d{5}$/.test(studentNumber)) return json(response,400,{error:"A valid student number is required for walk-in review."});
+        const pkg=this.store.getPreparedEvent(this.eventId);
+        if(!pkg?.organizerProfileId) return json(response,409,{error:"The organizer-owned offline event package is unavailable."});
+        const recordedAt=new Date().toISOString();
+        try {
+          const queued=this.store.queueWalkInScan({eventId:this.eventId,sessionId:this.sessionId,studentNumber,identificationMethod:"qr",capturePhase:this.capturePhase,attendanceTimestamp:recordedAt,organizerProfileId:pkg.organizerProfileId});
+          station.lastSeenAt=recordedAt;station.lastScanAt=recordedAt;
+          const result={accepted:true,action:this.capturePhase==="time_in"?"checked_in":"checked_out",studentNumber:queued.studentNumber,recordedAt,message:`${this.capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(recordedAt).toLocaleTimeString()}; not synced. Identity is unverified.`};
+          this.publish();this.sockets.clients.forEach((socket)=>this.send(socket,{type:"scan",result}));return json(response,200,result);
+        }catch(error){return json(response,409,{accepted:false,error:error instanceof Error?error.message:"Walk-in scan could not be saved."});}
+      }
       if (request.method === "POST" && url.pathname === "/api/scan") {
         const auth = request.headers.authorization?.replace(/^Bearer\s+/i, "") ?? ""; const station = this.stationFromToken(auth);
         if (!station) return json(response, 401, { error: "Scanner station is no longer connected. Rejoin from the organizer session QR." });
@@ -192,14 +209,16 @@ export class ScannerCoordinator {
         // the participant lookup.
         const student = this.store.identifyQr(this.eventId, input.credentialCode.trim());
         const cachedAttendance = student ? this.store.getAttendanceState(this.sessionId, student.studentId) : null;
-        const result = !student ? { accepted: false, message: "Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
+        const unlistedStudentNumber=!student?extractSchoolStudentNumber(input.credentialCode):"";
+        const recordedAt=new Date().toISOString();
+        const result = !student ? { accepted: false, ...(unlistedStudentNumber?{requiresWalkInConfirmation:true,studentNumber:unlistedStudentNumber}:{}), message: unlistedStudentNumber?"Student is not in the downloaded roster. Ask the organizer whether to save this as an unverified walk-in.":"Invalid or ineligible student QR credential." } : cachedAttendance?.timeIn && this.capturePhase === "time_in" ? {
           accepted: false,
           action: "already_recorded" as const,
           message: "Time In was already recorded.",
           studentName: student.displayName,
           studentNumber: student.studentNumber
         } : (() => {
-          try { const attendance = this.capturePhase === "time_in" ? this.store.recordScannerCheckIn({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString(), deviceId: station.id }) : this.store.recordScannerCheckOut({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: new Date().toISOString(), deviceId: station.id }); const label = this.capturePhase === "time_in" ? "Time In" : "Time Out"; return { accepted: attendance.action !== "already_recorded", action: attendance.action, message: attendance.action === "already_recorded" ? `${label} was already recorded.` : attendance.safeMessage, studentName: student.displayName, studentNumber: student.studentNumber }; } catch (error) { return { accepted: false, message: error instanceof Error ? error.message : "Attendance could not be recorded." }; }
+          try { const attendance = this.capturePhase === "time_in" ? this.store.recordScannerCheckIn({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }) : this.store.recordScannerCheckOut({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }); const label = this.capturePhase === "time_in" ? "Time In" : "Time Out"; return { accepted: attendance.action !== "already_recorded", action: attendance.action, recordedAt:attendance.record.attendanceTimestamp, studentName: student.displayName, studentNumber: student.studentNumber, message: attendance.action === "already_recorded" ? `${label} was already recorded.` : `${label} saved on this device at ${new Date(attendance.record.attendanceTimestamp).toLocaleTimeString()}; not synced.` }; } catch (error) { return { accepted: false, message: error instanceof Error ? error.message : "Attendance could not be recorded." }; }
         })();
         this.attempts.set(input.scanAttemptId, result); if (this.attempts.size > 500) this.attempts.delete(this.attempts.keys().next().value as string);
         this.publish(); this.sockets.clients.forEach((socket) => this.send(socket, { type: "scan", result })); return json(response, 200, result);

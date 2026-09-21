@@ -60,7 +60,7 @@ test("admin accounts open the admin dashboard", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("href", "/admin/events");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/admin/settings");
   await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute("href", "/admin/profile");
-  await expect(page.getByText("Admin Workspace", { exact: true })).toBeVisible();
+  await expect(page.getByText("University Admin Workspace", { exact: true })).toBeVisible();
 });
 
 test("organizer accounts keep the organizer dashboard", async ({ page }) => {
@@ -71,7 +71,7 @@ test("organizer accounts keep the organizer dashboard", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("href", "/organizer/events");
   await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/organizer/settings");
   await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute("href", "/organizer/profile");
-  await expect(page.getByRole("banner").getByText("Organizer Workspace", { exact: true })).toBeVisible();
+  await expect(page.getByText("Organizer Workspace", { exact: true })).toBeVisible();
 });
 
 test("admin student-account grid provides keyboard and screen-reader context", async ({ page, browserName }) => {

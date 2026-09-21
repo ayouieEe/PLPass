@@ -43,7 +43,7 @@ import type { AttendanceMode, EventStatus, VerificationMethod } from "@/types/en
 
 export type CreateStudentInput = {
   studentNumber: string;
-  email: string;
+  email?: string;
   firstName: string;
   middleName?: string;
   lastName: string;
@@ -71,7 +71,7 @@ export type UpdateStudentInput = {
 };
 
 export type CreateOrganizerInput = {
-  email: string;
+  email?: string;
   firstName: string;
   middleName?: string;
   lastName: string;
@@ -98,7 +98,7 @@ export type UpdateOrganizerInput = {
 };
 
 export type CreateAdminInput = {
-  email: string;
+  email?: string;
   firstName: string;
   middleName?: string;
   lastName: string;
@@ -109,9 +109,10 @@ export type CreateAdminInput = {
   adminRole?: "admin" | "department_admin";
 };
 
-export type UpdateAdminInput = CreateAdminInput & {
+export type UpdateAdminInput = Omit<CreateAdminInput, "email"> & {
   id: string;
   profileId: string;
+  email: string;
   accountStatus: "active" | "inactive";
 };
 
@@ -242,7 +243,7 @@ export type ManualAttendanceInput = {
 };
 
 export type SubmitLateReasonInput = {
-  attendanceRecordId: string;
+  eventSessionId: string;
   reasonOptionId: string;
   customReason?: string;
 };
@@ -269,6 +270,8 @@ export type EnrollFacialProfileInput = {
 export type AttendanceSubmissionResultStatus =
   | "Present"
   | "Late"
+  | "Time In Recorded"
+  | "Time Out Recorded"
   | "Already Recorded"
   | "Invalid Credential"
   | "Blocked Credential"
@@ -546,6 +549,9 @@ export type SystemHealthIssue = {
 };
 export type FailedNotificationJob = {
   id: string;
+  eventId?: string;
+  notificationType?: string;
+  lastAttemptAt?: string | null;
   source: "event_email" | "request_email";
   recipient: string;
   channel: "email" | "in_app";

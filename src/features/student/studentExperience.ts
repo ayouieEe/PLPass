@@ -28,7 +28,11 @@ export type StudentEventRecord = {
   recordedAt: string;
   lateReasonCategory?: string;
   lateReason?: string;
+  lateReasonSubmittedAt?: string;
   feedbackSubmitted?: boolean;
+  finalized?: boolean;
+  timeIn?: string;
+  timeOut?: string;
 };
 
 
@@ -42,7 +46,6 @@ export type StudentEventState =
   | "Feedback Available"
   | "Feedback Submitted"
   | "Absent"
-  | "Excuse Submitted"
   | "Correction Pending"
   | "Correction Approved"
   | "Correction Rejected";
@@ -61,7 +64,6 @@ export type StudentEventWorkflow = {
   attendanceLabel: string;
   canSubmitFeedback: boolean;
   requiresLateReason: boolean;
-  requiresExcuse: boolean;
   requiresCorrection: boolean;
   timeline: { label: string; status: "done" | "current" | "locked" }[];
 };
@@ -133,15 +135,14 @@ export function emptyStudentIdentityReadiness(): StudentIdentityReadiness {
 export const correctionRequestTypeLabels: Record<AttendanceStatus, string> = {
   present: "Present",
   late: "Late",
-  absent: "Absent",
-  excused: "Excused"
+  absent: "Absent"
 };
 
-export type CorrectionRequestType = Extract<AttendanceStatus, "present" | "late" | "excused">;
+export type CorrectionRequestType = Extract<AttendanceStatus, "present" | "late">;
 
 export function getCorrectionRequestTypes(status: StudentEventRecord["status"]): CorrectionRequestType[] {
-  if (status === "late") return ["present", "excused"];
-  if (status === "absent") return ["present", "late", "excused"];
+  if (status === "late") return ["present"];
+  if (status === "absent") return ["present", "late"];
   return [];
 }
 
@@ -256,7 +257,11 @@ export function recordsForStudentEvents(input: {
         recordedAt: record.recordedAt,
         lateReasonCategory: record.lateReasonCategory,
         lateReason: record.lateReason ?? record.lateReasonCategory ?? (record.note?.startsWith("Late reason:") ? record.note.replace("Late reason:", "").trim() : undefined),
-        feedbackSubmitted: false
+        lateReasonSubmittedAt: record.lateReasonSubmittedAt,
+        feedbackSubmitted: false,
+        finalized: Boolean(record.finalizedAt),
+        timeIn: record.timeIn,
+        timeOut: record.checkedOutAt
       }];
     });
   return repositoryRecords;
@@ -292,21 +297,20 @@ export function getStudentEventRecords(input: {
 }
 
 export function getStudentEventMetrics(records: StudentEventRecord[]) {
-  const presentCount = records.filter((record) => record.status === "present").length;
-  const lateCount = records.filter((record) => record.status === "late").length;
-  const absentCount = records.filter((record) => record.status === "absent").length;
-  const excusedCount = records.filter((record) => record.status === "excused").length;
+  const finalized = records.filter((record) => record.finalized === true);
+  const presentCount = finalized.filter((record) => record.status === "present").length;
+  const lateCount = finalized.filter((record) => record.status === "late").length;
+  const absentCount = finalized.filter((record) => record.status === "absent").length;
   const attendedCount = presentCount + lateCount;
-  const attendanceRate = records.length ? Math.round((attendedCount / records.length) * 100) : 0;
-  const attendedRecords = records.filter((record) => record.status === "present" || record.status === "late");
+  const attendanceRate = finalized.length ? Math.round((attendedCount / finalized.length) * 100) : 0;
+  const attendedRecords = finalized.filter((record) => record.status === "present" || record.status === "late");
   const feedbackDue = attendedRecords.filter((record) => !record.feedbackSubmitted).length;
 
   return {
-    totalCount: records.length,
+    totalCount: finalized.length,
     presentCount,
     lateCount,
     absentCount,
-    excusedCount,
     attendedCount,
     attendedRecords,
     attendanceRate,
@@ -344,33 +348,34 @@ export function buildStudentEventWorkflow(input: {
   const startsAt = toValidDate(event.startsAt)?.getTime() ?? now;
   const endsAt = toValidDate(event.endsAt)?.getTime() ?? startsAt;
   const sessionStatus = session?.status;
-  const hasTimeIn = Boolean(record && record.status !== "absent");
-  const isLate = record?.status === "late";
-  const requiresLateReason = Boolean(isLate && !record?.lateReason);
+  const hasTimeIn = Boolean(record?.timeIn);
+  const isLate = Boolean(record?.timeIn && session?.lateCutoffAt && new Date(record.timeIn).getTime() > new Date(session.lateCutoffAt).getTime());
   const sessionCompleted = event.status === "completed" || sessionStatus === "completed" || now > endsAt;
-  const hasTimeOut = Boolean(hasTimeIn && sessionCompleted && !requiresLateReason);
-  const isAbsent = record?.status === "absent" || (!record && sessionCompleted);
+  const hasTimeOut = Boolean(record?.timeOut);
+  const isAbsent = Boolean(record?.finalized && record.status === "absent") || (!record && sessionCompleted);
+  const hasSubmittedLateReason = Boolean(record?.lateReasonSubmittedAt && record.timeOut
+    && new Date(record.lateReasonSubmittedAt).getTime() > new Date(record.timeOut).getTime());
+  const requiresLateReason = Boolean(isLate && hasTimeIn && hasTimeOut && !hasSubmittedLateReason && !feedbackSubmitted && !isAbsent);
 
   let state: StudentEventState;
   if (correctionStatus === "pending") state = "Correction Pending";
-  else if (correctionStatus === "approved") state = record?.status === "absent" ? "Excuse Submitted" : "Correction Approved";
+  else if (correctionStatus === "approved") state = "Correction Approved";
   else if (correctionStatus === "rejected") state = "Correction Rejected";
   else if (isAbsent) state = "Absent";
   else if (feedbackSubmitted && hasTimeOut) state = "Feedback Submitted";
-  else if (hasTimeOut) state = "Feedback Available";
   else if (requiresLateReason) state = "Late Reason Required";
+  else if (hasTimeOut) state = "Feedback Available";
   else if (hasTimeIn) state = sessionCompleted ? "Attendance Completed" : "Pending Time Out";
   else if (now < startsAt || sessionStatus === "draft") state = "Session Not Started";
   else state = "Waiting for Time In";
 
   const canSubmitFeedback = state === "Feedback Available";
-  const requiresExcuse = state === "Absent";
-  const requiresCorrection = state === "Pending Time Out" || state === "Correction Rejected";
+  const requiresCorrection = state === "Correction Rejected";
   const nextAction = (() => {
-    if (state === "Late Reason Required") return ["Submit Late Reason", "Record the reason before feedback unlocks."] as const;
+    if (state === "Late Reason Required") return ["Submit Late Reason", "Submit your reason after Time Out and before event feedback."] as const;
     if (state === "Feedback Available") return ["Answer Feedback", "Required before attendance is marked complete."] as const;
-    if (state === "Absent") return ["Submit Excuse", "File an excuse request for organizer review."] as const;
-    if (state === "Pending Time Out") return ["File Correction", "Time Out is missing. Ask the organizer to review the record."] as const;
+    if (state === "Absent") return ["Request Correction", "Ask the organizer to review the attendance result."] as const;
+    if (state === "Pending Time Out") return ["Contact Organizer", "Time Out must be recorded before feedback can be completed."] as const;
     if (state === "Correction Rejected") return ["File Correction", "Review the decision and submit a clearer request if needed."] as const;
     if (state === "Waiting for Time In") return ["Show QR", "Show your QR to the organizer. The organizer records Time In."] as const;
     if (state === "Feedback Submitted") return ["Attendance Completed", "Your feedback is submitted and attendance is complete."] as const;
@@ -381,8 +386,8 @@ export function buildStudentEventWorkflow(input: {
     "Published",
     "Session Started",
     "Time In Recorded",
-    "Late Reason Required",
     "Time Out Recorded",
+    "Late Reason Required",
     "Feedback Available",
     "Feedback Submitted",
     "Completed"
@@ -390,9 +395,9 @@ export function buildStudentEventWorkflow(input: {
   const done = new Set<string>(["Published"]);
   if (now >= startsAt || sessionStatus === "active" || sessionCompleted) done.add("Session Started");
   if (hasTimeIn) done.add("Time In Recorded");
-  if (isLate && record?.lateReason) done.add("Late Reason Required");
   if (hasTimeOut) done.add("Time Out Recorded");
-  if (hasTimeOut) done.add("Feedback Available");
+  if (hasSubmittedLateReason && isLate) done.add("Late Reason Required");
+  if (hasTimeOut && !requiresLateReason) done.add("Feedback Available");
   if (feedbackSubmitted) {
     done.add("Feedback Submitted");
     done.add("Completed");
@@ -417,13 +422,12 @@ export function buildStudentEventWorkflow(input: {
     nextActionLabel: nextAction[0],
     nextActionTone: state === "Session Not Started" || state === "Feedback Submitted" ? "outline" : "primary",
     nextActionDescription: nextAction[1],
-    timeInLabel: hasTimeIn && record ? formatDisplayTime(record.recordedAt) : "Not recorded",
-    timeOutLabel: hasTimeOut ? formatDisplayTime(event.endsAt) : "Not recorded",
+    timeInLabel: hasTimeIn && record?.timeIn ? formatDisplayTime(record.timeIn) : "Not recorded",
+    timeOutLabel: hasTimeOut && record?.timeOut ? formatDisplayTime(record.timeOut) : "Not recorded",
     feedbackLabel: feedbackSubmitted ? "Submitted" : canSubmitFeedback ? "Required" : "Locked",
     attendanceLabel: isAbsent ? "Absent" : feedbackSubmitted && hasTimeOut ? "Complete" : hasTimeOut ? "Feedback required" : hasTimeIn ? "Time In only" : "Not recorded",
     canSubmitFeedback,
     requiresLateReason,
-    requiresExcuse,
     requiresCorrection,
     timeline: timelineLabels.map((label) => ({
       label,

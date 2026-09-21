@@ -120,6 +120,50 @@ describe("event page validation helpers", () => {
     })).toBe(false);
   });
 
+  it("keeps active same-day events in admin Today and reopens their monitor", () => {
+    const today = new Date();
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    const event = {
+      id: "evt-live-today",
+      code: "EVT-LIVE-TODAY",
+      name: "Live Today",
+      category: "General",
+      venue: "AVR 1",
+      date,
+      startTime: "02:00",
+      endTime: "04:00",
+      status: "ongoing",
+      priorityLevel: "Flexible",
+      impactScore: null,
+      predictedTurnout: "0%",
+      objectives: []
+    } satisfies EventRecord;
+    const activeSession = [{ eventId: event.id, status: "active" }];
+
+    expect(shouldDisplayInEventTab(event, "today", {
+      includeActiveEvents: true,
+      cancelledCodes: [],
+      completedCodes: new Set(),
+      sessionsList: activeSession
+    })).toBe(true);
+    expect(shouldDisplayInEventTab(event, "today", {
+      cancelledCodes: [],
+      completedCodes: new Set(),
+      sessionsList: activeSession
+    })).toBe(false);
+    expect(shouldDisplayInEventTab(event, "incoming", {
+      includeActiveEvents: true,
+      cancelledCodes: [],
+      completedCodes: new Set(),
+      sessionsList: activeSession
+    })).toBe(false);
+    expect(eventManagementPage).toContain("includeActiveEvents: isReadOnlyMonitor");
+    expect(eventManagementPage).toContain("sessionsList.find((session) => session.eventId === event.id");
+    expect(eventManagementPage).toContain("APP_ROUTES.adminLiveSession(activeSession.id)");
+    expect(eventManagementPage).toContain('adminRoute.startsWith(`${APP_ROUTES.adminEvents}?`)');
+    expect(eventManagementPage).toContain('return adminRoute.replace(APP_ROUTES.adminEvents, APP_ROUTES.departmentEvents)');
+  });
+
   it("keeps the Philippine calendar date when ISO timestamps are stored in UTC", () => {
     expect(dateKey("2026-08-30T16:00:00.000Z")).toBe("2026-08-31");
     expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
@@ -146,6 +190,11 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("event.id === attendanceSession.eventId");
     expect(eventManagementPage).toContain("Rehydrate a live event from persisted session data after a reload");
     expect(eventManagementPage).toContain("setLiveSessionId(persistedActiveSession.id)");
+    expect(eventManagementPage).toContain("if (isReadOnlyMonitor || sessionIdFromQuery || activeEvent || liveSessionId");
+    expect(eventManagementPage).toContain("Back to all events");
+    expect(eventManagementPage).toContain("navigate(isDepartmentAdmin ? APP_ROUTES.departmentEvents : APP_ROUTES.adminEvents, { replace: true })");
+    expect(eventManagementPage).toContain("leavingReadOnlyMonitorRef.current = true");
+    expect(eventManagementPage).toContain("if (leavingReadOnlyMonitorRef.current) return");
   });
 
   it("uses one live-session workspace and hides the floating entry point there", () => {

@@ -551,7 +551,7 @@ export function OrganizerCorrectionRequestsPage() {
         const attendanceRecord = recordById.get(req.attendanceRecordId);
         const attendanceSession = attendanceRecord ? sessionById.get(attendanceRecord.sessionId) : undefined;
         const event = attendanceSession?.eventId ? eventById.get(attendanceSession.eventId) : undefined;
-        const recordedStatus = attendanceRecord?.status === "excused" ? "absent" : attendanceRecord?.status;
+        const recordedStatus = attendanceRecord?.status;
         return {
           id: req.id,
           requestId: formatRequestId(req.id, index),
@@ -559,11 +559,11 @@ export function OrganizerCorrectionRequestsPage() {
           studentNumber: studentInfo?.studentNumber ?? (req.studentId === "student-1" ? "23-00001" : req.studentId),
           eventCode: event?.code ?? "Unknown event",
           eventName: event?.title ?? "Event details unavailable",
-          requestType: (req.requestedStatus === "excused" ? "Excuse" : "Correction") as RequestType,
+          requestType: "Correction" as RequestType,
           dateSubmitted: req.requestedAt.slice(0, 10),
           status: req.status as RequestStatus,
           recordedAttendanceStatus: (recordedStatus === "present" || recordedStatus === "late" || recordedStatus === "absent" ? recordedStatus : "absent") as "present" | "late" | "absent",
-          requestedStatus: (req.requestedStatus === "excused" ? "absent" : req.requestedStatus) as "present" | "late" | "absent",
+          requestedStatus: req.requestedStatus as "present" | "late" | "absent",
           explanation: req.reason,
           decisionRemarks: req.reviewRemarks
         };
