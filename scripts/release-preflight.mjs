@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { URL } from "node:url";
 import { extname, join, resolve } from "node:path";
 import process from "node:process";
 
@@ -24,7 +26,10 @@ requireMigration("harden_biometric_and_event_email_functions");
 rejectFrontendServiceSecrets();
 checkBuiltArtifact();
 
-if (productionMode) checkProductionEnvironment();
+if (productionMode) {
+  const productionProjectRef = checkProductionEnvironment();
+  if (productionProjectRef) checkLinkedSupabaseReadiness(productionProjectRef);
+}
 
 for (const check of checks) process.stdout.write(`PASS  ${check}\n`);
 for (const failure of failures) process.stderr.write(`FAIL  ${failure}\n`);
@@ -80,12 +85,37 @@ function checkBuiltArtifact() {
 function checkProductionEnvironment() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !/^https:\/\/[^/]+\.supabase\.co\/?$/.test(url)) failures.push("A valid HTTPS Supabase project URL is required.");
-  else checks.push("Production Supabase URL is valid");
+  let projectRef;
+  if (!url || !/^https:\/\/([a-z0-9-]+)\.supabase\.co\/?$/i.test(url)) failures.push("A valid HTTPS Supabase project URL is required.");
+  else {
+    projectRef = new URL(url).hostname.split(".")[0];
+    checks.push(`Production Supabase URL is valid (${projectRef})`);
+    const config = readFileSync(resolve(root, "supabase/config.toml"), "utf8");
+    const linkedRef = config.match(/^project_id\s*=\s*["']([^"']+)["']/mu)?.[1];
+    if (!linkedRef || linkedRef !== projectRef) failures.push(`Production URL project ${projectRef} does not match supabase/config.toml project_id ${linkedRef ?? "(missing)"}.`);
+    else checks.push("Production URL matches the repository's linked Supabase project");
+  }
   if (!key || /YOUR_|service_role|secret/i.test(key)) failures.push("A publishable Supabase browser key is required; secret/service-role keys are forbidden.");
   else checks.push("Production browser key is present and not labeled as privileged");
   if (process.env.VITE_DATA_SOURCE === "mock") failures.push("VITE_DATA_SOURCE=mock is forbidden for a production release.");
   else checks.push("Production data source is not mock");
+  return projectRef;
+}
+
+function checkLinkedSupabaseReadiness(expectedProjectRef) {
+  const environment = { ...process.env, SUPABASE_TELEMETRY_DISABLED: "1" };
+  const result = spawnSync("npm", ["run", "check:supabase:linked"], {
+    cwd: root,
+    env: environment,
+    encoding: "utf8",
+    shell: process.platform === "win32"
+  });
+  if (result.error || result.status !== 0) {
+    const diagnostics = [result.stdout?.trim(), result.stderr?.trim(), result.error?.message].filter(Boolean).join("\n");
+    failures.push(`Linked Supabase readiness failed for production project ${expectedProjectRef}. Authenticate the Supabase CLI to the configured project, reconcile migrations, resolve schema lint, and refresh database types before release. ${diagnostics || "Linked readiness command failed."}`);
+    return;
+  }
+  checks.push(`Production linked migrations, schema lint, and generated types pass for ${expectedProjectRef}`);
 }
 
 function walk(directory, visit) {

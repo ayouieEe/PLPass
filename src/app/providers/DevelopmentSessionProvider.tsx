@@ -81,7 +81,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         if (stored) {
           try {
             const nextSession = JSON.parse(stored) as DevelopmentSession;
-            if (nextSession.role !== "student" && nextSession.role !== "organizer" && nextSession.role !== "admin") {
+            if (nextSession.role !== "student" && nextSession.role !== "organizer" && nextSession.role !== "admin" && nextSession.role !== "department_admin") {
               if (isMounted) {
                 setSession(null);
                 setIsSessionRestored(true);

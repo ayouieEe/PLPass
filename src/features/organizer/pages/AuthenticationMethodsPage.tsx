@@ -92,10 +92,10 @@ type FacialRow = {
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
-  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, session?.role === "organizer");
   return {
     context,
     organizerProfile: organizerQuery.data?.items[0]
@@ -548,7 +548,11 @@ function ReportExportModal({
 export function AuthenticationMethodsPage() {
   const scope = useOrganizerScope();
   const actorRole = scope.context?.actorRole;
-  const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
+  const isDepartmentAdmin = actorRole === "department_admin";
+  const isReadOnly = actorRole !== "organizer" && actorRole !== "admin" && actorRole !== "department_admin";
+  // Only organizers need event/participant lookups to derive their credential
+  // scope. Admin and department-admin screens use their own student scope.
+  const eventsQuery = useEvents({ pageSize: 500 }, scope.context, actorRole === "organizer");
   const ownedEventIds = useMemo(
     () => actorRole === "organizer"
       ? (eventsQuery.data?.items ?? []).filter((event) => event.organizerId === scope.organizerProfile?.id).map((event) => event.id)
@@ -563,11 +567,26 @@ export function AuthenticationMethodsPage() {
   const allStudentsQuery = useStudents({ pageSize: 100 }, scope.context, actorRole !== "organizer");
   const organizerStudentsQuery = useStudentsByIds(organizerParticipantIds, scope.context);
   const studentsQuery = actorRole === "organizer" ? organizerStudentsQuery : allStudentsQuery;
-  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, actorRole === "organizer" ? organizerParticipantIds : undefined);
+  const departmentStudentIds = useMemo(
+    () => isDepartmentAdmin ? (allStudentsQuery.data?.items ?? []).map((student) => student.id) : [],
+    [allStudentsQuery.data?.items, isDepartmentAdmin]
+  );
+  const credentialStatusesQuery = useStudentCredentialStatuses(
+    scope.context,
+    actorRole === "organizer" ? organizerParticipantIds : actorRole === "department_admin" ? departmentStudentIds : undefined
+  );
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
-  const canResetCredentials = scope.context?.actorRole === "organizer" || Boolean(scope.context?.actorRole && hasCapability(scope.context.actorRole, "credentials.reset"));
-  const canRevokeCredentials = scope.context?.actorRole === "organizer" || Boolean(scope.context?.actorRole && hasCapability(scope.context.actorRole, "credentials.revoke"));
+  const canResetCredentials = !isReadOnly && (actorRole === "department_admin"
+    ? hasCapability(actorRole, "credentials.reset.department")
+    : actorRole === "organizer"
+      ? hasCapability(actorRole, "credentials.reset.owned_event")
+      : actorRole === "admin" && hasCapability(actorRole, "credentials.reset"));
+  const canRevokeCredentials = !isReadOnly && (actorRole === "department_admin"
+    ? hasCapability(actorRole, "credentials.revoke.department")
+    : actorRole === "organizer"
+      ? hasCapability(actorRole, "credentials.revoke.owned_event")
+      : actorRole === "admin" && hasCapability(actorRole, "credentials.revoke"));
 
   const rawStudents = useMemo(() => {
     if (actorRole === "organizer") return organizerStudentsQuery.data ?? [];
@@ -587,6 +606,7 @@ export function AuthenticationMethodsPage() {
     cancelLabel?: string;
     tone?: "default" | "danger";
     studentName?: string;
+    studentId?: string;
   }>(null);
 
   const credentialMap = useMemo(
@@ -657,46 +677,50 @@ export function AuthenticationMethodsPage() {
     });
   }, [facialRows, searchQuery, statusFilter]);
 
-  const handleDisableQr = useCallback((studentName: string) => {
+  const handleDisableQr = useCallback((student: QrRow) => {
     setActiveModal({
       type: "qr",
       title: "Disable QR credential",
-      description: `Temporarily disable the QR credential for ${studentName}? This action can be reversed later.`,
+      description: `Revoke the current QR credential for ${student.studentName}? They will need a new credential before using QR check-in.`,
       confirmLabel: "Disable credential",
       cancelLabel: "Cancel",
       tone: "danger",
-      studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleActivateQr = useCallback((studentName: string) => {
+  const handleActivateQr = useCallback((student: QrRow) => {
     setActiveModal({
       type: "qr",
       title: "Enable QR credential",
-      description: `Activate the QR credential for ${studentName}?`,
+      description: `Reactivate the existing QR credential for ${student.studentName}?`,
       confirmLabel: "Enable credential",
       cancelLabel: "Cancel",
       tone: "default",
-      studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleRegenerateQr = useCallback((studentName: string) => {
+  const handleRegenerateQr = useCallback((student: QrRow) => {
     setActiveModal({
       type: "qr",
-      title: "Regenerate QR credential",
-      description: `A fresh QR code will be generated and assigned to ${studentName}.`,
+      title: "Reissue QR credential",
+      description: `The current QR credential for ${student.studentName} will be revoked and replaced with a new one. Continue?`,
       confirmLabel: "Regenerate QR",
       cancelLabel: "Cancel",
-      studentName
+      tone: "danger",
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleToggleQrStatus = useCallback((studentName: string, currentStatus: QRStatus) => {
-    if (currentStatus === "Active") {
-      handleDisableQr(studentName);
+  const handleToggleQrStatus = useCallback((student: QrRow) => {
+    if (student.status === "Active") {
+      handleDisableQr(student);
     } else {
-      handleActivateQr(studentName);
+      handleActivateQr(student);
     }
   }, [handleDisableQr, handleActivateQr]);
 
@@ -710,69 +734,77 @@ export function AuthenticationMethodsPage() {
       confirmLabel: canManage ? (isActive ? "Disable credential" : "Enable credential") : "Close",
       cancelLabel: canManage ? "Cancel" : "Close",
       tone: canManage && isActive ? "danger" : "default",
-      studentName: student.studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleViewFacial = useCallback((studentName: string) => {
+  const handleViewFacial = useCallback((student: FacialRow) => {
     setActiveModal({
       type: "facial",
       title: "Facial enrollment details",
-      description: `Review the current facial enrollment for ${studentName}.`,
+      description: `Review the current facial enrollment for ${student.studentName}.`,
       confirmLabel: "Close",
-      studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleDeactivateFacial = useCallback((studentName: string) => {
+  const handleDeactivateFacial = useCallback((student: FacialRow) => {
     setActiveModal({
       type: "facial",
       title: "Deactivate facial credential",
-      description: `Deactivate the facial recognition credential for ${studentName}? This will block future facial check-ins.`,
+      description: `Revoke the facial recognition credential for ${student.studentName}? This will block future facial check-ins.`,
       confirmLabel: "Deactivate",
       cancelLabel: "Cancel",
       tone: "danger",
-      studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleActivateFacial = useCallback((studentName: string) => {
+  const handleActivateFacial = useCallback((student: FacialRow) => {
     setActiveModal({
       type: "facial",
       title: "Activate facial credential",
-      description: `Activate the facial recognition credential for ${studentName}?`,
+      description: `Reactivate the existing facial enrollment for ${student.studentName}?`,
       confirmLabel: "Activate",
       cancelLabel: "Cancel",
       tone: "default",
-      studentName
+      studentName: student.studentName,
+      studentId: student.studentId
     });
   }, []);
 
-  const handleToggleFacialStatus = useCallback((studentName: string, currentStatus: FacialStatus) => {
-    if (currentStatus === "Active") {
-      handleDeactivateFacial(studentName);
+  const handleToggleFacialStatus = useCallback((student: FacialRow) => {
+    if (student.status === "Active") {
+      handleDeactivateFacial(student);
     } else {
-      handleActivateFacial(studentName);
+      handleActivateFacial(student);
     }
   }, [handleDeactivateFacial, handleActivateFacial]);
 
   async function confirmModalAction() {
     if (!activeModal) return;
+    try {
     const isRevocation = /Disable|Deactivate/.test(activeModal.title);
-    if ((isRevocation && !canRevokeCredentials) || (!isRevocation && /Enable|Activate|Regenerate/.test(activeModal.title) && !canResetCredentials)) {
+    if ((isRevocation && !canRevokeCredentials) || (!isRevocation && /Enable|Activate|Regenerate|Reissue/.test(activeModal.title) && !canResetCredentials)) {
       toast.error("Your account does not have permission for this credential action.");
       setActiveModal(null);
       return;
     }
 
     if (activeModal.type === "qr" && activeModal.studentName) {
-      const student = qrRows.find((row) => row.studentName === activeModal.studentName);
+      const student = qrRows.find((row) => row.studentId === activeModal.studentId);
       if (!student) {
         toast.error("Student credential could not be found.");
         setActiveModal(null);
         return;
       }
-      if (activeModal.title.includes("Disable") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
+      if (/Reissue|Regenerate/i.test(activeModal.title)) {
+        await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
+        toast.success(`A new QR credential was issued for ${student.studentName}.`);
+      } else if (activeModal.title.includes("Disable") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
@@ -790,7 +822,7 @@ export function AuthenticationMethodsPage() {
     }
 
     if (activeModal.type === "facial" && activeModal.studentName) {
-      const student = facialRows.find((row) => row.studentName === activeModal.studentName);
+      const student = facialRows.find((row) => row.studentId === activeModal.studentId);
       if (!student) {
         toast.error("Student facial credential could not be found.");
         setActiveModal(null);
@@ -816,17 +848,22 @@ export function AuthenticationMethodsPage() {
     }
 
     setActiveModal(null);
+    } catch {
+      // Credential mutation hooks surface the server error; close the modal
+      // without leaving an unhandled rejected promise from the confirm button.
+      setActiveModal(null);
+    }
   }
 
   const selectedStudentQrInfo = useMemo(() => {
-    if (!activeModal?.studentName) return null;
-    return qrRows.find((r) => r.studentName === activeModal.studentName);
-  }, [activeModal?.studentName, qrRows]);
+    if (!activeModal?.studentId) return null;
+    return qrRows.find((r) => r.studentId === activeModal.studentId);
+  }, [activeModal?.studentId, qrRows]);
 
   const selectedStudentFacialInfo = useMemo(() => {
-    if (!activeModal?.studentName) return null;
-    return facialRows.find((r) => r.studentName === activeModal.studentName);
-  }, [activeModal?.studentName, facialRows]);
+    if (!activeModal?.studentId) return null;
+    return facialRows.find((r) => r.studentId === activeModal.studentId);
+  }, [activeModal?.studentId, facialRows]);
 
   const qrColumns = useMemo<ColDef<QrRow>[]>(() => [
     {
@@ -882,7 +919,7 @@ export function AuthenticationMethodsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes and facial recognition credentials institution-wide." : "Manage credentials for participants in your owned events."} />
+      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes and facial recognition credentials institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage credentials for participants in your owned events."} />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Credential overview">
         {activeTab === "qr" ? (
@@ -930,6 +967,7 @@ export function AuthenticationMethodsPage() {
             <button
               type="button"
               onClick={() => setIsExportModalOpen(true)}
+              hidden={isReadOnly || isDepartmentAdmin}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
             >
               <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1001,10 +1039,17 @@ export function AuthenticationMethodsPage() {
             </div>
             <OrganizerQrPreview student={selectedStudentQrInfo} />
             <p>
-              {activeModal.title.includes("Regenerate")
+              {/Regenerate|Reissue/i.test(activeModal.title)
                 ? "A fresh QR code will be generated and assigned to this student for the next event." 
                 : "This preview shows the student’s current QR credential details before attendance check-in."}
             </p>
+            {activeModal.title === "QR credential details" && canResetCredentials && selectedStudentQrInfo ? (
+              <div className="flex justify-end border-t border-border/60 pt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => handleRegenerateQr(selectedStudentQrInfo)}>
+                  Reissue QR
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1031,14 +1076,14 @@ export function AuthenticationMethodsPage() {
             </p>
             {activeModal.title === "Facial enrollment details" && selectedStudentFacialInfo ? (
               <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
-                <Button
+                {(selectedStudentFacialInfo.status === "Active" ? canRevokeCredentials : canResetCredentials) ? <Button
                   type="button"
                   variant={selectedStudentFacialInfo.status === "Active" ? "destructive" : "default"}
                   size="sm"
-                  onClick={() => handleToggleFacialStatus(selectedStudentFacialInfo.studentName, selectedStudentFacialInfo.status)}
+                  onClick={() => handleToggleFacialStatus(selectedStudentFacialInfo)}
                 >
                   {selectedStudentFacialInfo.status === "Active" ? "Deactivate facial" : "Activate facial"}
-                </Button>
+                </Button> : null}
               </div>
             ) : null}
           </div>
@@ -1055,7 +1100,7 @@ export function AuthenticationMethodsPage() {
             isLoading={studentsQuery.isLoading}
             emptyTitle="No QR credentials found"
             emptyDescription="There are no student QR credentials matching your criteria."
-            onRowClick={handleViewQr}
+            onRowClick={isReadOnly ? undefined : handleViewQr}
           />
         </div>
       ) : (
@@ -1067,7 +1112,7 @@ export function AuthenticationMethodsPage() {
             isLoading={studentsQuery.isLoading}
             emptyTitle="No facial enrollment records found"
             emptyDescription="There are no facial enrollment records matching your criteria."
-            onRowClick={(row) => handleViewFacial(row.studentName)}
+            onRowClick={isReadOnly ? undefined : handleViewFacial}
           />
 
         </div>

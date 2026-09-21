@@ -5,21 +5,22 @@ export const CAPABILITIES = [
   "events.create", "events.read.owned", "events.manage.owned", "events.read.all",
   "attendance.read.owned", "attendance.manage.owned", "attendance.read.all",
   "corrections.review.owned", "analytics.read.owned", "analytics.read.all",
-  "reports.read.owned", "reports.read.all", "credentials.use.owned_event", "credentials.reset", "credentials.revoke",
-  "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
+  "reports.read.owned", "reports.read.all", "credentials.use.owned_event", "credentials.reset.owned_event", "credentials.revoke.owned_event", "credentials.read.department", "credentials.reset", "credentials.revoke", "credentials.reset.department", "credentials.revoke.department",
+  "system.settings.manage", "system.catalog.manage", "system.health.read", "system.health.read.department", "system.errors.read", "system.jobs.retry",
   "system.data_check.run", "system.cache.refresh", "attendance.session.recover",
   "audit.read.own", "audit.read.all", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own",
   "departments.read.owned", "departments.branding.manage.owned", "events.read.department",
   "attendance.read.department", "reports.read.department", "reports.export.department",
   "analytics.read.department", "audit.read.department", "audit.export.department",
-  "students.read.department", "students.read.event_participant"
+  "students.read.department", "students.read.event_participant", "students.read.event_invite_directory"
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
 
 const organizerCapabilities = [
   "events.create", "events.read.owned", "events.manage.owned", "attendance.read.owned", "attendance.manage.owned",
-  "corrections.review.owned", "reports.read.owned", "analytics.read.owned", "credentials.use.owned_event",
+  "corrections.review.owned", "reports.read.owned", "analytics.read.owned", "credentials.use.owned_event", "credentials.reset.owned_event", "credentials.revoke.owned_event",
+  "students.read.event_invite_directory",
   "audit.read.own", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own"
 ] as const satisfies readonly Capability[];
 
@@ -37,6 +38,7 @@ const departmentAdminCapabilities = [
   "attendance.read.department", "reports.read.department", "reports.export.department",
   "analytics.read.department", "audit.read.department", "audit.export.department",
   "students.read.department", "students.read.event_participant",
+  "credentials.read.department", "credentials.reset.department", "credentials.revoke.department", "system.health.read.department",
   "profile.manage.own", "notifications.read.own"
 ] as const satisfies readonly Capability[];
 

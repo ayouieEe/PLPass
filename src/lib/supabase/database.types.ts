@@ -366,214 +366,6 @@ export type Database = {
           },
         ]
       }
-      class_rosters: {
-        Row: {
-          class_id: string
-          enrolled_at: string
-          id: string
-          student_id: string
-        }
-        Insert: {
-          class_id: string
-          enrolled_at?: string
-          id?: string
-          student_id: string
-        }
-        Update: {
-          class_id?: string
-          enrolled_at?: string
-          id?: string
-          student_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_rosters_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_rosters_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      class_sessions: {
-        Row: {
-          actual_end: string | null
-          actual_start: string | null
-          attendance_window_end_at: string | null
-          attendance_window_start_at: string | null
-          class_id: string
-          created_at: string
-          created_by: string
-          ended_reason: string | null
-          id: string
-          late_cutoff_at: string | null
-          mode: string
-          room_id: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_date: string
-          session_name: string
-          session_status: string
-          updated_at: string
-        }
-        Insert: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          class_id: string
-          created_at?: string
-          created_by: string
-          ended_reason?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          room_id?: string | null
-          scheduled_end: string
-          scheduled_start: string
-          session_date: string
-          session_name: string
-          session_status?: string
-          updated_at?: string
-        }
-        Update: {
-          actual_end?: string | null
-          actual_start?: string | null
-          attendance_window_end_at?: string | null
-          attendance_window_start_at?: string | null
-          class_id?: string
-          created_at?: string
-          created_by?: string
-          ended_reason?: string | null
-          id?: string
-          late_cutoff_at?: string | null
-          mode?: string
-          room_id?: string | null
-          scheduled_end?: string
-          scheduled_start?: string
-          session_date?: string
-          session_name?: string
-          session_status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "class_sessions_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_sessions_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "class_sessions_room_id_fkey"
-            columns: ["room_id"]
-            isOneToOne: false
-            referencedRelation: "rooms"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      classes: {
-        Row: {
-          created_at: string
-          department_id: string
-          faculty_id: string
-          id: string
-          program_id: string
-          room: string
-          schedule_label: string
-          section_id: string
-          semester_id: string
-          status: string
-          subject_code: string
-          subject_title: string
-          updated_at: string
-          year_level: number
-        }
-        Insert: {
-          created_at?: string
-          department_id: string
-          faculty_id: string
-          id?: string
-          program_id: string
-          room: string
-          schedule_label: string
-          section_id: string
-          semester_id: string
-          status?: string
-          subject_code: string
-          subject_title: string
-          updated_at?: string
-          year_level: number
-        }
-        Update: {
-          created_at?: string
-          department_id?: string
-          faculty_id?: string
-          id?: string
-          program_id?: string
-          room?: string
-          schedule_label?: string
-          section_id?: string
-          semester_id?: string
-          status?: string
-          subject_code?: string
-          subject_title?: string
-          updated_at?: string
-          year_level?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "classes_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_faculty_id_fkey"
-            columns: ["faculty_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_program_id_fkey"
-            columns: ["program_id"]
-            isOneToOne: false
-            referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_section_id_fkey"
-            columns: ["section_id"]
-            isOneToOne: false
-            referencedRelation: "sections"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "classes_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       credential_request_attachments: {
         Row: {
           file_size_bytes: number
@@ -674,27 +466,39 @@ export type Database = {
       }
       departments: {
         Row: {
+          brand_name_override: string | null
           created_at: string
           department_code: string
           department_name: string
           id: string
           is_active: boolean
+          logo_path: string | null
+          primary_color: string | null
+          secondary_color: string | null
           updated_at: string
         }
         Insert: {
+          brand_name_override?: string | null
           created_at?: string
           department_code: string
           department_name: string
           id?: string
           is_active?: boolean
+          logo_path?: string | null
+          primary_color?: string | null
+          secondary_color?: string | null
           updated_at?: string
         }
         Update: {
+          brand_name_override?: string | null
           created_at?: string
           department_code?: string
           department_name?: string
           id?: string
           is_active?: boolean
+          logo_path?: string | null
+          primary_color?: string | null
+          secondary_color?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1555,54 +1359,6 @@ export type Database = {
           },
         ]
       }
-      faculty_profiles: {
-        Row: {
-          created_at: string
-          department_id: string
-          employee_number: string
-          employment_status: string
-          id: string
-          profile_id: string
-          title: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          department_id: string
-          employee_number: string
-          employment_status: string
-          id?: string
-          profile_id: string
-          title: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          department_id?: string
-          employee_number?: string
-          employment_status?: string
-          id?: string
-          profile_id?: string
-          title?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "faculty_profiles_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "faculty_profiles_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       generated_reports: {
         Row: {
           created_at: string
@@ -2061,33 +1817,6 @@ export type Database = {
           },
         ]
       }
-      rooms: {
-        Row: {
-          building: string | null
-          capacity: number | null
-          created_at: string
-          id: string
-          room_code: string
-          updated_at: string
-        }
-        Insert: {
-          building?: string | null
-          capacity?: number | null
-          created_at?: string
-          id?: string
-          room_code: string
-          updated_at?: string
-        }
-        Update: {
-          building?: string | null
-          capacity?: number | null
-          created_at?: string
-          id?: string
-          room_code?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       sections: {
         Row: {
           academic_year: string
@@ -2515,6 +2244,14 @@ export type Database = {
         Args: { p_job_id: string; p_reason: string; p_source: string }
         Returns: Json
       }
+      admin_revoke_user_sessions: {
+        Args: {
+          p_actor_user_id: string
+          p_reason: string
+          p_target_user_id: string
+        }
+        Returns: number
+      }
       admin_run_data_consistency_check: {
         Args: never
         Returns: {
@@ -2587,8 +2324,29 @@ export type Database = {
           subject: string
         }[]
       }
+      claim_event_email_outbox_batch_with_daily_cap: {
+        Args: { p_daily_cap?: number; p_limit?: number }
+        Returns: {
+          body: string
+          html_body: string
+          id: string
+          processing_token: string
+          recipient_email: string
+          subject: string
+        }[]
+      }
       claim_request_email_outbox_batch: {
         Args: { p_limit?: number }
+        Returns: {
+          body: string
+          id: string
+          processing_token: string
+          recipient_email: string
+          subject: string
+        }[]
+      }
+      claim_request_email_outbox_batch_with_daily_cap: {
+        Args: { p_daily_cap?: number; p_limit?: number }
         Returns: {
           body: string
           id: string
@@ -2771,6 +2529,58 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      defer_due_email_outbox_deliveries: {
+        Args: { p_defer_until: string; p_reason: string }
+        Returns: number
+      }
+      defer_event_email_outbox_delivery: {
+        Args: {
+          p_defer_until: string
+          p_outbox_id: string
+          p_processing_token: string
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      defer_request_email_outbox_delivery: {
+        Args: {
+          p_defer_until: string
+          p_outbox_id: string
+          p_processing_token: string
+          p_reason: string
+        }
+        Returns: undefined
+      }
+      department_admin_issue_qr_credential: {
+        Args: { p_expires_at?: string; p_student_id: string }
+        Returns: {
+          credential_id: string
+          credential_status: string
+          expires_at: string
+          issued_at: string
+        }[]
+      }
+      department_admin_list_credential_statuses: {
+        Args: { p_student_ids?: string[] }
+        Returns: {
+          facial_consent_recorded_at: string
+          facial_created_at: string
+          facial_enrolled_at: string
+          facial_id: string
+          facial_last_verified_at: string
+          facial_status: string
+          facial_updated_at: string
+          qr_created_at: string
+          qr_credential_status: string
+          qr_expires_at: string
+          qr_id: string
+          qr_issued_at: string
+          qr_last_successful_check_in_at: string
+          qr_revoked_at: string
+          qr_updated_at: string
+          student_id: string
+        }[]
       }
       discard_empty_event_session: {
         Args: { p_session_id: string }
@@ -2988,12 +2798,29 @@ export type Database = {
         }
         Returns: undefined
       }
+      organizer_list_invitation_students: {
+        Args: { p_limit?: number; p_offset?: number; p_student_ids?: string[] }
+        Returns: Json
+      }
       prepare_offline_event_package: {
         Args: { p_event_id: string }
         Returns: Json
       }
       queue_emails_for_event: {
         Args: { p_event_id: string }
+        Returns: undefined
+      }
+      reconcile_offline_event_session_end: {
+        Args: {
+          p_actual_end: string
+          p_expected_student_ids: string[]
+          p_reason: string
+          p_session_id: string
+        }
+        Returns: undefined
+      }
+      reconcile_offline_event_session_start: {
+        Args: { p_actual_start: string; p_session_id: string }
         Returns: undefined
       }
       record_live_facial_attendance: {
@@ -3140,14 +2967,6 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
-      }
-      reconcile_offline_event_session_end: {
-        Args: { p_actual_end: string; p_expected_student_ids: string[]; p_reason: string; p_session_id: string }
-        Returns: undefined
-      }
-      reconcile_offline_event_session_start: {
-        Args: { p_actual_start: string; p_session_id: string }
-        Returns: undefined
       }
       set_student_credential_status: {
         Args: {

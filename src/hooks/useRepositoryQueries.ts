@@ -155,6 +155,7 @@ export function useAdminProfiles(query?: Partial<ListQuery>, context?: Repositor
 export function useAcademicCatalog(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();
+  const departmentAdmin = context?.actorRole === "department_admin";
   const invalidate = async () => { await queryClient.invalidateQueries({ queryKey: ["departments"] }); await queryClient.invalidateQueries({ queryKey: ["programs"] }); await queryClient.invalidateQueries({ queryKey: ["sections"] }); await queryClient.invalidateQueries({ queryKey: ["eventCategories"] }); };
   return {
     departments: useQuery({
@@ -170,10 +171,10 @@ export function useAcademicCatalog(query?: Partial<ListQuery>, context?: Reposit
     semesters: useQuery({
       queryKey: ["semesters", listQuery, context],
       queryFn: () => repositories.academicManagement.listSemesters(listQuery, context),
-      enabled: Boolean(context) && enabled
+      enabled: Boolean(context) && enabled && !departmentAdmin
     }),
     sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled }),
-    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled }),
+    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled && !departmentAdmin }),
     createDepartmentMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateDepartment>>[0]) => { if (!repositories.academicManagement.createOrUpdateDepartment) throw new Error("Department management is unavailable."); return repositories.academicManagement.createOrUpdateDepartment(input, context); }, onSuccess: invalidate }),
     createProgramMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateProgram>>[0]) => { if (!repositories.academicManagement.createOrUpdateProgram) throw new Error("Program management is unavailable."); return repositories.academicManagement.createOrUpdateProgram(input, context); }, onSuccess: invalidate }),
     createSectionMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateSection>>[0]) => { if (!repositories.academicManagement.createOrUpdateSection) throw new Error("Section management is unavailable."); return repositories.academicManagement.createOrUpdateSection(input, context); }, onSuccess: invalidate }),
@@ -781,7 +782,8 @@ export function useReports(query?: Partial<ListQuery>, context?: RepositoryConte
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["reports", listQuery, context],
-    queryFn: () => repositories.reports.listReports(listQuery, context)
+    queryFn: () => repositories.reports.listReports(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 
@@ -998,7 +1000,8 @@ export function useAuditLogs(query?: Partial<ListQuery>, context?: RepositoryCon
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["auditLogs", listQuery, context],
-    queryFn: () => repositories.auditLogs.listAuditLogs(listQuery, context)
+    queryFn: () => repositories.auditLogs.listAuditLogs(listQuery, context),
+    enabled: Boolean(context)
   });
 }
 

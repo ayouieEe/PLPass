@@ -59,21 +59,26 @@ import {
 import { RepositoryError } from "@/services/repositoryUtils";
 import { normalizeStudentIdentityValue, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { getPhilippineNowIso } from "@/lib/utils/date";
+import { hasCapability } from "@/lib/auth/permissions";
 import type {
   AdminProfile,
+  AuditLog,
   DepartmentBranding,
+  Event,
   Class,
   ClassRoster,
   Department,
   FacultyProfile,
   MlPrediction,
   Program,
+  Report,
+  Section,
   Semester,
+  Student,
   StudentCredentialStatus,
   StudentDashboardSummary,
   SystemSettings
 } from "@/types/domain";
-import type { FacultyEmploymentStatus } from "@/types/enums";
 import type { AttendanceStatus, EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 
@@ -376,6 +381,18 @@ function requireOrganizerContext(context?: { actorRole?: string }) {
   }
 }
 
+function requireDepartmentCredentialCapability(context: { actorRole?: string } | undefined, capability: "credentials.reset.department" | "credentials.revoke.department") {
+  if (context?.actorRole === "department_admin" && !hasCapability("department_admin", capability)) {
+    throw new RepositoryError("Your department-admin account cannot perform this credential action.", "PERMISSION_DENIED");
+  }
+}
+
+function requireCredentialReadContext(context?: { actorRole?: string }) {
+  if (context?.actorRole && !["student", "organizer", "admin", "department_admin"].includes(context.actorRole)) {
+    throw new RepositoryError("This account cannot read student credentials.", "PERMISSION_DENIED");
+  }
+}
+
 function requireCredentialManagerContext(context?: { actorRole?: string }) {
   if (context?.actorRole && context.actorRole !== "student" && context.actorRole !== "organizer" && context.actorRole !== "admin") {
     throw new RepositoryError("Only students, organizers, and admins can manage this credential.", "PERMISSION_DENIED");
@@ -423,6 +440,22 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return mapProfileToUser(await selectSingleRow("profiles", userId));
   },
   async listStudents(query, context) {
+    if (context?.actorRole === "department_admin" && !context.departmentId) return emptyPage<Student>(query);
+    if (context?.actorRole === "organizer") {
+      if (!hasCapability("organizer", "students.read.event_invite_directory")) {
+        throw new RepositoryError("You do not have permission to search the event invitation directory.", "PERMISSION_DENIED");
+      }
+      const listQuery = queryOrDefault(query);
+      const { data, error } = await getSupabaseBrowserClient().rpc("organizer_list_invitation_students" as never, {
+        p_limit: listQuery.pageSize,
+        p_offset: listQuery.pageIndex * listQuery.pageSize,
+        p_student_ids: null
+      } as never);
+      throwIfSupabaseError(error);
+      const result = data as unknown as { items?: Row[]; total?: number } | null;
+      const items = Array.isArray(result?.items) ? result.items : [];
+      return pageResult(items.map((row) => mapStudent(row)), Number(result?.total ?? items.length), listQuery);
+    }
     const rows = context?.actorRole === "student"
       ? await selectRowsFiltered("students", query, studentReadSelect, { profile_id: context.actorUserId })
       : context?.actorRole === "department_admin"
@@ -431,15 +464,30 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
   async listStudentsByIds(studentIds, context) {
-    void context;
+    if (context?.actorRole === "organizer") {
+      if (!hasCapability("organizer", "students.read.event_invite_directory")) {
+        throw new RepositoryError("You do not have permission to search the event invitation directory.", "PERMISSION_DENIED");
+      }
+      const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
+      if (uniqueStudentIds.length === 0) return [];
+      const { data, error } = await getSupabaseBrowserClient().rpc("organizer_list_invitation_students" as never, {
+        p_limit: Math.min(uniqueStudentIds.length, 1000),
+        p_offset: 0,
+        p_student_ids: uniqueStudentIds.slice(0, 1000)
+      } as never);
+      throwIfSupabaseError(error);
+      const result = data as unknown as { items?: Row[] } | null;
+      return (Array.isArray(result?.items) ? result.items : []).map((row) => mapStudent(row));
+    }
+    const scopedDepartmentId = context?.actorRole === "department_admin" ? context.departmentId : undefined;
+    if (context?.actorRole === "department_admin" && !scopedDepartmentId) return [];
     const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
     if (uniqueStudentIds.length === 0) return [];
 
     const client = getSupabaseBrowserClient();
-    const { data, error } = await client
-      .from("students")
-      .select(studentReadSelect)
-      .in("id", uniqueStudentIds);
+    let builder = client.from("students").select(studentReadSelect).in("id", uniqueStudentIds);
+    if (scopedDepartmentId) builder = builder.eq("department_id", scopedDepartmentId);
+    const { data, error } = await builder;
     throwIfSupabaseError(error);
     return (data ?? []).map((row) => mapStudent(row as Row));
   },
@@ -492,26 +540,17 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     };
   },
   async listFacultyProfiles(query) {
-    const rows = await selectRowsFiltered("faculty_profiles", query, "*, profiles(*)", {});
-    return pageResult(
-      rows.items.map((row: Row): FacultyProfile => {
-        const profiles = row.profiles as Record<string, unknown> | undefined;
-        return {
-          id: String(row.id ?? ""),
-          userId: String(row.profile_id ?? ""),
-          employeeNumber: String(row.employee_number ?? ""),
-          departmentId: String(row.department_id ?? ""),
-          employmentStatus: row.employment_status as FacultyEmploymentStatus,
-          title: String(row.title ?? ""),
-          displayName: `${profiles?.first_name || ""} ${profiles?.last_name || ""}`.trim()
-        };
-      }),
-      rows.total,
-      query
-    );
+    // The regular-class/faculty subsystem was intentionally removed from
+    // PLPass Current. Keep the contract as an empty compatibility read rather
+    // than querying a table that no longer exists in production.
+    return emptyPage<FacultyProfile>(query);
   },
-  async listOrganizerProfiles(query) {
-    const rows = await selectRows("organizers", query);
+  async listOrganizerProfiles(query, context) {
+    const rows = context?.actorRole === "department_admin"
+      ? context.departmentId
+        ? await selectRowsFiltered("organizers", query, "*", { department_id: context.departmentId })
+        : emptyPage<Row>(query)
+      : await selectRows("organizers", query);
     return pageResult(rows.items.map(mapOrganizer), rows.total, query);
   },
   async listAdminProfiles(query) {
@@ -728,6 +767,7 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     return pageResult(rows.items.map((row): Department => ({ id: String(row.id ?? ""), code: String(row.department_code ?? row.code ?? ""), name: String(row.name ?? row.department_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
   async listPrograms(query, context) {
+    if (context?.actorRole === "department_admin" && !context.departmentId) return emptyPage<Program>(query);
     const rows = context?.actorRole === "department_admin"
       ? await selectRowsFiltered("programs", query, "*", { department_id: context.departmentId })
       : await selectRows("programs", query);
@@ -749,8 +789,10 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
   );
 },
   async listSections(query, context) {
+    if (context?.actorRole === "department_admin" && !context.departmentId) return emptyPage<Section>(query);
     // Sections are filtered client-side by the RLS-safe program list when the
     // schema cannot express the program join through the generic helper.
+    void context;
     const rows = await selectRows("sections", query);
     return pageResult(rows.items.map((row) => ({
       id: String(row.id ?? ""), programId: String(row.program_id ?? ""), name: String(row.section_name ?? ""),
@@ -798,108 +840,36 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     throwIfSupabaseError(error);
   },
   async listClasses(query) {
-    const rows = await selectRowsFiltered("classes", query, "*, section:sections(section_name)", {});
-    return pageResult(
-      rows.items.map((row: Row): Class => {
-        const section = row.section as Record<string, unknown> | undefined;
-        return {
-          id: String(row.id ?? ""),
-          facultyId: String(row.faculty_id ?? ""),
-          programId: String(row.program_id ?? ""),
-          departmentId: String(row.department_id ?? ""),
-          semesterId: String(row.semester_id ?? ""),
-          subjectCode: String(row.subject_code ?? ""),
-          subjectTitle: String(row.subject_title ?? ""),
-          room: String(row.room ?? ""),
-          section: String(section?.section_name ?? ""),
-          yearLevel: Number(row.year_level ?? 0),
-          scheduleLabel: String(row.schedule_label ?? ""),
-          status: row.status as "active" | "archived",
-          rosterId: String(row.id ?? "")
-        };
-      }),
-      rows.total,
-      query
-    );
+    return emptyPage<Class>(query);
   },
   async getClassById(classId) {
-    const row = await selectSingleRowWithColumns("classes", classId, "*, section:sections(section_name)");
-    if (!row) {
-      throw new RepositoryError("Class not found", "NOT_FOUND");
-    }
-    return {
-      id: String(row.id ?? ""),
-      facultyId: String(row.faculty_id ?? ""),
-      programId: String(row.program_id ?? ""),
-      departmentId: String(row.department_id ?? ""),
-      semesterId: String(row.semester_id ?? ""),
-      subjectCode: String(row.subject_code ?? ""),
-      subjectTitle: String(row.subject_title ?? ""),
-      room: String(row.room ?? ""),
-      section: String((row.section as Record<string, unknown> | undefined)?.section_name ?? ""),
-      yearLevel: Number(row.year_level ?? 0),
-      scheduleLabel: String(row.schedule_label ?? ""),
-      status: row.status as "active" | "archived",
-      rosterId: String(row.id ?? "")
-    };
+    void classId;
+    throw new RepositoryError("Class scheduling is not available in PLPass Current.", "NOT_FOUND");
   }
 };
 
 export const supabaseClassRosterRepository: ClassRosterRepository = {
   async listClassRosters(query) {
-    const rows = await selectRowsFiltered("class_rosters", query, "*", {});
-    return pageResult(
-      rows.items.map((row: Row): ClassRoster => ({
-        id: String(row.id ?? ""),
-        classId: String(row.class_id ?? ""),
-        studentId: String(row.student_id ?? ""),
-        enrolledAt: String(row.enrolled_at ?? "")
-      })),
-      rows.total,
-      query
-    );
+    return emptyPage<ClassRoster>(query);
   },
   async listStudentsForClass(classId, query) {
-    const client = getSupabaseBrowserClient();
-    let builder = client.from("class_rosters").select("*, student:students(*, profiles(*))", { count: "exact" }).eq("class_id", classId);
-    const listQuery = queryOrDefault(query);
-    const from = listQuery.pageIndex * listQuery.pageSize;
-    const to = from + listQuery.pageSize - 1;
-    builder = builder.range(from, to);
-    
-    const { data, count, error } = await builder;
-    throwIfSupabaseError(error);
-    
-    return pageResult(
-      (data || []).map((row: Record<string, unknown>) => mapStudent(row.student as Row)),
-      count ?? 0,
-      query
-    );
+    void classId;
+    return emptyPage<Student>(query);
   },
   async addStudentToClass(input) {
-    const client = getSupabaseBrowserClient();
-    const { data, error } = await client.from("class_rosters").insert({
-      class_id: input.classId,
-      student_id: input.studentId
-    }).select("*").single();
-    throwIfSupabaseError(error);
-    const row = data as Record<string, unknown>;
-    return {
-      id: String(row.id ?? ""),
-      classId: String(row.class_id ?? ""),
-      studentId: String(row.student_id ?? ""),
-      enrolledAt: String(row.enrolled_at ?? "")
-    };
+    void input;
+    throw new RepositoryError("Class rosters are not available in PLPass Current.", "NOT_FOUND");
   },
   async removeStudentFromClass(classId, studentId) {
-    const client = getSupabaseBrowserClient();
-    const { error } = await client.from("class_rosters").delete().eq("class_id", classId).eq("student_id", studentId);
-    throwIfSupabaseError(error);
+    void classId;
+    void studentId;
+    throw new RepositoryError("Class rosters are not available in PLPass Current.", "NOT_FOUND");
   }
 };
 
 export const supabaseEventManagementRepository: EventManagementRepository = {
   async listEvents(query, context) {
+    if (context?.actorRole === "department_admin" && !context.departmentId) return emptyPage<Event>(query);
     if (context?.actorRole === "student") {
       const listQuery = queryOrDefault(query);
       const from = listQuery.pageIndex * listQuery.pageSize;
@@ -924,7 +894,9 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       return pageResult(rows.items.map(mapEvent), rows.total, query);
     }
 
-    const rows = await selectRows("events", query, eventReadSelect);
+    const rows = context?.actorRole === "department_admin"
+      ? await selectRowsFiltered("events", query, eventReadSelect, { department_id: context.departmentId })
+      : await selectRows("events", query, eventReadSelect);
     return pageResult(rows.items.map(mapEvent), rows.total, query);
   },
   async getEventById(eventId, context) {
@@ -1921,7 +1893,7 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
 
 export const supabaseStudentCredentialRepository: StudentCredentialRepository = {
   async listStudentCredentialStatuses(context, studentIds) {
-    requireOrganizerContext(context);
+    requireCredentialReadContext(context);
     const client = getSupabaseBrowserClient();
 
     if (context?.actorRole === "admin") {
@@ -1961,6 +1933,44 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     }
 
     const scopedStudentIds = [...new Set(studentIds ?? [])];
+    if (context?.actorRole === "department_admin") {
+      if (!context.departmentId || scopedStudentIds.length === 0) return [];
+      const { data, error } = await client.rpc("department_admin_list_credential_statuses" as never, {
+        p_student_ids: scopedStudentIds
+      } as never);
+      throwIfSupabaseError(error);
+
+      return ((data ?? []) as unknown as Row[])
+        .map((row) => ({
+          studentId: String(row.student_id ?? ""),
+          qrCredential: row.qr_id
+            ? mapQrCredential({
+                id: row.qr_id,
+                student_id: row.student_id,
+                credential_status: row.qr_credential_status,
+                issued_at: row.qr_issued_at,
+                expires_at: row.qr_expires_at,
+                revoked_at: row.qr_revoked_at,
+                last_successful_check_in_at: row.qr_last_successful_check_in_at,
+                created_at: row.qr_created_at,
+                updated_at: row.qr_updated_at
+              } as Row)
+            : undefined,
+          facialProfile: row.facial_id
+            ? mapFacialProfile({
+                id: row.facial_id,
+                student_id: row.student_id,
+                facial_status: row.facial_status,
+                enrolled_at: row.facial_enrolled_at,
+                last_verified_at: row.facial_last_verified_at,
+                consent_recorded_at: row.facial_consent_recorded_at,
+                created_at: row.facial_created_at,
+                updated_at: row.facial_updated_at
+              } as Row)
+            : undefined
+        }))
+        .filter((status) => status.studentId);
+    }
     if (context?.actorRole === "organizer" && scopedStudentIds.length === 0) return [];
     let qrQuery = client
         .from("qr_credentials")
@@ -1970,6 +1980,7 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
         .from("facial_profiles")
         .select("id, student_id, facial_status, enrolled_at, last_verified_at, consent_recorded_at, created_at, updated_at");
     if (context?.actorRole === "organizer") {
+      if (scopedStudentIds.length === 0) return [];
       qrQuery = qrQuery.in("student_id", scopedStudentIds);
       facialQuery = facialQuery.in("student_id", scopedStudentIds);
     }
@@ -1999,6 +2010,10 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
       ? await currentStudentIdForProfile(context.actorUserId)
       : studentId;
     const client = getSupabaseBrowserClient();
+    if (context?.actorRole === "department_admin") {
+      const scopedStatuses = await supabaseStudentCredentialRepository.listStudentCredentialStatuses(context, [scopedStudentId]);
+      return scopedStatuses[0] ?? { studentId: scopedStudentId };
+    }
     const { data: qrRows, error: qrError } = await client
       .from("qr_credentials")
       .select("id, student_id, credential_status, issued_at, expires_at, revoked_at, last_successful_check_in_at, created_at, updated_at")
@@ -2032,12 +2047,24 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
       return supabaseStudentCredentialRepository.getStudentCredentialStatus(studentId, context);
     }
 
+    if (context?.actorRole === "department_admin") {
+      if (!hasCapability("department_admin", "credentials.reset.department")) {
+        throw new RepositoryError("Your account cannot reissue department QR credentials.", "PERMISSION_DENIED");
+      }
+      const { error: departmentIssueError } = await client.rpc("department_admin_issue_qr_credential" as never, {
+        p_student_id: input.studentId,
+        ...(input.expiresAt ? { p_expires_at: input.expiresAt } : {})
+      } as never);
+      throwIfSupabaseError(departmentIssueError);
+      return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
+    }
+
     requireOrganizerContext(context);
-    const { error } = await client.rpc("issue_qr_credential", {
+    const { error: issueError } = await client.rpc("issue_qr_credential", {
       p_student_id: input.studentId,
       ...(input.expiresAt ? { p_expires_at: input.expiresAt } : {})
     });
-    throwIfSupabaseError(error);
+    throwIfSupabaseError(issueError);
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(input.studentId, context);
   },
   async enrollFacialProfile(input: EnrollFacialProfileInput, context) {
@@ -2093,7 +2120,14 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     return supabaseStudentCredentialRepository.getStudentCredentialStatus(scopedStudentId, context);
   },
   async setCredentialStatus(input, context) {
-    requireOrganizerContext(context);
+    if (context?.actorRole === "department_admin") {
+      requireDepartmentCredentialCapability(
+        context,
+        input.status === "activated" ? "credentials.reset.department" : "credentials.revoke.department"
+      );
+    } else {
+      requireOrganizerContext(context);
+    }
     const client = getSupabaseBrowserClient();
     const { error } = await client.rpc("set_student_credential_status", {
       p_student_id: input.studentId,
@@ -2240,7 +2274,12 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
 };
 
 export const supabaseReportRepository: ReportRepository = {
-  async listReports(query) {
+  async listReports(query, context) {
+    // Fail closed if a department-admin session lacks its authoritative scope.
+    // RLS independently enforces the same department boundary in the database.
+    if (context?.actorRole === "department_admin" && !context.departmentId) {
+      return emptyPage<Report>(query);
+    }
     const rows = await selectRows("generated_reports", query);
     return pageResult(rows.items.map(mapReport), rows.total, query);
   }
@@ -2313,6 +2352,9 @@ export const supabaseNotificationRepository: NotificationRepository = {
 export const supabaseAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
     const listQuery = queryOrDefault(query);
+    if (context?.actorRole === "department_admin" && !context.departmentId) {
+      return emptyPage<AuditLog>(listQuery);
+    }
     const from = listQuery.pageIndex * listQuery.pageSize;
     const to = from + listQuery.pageSize - 1;
     const client = getSupabaseBrowserClient();

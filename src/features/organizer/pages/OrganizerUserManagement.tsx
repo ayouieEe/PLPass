@@ -825,7 +825,8 @@ function AddStudentModal({
   mutations,
   programs,
   departments,
-  sections
+  sections,
+  fixedDepartmentId
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -833,6 +834,7 @@ function AddStudentModal({
   programs: { id: string; code: string; departmentId: string }[];
   departments: { id: string; code: string }[];
   sections: Section[];
+  fixedDepartmentId?: string;
 }) {
   const [formData, setFormData] = useState<CreateStudentInput>(() => ({ ...emptyStudentForm }));
   const [isLoading, setIsLoading] = useState(false);
@@ -840,10 +842,17 @@ function AddStudentModal({
   const availableSections = sections.filter(
     (section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel
   );
-  const isDirty = JSON.stringify(formData) !== JSON.stringify(emptyStudentForm);
+  const cleanForm = { ...emptyStudentForm, departmentId: fixedDepartmentId ?? "" };
+  const isDirty = JSON.stringify(formData) !== JSON.stringify(cleanForm);
+
+  useEffect(() => {
+    if (isOpen && fixedDepartmentId) {
+      setFormData({ ...emptyStudentForm, departmentId: fixedDepartmentId });
+    }
+  }, [fixedDepartmentId, isOpen]);
 
   function resetAndClose() {
-    setFormData({ ...emptyStudentForm });
+    setFormData({ ...emptyStudentForm, departmentId: fixedDepartmentId ?? "" });
     setIsDiscardConfirmOpen(false);
     onClose();
   }
@@ -863,7 +872,7 @@ function AddStudentModal({
     e.preventDefault();
     setIsLoading(true);
     try {
-      await mutations.createStudentMutation.mutateAsync(formData);
+      await mutations.createStudentMutation.mutateAsync({ ...formData, departmentId: fixedDepartmentId ?? formData.departmentId });
       toast.success("Student added successfully");
       resetAndClose();
     } catch (error) {
@@ -919,12 +928,12 @@ function AddStudentModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-department">Department</label>
-              <select id="student-department" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
+              {fixedDepartmentId ? <input id="student-department" readOnly aria-readonly="true" className="h-9 w-full rounded-md border bg-muted px-3 text-sm" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /> : <select id="student-department" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
                 <option value="">Select Department</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code}</option>
                 ))}
-              </select>
+              </select>}
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-program">Program</label>
@@ -1090,7 +1099,7 @@ function OrganizerExportChoiceModal({ isOpen, onClose, rows }: { isOpen: boolean
   return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-sm rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer directory</p><h2 className="text-lg font-semibold">Export report</h2></div><button type="button" onClick={onClose} aria-label="Close export dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><p className="mt-3 text-sm text-muted-foreground">Choose a file format for the organizer directory.</p><div className="mt-5 grid gap-2 sm:grid-cols-2"><button type="button" onClick={() => void exportFormat("pdf")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-3 text-sm font-semibold text-white"><FileText className="h-4 w-4" />PDF</button><button type="button" onClick={() => void exportFormat("xlsx")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><FileSpreadsheet className="h-4 w-4" />XLSX</button></div></div></div>, document.body);
 }
 
-function OrganizerDirectoryConsistent({ organizers, users, events, onAdd, onBulkAdd, onEdit, canAdd }: { organizers: OrganizerProfile[]; users: User[]; events: Array<{ organizerId: string }>; onAdd: () => void; onBulkAdd: () => void; onEdit: (organizerId: string) => void; canAdd: boolean }) {
+function OrganizerDirectoryConsistent({ organizers, users, events, departments, onAdd, onBulkAdd, onEdit, canAdd }: { organizers: OrganizerProfile[]; users: User[]; events: Array<{ organizerId: string }>; departments: Array<{ id: string; code: string; name?: string }>; onAdd: () => void; onBulkAdd: () => void; onEdit: (organizerId: string) => void; canAdd: boolean }) {
   const [query, setQuery] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const normalizedQuery = query.trim().toLowerCase();
@@ -1100,9 +1109,9 @@ function OrganizerDirectoryConsistent({ organizers, users, events, onAdd, onBulk
   });
   const exportRows = rows.map((organizer) => {
     const user = users.find((item) => item.id === organizer.userId);
-    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, "College / Department": organizer.organizationName, Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
+    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, Department: departments.find((department) => department.id === organizer.departmentId)?.code ?? "—", "Organization / unit": organizer.organizationName, Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
   });
-  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, college..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", field: "organizationName", minWidth: 200, flex: 1 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
+  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, organization..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Organization / unit", field: "organizationName", minWidth: 200, flex: 1 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
 }
 
 function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, canRevokeSessions, onRevokeSessions, onResendInvitation }: { isOpen: boolean; onClose: () => void; admin: AdminProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateAdminAccountMutation>; canRevokeSessions: boolean; onRevokeSessions: (userId: string, displayName: string) => void; onResendInvitation: (userId: string, displayName: string) => Promise<void> }) {
@@ -1345,7 +1354,8 @@ function EditStudentModal({
   departments,
   sections,
   student,
-  onSuccess
+  onSuccess,
+  fixedDepartmentId
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -1355,6 +1365,7 @@ function EditStudentModal({
   sections: Section[];
   student: Student | undefined;
   onSuccess: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
+  fixedDepartmentId?: string;
 }) {
   const [formData, setFormData] = useState<UpdateStudentInput>({
     id: "",
@@ -1383,13 +1394,13 @@ function EditStudentModal({
         lastName: student.lastName || "",
         nameExtension: student.nameExtension as UpdateStudentInput["nameExtension"],
         programId: student.programId || "",
-        departmentId: student.departmentId || "",
+        departmentId: fixedDepartmentId ?? student.departmentId ?? "",
         sectionId: sections.find((section) => section.programId === student.programId && section.yearLevel === (student.yearLevel || 1) && section.name === student.section)?.id || student.section || "",
         yearLevel: student.yearLevel || 1,
         accountStatus: student.accountStatus ?? "active"
       });
     }
-  }, [sections, student]);
+  }, [fixedDepartmentId, sections, student]);
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
 
   if (!isOpen) return null;
@@ -1465,12 +1476,12 @@ function EditStudentModal({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Department</label>
-              <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
+              {fixedDepartmentId ? <input readOnly aria-readonly="true" className="h-9 w-full rounded-md border bg-muted px-3 text-sm" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /> : <select required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
                 <option value="">Select Department</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code}</option>
                 ))}
-              </select>
+              </select>}
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1">Program</label>
@@ -1517,13 +1528,15 @@ function BulkAddStudentModal({
   onClose,
   mutations,
   programs,
-  departments
+  departments,
+  fixedDepartmentId
 }: {
   isOpen: boolean;
   onClose: () => void;
   mutations: ReturnType<typeof useStudentMutations>;
   programs: { id: string; code: string; departmentId: string }[];
   departments: { id: string; code: string }[];
+  fixedDepartmentId?: string;
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const [fileError, setFileError] = useState("");
@@ -1572,10 +1585,15 @@ function BulkAddStudentModal({
           const parsedData = results.data as Record<string, string>[];
           if (!parsedData.length) throw new Error("The CSV has no student records.");
           const inputs: CreateStudentInput[] = parsedData.map((row, index) => {
-            const dept = departments.find(d => d.code === row["Department Code"]);
+            const dept = fixedDepartmentId
+              ? departments.find((department) => department.id === fixedDepartmentId)
+              : departments.find(d => d.code === row["Department Code"]);
             const prog = programs.find(p => p.code === row["Program Code"]);
             if (!dept || !prog) {
               throw new Error(`Row ${index + 2}: Check the Program Code and Department Code.`);
+            }
+            if (prog.departmentId !== dept.id || (fixedDepartmentId && row["Department Code"] && row["Department Code"].trim().toLowerCase() !== dept.code.toLowerCase())) {
+              throw new Error(`Row ${index + 2}: The student must belong to your department and use one of its programs.`);
             }
             return {
               studentNumber: row["Student Number"],
@@ -1584,7 +1602,7 @@ function BulkAddStudentModal({
               middleName: row["Middle Name"],
               lastName: row["Last Name"],
               programId: prog.id,
-              departmentId: dept.id,
+              departmentId: fixedDepartmentId ?? dept.id,
               sectionId: row["Section Name"],
               yearLevel: parseInt(row["Year Level"], 10) || 1
             };
@@ -1605,7 +1623,7 @@ function BulkAddStudentModal({
           }
         } catch (error) {
           const errorMessage = getErrorMessage(error);
-          const isUserFriendlyMessage = /^(Row \d+: Check the Program Code and Department Code\.|The CSV |Please choose )/i.test(errorMessage);
+          const isUserFriendlyMessage = /^(Row \d+: (Check the Program Code and Department Code\.|The student must belong to your department)|The CSV |Please choose )/i.test(errorMessage);
           setFileError(isUserFriendlyMessage ? errorMessage : conciseImportError(errorMessage));
         } finally {
           setIsLoading(false);
@@ -1703,7 +1721,7 @@ export function OrganizerUserManagementPage() {
   const organizersQuery = useOrganizerProfiles({ pageSize: 100 }, scope.context);
   const usersQuery = useUsers({ pageSize: 100 }, scope.context);
   const adminProfilesQuery = useAdminProfiles({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
-  const eventsQuery = useEvents({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
+  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
 
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
@@ -1731,7 +1749,7 @@ export function OrganizerUserManagementPage() {
   const departmentOrganizers = useMemo(
     () => (isDepartmentAdmin && session?.departmentId
       ? (organizersQuery.data?.items ?? []).filter((organizer) => organizer.departmentId === session.departmentId)
-      : (organizersQuery.data?.items ?? [])),
+      : isDepartmentAdmin ? [] : (organizersQuery.data?.items ?? [])),
     [isDepartmentAdmin, organizersQuery.data?.items, session?.departmentId]
   );
   const selectedOrganizer = departmentOrganizers.find((organizer) => organizer.id === selectedOrganizerId);
@@ -1989,6 +2007,10 @@ export function OrganizerUserManagementPage() {
     []
   );
 
+  if (isDepartmentAdmin && !session?.departmentId) {
+    return <div className="space-y-4"><PageHeader title="User Management" description="Department scope is required to manage department accounts." /><div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">No department is assigned to this account. No student or organizer records are shown, and management actions are unavailable. Contact a University Admin to correct the account’s department assignment.</div></div>;
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="User Management" description="Manage student accounts and track participation." />
@@ -2135,11 +2157,11 @@ export function OrganizerUserManagementPage() {
         <section aria-label="Organizer account summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard title="Organizer Accounts" value={`${departmentOrganizers.length}`} detail={isDepartmentAdmin ? "In your department" : "Accounts in scope"} icon={Users} />
           <MetricCard title="Active Organizers" value={`${departmentOrganizers.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length}`} detail={`${Math.max(0, departmentOrganizers.length - departmentOrganizers.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length)} deactivated`} icon={UserRoundCheck} />
-          <MetricCard title="Events Managed" value={`${eventsQuery.data?.items.length ?? 0}`} detail="Across all organizers" icon={CalendarCheck} />
+          <MetricCard title="Events Managed" value={`${eventsQuery.data?.items.length ?? 0}`} detail={isDepartmentAdmin ? "Across department organizers" : "Across all organizers"} icon={CalendarCheck} />
         </section>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} showAdmins={!isDepartmentAdmin} />
         <div className="organizer-directory-page">
-          <OrganizerDirectoryConsistent organizers={departmentOrganizers} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} canAdd={canCreateOrganizer} />
+          <OrganizerDirectoryConsistent organizers={departmentOrganizers} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} departments={academicCatalog.departments.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} canAdd={canCreateOrganizer} />
         </div>
       </> : <>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
@@ -2183,6 +2205,7 @@ export function OrganizerUserManagementPage() {
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
         sections={academicCatalog.sections.data?.items ?? []}
+        fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}
       /> : null}
       {canCreateStudent ? <BulkAddStudentModal
         isOpen={isBulkAddModalOpen}
@@ -2190,6 +2213,7 @@ export function OrganizerUserManagementPage() {
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
+        fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}
       /> : null}
       {canUpdateStudent ? <EditStudentModal
         isOpen={isEditModalOpen}
@@ -2198,6 +2222,7 @@ export function OrganizerUserManagementPage() {
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
         sections={academicCatalog.sections.data?.items ?? []}
+        fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}
         student={rawStudent}
         onSuccess={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({

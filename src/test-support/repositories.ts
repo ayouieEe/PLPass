@@ -204,6 +204,9 @@ function isSessionInFacultyScope(session: AttendanceSession, context: Repository
 }
 
 function isEventInOrganizerScope(event: Event, context: RepositoryContext) {
+  if (context.actorRole === "department_admin") {
+    return Boolean(context.departmentId && event.departmentId === context.departmentId);
+  }
   if (context.actorRole !== "organizer") {
     return true;
   }
@@ -211,6 +214,10 @@ function isEventInOrganizerScope(event: Event, context: RepositoryContext) {
 }
 
 function isSessionInOrganizerScope(session: AttendanceSession, context: RepositoryContext) {
+  if (context.actorRole === "department_admin") {
+    const event = session.eventId ? eventState.find((entry) => entry.id === session.eventId) : undefined;
+    return Boolean(context.departmentId && event?.departmentId === context.departmentId);
+  }
   if (context.actorRole !== "organizer") {
     return true;
   }
@@ -586,8 +593,16 @@ export const simulatedAuthenticationRepository: AuthenticationRepository = {
 
 export const simulatedUserManagementRepository: UserManagementRepository = {
   async listUsers(query, context) {
-    await beforeRead("userManagement", context, ["admin"]);
-    return paginateOrThrowEmpty(filterUsers(query), query);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    const currentContext = contextOrDefault(context);
+    const allowedIds = currentContext.actorRole === "department_admin"
+      ? new Set(currentContext.departmentId ? [
+          ...organizerProfileFixtures.filter((profile) => profile.departmentId === currentContext.departmentId).map((profile) => profile.userId),
+          ...studentFixtures.filter((student) => student.departmentId === currentContext.departmentId).map((student) => student.userId)
+        ] : [])
+      : undefined;
+    const users = filterUsers(query).filter((user) => !allowedIds || allowedIds.has(user.id));
+    return currentContext.actorRole === "department_admin" ? paginateList(users, query) : paginateOrThrowEmpty(users, query);
   },
   async getUserById(userId, context) {
     await beforeRead("userManagement", context, ["admin", "faculty", "organizer", "student"]);
@@ -598,20 +613,25 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return getOrThrow(userFixtures, userId, "User");
   },
   async listStudents(query, context) {
-    await beforeRead("userManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const items =
-      currentContext.actorRole === "student"
+      currentContext.actorRole === "department_admin"
+        ? currentContext.departmentId
+          ? filterStudents(query).filter((student) => student.departmentId === currentContext.departmentId)
+          : []
+        : currentContext.actorRole === "student"
         ? filterStudents(query).filter((student) => student.userId === currentContext.actorUserId)
         : filterStudents(query);
-    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
+    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student" || currentContext.actorRole === "department_admin"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
   async listStudentsByIds(studentIds, context) {
-    await beforeRead("userManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const permitted = new Set(studentIds);
-    return studentFixtures.filter((student) => permitted.has(student.id));
+    const currentContext = contextOrDefault(context);
+    return studentFixtures.filter((student) => permitted.has(student.id) && (currentContext.actorRole !== "department_admin" || Boolean(currentContext.departmentId && student.departmentId === currentContext.departmentId)));
   },
   async createStudent(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
@@ -713,7 +733,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
   },
   async listOrganizerProfiles(query, context) {
-    await beforeRead("userManagement", context, ["admin", "organizer", "student"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const organizerIdsForStudent =
       currentContext.actorRole === "student"
@@ -723,10 +743,11 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       (profile) =>
         matchesSearch([profile.organizationName, profile.employeeNumber, profile.position], query?.search) &&
         (currentContext.actorRole === "admin" ||
+          (currentContext.actorRole === "department_admin" && Boolean(currentContext.departmentId) && profile.departmentId === currentContext.departmentId) ||
           profile.userId === currentContext.actorUserId ||
           Boolean(organizerIdsForStudent?.has(profile.id)))
     );
-    return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
+    return currentContext.actorRole === "student" || currentContext.actorRole === "department_admin" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
   },
   async listAdminProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin"]);
@@ -890,15 +911,18 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
 
 export const simulatedAcademicManagementRepository: AcademicManagementRepository = {
   async listDepartments(query, context) {
-    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
-    return paginateOrThrowEmpty(departmentFixtures.filter((department) => matchesSearch([department.code, department.name], query?.search)), query);
+    await beforeRead("academicManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    return paginateOrThrowEmpty(departmentFixtures.filter((department) => matchesSearch([department.code, department.name], query?.search) && (currentContext.actorRole !== "department_admin" || department.id === currentContext.departmentId)), query);
   },
   async listPrograms(query, context) {
-    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("academicManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
     return paginateOrThrowEmpty(
       programFixtures.filter(
         (program) =>
           matchesSearch([program.code, program.name], query?.search) &&
+          (currentContext.actorRole !== "department_admin" || Boolean(currentContext.departmentId && program.departmentId === currentContext.departmentId)) &&
           (!query?.departmentId || program.departmentId === query.departmentId)
       ),
       query
@@ -912,11 +936,16 @@ export const simulatedAcademicManagementRepository: AcademicManagementRepository
     );
   },
   async listSections(query, context) {
-    await beforeRead("academicManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("academicManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
+    const currentContext = contextOrDefault(context);
+    const allowedProgramIds = currentContext.actorRole === "department_admin"
+      ? new Set(currentContext.departmentId ? programFixtures.filter((program) => program.departmentId === currentContext.departmentId).map((program) => program.id) : [])
+      : undefined;
     return paginateOrThrowEmpty(
       sectionFixtures.filter(
         (section) =>
           matchesSearch([section.name, section.academicYear, section.semester], query?.search) &&
+          (!allowedProgramIds || allowedProgramIds.has(section.programId)) &&
           (!query?.programId || section.programId === query.programId) &&
           (!query?.yearLevel || section.yearLevel === query.yearLevel)
       ),
@@ -1023,7 +1052,7 @@ export const simulatedClassRosterRepository: ClassRosterRepository = {
 
 export const simulatedEventManagementRepository: EventManagementRepository = {
   async listEvents(query, context) {
-    await beforeRead("eventManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("eventManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const items = filterEvents(query)
       .filter((event) => isEventInOrganizerScope(event, currentContext) && isEventInStudentScope(event, currentContext))
@@ -1034,12 +1063,12 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
         );
         return completedSession ? { ...event, status: "completed" as const } : event;
       });
-    return currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
+    return currentContext.actorRole === "organizer" || currentContext.actorRole === "student" || currentContext.actorRole === "department_admin"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
   async getEventById(eventId, context) {
-    await beforeRead("eventManagement", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("eventManagement", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const event = getOrThrow(eventState, eventId, "Event");
     if (!isEventInOrganizerScope(event, currentContext)) {
@@ -1253,10 +1282,10 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
 
 export const simulatedAttendanceSessionRepository: AttendanceSessionRepository = {
   async listAttendanceSessions(query, context) {
-    await beforeRead("attendanceSessions", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("attendanceSessions", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const items = filterAttendanceSessions(query).filter((session) => isSessionInActorScope(session, currentContext));
-    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
+    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student" || currentContext.actorRole === "department_admin"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
@@ -1395,7 +1424,7 @@ export const simulatedAttendanceSessionRepository: AttendanceSessionRepository =
 
 export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
   async listAttendanceRecords(query, context) {
-    await beforeRead("attendanceRecords", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("attendanceRecords", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const student = getStudentForContext(currentContext);
     const items = filterAttendanceRecords(query).filter((record) => {
@@ -1405,7 +1434,7 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
               (currentContext.actorRole !== "student" || record.studentId === student?.id)
           : false;
       });
-    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
+    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student" || currentContext.actorRole === "department_admin"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   },
@@ -1847,7 +1876,7 @@ export const simulatedEventFeedbackRepository: EventFeedbackRepository = {
 
 export const simulatedReportRepository: ReportRepository = {
   async listReports(query, context) {
-    await beforeRead("reports", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("reports", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const allowedClassIds = currentContext.actorRole === "faculty" ? facultyClassIds(currentContext) : undefined;
     const allowedEventIds = currentContext.actorRole === "organizer" ? organizerEventIds(currentContext) : undefined;
@@ -1855,11 +1884,12 @@ export const simulatedReportRepository: ReportRepository = {
     const items = reportFixtures.filter(
         (report: Report) =>
           matchesSearch([report.title, report.scope, report.status], query?.search) &&
+          (currentContext.actorRole !== "department_admin" || Boolean(currentContext.departmentId && organizerProfileFixtures.some((profile) => profile.departmentId === currentContext.departmentId && profile.userId === report.requestedByUserId))) &&
           (!allowedClassIds || allowedClassIds.includes(report.scope) || report.requestedByUserId === currentContext.actorUserId) &&
           (!allowedEventIds || allowedEventIds.includes(report.scope) || report.requestedByUserId === currentContext.actorUserId) &&
           (currentContext.actorRole !== "student" || report.scope === student?.id || report.requestedByUserId === currentContext.actorUserId)
       );
-    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student"
+    return currentContext.actorRole === "faculty" || currentContext.actorRole === "organizer" || currentContext.actorRole === "student" || currentContext.actorRole === "department_admin"
       ? paginateList(items, query)
       : paginateOrThrowEmpty(items, query);
   }
@@ -1923,11 +1953,20 @@ export const simulatedNotificationRepository: NotificationRepository = {
 
 export const simulatedAuditLogRepository: AuditLogRepository = {
   async listAuditLogs(query, context) {
-    await beforeRead("auditLogs", context, ["admin", "organizer"]);
+    await beforeRead("auditLogs", context, ["admin", "department_admin", "organizer"]);
     const currentContext = contextOrDefault(context);
     return paginate(auditLogState.filter((log) =>
       matchesSearch([log.action, log.targetType, log.targetId], query?.search) &&
-      (currentContext.actorRole === "admin" || log.actorUserId === currentContext.actorUserId)
+      (currentContext.actorRole === "admin" ||
+        (currentContext.actorRole === "organizer" && log.actorUserId === currentContext.actorUserId) ||
+        (currentContext.actorRole === "department_admin" && Boolean(currentContext.departmentId) && (
+          organizerProfileFixtures.some((profile) => profile.departmentId === currentContext.departmentId && profile.userId === log.actorUserId) ||
+          (log.targetType === "event" && eventState.some((event) => event.id === log.targetId && event.departmentId === currentContext.departmentId)) ||
+          (log.targetType === "attendance_session" && attendanceSessionState.some((session) => session.id === log.targetId && isSessionInActorScope(session, currentContext))) ||
+          (log.targetType === "event_session" && attendanceSessionState.some((session) => session.id === log.targetId && isSessionInActorScope(session, currentContext))) ||
+          (log.targetType === "attendance_record" && attendanceRecordState.some((record) => record.id === log.targetId && attendanceSessionState.some((session) => session.id === record.sessionId && isSessionInActorScope(session, currentContext))))
+        ))
+      )
     ), query);
   },
   async logClientAction(input, context) {

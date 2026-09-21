@@ -21,6 +21,11 @@ describe("department-admin permission contract", () => {
     expect(hasCapability("department_admin", "system.settings.manage")).toBe(false);
     expect(hasCapability("department_admin", "audit.read.all")).toBe(false);
     expect(hasCapability("department_admin", "credentials.reset")).toBe(false);
+    expect(hasCapability("department_admin", "credentials.reset.department")).toBe(true);
+    expect(hasCapability("department_admin", "credentials.revoke.department")).toBe(true);
+    expect(hasCapability("organizer", "credentials.reset.department")).toBe(false);
+    expect(hasCapability("organizer", "credentials.reset.owned_event")).toBe(true);
+    expect(hasCapability("organizer", "credentials.revoke.owned_event")).toBe(true);
   });
 
   it("keeps the coordinator as a desktop subsystem, not an account role", () => {
@@ -47,5 +52,38 @@ describe("department-admin permission contract", () => {
     expect(navigation).toContain("path: APP_ROUTES.departmentUsers");
     expect(router).toContain("path={APP_ROUTES.departmentUsers} element={<OrganizerUserManagementPage />}");
     expect(router).toContain("path={APP_ROUTES.adminUsers} element={<OrganizerUserManagementPage />}");
+  });
+
+  it("limits department-admin credential mutations to students in their assigned department", () => {
+    const migration = read("supabase/migrations/20260921162000_department_admin_manage_department_credentials.sql");
+    const repository = read("src/services/supabase/repositories.ts");
+    const page = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
+
+    expect(migration).toContain("public.department_admin_issue_qr_credential");
+    expect(migration).toContain("s.department_id = (select private.current_department_id())");
+    expect(migration).toContain("private.is_active_department_admin()");
+    expect(migration).toContain("revoke all on function public.department_admin_issue_qr_credential");
+    expect(migration).not.toMatch(/returns table\s*\([^)]*token_hash/is);
+    expect(repository).toContain('client.rpc("department_admin_issue_qr_credential"');
+    expect(repository).toContain('"credentials.reset.department" : "credentials.revoke.department"');
+    expect(page).toContain("Reissue QR");
+    expect(page).not.toContain("credentialActions");
+    expect(page).toContain("canResetCredentials");
+    expect(page).toContain("canRevokeCredentials");
+    expect(read("src/features/department/pages/DepartmentAdminPages.tsx")).toContain("return <AuthenticationMethodsPage />;");
+  });
+
+  it("blocks production releases when linked Supabase migration history is missing or drifted", () => {
+    const preflight = read("scripts/release-preflight.mjs");
+    expect(preflight).toContain('checkLinkedSupabaseReadiness(productionProjectRef)');
+    expect(preflight).toContain('"run", "check:supabase:linked"');
+    expect(preflight).toContain("does not match supabase/config.toml project_id");
+    expect(preflight).toContain("Linked Supabase readiness failed for production project");
+  });
+
+  it("qualifies status columns that collide with department QR RPC output variables", () => {
+    const migration = read("supabase/migrations/20260921163000_fix_department_qr_issue_ambiguous_status.sql");
+    expect(migration).toContain("update public.qr_credentials as q");
+    expect(migration).toMatch(/where q\.student_id = p_student_id and q\.credential_status = 'activated'/);
   });
 });

@@ -18,13 +18,13 @@
 - Ensure `VITE_DATA_SOURCE` is absent or not `mock`.
 - Set Auth site URL and reset-password redirects to the deployed HTTPS domain.
 - Configure allowed origins, Storage limits, email provider settings, monitoring, and backup retention.
-- Run `node scripts/release-preflight.mjs --production` in the hosting build environment.
+- Run `node scripts/release-preflight.mjs --production` in the hosting build environment. It fails closed unless the Supabase CLI is authenticated to the configured project and linked migration parity, schema lint, and generated-type parity all pass. Do not bypass this check; reconcile and apply reviewed migrations first, then rerun it.
 
 ## Release order
 
-1. Apply backward-compatible database migrations.
-2. Verify staging RPC signatures and regenerate database types if needed.
-3. Deploy the frontend artifact.
+1. Apply backward-compatible database migrations to the intended project.
+2. Verify linked migration parity and RPC signatures; regenerate database types if needed.
+3. Run the production release preflight against the same project. It must pass before the frontend artifact is deployed.
 4. Smoke-test login, organizer dashboard/events/session, student dashboard/attendance/methods, corrections, reports, notifications, and logout.
 5. Verify audit records and application logs contain no secrets or biometric descriptors.
 6. Announce availability only after acceptance criteria pass.

@@ -14,6 +14,14 @@ const storedSessions: Partial<Record<UserRole, string>> = {
     email: "admin.one@plpass.test",
     isAuthenticated: true
   }),
+  department_admin: JSON.stringify({
+    userId: "department-admin-ccs",
+    role: "department_admin",
+    displayName: "CCS Department Admin",
+    email: "ccs.admin@plpass.test",
+    isAuthenticated: true,
+    departmentId: "dept-ccs"
+  }),
   organizer: JSON.stringify({
     userId: "user-organizer-1",
     role: "organizer",
@@ -71,6 +79,7 @@ describe("mock authentication flow", () => {
     expect(await screen.findByRole("heading", { name: "Admin Dashboard" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "admin navigation" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "User Management" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/admin/reports");
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
     expect(screen.getByText("Registered Students")).toBeInTheDocument();
@@ -78,6 +87,19 @@ describe("mock authentication flow", () => {
     expect(screen.getAllByRole("link", { name: "System Health" }).some((link) => link.getAttribute("href") === "/admin/system-health")).toBe(true);
     expect(screen.queryByRole("link", { name: "Create Event" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Correction Requests" })).not.toBeInTheDocument();
+  });
+
+  it("renders department-admin counterpart pages with only assigned-department event data", async () => {
+    storeSession("department_admin");
+    setRoute("/department/events");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "department_admin navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reports" })).toHaveAttribute("href", "/department/reports");
+    expect(await screen.findByText("CCS Orientation")).toBeInTheDocument();
+    expect(screen.queryByText("Business Forum")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create|approve|start attendance/i })).not.toBeInTheDocument();
   });
 
   it("does not expose correction requests to an admin", async () => {

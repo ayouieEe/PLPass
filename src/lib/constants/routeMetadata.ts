@@ -22,6 +22,13 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
 
   if (pathname === "/department" || pathname === "/department/dashboard") return { title: "Department Overview", description: "Review department events, participation, and branding.", breadcrumbs: ["Department Admin", "Dashboard"] };
   if (pathname === "/department/events") return { title: "Department Events", description: "Review events associated with your department.", breadcrumbs: ["Department Admin", "Events"] };
+  if (pathname === "/department/credentials") return { title: "Authentication Methods", description: "Review QR and facial authentication status for students in your department.", breadcrumbs: ["Department Admin", "Authentication Methods"] };
+  if (pathname === "/department/records" || pathname === "/department/attendance") return { title: "Event Records", description: "Review attendance records for department events.", breadcrumbs: ["Department Admin", "Event Records"] };
+  if (pathname === "/department/analytics") return { title: "Analytics Insights", description: "Review attendance insights for your department.", breadcrumbs: ["Department Admin", "Analytics Insights"] };
+  if (pathname === "/department/audit-logs") return { title: "Audit Logs", description: "Review activity within your department scope.", breadcrumbs: ["Department Admin", "Audit Logs"] };
+  if (pathname === "/department/system-health") return { title: "System Health", description: "Check department-scoped data availability.", breadcrumbs: ["Department Admin", "System Health"] };
+  if (pathname === "/department/settings") return { title: "Settings", description: "Manage settings for your assigned department.", breadcrumbs: ["Department Admin", "Settings"] };
+  if (pathname === "/department/profile") return { title: "Profile", description: "Manage your department-admin profile.", breadcrumbs: ["Department Admin", "Profile"] };
   if (pathname === "/department/students") return { title: "Department Students", description: "Review students visible through your department scope.", breadcrumbs: ["Department Admin", "Students"] };
   if (pathname === "/department/branding") return { title: "Department Branding", description: "Manage branding for your assigned department.", breadcrumbs: ["Department Admin", "Branding"] };
 
