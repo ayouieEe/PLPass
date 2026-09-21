@@ -203,12 +203,11 @@ export function AttendanceMethodsPage() {
         reason: values.issueDescription,
         proofAttachment: issueProofFile ?? undefined
       });
-      toast.success("Attendance issue submitted.");
       issueForm.reset();
       resetIssueProofFile();
       setShowIssueReport(false);
-    } catch (error) {
-      toast.error(getErrorMessage(error));
+    } catch {
+      // The shared credential mutation reports the failure once.
     }
   }
 

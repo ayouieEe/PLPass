@@ -524,10 +524,6 @@ export function useSubmitLateReasonMutation(context?: RepositoryContext) {
       await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
       await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
-      toast.success("Late reason submitted successfully");
-    },
-    onError: (error: unknown) => {
-      toast.error(getErrorMessage(error));
     }
   });
 }
@@ -581,10 +577,6 @@ export function useCorrectionRequests(
       repositories.correctionRequests.createCorrectionRequest(input, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["correctionRequests"] });
-      toast.success("Correction request submitted successfully");
-    },
-    onError: (error: unknown) => {
-      toast.error(getErrorMessage(error));
     }
   });
   const reviewMutation = useMutation({
@@ -596,10 +588,6 @@ export function useCorrectionRequests(
         queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] }),
         queryClient.invalidateQueries({ queryKey: ["auditLogs"] })
       ]);
-      toast.success("Correction request reviewed successfully");
-    },
-    onError: (error: unknown) => {
-      toast.error(getErrorMessage(error));
     }
   });
 
@@ -725,10 +713,6 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
       await queryClient.invalidateQueries({ queryKey: ["studentFeedbackTasks"] });
       await queryClient.invalidateQueries({ queryKey: ["eventObjectives", input.eventId] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
-      toast.success("Feedback submitted successfully");
-    },
-    onError: (error: unknown) => {
-      toast.error(getErrorMessage(error));
     }
   });
 
