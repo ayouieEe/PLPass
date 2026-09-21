@@ -2,6 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .account-edit-dialog {
+    display: flex;
+    max-height: min(92dvh, 1100px);
+    flex-direction: column;
+    border-color: hsl(var(--border));
+    color: hsl(var(--foreground));
+  }
+
+  .account-edit-dialog > form {
+    min-height: 0;
+  }
+
+  .account-edit-form,
+  .account-edit-student-form {
+    scrollbar-gutter: stable;
+  }
+
+  .account-edit-form h3:not(:first-child) {
+    margin-top: 0.75rem;
+  }
+
+  .account-edit-actions {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) auto auto;
+    align-items: end;
+    gap: 0.75rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    background: hsl(var(--background) / 0.72);
+    padding: 1rem;
+  }
+
+  .account-edit-footer {
+    position: sticky;
+    bottom: -1.75rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--surface));
+    margin: 0 -2.25rem -1.75rem;
+    padding: 1rem 2.25rem;
+  }
+
+  .account-edit-student-form input,
+  .account-edit-student-form select {
+    color: hsl(var(--foreground));
+  }
+
+  @media (max-width: 639px) {
+    .account-edit-overlay {
+      align-items: flex-end;
+      padding: 0;
+    }
+
+    .account-edit-dialog {
+      width: 100%;
+      max-height: 96dvh;
+      border-radius: 1.25rem 1.25rem 0 0;
+    }
+
+    .account-edit-form,
+    .account-edit-student-form {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .account-edit-student-form > .grid.grid-cols-2 {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .account-edit-actions {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .account-edit-actions button {
+      width: 100%;
+    }
+
+    .account-edit-footer {
+      bottom: -1.5rem;
+      margin-right: -1.5rem;
+      margin-bottom: -1.5rem;
+      margin-left: -1.5rem;
+      padding: 0.875rem 1.5rem;
+    }
+  }
+}
+
 @layer base {
   :root {
     --plpass-green-light: 125 54% 91%;
