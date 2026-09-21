@@ -59,7 +59,7 @@ import { repositories } from "@/services/repositories";
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
   const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, session?.role === "organizer");
@@ -975,11 +975,11 @@ function AddStudentModal({
   );
 }
 
-function AccountDirectoryTabs({ activeTab, onChange }: { activeTab: "students" | "organizers" | "admins"; onChange: (tab: "students" | "organizers" | "admins") => void }) {
-  return <div role="tablist" aria-label="User account type" className="grid w-full grid-cols-3 rounded-xl border border-border bg-muted/30 p-1">
+function AccountDirectoryTabs({ activeTab, onChange, showAdmins = true }: { activeTab: "students" | "organizers" | "admins"; onChange: (tab: "students" | "organizers" | "admins") => void; showAdmins?: boolean }) {
+  return <div role="tablist" aria-label="User account type" className={`grid w-full ${showAdmins ? "grid-cols-3" : "grid-cols-2"} rounded-xl border border-border bg-muted/30 p-1`}>
     <button type="button" role="tab" aria-selected={activeTab === "students"} onClick={() => onChange("students")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "students" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Students</button>
     <button type="button" role="tab" aria-selected={activeTab === "organizers"} onClick={() => onChange("organizers")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "organizers" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Organizers</button>
-    <button type="button" role="tab" aria-selected={activeTab === "admins"} onClick={() => onChange("admins")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "admins" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Admins</button>
+    {showAdmins ? <button type="button" role="tab" aria-selected={activeTab === "admins"} onClick={() => onChange("admins")} className={`min-h-11 rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${activeTab === "admins" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70 hover:text-foreground"}`}>Admins</button> : null}
   </div>;
 }
 
@@ -1688,8 +1688,8 @@ export function OrganizerUserManagementPage() {
   const scope = useOrganizerScope();
   const { session } = useDevelopmentSession();
   const isDepartmentAdmin = session?.role === "department_admin";
-  const studentsQuery = useStudents({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
-  const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
+  const studentsQuery = useStudents({ pageSize: 100 }, scope.context, true);
+  const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context, true);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, undefined, !isDepartmentAdmin);
   const credentialMutations = useStudentCredentialMutations(scope.context);
@@ -1709,7 +1709,7 @@ export function OrganizerUserManagementPage() {
   const [programFilter, setProgramFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState<"students" | "organizers" | "admins">(isDepartmentAdmin ? "organizers" : "students");
+  const [activeTab, setActiveTab] = useState<"students" | "organizers" | "admins">("students");
   const [isAddOrganizerModalOpen, setIsAddOrganizerModalOpen] = useState(false);
   const [isBulkOrganizerModalOpen, setIsBulkOrganizerModalOpen] = useState(false);
   const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
@@ -1721,8 +1721,8 @@ export function OrganizerUserManagementPage() {
   const [resendingInvitationUserId, setResendingInvitationUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isDepartmentAdmin) setActiveTab("organizers");
-  }, [isDepartmentAdmin]);
+    if (isDepartmentAdmin && activeTab === "admins") setActiveTab("students");
+  }, [isDepartmentAdmin, activeTab]);
 
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
@@ -1739,9 +1739,13 @@ export function OrganizerUserManagementPage() {
   const selectedAdmin = adminProfilesQuery.data?.items.find((admin) => admin.id === selectedAdminId);
   const selectedAdminUser = usersQuery.data?.items.find((user) => user.id === selectedAdmin?.userId);
   const canCreateOrganizer = session ? hasCapability(session.role, isDepartmentAdmin ? "users.create.organizer.department" : "users.create.organizer") : false;
+  const canCreateStudent = session ? hasCapability(session.role, isDepartmentAdmin ? "users.create.student.department" : "users.create.student") : false;
+  const canUpdateStudent = session ? hasCapability(session.role, isDepartmentAdmin ? "users.update.student.department" : "users.update.student") : false;
   const canCreateAdmin = session ? hasCapability(session.role, "users.create.admin") : false;
   const canManageUserStatus = session ? hasCapability(session.role, isDepartmentAdmin ? "users.status.manage.department" : "users.status.manage") : false;
+  const canManageStudentStatus = session ? hasCapability(session.role, isDepartmentAdmin ? "users.status.manage.student.department" : "users.status.manage.student") : false;
   const canRevokeSessions = session ? hasCapability(session.role, isDepartmentAdmin ? "users.sessions.revoke.department" : "users.sessions.revoke") : false;
+  const canRevokeStudentSessions = session ? hasCapability(session.role, isDepartmentAdmin ? "users.sessions.revoke.student.department" : "users.sessions.revoke.student") : false;
   const canResendInvitations = session ? hasCapability(session.role, isDepartmentAdmin ? "users.invitation.resend.department" : "users.invitation.resend") : false;
 
   const requestSessionRevocation = (userId: string, displayName: string) => {
@@ -1771,7 +1775,7 @@ export function OrganizerUserManagementPage() {
   };
 
   const studentAccounts = useMemo<StudentAccount[]>(() => {
-    const rawStudents = studentsQuery.data?.items ?? [];
+    const rawStudents = (studentsQuery.data?.items ?? []).filter((student) => !isDepartmentAdmin || student.departmentId === session?.departmentId);
     const programsMap = new Map((academicCatalog.programs.data?.items ?? []).map((p) => [p.id, p.code]));
     const credentialMap = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
 
@@ -1804,7 +1808,7 @@ export function OrganizerUserManagementPage() {
     });
 
     return dbAccounts;
-  }, [studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, credentialStatusesQuery.data]);
+  }, [isDepartmentAdmin, session?.departmentId, studentsQuery.data?.items, academicCatalog.programs.data?.items, attendanceRecordsQuery.data?.items, credentialStatusesQuery.data]);
   const [selectedStudentId, setSelectedStudentId] = useState(studentAccounts[0]?.id ?? "");
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -2000,7 +2004,7 @@ export function OrganizerUserManagementPage() {
         />
         <MetricCard title="Avg. Attendance Rate" value={`${averageAttendance}%`} detail="Average rate" icon={BadgeCheck} />
       </section>
-      <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
+      <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} showAdmins={!isDepartmentAdmin} />
       <div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -2014,19 +2018,20 @@ export function OrganizerUserManagementPage() {
             <button
               type="button"
               onClick={() => setIsAddStudentModalOpen(true)}
+              disabled={!canCreateStudent}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary bg-primary px-3 text-xs font-semibold text-white transition hover:border-primary/90 hover:bg-primary/90"
             >
               <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
               Add Student
             </button>
-            <button
+            {canCreateStudent ? <button
               type="button"
               onClick={() => setIsBulkAddModalOpen(true)}
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
             >
               <UploadCloud className="h-3.5 w-3.5" aria-hidden="true" />
               Bulk Add
-            </button>
+            </button> : null}
             <button
               type="button"
               onClick={() => setIsExportModalOpen(true)}
@@ -2132,7 +2137,7 @@ export function OrganizerUserManagementPage() {
           <MetricCard title="Active Organizers" value={`${departmentOrganizers.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length}`} detail={`${Math.max(0, departmentOrganizers.length - departmentOrganizers.filter((organizer) => organizer.employmentStatus === "active" && usersQuery.data?.items.find((user) => user.id === organizer.userId)?.isActive !== false).length)} deactivated`} icon={UserRoundCheck} />
           <MetricCard title="Events Managed" value={`${eventsQuery.data?.items.length ?? 0}`} detail="Across all organizers" icon={CalendarCheck} />
         </section>
-        {!isDepartmentAdmin ? <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} /> : null}
+        <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} showAdmins={!isDepartmentAdmin} />
         <div className="organizer-directory-page">
           <OrganizerDirectoryConsistent organizers={departmentOrganizers} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} canAdd={canCreateOrganizer} />
         </div>
@@ -2145,13 +2150,13 @@ export function OrganizerUserManagementPage() {
       <StudentDetailModal
         student={isStudentModalOpen ? selectedStudent : undefined}
         onClose={() => setIsStudentModalOpen(false)}
-        onToggleAccountStatus={canManageUserStatus ? toggleStudentAccountStatus : undefined}
-        onRevokeSessions={canRevokeSessions ? requestSessionRevocation : undefined}
+        onToggleAccountStatus={canManageStudentStatus ? toggleStudentAccountStatus : undefined}
+        onRevokeSessions={canRevokeStudentSessions ? requestSessionRevocation : undefined}
         isStatusUpdating={statusUpdatingStudentId === selectedStudent?.id}
-        onEdit={(id) => {
+        onEdit={canUpdateStudent ? (id) => {
           setSelectedStudentId(id);
           setIsEditModalOpen(true);
-        }}
+        } : undefined}
       />
       <ReportExportModal
         isOpen={isExportModalOpen}
@@ -2171,22 +2176,22 @@ export function OrganizerUserManagementPage() {
           });
         }}
       />
-      <AddStudentModal
+      {canCreateStudent ? <AddStudentModal
         isOpen={isAddStudentModalOpen}
         onClose={() => setIsAddStudentModalOpen(false)}
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
         sections={academicCatalog.sections.data?.items ?? []}
-      />
-      <BulkAddStudentModal
+      /> : null}
+      {canCreateStudent ? <BulkAddStudentModal
         isOpen={isBulkAddModalOpen}
         onClose={() => setIsBulkAddModalOpen(false)}
         mutations={studentMutations}
         programs={academicCatalog.programs.data?.items ?? []}
         departments={academicCatalog.departments.data?.items ?? []}
-      />
-      <EditStudentModal
+      /> : null}
+      {canUpdateStudent ? <EditStudentModal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         mutations={studentMutations}
@@ -2201,7 +2206,7 @@ export function OrganizerUserManagementPage() {
             metadata
           });
         }}
-      />
+      /> : null}
       </> : null}
       {canCreateOrganizer ? <AddOrganizerModal isOpen={isAddOrganizerModalOpen} onClose={() => setIsAddOrganizerModalOpen(false)} mutation={organizerMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(departmentOrganizers, "O")} fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined} /> : null}
       <EditOrganizerModal isOpen={isEditOrganizerModalOpen} onClose={() => setIsEditOrganizerModalOpen(false)} organizer={selectedOrganizer} user={selectedOrganizerUser} departments={academicCatalog.departments.data?.items ?? []} mutation={updateOrganizerMutation} canRevokeSessions={canRevokeSessions && selectedOrganizerUser?.id !== session?.userId} onRevokeSessions={requestSessionRevocation} onResendInvitation={resendInvitation} fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined} />

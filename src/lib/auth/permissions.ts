@@ -1,7 +1,7 @@
 import type { UserRole } from "@/types/roles";
 
 export const CAPABILITIES = [
-  "users.read.all", "users.read.department", "users.create.organizer", "users.create.organizer.department", "users.create.admin", "users.status.manage", "users.status.manage.department", "users.sessions.revoke", "users.sessions.revoke.department", "users.invitation.resend", "users.invitation.resend.department",
+  "users.read.all", "users.read.department", "users.create.student", "users.create.student.department", "users.update.student", "users.update.student.department", "users.status.manage.student", "users.status.manage.student.department", "users.sessions.revoke.student", "users.sessions.revoke.student.department", "users.create.organizer", "users.create.organizer.department", "users.create.admin", "users.status.manage", "users.status.manage.department", "users.sessions.revoke", "users.sessions.revoke.department", "users.invitation.resend", "users.invitation.resend.department",
   "events.create", "events.read.owned", "events.manage.owned", "events.read.all",
   "attendance.read.owned", "attendance.manage.owned", "attendance.read.all",
   "corrections.review.owned", "analytics.read.owned", "analytics.read.all",
@@ -24,7 +24,7 @@ const organizerCapabilities = [
 ] as const satisfies readonly Capability[];
 
 const adminCapabilities = [
-  "users.read.all", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke", "users.invitation.resend",
+  "users.read.all", "users.create.student", "users.update.student", "users.status.manage.student", "users.sessions.revoke.student", "users.create.organizer", "users.create.admin", "users.status.manage", "users.sessions.revoke", "users.invitation.resend",
   "events.read.all", "attendance.read.all", "analytics.read.all", "reports.read.all",
   "system.settings.manage", "system.catalog.manage", "system.health.read", "system.errors.read", "system.jobs.retry",
   "system.data_check.run", "system.cache.refresh", "attendance.session.recover",
@@ -32,7 +32,7 @@ const adminCapabilities = [
 ] as const satisfies readonly Capability[];
 
 const departmentAdminCapabilities = [
-  "users.read.department", "users.create.organizer.department", "users.status.manage.department", "users.sessions.revoke.department", "users.invitation.resend.department",
+  "users.read.department", "users.create.student.department", "users.update.student.department", "users.status.manage.student.department", "users.sessions.revoke.student.department", "users.create.organizer.department", "users.status.manage.department", "users.sessions.revoke.department", "users.invitation.resend.department",
   "departments.read.owned", "departments.branding.manage.owned", "events.read.department",
   "attendance.read.department", "reports.read.department", "reports.export.department",
   "analytics.read.department", "audit.read.department", "audit.export.department",

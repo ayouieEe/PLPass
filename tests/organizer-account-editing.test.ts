@@ -20,7 +20,7 @@ describe("organizer account editing", () => {
     expect(repository).toContain('action: "update-organizer"');
     expect(userManager).toContain('if (action === "update-organizer")');
     expect(userManager).toContain('["admin", "department_admin"].includes(profile.role)');
-    expect(userManager).toContain('Department administrators can manage organizers only.');
+    expect(userManager).toContain('Department administrators can manage only accounts in their own department.');
     expect(userManager).toContain('"user.organizer_updated"');
   });
 

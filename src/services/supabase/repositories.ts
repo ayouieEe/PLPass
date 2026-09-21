@@ -423,9 +423,10 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return mapProfileToUser(await selectSingleRow("profiles", userId));
   },
   async listStudents(query, context) {
-    const rows =
-      context?.actorRole === "student"
-        ? await selectRowsFiltered("students", query, studentReadSelect, { profile_id: context.actorUserId })
+    const rows = context?.actorRole === "student"
+      ? await selectRowsFiltered("students", query, studentReadSelect, { profile_id: context.actorUserId })
+      : context?.actorRole === "department_admin"
+        ? await selectRowsFiltered("students", query, studentReadSelect, { department_id: context.departmentId })
         : await selectRows("students", query, studentReadSelect);
     return pageResult(rows.items.map(mapStudent), rows.total, query);
   },
@@ -576,7 +577,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return { id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number), departmentId: String(row.department_id), officeName: String(row.office_name) };
   },
   async revokeUserSessions(input, context) {
-    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can revoke user sessions.", "PERMISSION_DENIED");
+    if (context?.actorRole !== "admin" && context?.actorRole !== "department_admin") throw new RepositoryError("Only administrators can revoke user sessions.", "PERMISSION_DENIED");
     if (context.actorUserId === input.userId) throw new RepositoryError("Administrators cannot revoke their own sessions.", "VALIDATION_ERROR");
     const reason = input.reason.trim();
     if (!reason) throw new RepositoryError("A reason is required to revoke user sessions.", "VALIDATION_ERROR");
@@ -726,8 +727,10 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     const rows = await selectRows("departments", query);
     return pageResult(rows.items.map((row): Department => ({ id: String(row.id ?? ""), code: String(row.department_code ?? row.code ?? ""), name: String(row.name ?? row.department_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
-  async listPrograms(query) {
-    const rows = await selectRows("programs", query);
+  async listPrograms(query, context) {
+    const rows = context?.actorRole === "department_admin"
+      ? await selectRowsFiltered("programs", query, "*", { department_id: context.departmentId })
+      : await selectRows("programs", query);
     return pageResult(rows.items.map((row): Program => ({ id: String(row.id ?? ""), departmentId: String(row.department_id ?? ""), code: String(row.program_code ?? row.code ?? ""), name: String(row.name ?? row.program_name ?? ""), isActive: row.is_active !== false })), rows.total, query);
   },
   async listSemesters(query) {
@@ -745,7 +748,9 @@ export const supabaseAcademicManagementRepository: AcademicManagementRepository 
     query
   );
 },
-  async listSections(query) {
+  async listSections(query, context) {
+    // Sections are filtered client-side by the RLS-safe program list when the
+    // schema cannot express the program join through the generic helper.
     const rows = await selectRows("sections", query);
     return pageResult(rows.items.map((row) => ({
       id: String(row.id ?? ""), programId: String(row.program_id ?? ""), name: String(row.section_name ?? ""),

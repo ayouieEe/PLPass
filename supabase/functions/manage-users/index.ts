@@ -111,9 +111,9 @@ Deno.serve(async (request) => {
   const requestBody = await request.json().catch(() => ({}));
   const action = typeof requestBody.action === "string" ? requestBody.action : "";
 
-  // Account management is available to university admins and, for organizer
-  // actions only, active department admins. Every department scope check below
-  // is repeated server-side; the frontend is never the authorization boundary.
+  // Account management is available to university admins and to active
+  // department admins within their own department. Scope checks are repeated
+  // server-side; the frontend is never the authorization boundary.
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role, account_status")
@@ -155,9 +155,12 @@ Deno.serve(async (request) => {
     "prepare-user-invitation-resend",
     "bulk-create-organizers",
     "create-organizer",
-    "update-organizer"
+    "update-organizer",
+    "bulk-create-students",
+    "create-student",
+    "update-student"
   ]).has(action)) {
-    return json({ error: "Department administrators can manage organizers only." }, 403);
+    return json({ error: "Department administrators can manage only accounts in their own department." }, 403);
   }
 
   if (action === "revoke-user-sessions") {
@@ -169,8 +172,16 @@ Deno.serve(async (request) => {
     if (!reason) return json({ error: "A reason is required to revoke user sessions." }, 400);
     if (reason.length > 500) return json({ error: "The reason must be 500 characters or fewer." }, 400);
     if (isDepartmentAdmin) {
-      const { data: targetOrganizer } = await supabase.from("organizers").select("department_id, profile_id").eq("profile_id", userId).maybeSingle();
-      if (!targetOrganizer || targetOrganizer.profile_id !== userId || !departmentMatches(targetOrganizer.department_id)) return json({ error: "You can only revoke sessions for organizers in your department." }, 403);
+      const { data: targetProfile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+      if (targetProfile?.role === "organizer") {
+        const { data: targetOrganizer } = await supabase.from("organizers").select("department_id").eq("profile_id", userId).maybeSingle();
+        if (!targetOrganizer || !departmentMatches(targetOrganizer.department_id)) return json({ error: "You can only revoke sessions for accounts in your department." }, 403);
+      } else if (targetProfile?.role === "student") {
+        const { data: targetStudent } = await supabase.from("students").select("department_id").eq("profile_id", userId).maybeSingle();
+        if (!targetStudent || !departmentMatches(targetStudent.department_id)) return json({ error: "You can only revoke sessions for accounts in your department." }, 403);
+      } else {
+        return json({ error: "You can only revoke sessions for organizers or students in your department." }, 403);
+      }
     }
 
     const { data, error } = await supabase.rpc("admin_revoke_user_sessions", {
@@ -435,12 +446,14 @@ Deno.serve(async (request) => {
       const { id, profileId, email, firstName, middleName, lastName, nameExtension, programId, departmentId, sectionId, yearLevel, accountStatus, statusOnly } = student;
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
-      const { data: previousProfile, error: previousProfileError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, name_extension, account_status").eq("id", profileId).maybeSingle();
+      const { data: previousProfile, error: previousProfileError } = await supabase.from("profiles").select("email, first_name, middle_name, last_name, name_extension, account_status, role").eq("id", profileId).maybeSingle();
       if (previousProfileError || !previousProfile) throw new Error(`Could not load the student profile: ${previousProfileError?.message || "record not found"}`);
       const { data: previousStudent, error: previousStudentError } = await supabase.from("students").select("program_id, department_id, section_id, year_level").eq("id", id).maybeSingle();
       if (previousStudentError || !previousStudent) throw new Error(`Could not load the student account: ${previousStudentError?.message || "record not found"}`);
       previousProfileForRollback = previousProfile as Record<string, unknown>;
       previousStudentForRollback = previousStudent as Record<string, unknown>;
+      if (previousProfile.role !== "student") return json({ error: "The selected account is not a student." }, 400);
+      if (isDepartmentAdmin && !departmentMatches(previousStudent.department_id)) return json({ error: "You can only manage students in your department." }, 403);
       if (statusOnly) {
         if (!id || !profileId || !accountStatus || !["active", "inactive", "suspended"].includes(accountStatus)) {
           return json({ error: "A valid student account status is required." }, 400);
@@ -461,6 +474,10 @@ Deno.serve(async (request) => {
       if (!id || !profileId || !email || !firstName || !lastName || !programId || !departmentId || !sectionId || !yearLevel) {
         return json({ error: "Please complete all required student information before saving." }, 400);
       }
+      if (isDepartmentAdmin && !departmentMatches(departmentId)) return json({ error: "Students must remain in your department." }, 403);
+      const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
+      const { data: selectedProgram, error: selectedProgramError } = await supabase.from("programs").select("department_id").eq("id", programId).maybeSingle();
+      if (selectedProgramError || !selectedProgram || selectedProgram.department_id !== effectiveDepartmentId) return json({ error: "The selected program is not available for this department." }, 400);
       if (accountStatus && !["active", "inactive", "suspended"].includes(accountStatus)) {
         return json({ error: "The selected account status is not valid." }, 400);
       }
@@ -534,7 +551,7 @@ Deno.serve(async (request) => {
 
       const { error: studentUpdateError } = await supabase.from("students").update({
         program_id: programId,
-        department_id: departmentId,
+        department_id: effectiveDepartmentId,
         section_id: actualSectionId,
         year_level: yearLevel
       }).eq("id", id);
@@ -578,6 +595,10 @@ Deno.serve(async (request) => {
         .maybeSingle();
       if (existingStudentError) throw new Error(`Could not check student ID: ${existingStudentError.message}`);
       if (existingStudent) throw new Error(`Student ID "${studentNumber}" already exists.`);
+      if (isDepartmentAdmin && !departmentMatches(departmentId)) throw new Error("Students can only be created in your department.");
+      const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
+      const { data: selectedProgram, error: selectedProgramError } = await supabase.from("programs").select("department_id").eq("id", programId).maybeSingle();
+      if (selectedProgramError || !selectedProgram || selectedProgram.department_id !== effectiveDepartmentId) throw new Error("The selected program is not available for this department.");
       const defaultPassword = studentNumber;
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sectionId);
       let actualSectionId = sectionId;
@@ -683,7 +704,7 @@ Deno.serve(async (request) => {
         profile_id: userId,
         student_id: studentNumber,
         program_id: programId,
-        department_id: departmentId,
+        department_id: effectiveDepartmentId,
         section_id: actualSectionId,
         year_level: yearLevel,
         student_status: "enrolled"

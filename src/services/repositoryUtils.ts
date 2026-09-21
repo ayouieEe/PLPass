@@ -4,6 +4,8 @@ import type { UserRole } from "@/types/enums";
 export type RepositoryContext = {
   actorUserId: string;
   actorRole: UserRole;
+  /** Optional query scope hint; authorization remains server-side/RLS enforced. */
+  departmentId?: string;
 };
 
 export class RepositoryError extends Error {
