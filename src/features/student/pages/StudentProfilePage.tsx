@@ -13,6 +13,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -294,6 +295,18 @@ export function StudentProfilePage() {
 
             <ChangePasswordForm email={user.email} />
             <p className="text-sm text-muted-foreground">Forgot your password? Use the “Forgot password?” link on the sign-in page to receive a reset link at your school email.</p>
+          </div>
+
+          <div className="student-glass-card space-y-3 p-4 shadow-sm sm:p-6">
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Legal &amp; Privacy
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">Review the documents that explain how PLPass accounts, attendance records, verification methods, and requests are used.</p>
+            <div className="flex flex-wrap gap-4 text-sm font-semibold">
+              <Link className="text-primary hover:underline" to="/terms">Terms of Use</Link>
+              <Link className="text-primary hover:underline" to="/privacy">Privacy Policy</Link>
+            </div>
           </div>
         </div>
       </div>

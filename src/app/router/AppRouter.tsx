@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { AuthenticatedLayout, PublicLayout } from "@/app/layouts/AppLayout";
 import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
@@ -9,11 +9,14 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+import { LegalPolicyPage } from "@/pages/LegalPolicyPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useQuery } from "@tanstack/react-query";
+import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
 import { getPasswordLinkType, getPasswordSetupPath, hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
 import { AdminReportsPage } from "@/features/admin/pages/AdminPages";
@@ -55,7 +58,9 @@ const MyAttendancePage = lazy(() => import("@/features/student/pages/MyAttendanc
 const AttendanceMethodsPage = lazy(() => import("@/features/student/pages/AttendanceMethodsPage").then((module) => ({ default: module.AttendanceMethodsPage })));
 const RequestHistoryPage = lazy(() => import("@/features/student/pages/RequestHistoryPage").then((module) => ({ default: module.RequestHistoryPage })));
 const StudentCorrectionRequestsPage = lazy(() => import("@/features/student/pages/CorrectionRequestsPage").then((module) => ({ default: module.CorrectionRequestsPage })));
+const StudentFaqPage = lazy(() => import("@/features/student/pages/StudentFaqPage").then((module) => ({ default: module.StudentFaqPage })));
 const StudentProfilePage = lazy(() => import("@/features/student/pages/StudentProfilePage").then((module) => ({ default: module.StudentProfilePage })));
+const StudentLegalReviewPage = lazy(() => import("@/features/student/pages/StudentLegalReviewPage").then((module) => ({ default: module.StudentLegalReviewPage })));
 
 function AdminOrOrganizerSettingsPage() {
   const { session } = useDevelopmentSession();
@@ -87,6 +92,27 @@ function OrganizerLiveAttendanceRoute() {
   return isOfflineMode ? <OfflineOrganizerLiveAttendancePage /> : <EventManagementPage />;
 }
 
+function StudentLegalGate() {
+  const { session } = useDevelopmentSession();
+  const location = useLocation();
+  const userId = session?.userId;
+  const acceptance = useQuery({
+    queryKey: ["legal-acceptance", userId],
+    queryFn: async () => {
+      if (!userId) throw new Error("No active student session.");
+      return getLegalAcceptanceStatus(userId);
+    },
+    enabled: Boolean(userId),
+    staleTime: 60_000
+  });
+  if (acceptance.isLoading) return <LoadingState label="Checking account agreements" />;
+  if (acceptance.isError) return <AccessDeniedPage />;
+  if (!allCurrentLegalDocumentsAccepted(acceptance.data)) {
+    return <Navigate to={APP_ROUTES.studentLegalReview} replace state={{ from: location }} />;
+  }
+  return <Outlet />;
+}
+
 export function AppRouter() {
   return (
     <Suspense fallback={<LoadingState label="Loading workspace" />}>
@@ -96,6 +122,8 @@ export function AppRouter() {
         <Route path={APP_ROUTES.login} element={<LoginPage />} />
         <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
         <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
+        <Route path={APP_ROUTES.terms} element={<LegalPolicyPage document="terms" />} />
+        <Route path={APP_ROUTES.privacy} element={<LegalPolicyPage document="privacy" />} />
         <Route path={APP_ROUTES.accessDenied} element={<AccessDeniedPage />} />
         <Route path="/home" element={<Navigate to="/" replace />} />
       </Route>
@@ -224,6 +252,8 @@ export function AppRouter() {
               </Route>
             </Route>
             <Route element={<RoleRoute allowedRoles={["student"]} />}>
+              <Route path={APP_ROUTES.studentLegalReview} element={<StudentLegalReviewPage />} />
+              <Route element={<StudentLegalGate />}>
               <Route path={APP_ROUTES.student} element={<StudentRootPage />} />
               <Route path={APP_ROUTES.studentDashboard} element={<StudentDashboardPage />} />
               <Route path={APP_ROUTES.studentSchedule} element={<StudentSchedulePage />} />
@@ -233,7 +263,9 @@ export function AppRouter() {
               <Route path={APP_ROUTES.studentMethods} element={<AttendanceMethodsPage />} />
               <Route path={APP_ROUTES.studentRequestHistory} element={<RequestHistoryPage />} />
               <Route path={APP_ROUTES.studentCorrections} element={<StudentCorrectionRequestsPage />} />
+              <Route path={APP_ROUTES.studentFaqs} element={<StudentFaqPage />} />
               <Route path={APP_ROUTES.studentProfile} element={<StudentProfilePage />} />
+              </Route>
             </Route>
           </Route>
         </Route>

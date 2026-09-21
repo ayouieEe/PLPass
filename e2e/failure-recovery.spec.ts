@@ -74,7 +74,7 @@ test.describe("student validation and device recovery", () => {
   test("prevents an unexplained attendance issue report", async ({ page }) => {
     await page.goto("/student/methods");
     await expect(page.getByRole("heading", { name: "Attendance Methods" })).toBeVisible();
-    await page.getByRole("button", { name: "Report attendance issue" }).click();
+    await page.getByRole("button", { name: "Report an Issue" }).click();
     await page.getByRole("button", { name: "Submit report" }).click();
     await expect(page.getByText("Explanation must be at least 10 characters.")).toBeVisible();
   });

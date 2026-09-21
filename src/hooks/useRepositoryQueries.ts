@@ -35,6 +35,7 @@ import type { AttendanceAttempt, AttendanceRecord } from "@/types/domain";
 import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import { isNotificationVisibleForRole } from "@/lib/notifications/policy";
+import { studentCachePolicy } from "@/app/providers/queryClient";
 
 const queryDefaults = {
   pageIndex: 0,
@@ -82,7 +83,8 @@ export function useUser(userId: string | undefined, context?: RepositoryContext)
   return useQuery({
     queryKey: ["user", userId, context],
     queryFn: () => repositories.userManagement.getUserById(userId ?? "", context),
-    enabled: Boolean(userId)
+    staleTime: studentCachePolicy.referenceStaleTime,
+    enabled: Boolean(userId && context)
   });
 }
 
@@ -92,6 +94,7 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
     queryKey: ["students", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudents(listQuery, context), "Student data"),
     retry: retryUnlessTimedOut,
+    staleTime: studentCachePolicy.referenceStaleTime,
     enabled: Boolean(context) && enabled
   });
 }
@@ -242,6 +245,7 @@ export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContex
     queryKey: ["events", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.eventManagement.listEvents(listQuery, context), "Events"),
     retry: retryUnlessTimedOut,
+    staleTime: studentCachePolicy.operationalStaleTime,
     enabled: Boolean(context) && enabled
   });
 }
@@ -568,7 +572,9 @@ export function useCorrectionRequests(
   const queryClient = useQueryClient();
   const listQueryResult = useQuery({
     queryKey: ["correctionRequests", listQuery, context],
-    queryFn: () => repositories.correctionRequests.listCorrectionRequests(listQuery, context)
+    queryFn: () => repositories.correctionRequests.listCorrectionRequests(listQuery, context),
+    staleTime: studentCachePolicy.operationalStaleTime,
+    enabled: Boolean(context)
   });
   const createMutation = useMutation({
     mutationFn: (input: CreateCorrectionRequestInput) =>
@@ -605,7 +611,9 @@ export function useCredentialRequests(query?: Partial<ListQuery>, context?: Repo
   const queryClient = useQueryClient();
   const listQueryResult = useQuery({
     queryKey: ["credentialRequests", listQuery, context],
-    queryFn: () => repositories.credentialRequests.listCredentialRequests(listQuery, context)
+    queryFn: () => repositories.credentialRequests.listCredentialRequests(listQuery, context),
+    staleTime: studentCachePolicy.operationalStaleTime,
+    enabled: Boolean(context)
   });
   const createMutation = useMutation({
     mutationFn: (input: CreateCredentialRequestInput) =>
@@ -644,7 +652,8 @@ export function useStudentCredentialStatus(studentId: string | undefined, contex
   return useQuery({
     queryKey: ["studentCredentialStatus", studentId, context],
     queryFn: () => repositories.studentCredentials.getStudentCredentialStatus(studentId ?? "", context),
-    enabled: Boolean(studentId)
+    staleTime: studentCachePolicy.operationalStaleTime,
+    enabled: Boolean(studentId && context)
   });
 }
 

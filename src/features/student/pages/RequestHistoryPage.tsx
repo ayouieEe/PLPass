@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, FilePenLine, ListFilter, Search } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, FilePenLine, ListFilter, Search } from "lucide-react";
+import { NavLink } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -7,6 +8,7 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useCredentialRequests, useEvents } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { cn } from "@/lib/utils/cn";
@@ -178,6 +180,14 @@ export function RequestHistoryPage() {
       <PageHeader
         title="Request History"
         description="Track your requests and view their status."
+        actions={
+          <Button asChild type="button" variant="outline">
+            <NavLink to={APP_ROUTES.studentMethods}>
+              <AlertTriangle className="mr-2 h-4 w-4" />
+              Report an Issue
+            </NavLink>
+          </Button>
+        }
       />
 
       {hasPartialDataIssue ? (

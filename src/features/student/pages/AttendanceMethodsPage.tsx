@@ -376,7 +376,7 @@ export function AttendanceMethodsPage() {
         actions={
           <Button type="button" variant="outline" onClick={() => setShowIssueReport(true)}>
             <AlertTriangle className="mr-2 h-4 w-4" />
-            Report attendance issue
+            Report an Issue
           </Button>
         }
       />
