@@ -317,6 +317,19 @@
     }
   }
 
+  /* Keep legal pages responsive while scrolling: animated decorative layers
+     and a large backdrop-filter surface force unnecessary repainting. */
+  .plpass-auth-legal .plpass-auth-grid,
+  .plpass-auth-legal .plpass-auth-ribbons,
+  .plpass-auth-legal .plpass-auth-ambient {
+    animation: none;
+  }
+
+  .plpass-auth-legal [class*="overflow-y-auto"] {
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
   .plpass-auth-grid,
   .plpass-auth-ribbons,
   .plpass-auth-ambient {

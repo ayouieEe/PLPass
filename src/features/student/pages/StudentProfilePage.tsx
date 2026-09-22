@@ -10,7 +10,8 @@ import {
   School,
   GraduationCap,
   CalendarCheck,
-  ShieldCheck
+  ShieldCheck,
+  CircleHelp
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Link } from "react-router-dom";
@@ -298,14 +299,25 @@ export function StudentProfilePage() {
           </div>
 
           <div className="student-glass-card space-y-3 p-4 shadow-sm sm:p-6">
+            <h3 className="flex items-center gap-2 font-semibold text-foreground">
+              <CircleHelp className="h-5 w-5 text-primary" />
+              Help &amp; FAQs
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">Find quick answers about signing in, events, attendance verification, and requests.</p>
+            <Link to={APP_ROUTES.studentFaqs} className="inline-flex w-fit items-center rounded-lg border border-primary/30 px-3 py-2 text-sm font-semibold text-primary transition hover:bg-primary/10 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+              Open FAQs
+            </Link>
+          </div>
+
+          <div className="student-glass-card space-y-3 p-4 shadow-sm sm:p-6">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-primary" />
               Legal &amp; Privacy
             </h3>
             <p className="text-sm leading-6 text-muted-foreground">Review the documents that explain how PLPass accounts, attendance records, verification methods, and requests are used.</p>
             <div className="flex flex-wrap gap-4 text-sm font-semibold">
-              <Link className="text-primary hover:underline" to="/terms">Terms of Use</Link>
-              <Link className="text-primary hover:underline" to="/privacy">Privacy Policy</Link>
+              <Link className="text-primary hover:underline" to={APP_ROUTES.studentTerms}>Terms of Use</Link>
+              <Link className="text-primary hover:underline" to={APP_ROUTES.studentPrivacy}>Privacy Policy</Link>
             </div>
           </div>
         </div>

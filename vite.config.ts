@@ -1,13 +1,16 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src")
+      "@": path.resolve(projectRoot, "./src")
     }
   },
   build: {
@@ -25,8 +28,8 @@ export default defineConfig({
     },
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, "index.html"),
-        scanner: path.resolve(__dirname, "scanner.html")
+        main: path.resolve(projectRoot, "index.html"),
+        scanner: path.resolve(projectRoot, "scanner.html")
       },
       output: {
         manualChunks(id) {

@@ -12,6 +12,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useOrganizerProfiles, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { queryClient } from "@/app/providers/queryClient";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
@@ -645,7 +646,7 @@ export function OrganizerCorrectionRequestsPage() {
         targetId: selectedRequest.id,
         metadata: { requestId: selectedRequest.id, remark }
       });
-    } catch { /* The mutation displays the database error. */ }
+    } catch (error) { toast.error(getErrorMessage(error)); }
   }
 
   async function rejectRequest() {
@@ -667,7 +668,7 @@ export function OrganizerCorrectionRequestsPage() {
         targetId: selectedRequest.id,
         metadata: { requestId: selectedRequest.id, remark }
       });
-    } catch { /* The mutation displays the database error. */ }
+    } catch (error) { toast.error(getErrorMessage(error)); }
   }
 
   const columns: Array<ColumnDef<CorrectionRequest>> = [

@@ -12,7 +12,7 @@ type AuthLayoutProps = {
 
 export function AuthLayout({ title, description, headerAction, wide = false, legal = false, children }: AuthLayoutProps) {
   return (
-    <main className={`plpass-auth-scene ${legal ? "plpass-auth-legal" : ""} relative ${legal ? "flex h-[100dvh] min-h-0 flex-col overflow-hidden" : "grid min-h-[100dvh] overflow-y-auto"} content-start overflow-x-hidden bg-background px-4 py-6 sm:place-items-center sm:py-8`}>
+    <main className={`plpass-auth-scene ${legal ? "plpass-auth-legal" : ""} relative ${legal ? "flex h-[100dvh] min-h-0 flex-col items-center overflow-hidden" : "flex min-h-[100dvh] items-center justify-center overflow-hidden"} overflow-x-hidden bg-background px-4 py-6 sm:py-8`}>
       <div className="plpass-auth-grid" aria-hidden="true" />
       <div className="plpass-auth-ribbons" aria-hidden="true" />
       <div className="plpass-auth-ambient" aria-hidden="true" />
@@ -24,8 +24,8 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
           <p className="mt-4 text-2xl font-semibold text-foreground">PLPass</p>
           <p className="mt-1 text-sm text-muted-foreground">Event attendance workspace</p>
         </div>
-        <div className={`plpass-auth-card rounded-2xl border border-border/80 bg-surface/95 p-5 backdrop-blur sm:p-6 md:p-7 ${legal ? "flex min-h-0 flex-1 flex-col overflow-hidden" : ""}`}>
-          {headerAction ? <div className="mb-2">{headerAction}</div> : null}
+        <div className={`plpass-auth-card rounded-2xl border border-border/80 p-5 sm:p-6 md:p-7 ${legal ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface" : "bg-surface/95 backdrop-blur"}`}>
+          {headerAction ? <div className={`mb-3 ${legal ? "self-start" : ""}`}>{headerAction}</div> : null}
           <div className="mb-6 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground">{title}</h1>
             {description ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p> : null}

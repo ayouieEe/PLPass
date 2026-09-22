@@ -212,7 +212,7 @@ export function DashboardLayout({
       <div className={cn("flex h-full min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
         <header className="z-30 shrink-0 border-b bg-surface/95 shadow-sm backdrop-blur">
           <PageContainer className="flex h-[72px] min-w-0 items-center justify-between gap-3 py-0">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <Button ref={openDrawerRef} type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
                 <Menu className="h-4 w-4" aria-hidden="true" />
               </Button>
@@ -227,10 +227,12 @@ export function DashboardLayout({
                 {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
               </Button> : null}
               <span className="hidden h-8 w-px bg-border md:block" aria-hidden="true" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <div>
-                    <p className="truncate text-base font-semibold text-foreground sm:text-lg">{currentTitle}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-semibold text-foreground sm:text-lg">
+                      {role === "student" ? "PLPass" : currentTitle}
+                    </p>
                     {role !== "student" ? <p className="sr-only">{currentDescription}</p> : null}
                   </div>
                   {currentPrimaryAction ? <div className="hidden md:block">{currentPrimaryAction}</div> : null}
