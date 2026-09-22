@@ -12,7 +12,7 @@ type AuthLayoutProps = {
 
 export function AuthLayout({ title, description, headerAction, wide = false, legal = false, children }: AuthLayoutProps) {
   return (
-    <main className={`plpass-auth-scene ${legal ? "plpass-auth-legal" : ""} relative ${legal ? "flex h-[100dvh] min-h-0 flex-col items-center overflow-hidden" : "flex min-h-[100dvh] items-center justify-center overflow-hidden"} overflow-x-hidden bg-background px-4 py-6 sm:py-8`}>
+    <main className={`plpass-auth-scene ${legal ? "plpass-auth-legal" : ""} relative ${legal ? "flex h-[100dvh] min-h-0 flex-col items-center overflow-hidden" : "flex min-h-[100dvh] items-center justify-center overflow-y-auto"} overflow-x-hidden bg-background px-4 py-6 sm:py-8`}>
       <div className="plpass-auth-grid" aria-hidden="true" />
       <div className="plpass-auth-ribbons" aria-hidden="true" />
       <div className="plpass-auth-ambient" aria-hidden="true" />
