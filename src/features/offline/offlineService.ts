@@ -126,10 +126,10 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
     // Reconcile every saved start first. Attendance uploads are gated in the
     // local database until the server knows that its session has started.
     for(const summary of events){
-      if(!summary.sessionId || summary.lifecycle!=="START_PENDING") continue;
+      if(!summary.sessionId || !["START_PENDING","END_PENDING"].includes(summary.lifecycle)) continue;
       const pkg=await api.getPreparedEvent(summary.event.id,organizerProfileId);
       const local=pkg?.sessions.find((item)=>item.id===summary.sessionId);
-      if(!pkg || !local) continue;
+      if(!pkg || !local || local.offlineStartReconciledAt) continue;
       try {
         if(!local.offlineStartedAt) throw new Error("The local event start time is missing.");
         const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_start",{p_session_id:local.id,p_actual_start:local.offlineStartedAt});
@@ -281,5 +281,12 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
     }
   }
   return {confirmed,failed};
+}
+
+export async function getOfflineSessionEndState(eventId:string,sessionId:string,organizerProfileId:string) {
+  const pkg=await desktopApi()?.getPreparedEvent(eventId,organizerProfileId);
+  const session=pkg?.sessions.find((item)=>item.id===sessionId);
+  if(!session) return {isLocallyEnded:false,session:null};
+  return {isLocallyEnded:Boolean(session.offlineEndedAt)||["END_PENDING","ENDED","CONFLICT"].includes(session.offlineLifecycle??""),session};
 }
 

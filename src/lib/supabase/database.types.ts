@@ -127,12 +127,12 @@ export type Database = {
           checkout_verification_method: string | null
           created_at: string
           event_session_id: string
+          finalized_at: string | null
           id: string
           late_reason: string | null
           late_reason_category: string | null
           late_reason_option_id: string | null
           late_reason_submitted_at: string | null
-          finalized_at: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
@@ -150,12 +150,12 @@ export type Database = {
           checkout_verification_method?: string | null
           created_at?: string
           event_session_id: string
+          finalized_at?: string | null
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
           late_reason_option_id?: string | null
           late_reason_submitted_at?: string | null
-          finalized_at?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -173,12 +173,12 @@ export type Database = {
           checkout_verification_method?: string | null
           created_at?: string
           event_session_id?: string
+          finalized_at?: string | null
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
           late_reason_option_id?: string | null
           late_reason_submitted_at?: string | null
-          finalized_at?: string | null
           local_attendance_uuid?: string | null
           minutes_late?: number | null
           recorded_at?: string
@@ -952,6 +952,7 @@ export type Database = {
         Row: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -975,6 +976,7 @@ export type Database = {
         Insert: {
           actual_end?: string | null
           actual_start?: string | null
+          attendance_capture_phase?: string
           attendance_window_end_at?: string | null
           attendance_window_start_at?: string | null
           created_at?: string
@@ -998,6 +1000,7 @@ export type Database = {
         Update: {
           actual_end?: string | null
           actual_start?: string | null
+          attendance_capture_phase?: string
           attendance_window_end_at?: string | null
           attendance_window_start_at?: string | null
           created_at?: string
@@ -2243,6 +2246,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -2295,6 +2299,10 @@ export type Database = {
       admin_update_system_settings: {
         Args: { p_changes: Json; p_settings_id: string }
         Returns: undefined
+      }
+      advance_event_attendance_capture_phase: {
+        Args: { p_session_id: string }
+        Returns: string
       }
       cancel_organizer_event: {
         Args: { p_event_id: string; p_reason: string }
@@ -2617,6 +2625,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -2653,6 +2662,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -2685,6 +2695,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -2738,6 +2749,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -2798,6 +2810,10 @@ export type Database = {
           starts_at: string
           title: string
         }[]
+      }
+      get_event_attendance_capture_phase: {
+        Args: { p_session_id: string }
+        Returns: string
       }
       get_facial_descriptor_for_organizer: {
         Args: { p_event_session_id: string; p_student_id: string }
@@ -2914,10 +2930,12 @@ export type Database = {
           checkout_verification_method: string | null
           created_at: string
           event_session_id: string
+          finalized_at: string | null
           id: string
           late_reason: string | null
           late_reason_category: string | null
           late_reason_option_id: string | null
+          late_reason_submitted_at: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string
@@ -3054,6 +3072,7 @@ export type Database = {
         Returns: {
           actual_end: string | null
           actual_start: string | null
+          attendance_capture_phase: string
           attendance_window_end_at: string | null
           attendance_window_start_at: string | null
           created_at: string
@@ -3113,6 +3132,42 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_event_late_reason: {
+        Args: {
+          p_event_session_id: string
+          p_late_reason?: string
+          p_late_reason_option_id: string
+        }
+        Returns: {
+          attendance_status: string
+          checkout_verification_method: string | null
+          created_at: string
+          event_session_id: string
+          finalized_at: string | null
+          id: string
+          late_reason: string | null
+          late_reason_category: string | null
+          late_reason_option_id: string | null
+          late_reason_submitted_at: string | null
+          local_attendance_uuid: string | null
+          minutes_late: number | null
+          recorded_at: string
+          recorded_by: string | null
+          remarks: string | null
+          student_id: string
+          time_in: string | null
+          time_out: string | null
+          updated_at: string
+          verification_attempt_id: string | null
+          verification_method: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "attendance_records"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       submit_feedback_task: {
         Args: {
           p_comment: string
@@ -3135,10 +3190,12 @@ export type Database = {
               checkout_verification_method: string | null
               created_at: string
               event_session_id: string
+              finalized_at: string | null
               id: string
               late_reason: string | null
               late_reason_category: string | null
               late_reason_option_id: string | null
+              late_reason_submitted_at: string | null
               local_attendance_uuid: string | null
               minutes_late: number | null
               recorded_at: string
@@ -3169,10 +3226,12 @@ export type Database = {
               checkout_verification_method: string | null
               created_at: string
               event_session_id: string
+              finalized_at: string | null
               id: string
               late_reason: string | null
               late_reason_category: string | null
               late_reason_option_id: string | null
+              late_reason_submitted_at: string | null
               local_attendance_uuid: string | null
               minutes_late: number | null
               recorded_at: string
@@ -3210,10 +3269,12 @@ export type Database = {
           checkout_verification_method: string | null
           created_at: string
           event_session_id: string
+          finalized_at: string | null
           id: string
           late_reason: string | null
           late_reason_category: string | null
           late_reason_option_id: string | null
+          late_reason_submitted_at: string | null
           local_attendance_uuid: string | null
           minutes_late: number | null
           recorded_at: string

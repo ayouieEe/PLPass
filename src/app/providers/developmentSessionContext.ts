@@ -14,6 +14,7 @@ export type DevelopmentSession = {
 export type DevelopmentSessionContextValue = {
   session: DevelopmentSession | null;
   isSessionRestored: boolean;
+  isNetworkOnline: boolean;
   isOfflineMode: boolean;
   offlineResumeAvailable: boolean;
   hasOfflineWork: boolean;

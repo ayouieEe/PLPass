@@ -25,9 +25,6 @@ const OrganizerDashboardPage = lazy(() => import("@/features/organizer/pages/Org
 const EventManagementPage = lazy(() => import("@/features/organizer/pages/EventManagementPage").then((module) => ({ default: module.EventManagementPage })));
 const CreateEventPage = lazy(() => import("@/features/organizer/pages/CreateEventPage").then((module) => ({ default: module.CreateEventPage })));
 const EventDetailsPage = lazy(() => import("@/features/organizer/pages/EventDetailsPage").then((module) => ({ default: module.EventDetailsPage })));
-const OfflineOrganizerEventsPage = lazy(() => import("@/features/offline/OfflineOrganizerPages").then((module) => ({ default: module.OfflineOrganizerEventsPage })));
-const OfflineOrganizerEventDetailsPage = lazy(() => import("@/features/offline/OfflineOrganizerPages").then((module) => ({ default: module.OfflineOrganizerEventDetailsPage })));
-const OfflineOrganizerLiveAttendancePage = lazy(() => import("@/features/offline/OfflineOrganizerPages").then((module) => ({ default: module.OfflineOrganizerLiveAttendancePage })));
 const EventRecordsPage = lazy(() => import("@/features/organizer/pages/EventRecordsPage").then((module) => ({ default: module.EventRecordsPage })));
 const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/AuthenticationMethodsPage").then((module) => ({ default: module.AuthenticationMethodsPage })));
 const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
@@ -71,16 +68,13 @@ function PublicEntryRoute() {
 }
 
 function OrganizerEventsRoute() {
-  const { isOfflineMode } = useDevelopmentSession();
-  return isOfflineMode ? <OfflineOrganizerEventsPage /> : <EventManagementPage />;
+  return <EventManagementPage />;
 }
 function OrganizerEventDetailsRoute() {
-  const { isOfflineMode } = useDevelopmentSession();
-  return isOfflineMode ? <OfflineOrganizerEventDetailsPage /> : <EventDetailsPage />;
+  return <EventDetailsPage />;
 }
 function OrganizerLiveAttendanceRoute() {
-  const { isOfflineMode } = useDevelopmentSession();
-  return isOfflineMode ? <OfflineOrganizerLiveAttendancePage /> : <EventManagementPage />;
+  return <EventManagementPage />;
 }
 
 function StudentLegalGate() {

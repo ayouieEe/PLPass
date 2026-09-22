@@ -99,6 +99,7 @@ import type {
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { desktopApi } from "@/features/offline/offlineService";
+import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
 type OrganizerScope = {
   context: RepositoryContext;
@@ -172,7 +173,7 @@ function formatTime(value: string | undefined) {
   return formatDisplayTime(value, "Not set");
 }
 
-function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
+function statusTone(status: AttendanceStatus | "pending" | SessionStatus | CorrectionRequestStatus | StudentStatus | RiskLevel | EventStatus) {
   if (status === "present" || status === "completed" || status === "approved" || status === "enrolled" || status === "low") {
     return "success" as const;
   }
@@ -348,6 +349,7 @@ export function EventDetailsPage() {
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId, sortBy: "actual_start", sortDirection: "desc" }, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
+  const attendanceSummaryQuery = useAttendanceSummaries(eventId ? [eventId] : []);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
   const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
@@ -492,6 +494,8 @@ export function EventDetailsPage() {
   const earliestRescheduleDate = dateKey(new Date());
   const scheduleConflicts = (eventsQuery.data?.items ?? []).filter((otherEvent) => sharesSchedule(event, otherEvent));
   const counts = attendanceCounts(records);
+  const attendanceSummary = eventId ? attendanceSummaryQuery.data?.[eventId] : undefined;
+  const attendanceRowByStudentId = new Map((attendanceSummary?.rows ?? []).map((row) => [row.studentId, row]));
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
 
   async function rescheduleEvent() {
@@ -857,6 +861,14 @@ export function EventDetailsPage() {
       }
     },
     {
+      id: "attendance",
+      header: "Attendance",
+      cell: ({ row }) => {
+        const attendance = attendanceRowByStudentId.get(row.original.id);
+        return <StatusBadge label={attendance?.attendanceStatus === "pending" ? "Pending attendance" : attendance?.attendanceStatus ?? "Pending attendance"} tone={statusTone(attendance?.attendanceStatus ?? "pending")} />;
+      }
+    },
+    {
       id: "action",
       header: "Actions",
       meta: { agGrid: { width: 240, minWidth: 240, maxWidth: 240, flex: 0, resizable: false, sortable: false, filter: false } },
@@ -1192,7 +1204,7 @@ export function EventDetailsPage() {
           >
             Participants ({participantList.length})
           </button>
-          {records.length > 0 && hasCompletedSession && (
+          {hasCompletedSession && (
             <button
               type="button"
               onClick={() => setTab("summary")}
@@ -1298,7 +1310,7 @@ export function EventDetailsPage() {
               />
             </div>
           ) : null}
-          {tab === "summary" ? <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={records.length} /> : null}
+          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} pending={attendanceSummary?.pending ?? Math.max(0, participants.length - counts.present - counts.late - counts.absent)} total={attendanceSummary?.totalRegistered ?? participants.length} /> : null}
         </div>
       </section>
 

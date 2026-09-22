@@ -3,6 +3,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { UserRole } from "@/types/roles";
 import { hasAnyCapability, type Capability } from "@/lib/auth/permissions";
+import { canAccessOfflineRoute } from "@/app/router/offlineRoutePolicy";
 
 type RoleRouteProps = {
   allowedRoles: UserRole[];
@@ -19,12 +20,7 @@ export function RoleRoute({ allowedRoles, permission }: RoleRouteProps) {
   }
 
   if (isOfflineMode) {
-    const offlineAllowed = session.role === "organizer" && (
-      location.pathname === APP_ROUTES.organizerEvents ||
-      /^\/organizer\/events\/[^/]+\/?$/.test(location.pathname) ||
-      /^\/organizer\/live-attendance\/[^/]+\/?$/.test(location.pathname)
-    );
-    if (!offlineAllowed) return <Navigate to={APP_ROUTES.organizerEvents} replace />;
+    if (!canAccessOfflineRoute(session.role, location.pathname)) return <Navigate to={APP_ROUTES.organizerEvents} replace />;
   }
 
   return <Outlet />;

@@ -1,4 +1,4 @@
-import { formatStudentNumber, isStudentNumber } from "@/lib/utils/studentNumber";
+import { formatStudentNumber, isStudentNumber } from "../utils/studentNumber.js";
 
 export function buildStudentQrPayload(studentNumber: string) {
   // The school ID and PLPass must identify the student with the same value.

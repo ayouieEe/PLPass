@@ -38,7 +38,7 @@ declare module "@tanstack/react-table" {
   }
 }
 
-type AttendanceStatus = "present" | "late" | "absent";
+type AttendanceStatus = "present" | "late" | "absent" | "pending";
 type LateReason =
   | "Traffic / Commute"
   | "Class or Academic Conflict"
@@ -86,12 +86,13 @@ function objectiveKey(objective: EventObjective | string, index: number) {
   return typeof objective === "string" ? `objective-${index}` : objective.id;
 }
 
-type AttendanceRow = OrganizerAttendanceRow;
+type AttendanceRow = Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: AttendanceStatus };
 
 type CompletedRecord = EventRecord & {
   present: number;
   late: number;
   absent: number;
+  pending?: number;
   notCheckedOut?: number;
   totalRegistered: number;
   attendanceRate: string;
@@ -113,11 +114,11 @@ const lateReasons: LateReason[] = [
   "Other"
 ];
 
-function statusTone(status: AttendanceStatus | "Upcoming" | "Active" | "Completed") {
+function statusTone(status: AttendanceStatus | "pending" | "Upcoming" | "Active" | "Completed") {
   if (status === "present" || status === "Active" || status === "Completed") {
     return "success" as const;
   }
-  if (status === "late" || status === "Upcoming") {
+  if (status === "late" || status === "pending" || status === "Upcoming") {
     return "warning" as const;
   }
   if (status === "absent") {
@@ -225,6 +226,7 @@ function completedFromRepositoryEvent(event: {
     present: 0,
     late: 0,
     absent: 0,
+    pending: 0,
     notCheckedOut: 0,
     totalRegistered: 0,
     attendanceRate: "N/A",
@@ -648,7 +650,8 @@ export function EventRecordsPage() {
         ...(summary ? {
           present: summary.present,
           late: summary.late,
-          absent: summary.absent,
+           absent: summary.absent,
+           pending: summary.pending,
           totalRegistered: summary.totalRegistered,
           attendanceRate: `${summary.attendanceRate}%`
         } : {}),
@@ -663,6 +666,9 @@ export function EventRecordsPage() {
   }, [repositoryCompletedEvents, attendanceSummariesQuery.data, feedbackSummariesQuery.data]);
 
   const completedRows = repositoryCompletedEventsWithAttendance;
+  const selectedCompletedRecord = completedModal
+    ? completedRows.find((event) => event.id === completedModal.id) ?? completedModal
+    : null;
 
   useEffect(() => {
     const eventId = new URLSearchParams(location.search).get("event");
@@ -742,7 +748,7 @@ export function EventRecordsPage() {
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
         "Check-out Time": row.checkOutTime ?? "Not checked out",
-        "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+       "Attendance Method": row.attendanceStatus === "absent" || row.attendanceStatus === "pending" ? "-" : row.attendanceMethod,
         "Late Arrival Reason": row.lateReason ?? "-"
       })) : []
     );
@@ -762,7 +768,7 @@ export function EventRecordsPage() {
       "Attendance Status": row.attendanceStatus,
       "Check-in Time": row.checkInTime,
       "Check-out Time": row.checkOutTime ?? "Not checked out",
-      "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+       "Attendance Method": row.attendanceStatus === "absent" || row.attendanceStatus === "pending" ? "-" : row.attendanceMethod,
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
     exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
@@ -795,6 +801,7 @@ export function EventRecordsPage() {
     { accessorKey: "present", header: "Present" },
     { accessorKey: "late", header: "Late" },
     { accessorKey: "absent", header: "Absent" },
+    { accessorKey: "pending", header: "Pending" },
     {
       accessorKey: "attendanceRate",
       header: "Attendance Rate",
@@ -938,9 +945,9 @@ export function EventRecordsPage() {
 
       {completedModal ? (
         <CompletedEventModal
-          record={completedModal}
+          record={selectedCompletedRecord ?? completedModal}
           rows={
-            completedModal.id ? attendanceSummariesQuery.data?.[completedModal.id]?.rows ?? [] : []
+            selectedCompletedRecord?.id ? attendanceSummariesQuery.data?.[selectedCompletedRecord.id]?.rows ?? [] : []
           }
           onClose={() => setCompletedModal(null)}
           onExportReport={(label) => exportReport(label, [completedModal])}
@@ -1139,7 +1146,8 @@ export function CompletedEventModal({
               <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryTile label="Present" value={record.present.toString()} />
               <SummaryTile label="Late" value={record.late.toString()} />
-              <SummaryTile label="Absent" value={record.absent.toString()} />
+               <SummaryTile label="Absent" value={record.absent.toString()} />
+               <SummaryTile label="Pending attendance" value={(record.pending ?? 0).toString()} />
               <SummaryTile label="Attendance Rate" value={record.attendanceRate} />
               </div>
             </section>
@@ -1153,7 +1161,7 @@ export function CompletedEventModal({
             </p>
           </div>
           <span className="rounded-full border bg-surface-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            {rows.length} records
+             {rows.length} participants
           </span>
         </div>
 
@@ -1161,8 +1169,8 @@ export function CompletedEventModal({
           label="Attendee information"
           data={rows}
           columns={attendanceColumns}
-          emptyTitle="No attendance rows"
-          emptyDescription="Attendance records will appear after check-in."
+           emptyTitle="No participants"
+           emptyDescription="Assigned participants will appear here with Pending attendance until their flow is complete."
         />
       </section>
 

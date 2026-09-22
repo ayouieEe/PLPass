@@ -60,19 +60,12 @@ begin
     )) from public.event_participants ep join public.students st on st.id=ep.student_id join public.profiles p on p.id=st.profile_id
       left join lateral (select qc.id from public.qr_credentials qc where qc.student_id=st.id and qc.credential_status='activated' and (qc.expires_at is null or qc.expires_at>now()) order by qc.issued_at desc limit 1) q on true
       where ep.event_id=e.id and ep.participant_status<>'removed'), '[]'::jsonb),
-    'studentDirectory', coalesce((select jsonb_agg(jsonb_build_object(
-      'studentId', st.id, 'studentNumber', st.student_id,
-      'displayName', concat_ws(' ', p.first_name, nullif(p.middle_name, ''), p.last_name),
-      'participantStatus', 'directory', 'qrIdentifier', q.id, 'faceEmbeddings', '[]'::jsonb
-    )) from public.students st join public.profiles p on p.id=st.profile_id
-      left join lateral (select qc.id from public.qr_credentials qc where qc.student_id=st.id and qc.credential_status='activated' and (qc.expires_at is null or qc.expires_at>now()) order by qc.issued_at desc limit 1) q on true
-      where st.student_status in ('enrolled', 'loa') and p.account_status='active'), '[]'::jsonb),
     'attendance', coalesce((select jsonb_agg(jsonb_build_object('sessionId', ar.event_session_id, 'studentId', ar.student_id, 'attendanceStatus', ar.attendance_status, 'timeIn', ar.time_in, 'timeOut', ar.time_out))
       from public.attendance_records ar join public.event_sessions s on s.id=ar.event_session_id where s.event_id=e.id), '[]'::jsonb)
   ) into v_result from public.events e where e.id=v_event.id;
 
   insert into public.audit_logs(actor_user_id, action, target_type, target_id, metadata)
-  values (v_actor, 'event.offline_prepared', 'event', v_event.id, jsonb_build_object('session_id', v_session.id, 'directory_count', jsonb_array_length(v_result->'studentDirectory')));
+  values (v_actor, 'event.offline_prepared', 'event', v_event.id, jsonb_build_object('session_id', v_session.id, 'participant_count', jsonb_array_length(v_result->'participants')));
   return v_result;
 end;
 $$;

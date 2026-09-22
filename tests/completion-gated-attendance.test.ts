@@ -72,6 +72,19 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("v_session.actual_end + interval '24 hours' <= now()");
   });
 
+  it("keeps incomplete event participants pending until the deadline migration finalizes them", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260921171807_event_attendance_pending_until_deadline.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("pending_until");
+    expect(migration).toContain("actual_end + interval '24 hours' <= now()");
+    expect(migration).toContain("Automatically marked absent after the attendance completion deadline.");
+    expect(migration).toContain("return new;");
+    expect(migration).not.toContain("Attendance finalized absent: Time In or Time Out was not completed before session close.");
+  });
+
   it("validates offline session ownership before replay lookup and applies a later checkout", () => {
     const migration = readFileSync(
       resolve(process.cwd(), "supabase/migrations/20260921124135_harden_offline_attendance_sync_idempotency.sql"),

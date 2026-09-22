@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { canAccessOfflineRoute } from "@/app/router/offlineRoutePolicy";
 
 export function ProtectedRoute() {
   const location = useLocation();
@@ -20,12 +21,7 @@ export function ProtectedRoute() {
   }
 
   if (isOfflineMode) {
-    const allowed = session.role === "organizer" && (
-      location.pathname === APP_ROUTES.organizerEvents ||
-      /^\/organizer\/events\/[^/]+\/?$/.test(location.pathname) ||
-      /^\/organizer\/live-attendance\/[^/]+\/?$/.test(location.pathname)
-    );
-    if (!allowed) return <Navigate to={APP_ROUTES.organizerEvents} replace />;
+    if (!canAccessOfflineRoute(session.role, location.pathname)) return <Navigate to={APP_ROUTES.organizerEvents} replace />;
   }
 
   return <Outlet />;

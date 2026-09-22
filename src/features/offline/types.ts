@@ -29,6 +29,7 @@ export type PreparedEventSession = {
   offlineLifecycle?: "NOT_STARTED" | "START_PENDING" | "STARTED" | "END_PENDING" | "ENDED" | "CONFLICT";
   offlineStartedAt?: string;
   offlineEndedAt?: string;
+  offlineStartReconciledAt?: string;
 };
 
 export type ExistingAttendanceState = {
@@ -45,8 +46,6 @@ export type PreparedEventPackage = {
   event: { id: string; code: string; title: string; status: string; startsAt: string; endsAt: string };
   sessions: PreparedEventSession[];
   participants: PreparedEventParticipant[];
-  /** Active student directory cached for offline walk-in verification. */
-  studentDirectory?: PreparedEventParticipant[];
   attendance: ExistingAttendanceState[];
   preparedAt: string;
 };
@@ -124,6 +123,25 @@ export type OfflineStatus = {
   syncingCount: number;
   lastSuccessfulSyncAt?: string;
   nextAttemptAt?: string;
+  offlineLifecycle?: PreparedEventSession["offlineLifecycle"];
+  localStartedAt?: string;
+  localEndedAt?: string;
+  inputLocked?: boolean;
+};
+
+export type OfflineAttendanceEvent = {
+  eventId: string;
+  sessionId: string;
+  studentId?: string;
+  studentNumber?: string;
+  displayName?: string;
+  action: "checked_in" | "checked_out" | "already_recorded";
+  recordedAt: string;
+  timeIn?: string;
+  timeOut?: string;
+  syncStatus: SyncStatus | "PENDING_SYNC";
+  message: string;
+  source?: "organizer" | "phone_scanner";
 };
 
 export type LocalAttendanceResult = {
@@ -177,6 +195,7 @@ export interface PLPassDesktopApi {
   removeScannerStation(stationId: string): Promise<void>;
   setScannerCapturePhase(phase: AttendanceCapturePhase): Promise<ScannerCoordinatorStatus>;
   onScannerStatus(listener: (status: ScannerCoordinatorStatus) => void): () => void;
+  onOfflineAttendanceRecorded(listener: (event: OfflineAttendanceEvent) => void): () => void;
 }
 
 declare global {

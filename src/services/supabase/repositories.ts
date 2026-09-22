@@ -684,22 +684,23 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
     }
     const current = await selectSingleRowWithColumns("organizers", input.organizerId, "id, college_logo_path");
-    let logoPath = typeof current.college_logo_path === "string" ? current.college_logo_path : null;
+    const previousLogoPath = typeof current.college_logo_path === "string" ? current.college_logo_path : null;
+    let logoPath = previousLogoPath;
     const client = getSupabaseBrowserClient();
     if (input.logo) {
       const extension = input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg";
       logoPath = `${input.organizerId}/college-logo.${extension}`;
-      if (typeof current.college_logo_path === "string" && current.college_logo_path !== logoPath) {
-        await client.storage.from("branding-assets").remove([current.college_logo_path]);
-      }
       const { error } = await client.storage.from("branding-assets").upload(logoPath, input.logo, { contentType: input.logo.type, cacheControl: "3600", upsert: true });
       throwIfSupabaseError(error);
-    } else if (input.removeLogo) {
-      if (logoPath) await client.storage.from("branding-assets").remove([logoPath]);
-      logoPath = null;
-    }
+    } else if (input.removeLogo) logoPath = null;
     const { data, error } = await client.from("organizers").update({ organization_name: input.collegeName.trim(), college_logo_path: logoPath, updated_at: new Date().toISOString() } as never).eq("id", input.organizerId).select("id, organization_name, college_logo_path, updated_at").single();
+    if (error && input.logo && logoPath && logoPath !== previousLogoPath) {
+      try { await client.storage.from("branding-assets").remove([logoPath]); } catch { /* Preserve the old reference; orphan cleanup is best effort. */ }
+    }
     throwIfSupabaseError(error);
+    if (previousLogoPath && previousLogoPath !== logoPath) {
+      try { await client.storage.from("branding-assets").remove([previousLogoPath]); } catch { /* The database now points to the new valid state. */ }
+    }
     const row = data as unknown as Row;
     const result = { organizerId: String(row.id), collegeName: String(row.organization_name ?? "PLP"), collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined, collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined), updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined };
     try { await supabaseAuditLogRepository.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: input.organizerId, metadata: { collegeName: result.collegeName, logoUpdated: Boolean(input.logo), logoRemoved: Boolean(input.removeLogo) } }, context); } catch { /* Branding remains committed if audit logging is unavailable. */ }
@@ -731,18 +732,15 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     }
     const client = getSupabaseBrowserClient();
     const current = await selectSingleRowWithColumns("departments", input.departmentId, "id, logo_path");
-    let logoPath = typeof current.logo_path === "string" ? current.logo_path : null;
+    const previousLogoPath = typeof current.logo_path === "string" ? current.logo_path : null;
+    let logoPath = previousLogoPath;
     if (input.logo) {
       const extension = input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg";
       const nextPath = `departments/${input.departmentId}/logo.${extension}`;
-      if (logoPath && logoPath !== nextPath) await client.storage.from("branding-assets").remove([logoPath]);
       const { error } = await client.storage.from("branding-assets").upload(nextPath, input.logo, { contentType: input.logo.type, cacheControl: "3600", upsert: true });
       throwIfSupabaseError(error);
       logoPath = nextPath;
-    } else if (input.removeLogo) {
-      if (logoPath) await client.storage.from("branding-assets").remove([logoPath]);
-      logoPath = null;
-    }
+    } else if (input.removeLogo) logoPath = null;
     const { data, error } = await client.from("departments").update({
       brand_name_override: displayName,
       logo_path: logoPath,
@@ -750,7 +748,13 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       secondary_color: input.secondaryColor?.trim() || null,
       updated_at: new Date().toISOString()
     } as never).eq("id", input.departmentId).select("id, department_name, brand_name_override, logo_path, primary_color, secondary_color, updated_at").single();
+    if (error && input.logo && logoPath && logoPath !== previousLogoPath) {
+      try { await client.storage.from("branding-assets").remove([logoPath]); } catch { /* Preserve the old reference; orphan cleanup is best effort. */ }
+    }
     throwIfSupabaseError(error);
+    if (previousLogoPath && previousLogoPath !== logoPath) {
+      try { await client.storage.from("branding-assets").remove([previousLogoPath]); } catch { /* The database now points to the new valid state. */ }
+    }
     const row = data as unknown as Row;
     return {
       departmentId: String(row.id),

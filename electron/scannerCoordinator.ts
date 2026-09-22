@@ -8,6 +8,7 @@ import selfsigned from "selfsigned";
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LocalAttendanceDatabase } from "./localDatabase.js";
+import type { OfflineAttendanceEvent } from "../src/features/offline/types.js";
 import { extractSchoolStudentNumber } from "../src/lib/credentials/qrCredential.js";
 
 export type ScannerStation = { id: string; name: string; joinedAt: string; lastSeenAt: string; lastScanAt?: string };
@@ -60,7 +61,7 @@ export class ScannerCoordinator {
   private root: ScannerRootCertificate | null = null;
   private capturePhase: AttendanceCapturePhase = "time_in";
 
-  constructor(private readonly store: LocalAttendanceDatabase, private readonly assetRoot: string, private readonly onStatus: (status: ScannerCoordinatorStatus) => void, private readonly certificateStore: ScannerCertificateStore = new MemoryScannerCertificateStore()) {
+  constructor(private readonly store: LocalAttendanceDatabase, private readonly assetRoot: string, private readonly onStatus: (status: ScannerCoordinatorStatus) => void, private readonly certificateStore: ScannerCertificateStore = new MemoryScannerCertificateStore(), private readonly onAttendance: (event: OfflineAttendanceEvent) => void = () => undefined) {
     this.sockets.on("connection", (socket, request) => {
       const url = new URL(request.url ?? "/", "https://scanner.local");
       const station = this.stationFromToken(url.searchParams.get("token") ?? "");
@@ -193,7 +194,9 @@ export class ScannerCoordinator {
         try {
           const queued=this.store.queueWalkInScan({eventId:this.eventId,sessionId:this.sessionId,studentNumber,identificationMethod:"qr",capturePhase:this.capturePhase,attendanceTimestamp:recordedAt,organizerProfileId:pkg.organizerProfileId});
           station.lastSeenAt=recordedAt;station.lastScanAt=recordedAt;
-          const result={accepted:true,action:this.capturePhase==="time_in"?"checked_in":"checked_out",studentNumber:queued.studentNumber,recordedAt,message:`${this.capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(recordedAt).toLocaleTimeString()}; not synced. Identity is unverified.`};
+          const action: OfflineAttendanceEvent["action"] = this.capturePhase === "time_in" ? "checked_in" : "checked_out";
+          const result={accepted:true,action,studentNumber:queued.studentNumber,recordedAt,message:`${this.capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(recordedAt).toLocaleTimeString()}; not synced. Identity is unverified.`};
+          this.onAttendance({eventId:this.eventId,sessionId:this.sessionId,studentNumber:queued.studentNumber,action:result.action,recordedAt,timeIn:queued.timeIn,timeOut:queued.timeOut,syncStatus:queued.syncStatus,message:result.message,source:"phone_scanner"});
           this.publish();this.sockets.clients.forEach((socket)=>this.send(socket,{type:"scan",result}));return json(response,200,result);
         }catch(error){return json(response,409,{accepted:false,error:error instanceof Error?error.message:"Walk-in scan could not be saved."});}
       }
@@ -218,7 +221,7 @@ export class ScannerCoordinator {
           studentName: student.displayName,
           studentNumber: student.studentNumber
         } : (() => {
-          try { const attendance = this.capturePhase === "time_in" ? this.store.recordScannerCheckIn({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }) : this.store.recordScannerCheckOut({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }); const label = this.capturePhase === "time_in" ? "Time In" : "Time Out"; return { accepted: attendance.action !== "already_recorded", action: attendance.action, recordedAt:attendance.record.attendanceTimestamp, studentName: student.displayName, studentNumber: student.studentNumber, message: attendance.action === "already_recorded" ? `${label} was already recorded.` : `${label} saved on this device at ${new Date(attendance.record.attendanceTimestamp).toLocaleTimeString()}; not synced.` }; } catch (error) { return { accepted: false, message: error instanceof Error ? error.message : "Attendance could not be recorded." }; }
+          try { const attendance = this.capturePhase === "time_in" ? this.store.recordScannerCheckIn({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }) : this.store.recordScannerCheckOut({ eventId: this.eventId, sessionId: this.sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt, deviceId: station.id }); const label = this.capturePhase === "time_in" ? "Time In" : "Time Out"; const event={eventId:this.eventId,sessionId:this.sessionId,studentId:student.studentId,studentNumber:student.studentNumber,displayName:student.displayName,action:attendance.action,recordedAt:attendance.record.attendanceTimestamp,timeIn:attendance.record.timeIn,timeOut:attendance.record.timeOut,syncStatus:attendance.record.syncStatus,message:attendance.action === "already_recorded" ? `${label} was already recorded.` : `${label} saved on this device at ${new Date(attendance.record.attendanceTimestamp).toLocaleTimeString()}; not synced.`,source:"phone_scanner"} satisfies OfflineAttendanceEvent; this.onAttendance(event); return { accepted: attendance.action !== "already_recorded", action: attendance.action, recordedAt:attendance.record.attendanceTimestamp, studentName: student.displayName, studentNumber: student.studentNumber, message: event.message }; } catch (error) { return { accepted: false, message: error instanceof Error ? error.message : "Attendance could not be recorded." }; }
         })();
         this.attempts.set(input.scanAttemptId, result); if (this.attempts.size > 500) this.attempts.delete(this.attempts.keys().next().value as string);
         this.publish(); this.sockets.clients.forEach((socket) => this.send(socket, { type: "scan", result })); return json(response, 200, result);

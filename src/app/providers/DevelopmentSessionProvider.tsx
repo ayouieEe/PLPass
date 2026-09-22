@@ -10,6 +10,7 @@ import {
   authTimeoutFailure,
   createSupabaseSessionReader,
   isInvalidCredentialAuthError,
+  isLikelyNetworkFailure,
   missingAuthSessionFailure,
   resolveSupabaseSessionUser,
   shouldSignOutAfterAuthFailure,
@@ -57,11 +58,66 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [session, setSession] = useState<DevelopmentSession | null>(null);
   const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [authError, setAuthError] = useState<string | undefined>();
+  const [isNetworkOnline, setIsNetworkOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [offlineResumeAvailable, setOfflineResumeAvailable] = useState(false);
   const [hasOfflineWork, setHasOfflineWork] = useState(false);
   const [offlineConflictCount, setOfflineConflictCount] = useState(0);
   const reconnectInFlight = useRef<Promise<boolean> | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    const onOnline = () => {
+      setIsNetworkOnline(true);
+      // The session remains offline until authentication and reconciliation
+      // succeed in performOnlineReconnect.
+    };
+    const onOffline = async () => {
+      setIsNetworkOnline(false);
+      if (disposed || !session || session.role !== "organizer" || !window.plpassDesktop) return;
+      // Lock the organizer workspace immediately. Route-level guards keep the
+      // user inside event navigation; local pages then decide whether a
+      // prepared package is available for attendance.
+      if (!disposed) setIsOfflineMode(true);
+    };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      disposed = true;
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session || session.role !== "organizer" || !window.plpassDesktop || import.meta.env.MODE === "test") return undefined;
+    let disposed = false;
+    const verifyReachability = async () => {
+      try {
+        const { data, error } = await getSupabaseBrowserClient().auth.getUser();
+        if (disposed) return;
+        if (!error && data.user?.id === session.userId) {
+          setIsNetworkOnline(true);
+          return;
+        }
+        if (isLikelyNetworkFailure(error)) {
+          setIsNetworkOnline(false);
+          setIsOfflineMode(true);
+        }
+      } catch (error) {
+        if (!disposed && isLikelyNetworkFailure(error)) {
+          setIsNetworkOnline(false);
+          setIsOfflineMode(true);
+        }
+      }
+    };
+    void verifyReachability();
+    const timer = window.setInterval(() => void verifyReachability(), 5_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [session]);
   useEffect(() => {
     let isMounted = true;
     async function restoreSession() {
@@ -150,9 +206,10 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
               const { data } = await supabase.auth.getSession();
               const offlineSession = await readDesktopOfflineSession(data.session?.user.id);
               setOfflineResumeAvailable(Boolean(offlineSession));
-              if (offlineSession && !navigator.onLine) {
+              if (offlineSession && isLikelyNetworkFailure(error)) {
                 queryClient.clear();
                 setSession(offlineSession);
+                setIsNetworkOnline(false);
                 setIsOfflineMode(true);
                 setAuthError(undefined);
                 setIsSessionRestored(true);
@@ -264,13 +321,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const clearRetry=()=>{if(retryTimer!==undefined) window.clearTimeout(retryTimer);retryTimer=undefined;};
     const scheduleRetry=()=>{
       clearRetry();
-      if(!disposed && navigator.onLine && document.visibilityState==="visible") retryTimer=window.setTimeout(()=>void attemptSync(false),30_000);
+      if(!disposed && isNetworkOnline && document.visibilityState==="visible") retryTimer=window.setTimeout(()=>void attemptSync(false),30_000);
     };
     const attemptSync=async(forceRetry:boolean)=>{
-      if(disposed || running || !navigator.onLine || document.visibilityState!=="visible") return;
+      if(disposed || running || !isNetworkOnline || document.visibilityState!=="visible") return;
       running=true; clearRetry();
       try {
-        if(await refreshOfflineWork()) {
+        const hasWork = await refreshOfflineWork();
+        if(isOfflineMode || hasWork) {
           const complete=await reconnectOnline(forceRetry);
           if(!complete && await refreshOfflineWork()) scheduleRetry();
         }
@@ -284,7 +342,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     });
     void attemptSync(false);
     return ()=>{disposed=true;clearRetry();window.removeEventListener("online",onOnline);removeVisibility();};
-  }, [reconnectOnline,refreshOfflineWork,session]);
+  }, [isNetworkOnline,isOfflineMode,reconnectOnline,refreshOfflineWork,session]);
 
   // Prepare today's owned events once, serially, after a confirmed online
   // organizer session. A persisted attempt marker prevents relaunch retry loops.
@@ -516,8 +574,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [isOfflineMode,session]);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
-    [authError, continueOffline, hasOfflineWork, offlineConflictCount, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
+    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
+    [authError, continueOffline, hasOfflineWork, offlineConflictCount, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

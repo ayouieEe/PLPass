@@ -112,6 +112,21 @@ export const localMigrations = [
       CREATE INDEX cached_student_directory_number_idx ON cached_student_directory(event_id, student_number);
       CREATE UNIQUE INDEX cached_student_directory_qr_idx ON cached_student_directory(event_id, qr_identifier) WHERE qr_identifier IS NOT NULL;
     `
+  },
+  {
+    version: 7,
+    sql: `ALTER TABLE cached_sessions ADD COLUMN offline_start_reconciled_at TEXT;`
+  },
+  {
+    version: 8,
+    // Remove global directory data downloaded by older desktop builds.
+    sql: `DELETE FROM cached_student_directory;`
+  },
+  {
+    version: 9,
+    // The event-participant cache replaced the old global directory. Drop the
+    // obsolete table after all older rows have been cleared.
+    sql: `DROP TABLE IF EXISTS cached_student_directory;`
   }
 ] as const;
 

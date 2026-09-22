@@ -260,7 +260,8 @@ async function run() {
   const duplicateLiveSession = await organizer.rpc("start_event_attendance_session", {
     p_event_id: liveEvent.id, p_venue: "Local Live Room", p_scheduled_start: liveStart, p_scheduled_end: liveEnd, p_mode: "f2f", p_late_cutoff_minutes: 15
   });
-  assert.ok(duplicateLiveSession.error, "only one active session may exist per event");
+  const duplicateSession = check(duplicateLiveSession, "restarting live attendance is idempotent");
+  assert.equal(duplicateSession.id, liveSession.id, "restarting must return the existing active session");
   const manualRecord = check(await organizer.rpc("record_manual_event_attendance", {
     p_session_id: liveSession.id,
     p_student_id: ids.student,

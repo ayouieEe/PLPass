@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   authTimeoutFailure,
+  isLikelyNetworkFailure,
   resolveSupabaseSessionUser,
   shouldSignOutAfterAuthFailure,
   type SupabaseSessionReader,
@@ -31,6 +32,12 @@ describe("bounded authentication and dashboard requests", () => {
     const failure = authTimeoutFailure();
     expect(shouldSignOutAfterAuthFailure(failure)).toBe(true);
     expect(toSafeAuthErrorMessage(failure)).toBe("Sign-in is taking longer than expected. Check your internet connection and try again.");
+  });
+
+  it("recognizes transport failures even when the browser reports itself online", () => {
+    expect(isLikelyNetworkFailure(new TypeError("Failed to fetch"))).toBe(true);
+    expect(isLikelyNetworkFailure({ message: "Network request timed out" })).toBe(true);
+    expect(isLikelyNetworkFailure({ message: "Invalid login credentials" })).toBe(false);
   });
 
   it("starts profile and role lookups in parallel", async () => {

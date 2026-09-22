@@ -54,9 +54,10 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { desktopApi, getManilaCalendarDate, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
+import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 
 // Event Records is organized around Today, Incoming, and Cancelled events.
 // A live session is a full-page state entered after Start Session.
@@ -155,6 +156,7 @@ type FinalizedSessionSummary = {
   present: number;
   late: number;
   absent: number;
+  pending: number;
   attendanceRate: number;
   pendingStudentTasks: number;
   mostCommonLateReason: string;
@@ -361,8 +363,9 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
   const finalizedRows = rows.filter((row) => row.isFinalized === true);
   const present = finalizedRows.filter((row) => row.attendanceStatus === "present").length;
   const late = finalizedRows.filter((row) => row.attendanceStatus === "late").length;
-  const pendingStudentTasks = rows.filter((row) => row.isFinalized !== true && Boolean(row.checkOutAt)).length;
-  const absent = Math.max(finalizedRows.filter((row) => row.attendanceStatus === "absent").length, participantCount - present - late - pendingStudentTasks);
+  const pendingStudentTasks = rows.filter((row) => row.isFinalized !== true).length;
+  const absent = finalizedRows.filter((row) => row.attendanceStatus === "absent").length;
+  const pending = Math.max(0, participantCount - present - late - absent);
   const submittedReasons = finalizedRows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
   submittedReasons.forEach((row) => {
@@ -376,8 +379,9 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
     present,
     late,
     absent,
+    pending,
     attendanceRate: participantCount ? Math.round(((present + late) / participantCount) * 100) : 0,
-    pendingStudentTasks,
+    pendingStudentTasks: pending,
     mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
   };
 }
@@ -718,7 +722,7 @@ export function EventManagementPage() {
   const notifiedEventCodesRef = useRef(new Set<string>());
   const autoCancelledEventIdsRef = useRef(new Set<string>());
 
-  const { session } = useDevelopmentSession();
+  const { session, isOfflineMode } = useDevelopmentSession();
   useEffect(()=>{
     if(!session?.userId)return;
     try{
@@ -1133,19 +1137,28 @@ export function EventManagementPage() {
     const api = desktopApi();
     if (!api || !activeEvent?.id || !activeScannerSessionId || !session?.userId) return;
     let current = true;
+    const hasRecordedTimeOut = (attendanceRecordsQuery.data?.items ?? []).some(
+      (record) => record.sessionId === activeScannerSessionId && Boolean(record.checkedOutAt)
+    );
+    const browserPhase = readAttendancePhase(window.sessionStorage, activeScannerSessionId);
+    const applyPhase = (phase: AttendanceCapturePhase) => {
+      if (!current) return;
+      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : phase;
+      writeAttendancePhase(window.sessionStorage, activeScannerSessionId, resolved);
+      setAttendancePhase(resolved);
+    };
+    if (hasRecordedTimeOut || browserPhase === "time_out") setAttendancePhase("time_out");
     void api.getAttendanceCapturePhase(activeScannerSessionId,session.userId).then(async(phase)=>{
-      if(!current)return;
-      writeAttendancePhase(window.sessionStorage,activeScannerSessionId,phase);
-      setAttendancePhase(phase);
+      applyPhase(phase);
       const scanner=await api.getScannerStations();
-      if(current&&scanner.active&&scanner.eventId===activeEvent.id&&scanner.sessionId===activeScannerSessionId&&scanner.capturePhase!==phase) await api.setScannerCapturePhase(phase);
-    }).catch(() => {
-      // Browser session storage remains a compatibility fallback for online sessions
-      // that do not have an offline package on this desktop.
-      setAttendancePhase(readAttendancePhase(window.sessionStorage,activeScannerSessionId));
+      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : phase;
+      if(current&&scanner.active&&scanner.eventId===activeEvent.id&&scanner.sessionId===activeScannerSessionId&&scanner.capturePhase!==resolved) await api.setScannerCapturePhase(resolved);
+    }).catch(async () => {
+      try { applyPhase(await getServerAttendanceCapturePhase(activeScannerSessionId)); }
+      catch { applyPhase("time_in"); }
     });
     return () => { current = false; };
-  }, [activeEvent?.id, activeScannerSessionId,session?.userId]);
+  }, [activeEvent?.id, activeScannerSessionId, attendanceRecordsQuery.data?.items, session?.userId]);
 
   // Keep the live workspace addressable as its own session view. This also
   // gives the floating session shortcut a reliable route to detect and hide.
@@ -1378,28 +1391,35 @@ export function EventManagementPage() {
     let current = true;
     const refreshPhoneAttendance = async () => {
       try {
-        const pending = await api.listPending(activeEvent.id,session?.userId??"");
+        const ownerId=session?.userId??"";
+        const [pending,walkIns] = await Promise.all([api.listPending(activeEvent.id,ownerId),api.listPendingWalkInScans(activeEvent.id,ownerId)]);
         if (!current) return;
         const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
-        if (records.length) {
+        if (records.length || walkIns.length) {
           setActiveRows((rows) => {
             const localStudentIds = new Set(records.map((record) => record.studentId));
-            const otherRows = rows.filter((row) => !localStudentIds.has(row.studentId));
-            const phoneRows: DraftAttendanceRow[] = records.map((record) => {
+            const walkInRowIds=new Set(walkIns.filter((scan)=>scan.sessionId===activeScannerSessionId).map((scan)=>`offline-walkin-${scan.localScanUuid}`));
+            const otherRows = rows.filter((row) => !localStudentIds.has(row.studentId)&&!walkInRowIds.has(row.id));
+            const phoneRows: DraftAttendanceRow[] = records.map((record): DraftAttendanceRow => {
             const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
             return {
               id: `offline-${record.localAttendanceUuid}`,
               studentId: record.studentId,
               studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
               eventCode: activeEvent.code,
-              attendanceMethod: record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code",
+              attendanceMethod: (record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code") as AttendanceMethod,
               checkInAt: record.timeIn,
               checkInTime: formatLocalTime(record.timeIn),
               ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
               attendanceStatus: record.attendanceStatus,
               ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
             };
-            });
+            }).concat(walkIns.filter((scan)=>scan.sessionId===activeScannerSessionId).map((scan): DraftAttendanceRow => ({
+              id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Unverified walk-in · ${scan.studentNumber}`,
+              eventCode:activeEvent.code,attendanceMethod:scan.identificationMethod==="manual"?"Manual":"QR Code",
+              checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
+              attendanceStatus:"absent",isFinalized:false
+            })));
             return [...otherRows, ...phoneRows];
           });
         }
@@ -1414,7 +1434,15 @@ export function EventManagementPage() {
 
     void refreshPhoneAttendance();
     const unsubscribe = api.onScannerStatus(() => { void refreshPhoneAttendance(); });
-    return () => { current = false; unsubscribe(); };
+    const unsubscribeAttendance = api.onOfflineAttendanceRecorded((event) => {
+      if (event.eventId !== activeEvent.id || event.sessionId !== activeScannerSessionId) return;
+      if(event.source==="phone_scanner"&&event.studentId) {
+        const student=(studentsQuery.data?.items??[]).find((candidate)=>candidate.id===event.studentId);
+        toast.success(`${event.displayName??student?.fullName??event.studentNumber??"Student"}: ${event.action==="checked_out"?"Time Out":"Time In"} at ${new Date(event.recordedAt).toLocaleTimeString()}`,{description:"Recorded on this desktop; awaiting server sync."});
+      } else if(event.source==="phone_scanner"&&event.studentNumber) toast.success(`Walk-in ${event.studentNumber}: ${event.action==="checked_out"?"Time Out":"Time In"}`,{description:"Saved on this desktop; awaiting verification and sync."});
+      void refreshPhoneAttendance();
+    });
+    return () => { current = false; unsubscribe(); unsubscribeAttendance(); };
   }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
 
   // Filter options are global to the Events workspace. Build them from every
@@ -1661,11 +1689,21 @@ export function EventManagementPage() {
       ...(row.checkOutAt && canRecordTimeOut(row.checkInAt, row.checkOutAt) ? { timeOut: row.checkOutAt } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    await endSessionMutation.mutateAsync({
-      sessionId,
-      reason: endSessionReason.trim() || "Organizer ended session",
-      attendanceRecords
-    });
+    if (isOfflineMode) {
+      await endOfflineEvent(
+        activeEvent.id,
+        sessionId,
+        session?.userId ?? "",
+        endSessionReason.trim() || "Organizer ended session"
+      );
+      toast.success("Session ended on this device. Attendance is saved locally and will sync after reconnecting.");
+    } else {
+      await endSessionMutation.mutateAsync({
+        sessionId,
+        reason: endSessionReason.trim() || "Organizer ended session",
+        attendanceRecords
+      });
+    }
     attendanceFinalized = true;
     finalizedAttendanceSessionIdsRef.current.add(sessionId);
     clearAttendancePhase(window.sessionStorage, sessionId);
@@ -1675,7 +1713,9 @@ export function EventManagementPage() {
       // The session has already been finalized remotely; a storage cleanup
       // failure must not make the organizer believe it is still open.
     }
-    await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
+    if (!isOfflineMode) {
+      await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
+    }
     setFinalizedSummary(
       summarizeFinalizedSession(
         activeRows.map((row) => ({
@@ -1690,12 +1730,14 @@ export function EventManagementPage() {
     setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Ended Live Session",
-      targetType: "attendance_session",
-      targetId: sessionId,
-      metadata: { eventCode: activeEvent.code, sessionId }
-    });
+    if (!isOfflineMode) {
+      void auditLogMutations.logActionMutation.mutateAsync({
+        action: "Ended Live Session",
+        targetType: "attendance_session",
+        targetId: sessionId,
+        metadata: { eventCode: activeEvent.code, sessionId }
+      });
+    }
     setLiveSessionId(null);
     setEndSessionConfirmOpen(false);
     setEndSessionReason("");
@@ -1706,17 +1748,34 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, liveSessionId]);
+}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
     try {
       const api = desktopApi();
+      const localPackage = api && activeEvent?.id && session?.userId && activeScannerSessionId
+        ? await api.getPreparedEvent(activeEvent.id, session.userId)
+        : null;
+      const hasLocalSession = Boolean(localPackage?.sessions.some((item) => item.id === activeScannerSessionId));
+      let serverPhase: AttendanceCapturePhase = "time_out";
+      if (hasLocalSession && (!navigator.onLine || !(await confirmSupabaseConnectivity()))) {
+        await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
+      } else {
+        try {
+          serverPhase = await advanceServerAttendanceCapturePhase(activeScannerSessionId ?? "");
+          if (hasLocalSession) await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
+          const isNetworkFailure = !navigator.onLine || /failed to fetch|network|offline|timeout|connection/i.test(message);
+          if (!hasLocalSession || !isNetworkFailure) throw error;
+          await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
+        }
+      }
       const scanner = api ? await api.getScannerStations() : undefined;
-      if(api&&activeScannerSessionId&&session?.userId&&await api.getPreparedEvent(activeEvent?.id??"",session.userId)) await api.advanceAttendanceCapturePhase(activeScannerSessionId,session.userId);
-      if (scanner?.active) await api?.setScannerCapturePhase("time_out");
-      setAttendancePhase("time_out");
-      if (activeScannerSessionId) writeAttendancePhase(window.sessionStorage, activeScannerSessionId, "time_out");
+      if (scanner?.active) await api?.setScannerCapturePhase(serverPhase);
+      setAttendancePhase(serverPhase);
+      if (activeScannerSessionId) writeAttendancePhase(window.sessionStorage, activeScannerSessionId, serverPhase);
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Time Out could not be opened.");
@@ -1858,6 +1917,7 @@ export function EventManagementPage() {
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
     const recordQrLocally = async () => {
       if (!sessionId) throw new Error("The active attendance session could not be found.");
+      if(session?.userId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) throw new Error("This event was ended on this device. Attendance capture is locked until synchronization is confirmed.");
       const recordedAt=new Date().toISOString();
       const student = await identifyOfflineStudent(eventId, "qr", scanCode);
       if (!student) {
@@ -1885,6 +1945,10 @@ export function EventManagementPage() {
           await recordQrLocally();
           return;
         } catch {
+          if(session?.userId&&sessionId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) {
+            toast.error("This event was ended on this device. No additional attendance was recorded.");
+            return;
+          }
           // The package may be absent or stale; continue with central lookup.
         }
       }
@@ -3101,7 +3165,8 @@ export function EventManagementPage() {
             <SummaryTile label="Total Participants" value={sessionSummary.totalParticipants.toString()} />
             <SummaryTile label="Present" value={sessionSummary.present.toString()} />
             <SummaryTile label="Late" value={sessionSummary.late.toString()} />
-            <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
+             <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
+             <SummaryTile label="Pending attendance" value={sessionSummary.pending.toString()} />
             <SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} />
             <SummaryTile label="Student Tasks Pending" value={sessionSummary.pendingStudentTasks.toString()} />
             <div className="rounded-lg border bg-background p-3 sm:col-span-2">

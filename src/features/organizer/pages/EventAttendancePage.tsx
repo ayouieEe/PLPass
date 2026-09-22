@@ -64,6 +64,7 @@ import { desktopApi, identifyOfflineStudent, recordOfflineAttendance } from "@/f
 import { extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
 import type { AttendanceCapturePhase } from "@/features/offline/types";
 import { readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
+import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -362,17 +363,21 @@ export function EventAttendancePage() {
     const api=desktopApi();
     if(!sessionId)return;
     const cached=readAttendancePhase(window.sessionStorage,sessionId);
-    setOfflineCapturePhase(cached);setFacialActionMode(cached==="time_out"?"check_out":"check_in");
-    if(!api||!authSession?.userId)return;
-    void api.getAttendanceCapturePhase(sessionId,authSession.userId).then((phase)=>{setOfflineCapturePhase(phase);setFacialActionMode(phase==="time_out"?"check_out":"check_in");writeAttendancePhase(window.sessionStorage,sessionId,phase);}).catch(()=>undefined);
-  },[authSession?.userId,sessionId]);
+    const hasRecordedTimeOut=(recordsQuery.data?.items??[]).some((record)=>Boolean(record.checkedOutAt));
+    const applyPhase=(phase:AttendanceCapturePhase)=>{const resolved:AttendanceCapturePhase=hasRecordedTimeOut||cached==="time_out"?"time_out":phase;setOfflineCapturePhase(resolved);setFacialActionMode(resolved==="time_out"?"check_out":"check_in");writeAttendancePhase(window.sessionStorage,sessionId,resolved);};
+    applyPhase(cached);
+    const restoreServerPhase=()=>{void getServerAttendanceCapturePhase(sessionId).then(applyPhase).catch(()=>undefined);};
+    if(!api||!authSession?.userId){restoreServerPhase();return;}
+    void api.getAttendanceCapturePhase(sessionId,authSession.userId).then((phase)=>applyPhase(phase)).catch(restoreServerPhase);
+  },[authSession?.userId,recordsQuery.data?.items,sessionId]);
 
   async function advanceOfflineCapturePhase(){
     if(!sessionId||offlineCapturePhase==="time_out")return;
     try{
+      const serverPhase=await advanceServerAttendanceCapturePhase(sessionId);
       const api=desktopApi();
       if(api&&authSession?.userId&&selectedEvent&&await api.getPreparedEvent(selectedEvent.id,authSession.userId)) await api.advanceAttendanceCapturePhase(sessionId,authSession.userId);
-      setOfflineCapturePhase("time_out");setFacialActionMode("check_out");writeAttendancePhase(window.sessionStorage,sessionId,"time_out");
+      setOfflineCapturePhase(serverPhase);setFacialActionMode("check_out");writeAttendancePhase(window.sessionStorage,sessionId,serverPhase);
     }catch(error){toast.error(error instanceof Error?error.message:"Could not advance to Time Out.");}
   }
 
@@ -825,7 +830,7 @@ export function EventAttendancePage() {
             <h2 className="font-semibold">Recent activity</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed attendance attempts refresh from PLPass data.</p>
           </div>
-          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
+          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} pending={Math.max(0, participantStudents.length - counts.present - counts.late - counts.absent)} total={participantStudents.length} />
           <div className="grid gap-3 md:grid-cols-2">
             <StatCard title="Failed taps" value={String(failedAttempts)} tone="warning" />
             <StatCard title="Duplicate taps" value={String(duplicateAttempts)} />

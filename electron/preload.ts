@@ -29,6 +29,7 @@ const api: PLPassDesktopApi = {
   stopScannerStations: () => ipcRenderer.invoke("scanner:stop"), getScannerStations: () => ipcRenderer.invoke("scanner:status"),
   getScannerCertificateStatus: () => ipcRenderer.invoke("scanner:certificateStatus"), replaceScannerCertificate: () => ipcRenderer.invoke("scanner:replaceCertificate"),
   removeScannerStation: (stationId) => ipcRenderer.invoke("scanner:remove",stationId), setScannerCapturePhase: (phase) => ipcRenderer.invoke("scanner:setPhase",phase),
-  onScannerStatus: (listener) => { const handler = (_event: unknown,status: import("../src/features/offline/types.js").ScannerCoordinatorStatus) => listener(status); ipcRenderer.on("scanner:status",handler); return () => ipcRenderer.removeListener("scanner:status",handler); }
+  onScannerStatus: (listener) => { const handler = (_event: unknown,status: import("../src/features/offline/types.js").ScannerCoordinatorStatus) => listener(status); ipcRenderer.on("scanner:status",handler); return () => ipcRenderer.removeListener("scanner:status",handler); },
+  onOfflineAttendanceRecorded: (listener) => { const handler = (_event: unknown, result: import("../src/features/offline/types.js").OfflineAttendanceEvent) => listener(result); ipcRenderer.on("offline:attendance-recorded", handler); return () => ipcRenderer.removeListener("offline:attendance-recorded", handler); }
 };
 contextBridge.exposeInMainWorld("plpassDesktop", api);

@@ -7,11 +7,21 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
+import type { LocalAttendanceInput, LocalAttendanceResult, OfflineAttendanceEvent } from "../src/features/offline/types.js";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
 let facialService: ChildProcess | undefined;
+
+function publishOfflineAttendance(event: OfflineAttendanceEvent) {
+  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("offline:attendance-recorded", event));
+}
+
+function offlineAttendanceEvent(input: LocalAttendanceInput, result: LocalAttendanceResult): OfflineAttendanceEvent {
+  const participant = store.getPreparedEvent(input.eventId)?.participants.find((item) => item.studentId === input.studentId);
+  return { eventId: input.eventId, sessionId: input.sessionId, studentId: input.studentId, studentNumber: participant?.studentNumber, displayName: participant?.displayName, action: result.action, recordedAt: result.record.attendanceTimestamp, timeIn: result.record.timeIn, timeOut: result.record.timeOut, syncStatus: result.record.syncStatus, message: result.safeMessage, source:"organizer" };
+}
 
 const workspaceRoot = path.resolve(directory, "..", "..");
 const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
@@ -168,14 +178,14 @@ function registerHandlers() {
     "offline:prepare": (pkg, organizerId) => store.prepareEvent(pkg, organizerId), "offline:listPrepared": (organizerId, day) => store.listPreparedEvents(organizerId, day),
     "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId),
     "offline:startSession": (eventId, sessionId, organizerId, day, at) => store.startOfflineSession(eventId, sessionId, organizerId, day, at),
-    "offline:endSession": (eventId, sessionId, organizerId, at, reason) => store.endOfflineSession(eventId, sessionId, organizerId, at, reason),
+    "offline:endSession": (eventId, sessionId, organizerId, at, reason) => { const result = store.endOfflineSession(eventId, sessionId, organizerId, at, reason); const scanner = scannerCoordinator?.getStatus(); if (scanner?.sessionId === sessionId) void scannerCoordinator.stop(); return result; },
     "offline:setLifecycle": (eventId, sessionId, state) => store.setOfflineLifecycleState(eventId, sessionId, state),
     "offline:status": (id, ownerId) => store.getStatusForOrganizer(id, ownerId), "offline:getPreparedEvent": (id, ownerId) => store.getPreparedEventForOrganizer(id, ownerId), "offline:getPreparedEventBySession": (id, ownerId) => store.getPreparedEventBySessionForOrganizer(id, ownerId),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
-    "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => store.recordAttendance(input),
-    "offline:recordScanner": (input, phase) => phase === "time_out" ? store.recordScannerCheckOut(input) : store.recordScannerCheckIn(input),
+    "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => { const attendanceInput = input as unknown as LocalAttendanceInput; const result = store.recordAttendance(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
+    "offline:recordScanner": (input, phase) => { const attendanceInput = input as unknown as LocalAttendanceInput; const capturePhase = phase as unknown as "time_in" | "time_out"; const result = capturePhase === "time_out" ? store.recordScannerCheckOut(attendanceInput) : store.recordScannerCheckIn(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
     "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId),
-    "offline:queueWalkin": (input) => store.queueWalkInScan(input), "offline:listWalkins": (eventId,ownerId) => store.listPendingWalkInScans(eventId,ownerId),
+    "offline:queueWalkin": (input) => { const walkInInput = input as unknown as {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:"time_in"|"time_out";attendanceTimestamp:string;organizerProfileId:string}; const result = store.queueWalkInScan(walkInInput); publishOfflineAttendance({ eventId: walkInInput.eventId, sessionId: walkInInput.sessionId, studentNumber: result.studentNumber, action: walkInInput.capturePhase === "time_in" ? "checked_in" : "checked_out", recordedAt: walkInInput.attendanceTimestamp, timeIn: result.timeIn, timeOut: result.timeOut, syncStatus: result.syncStatus, message: `${walkInInput.capturePhase === "time_in" ? "Time In" : "Time Out"} saved on this device at ${new Date(walkInInput.attendanceTimestamp).toLocaleTimeString()}; not synced.`,source:"organizer" }); return result; }, "offline:listWalkins": (eventId,ownerId) => store.listPendingWalkInScans(eventId,ownerId),
     "offline:beginWalkinSync": (limit,ownerId,forceRetry) => store.beginWalkInSync(limit,ownerId,forceRetry), "offline:confirmWalkinSync": (id,student) => store.confirmWalkInSync(id,student), "offline:failWalkinSync": (id,status,error) => store.failWalkInSync(id,status,error),
     "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
     "offline:confirmSync": (uuid, serverId, status, timeOut) => store.confirmSync(uuid, serverId, status, timeOut), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
@@ -215,7 +225,7 @@ app.whenReady().then(() => {
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
   const secureStorage= safeStorage.isEncryptionAvailable() ? { encrypt:(value:string)=>safeStorage.encryptString(value).toString("base64"), decrypt:(value:string)=>safeStorage.decryptString(Buffer.from(value,"base64")) } : undefined;
   store = new LocalAttendanceDatabase(new DatabaseSync(dbPath),secureStorage,true);
-  scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")));
+  scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")), publishOfflineAttendance);
   registerHandlers();
   const preloadPath = path.join(directory, "preload.cjs");
   if (!existsSync(preloadPath)) console.error(`PLPass desktop preload is missing: ${preloadPath}`);

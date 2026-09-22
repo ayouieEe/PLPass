@@ -41,4 +41,5 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   ,removeScannerStation: (stationId) => ipcRenderer.invoke("scanner:remove", stationId)
   ,setScannerCapturePhase: (phase) => ipcRenderer.invoke("scanner:setPhase", phase)
   ,onScannerStatus: (listener) => { const handler = (_event, status) => listener(status); ipcRenderer.on("scanner:status", handler); return () => ipcRenderer.removeListener("scanner:status", handler); }
+  ,onOfflineAttendanceRecorded: (listener) => { const handler = (_event, result) => listener(result); ipcRenderer.on("offline:attendance-recorded", handler); return () => ipcRenderer.removeListener("offline:attendance-recorded", handler); }
 });

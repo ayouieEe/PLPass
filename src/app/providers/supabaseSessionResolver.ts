@@ -95,6 +95,21 @@ function supabaseErrorText(error: unknown) {
   return values.join(" ").toLowerCase();
 }
 
+export function isLikelyNetworkFailure(error: unknown) {
+  const text = error instanceof Error
+    ? error.message.toLowerCase()
+    : supabaseErrorText(error);
+  return text.includes("failed to fetch")
+    || text.includes("networkerror")
+    || text.includes("network error")
+    || text.includes("offline")
+    || text.includes("econnrefused")
+    || text.includes("socket hang up")
+    || text.includes("fetch failed")
+    || text.includes("timed out")
+    || text.includes("timeout");
+}
+
 function isRlsPermissionError(error: unknown) {
   const code = supabaseErrorCode(error);
   const text = supabaseErrorText(error);
@@ -156,14 +171,7 @@ export function toSafeAuthErrorMessage(error: unknown) {
     return "PLPass sign-in is temporarily unavailable. Please try again later or contact PLPass support.";
   }
   const rawMessage = error instanceof Error ? error.message.toLowerCase() : "";
-  if (
-    rawMessage.includes("failed to fetch") ||
-    rawMessage.includes("networkerror") ||
-    rawMessage.includes("network error") ||
-    rawMessage.includes("offline") ||
-    rawMessage.includes("econnrefused") ||
-    rawMessage.includes("socket hang up")
-  ) {
+  if (isLikelyNetworkFailure(error)) {
     return "We couldn't connect to PLPass. Check your internet connection and try again.";
   }
   if (rawMessage.includes("email not confirmed")) {
