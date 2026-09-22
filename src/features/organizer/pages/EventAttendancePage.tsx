@@ -65,6 +65,7 @@ import { extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
 import type { AttendanceCapturePhase } from "@/features/offline/types";
 import { readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
+import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -198,7 +199,7 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   return {
     present: finalized.filter((record) => record.status === "present").length,
     late: finalized.filter((record) => record.status === "late").length,
@@ -207,7 +208,7 @@ function attendanceCounts(records: AttendanceRecord[]) {
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   if (finalized.length === 0) {
     return 0;
   }
@@ -486,6 +487,13 @@ export function EventAttendancePage() {
   const session = sessionQuery.data ?? (cachedSession ? ({ id: cachedSession.id, type: "event", eventId: cachedSession.eventId, title: cachedSession.title, mode: "required", status: cachedSession.status === "ongoing" ? "active" : cachedSession.status, startsAt: cachedSession.startsAt, endsAt: cachedSession.endsAt, lateCutoffAt: cachedSession.lateCutoffAt, attendanceWindowStartAt: cachedSession.attendanceWindowStartAt, attendanceWindowEndAt: cachedSession.attendanceWindowEndAt, createdByUserId: "offline-cache" } as AttendanceSession) : undefined);
   if(!session)return <ErrorState title="Session unavailable" message="No online or prepared local session is available." />;
   const activeSession: AttendanceSession = session;
+  const resolveOfflineWalkInStatus = (timeIn: string | null | undefined, timeOut: string | null | undefined) =>
+    resolveOrganizerAttendanceStatus({
+      timeIn,
+      timeOut,
+      attendanceSessionStatus: activeSession.status,
+      lateCutoffAt: activeSession.lateCutoffAt
+    });
   const preparedEvent=offline.preparedEvent;
   const cachedEvent=preparedEvent?.event;
   const event = eventsQuery.data?.items.find((item) => item.id === session.eventId) ?? (cachedEvent ? ({id:cachedEvent.id,code:cachedEvent.code,title:cachedEvent.title,status:"approved",startsAt:cachedEvent.startsAt,endsAt:cachedEvent.endsAt,venue:cachedSession?.venue??"Event venue",organizerId:"offline-cache",category:"Event",priorityLevel:"Flexible",impactScore:null,predictedTurnout:null} as Event) : undefined);
@@ -568,8 +576,8 @@ export function EventAttendancePage() {
       if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
         const recordedAt=simulatedTime(outcome)??new Date().toISOString();
         const student=await identifyOfflineStudent(event.id,method,code);
-        if(student?.isParticipant===false){if(!window.confirm(`${student.displayName} (${student.studentNumber}) is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`))return;const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber:student.studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The verified walk-in could not be securely saved.");setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Verified walk-in · ${student.displayName}`,studentNumber:student.studentNumber,attendanceStatus:"absent",verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${student.displayName} walk-in saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Verified against the cached student directory; not synced."});await offline.refresh();return;}
-        if(!student){const studentNumber=method==="qr"?extractSchoolStudentNumber(code):"";if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save as an unverified walk-in for later review?`))throw new Error("No eligible participant matched the local event package; no scan was saved.");const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The walk-in scan could not be securely saved.");setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:"absent",verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${queued.studentNumber} ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;}
+        if(student?.isParticipant===false){if(!window.confirm(`${student.displayName} (${student.studentNumber}) is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`))return;const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber:student.studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The verified walk-in could not be securely saved.");const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Verified walk-in · ${student.displayName}`,studentNumber:student.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${student.displayName} walk-in saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Verified against the cached student directory; not synced."});await offline.refresh();return;}
+        if(!student){const studentNumber=method==="qr"?extractSchoolStudentNumber(code):"";if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save as an unverified walk-in for later review?`))throw new Error("No eligible participant matched the local event package; no scan was saved.");const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The walk-in scan could not be securely saved.");const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${queued.studentNumber} ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;}
         const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:recordedAt},offlineCapturePhase);
         setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}}); toast.success("Attendance recorded locally",{description:local.safeMessage}); await offline.refresh(); return;
       }
@@ -663,7 +671,8 @@ export function EventAttendancePage() {
         if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event&&studentNumber&&window.confirm(`Student ${studentNumber} is not in the downloaded roster. Save as an unverified walk-in for later review?`)){
           const at=new Date().toISOString();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"manual",capturePhase:offlineCapturePhase,attendanceTimestamp:at,organizerProfileId:authSession?.userId??""});
           if(!queued)throw new Error("The walk-in scan could not be securely saved.");
-          setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:"absent",verificationMethod:"manual",recordedAt:at,safeMessage:"Saved on this device; not synced.",summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});
+          const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);
+          setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"manual",recordedAt:at,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});
           toast.success(`${queued.studentNumber} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;
         }
         toast.error("Select an assigned participant by student ID or exact name.");
@@ -830,7 +839,7 @@ export function EventAttendancePage() {
             <h2 className="font-semibold">Recent activity</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest accepted, duplicate, and failed attendance attempts refresh from PLPass data.</p>
           </div>
-          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} pending={Math.max(0, participantStudents.length - counts.present - counts.late - counts.absent)} total={participantStudents.length} />
+          <SessionSummaryCards present={counts.present} late={counts.late} absent={counts.absent} total={participantStudents.length} />
           <div className="grid gap-3 md:grid-cols-2">
             <StatCard title="Failed taps" value={String(failedAttempts)} tone="warning" />
             <StatCard title="Duplicate taps" value={String(duplicateAttempts)} />

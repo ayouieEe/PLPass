@@ -129,7 +129,8 @@ async function run() {
   const hiddenOrganizerProfile = check(await student.from("profiles").select("id").eq("id", ids.organizerUser), "student queries organizer profile");
   assert.equal(hiddenOrganizerProfile.length, 0, "student must not read organizer profile rows");
   const organizerProfiles = check(await organizer.from("profiles").select("id").in("id", [ids.studentUser, ids.organizerTwoUser]), "organizer reads managed profiles");
-  assert.equal(organizerProfiles.length, 2, "active organizer should read managed profiles");
+  assert.equal(organizerProfiles.length, 1, "active organizer should read same-department organizer peers without exposing unrelated student profiles");
+  assert.equal(organizerProfiles[0].id, ids.organizerTwoUser, "active organizer should read the same-department organizer peer");
 
   const startsAt = new Date(Date.now() + 3_600_000).toISOString();
   const endsAt = new Date(Date.now() + 7_200_000).toISOString();
@@ -302,7 +303,8 @@ async function run() {
     student_id: ids.student,
     attendance_status: "absent",
     verification_method: "qr",
-    recorded_by: ids.organizerUser
+    recorded_by: ids.organizerUser,
+    finalized_at: new Date().toISOString()
   }), "create attendance record fixture");
 
   const correction = check(await student.from("attendance_requests").insert({

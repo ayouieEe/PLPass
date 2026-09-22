@@ -263,7 +263,8 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
         p_time_in:scan.timeIn,...(scan.timeOut?{p_time_out:scan.timeOut}:{})
       });
       if(error) throw error;
-      const payload=data as {attendance?:{id?:string;local_attendance_uuid?:string|null;attendance_status?:string;time_in?:string|null;time_out?:string|null};student?:{id?:string;studentNumber?:string;displayName?:string}}|null;
+      const payload=data as {attendance?:{id?:string;local_attendance_uuid?:string|null;attendance_status?:string;time_in?:string|null;time_out?:string|null};student?:{id?:string;studentNumber?:string;displayName?:string};unverifiedWalkIn?:{localScanUuid?:string}}|null;
+      if(payload?.unverifiedWalkIn?.localScanUuid===scan.localScanUuid){ await api.confirmWalkInSync(scan.localScanUuid); confirmed++; continue; }
       if(!payload?.attendance?.id||payload.attendance.local_attendance_uuid!==scan.localScanUuid||!payload.student?.id||!payload.student.studentNumber){
         throw new Error("The server did not confirm this walk-in scan.");
       }

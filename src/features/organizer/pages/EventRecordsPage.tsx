@@ -38,7 +38,7 @@ declare module "@tanstack/react-table" {
   }
 }
 
-type AttendanceStatus = "present" | "late" | "absent" | "pending";
+type AttendanceStatus = "present" | "late" | "absent";
 type LateReason =
   | "Traffic / Commute"
   | "Class or Academic Conflict"
@@ -92,8 +92,6 @@ type CompletedRecord = EventRecord & {
   present: number;
   late: number;
   absent: number;
-  pending?: number;
-  notCheckedOut?: number;
   totalRegistered: number;
   attendanceRate: string;
   sentiment: {
@@ -114,11 +112,11 @@ const lateReasons: LateReason[] = [
   "Other"
 ];
 
-function statusTone(status: AttendanceStatus | "pending" | "Upcoming" | "Active" | "Completed") {
+function statusTone(status: AttendanceStatus | "Upcoming" | "Active" | "Completed") {
   if (status === "present" || status === "Active" || status === "Completed") {
     return "success" as const;
   }
-  if (status === "late" || status === "pending" || status === "Upcoming") {
+  if (status === "late" || status === "Upcoming") {
     return "warning" as const;
   }
   if (status === "absent") {
@@ -226,8 +224,6 @@ function completedFromRepositoryEvent(event: {
     present: 0,
     late: 0,
     absent: 0,
-    pending: 0,
-    notCheckedOut: 0,
     totalRegistered: 0,
     attendanceRate: "N/A",
     sentiment: { positive: 0, neutral: 0, negative: 0 },
@@ -651,7 +647,6 @@ export function EventRecordsPage() {
           present: summary.present,
           late: summary.late,
            absent: summary.absent,
-           pending: summary.pending,
           totalRegistered: summary.totalRegistered,
           attendanceRate: `${summary.attendanceRate}%`
         } : {}),
@@ -748,7 +743,7 @@ export function EventRecordsPage() {
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
         "Check-out Time": row.checkOutTime ?? "Not checked out",
-       "Attendance Method": row.attendanceStatus === "absent" || row.attendanceStatus === "pending" ? "-" : row.attendanceMethod,
+       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
         "Late Arrival Reason": row.lateReason ?? "-"
       })) : []
     );
@@ -768,7 +763,7 @@ export function EventRecordsPage() {
       "Attendance Status": row.attendanceStatus,
       "Check-in Time": row.checkInTime,
       "Check-out Time": row.checkOutTime ?? "Not checked out",
-       "Attendance Method": row.attendanceStatus === "absent" || row.attendanceStatus === "pending" ? "-" : row.attendanceMethod,
+       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
     exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
@@ -801,7 +796,6 @@ export function EventRecordsPage() {
     { accessorKey: "present", header: "Present" },
     { accessorKey: "late", header: "Late" },
     { accessorKey: "absent", header: "Absent" },
-    { accessorKey: "pending", header: "Pending" },
     {
       accessorKey: "attendanceRate",
       header: "Attendance Rate",
@@ -1147,7 +1141,6 @@ export function CompletedEventModal({
               <SummaryTile label="Present" value={record.present.toString()} />
               <SummaryTile label="Late" value={record.late.toString()} />
                <SummaryTile label="Absent" value={record.absent.toString()} />
-               <SummaryTile label="Pending attendance" value={(record.pending ?? 0).toString()} />
               <SummaryTile label="Attendance Rate" value={record.attendanceRate} />
               </div>
             </section>
@@ -1170,7 +1163,7 @@ export function CompletedEventModal({
           data={rows}
           columns={attendanceColumns}
            emptyTitle="No participants"
-           emptyDescription="Assigned participants will appear here with Pending attendance until their flow is complete."
+           emptyDescription="Assigned participants will appear here with Present, Late, or Absent attendance outcomes."
         />
       </section>
 

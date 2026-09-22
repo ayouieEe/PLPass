@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildStudentEventWorkflow, getStudentEventMetrics, type StudentEventRecord } from "@/features/student/studentExperience";
+import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
 import type { AttendanceSession, Event } from "@/types/domain";
 
 describe("completion-gated event attendance", () => {
@@ -72,17 +73,38 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("v_session.actual_end + interval '24 hours' <= now()");
   });
 
-  it("keeps incomplete event participants pending until the deadline migration finalizes them", () => {
+  it("resolves organizer attendance to Present, Late, or Absent only", () => {
+    const cutoff = "2026-09-22T08:00:00.000Z";
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T07:59:00.000Z", timeOut: null, attendanceSessionStatus: "ongoing", lateCutoffAt: cutoff })).toBe("present");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: null, attendanceSessionStatus: "ongoing", lateCutoffAt: cutoff })).toBe("late");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: "completed", lateCutoffAt: cutoff })).toBe("absent");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T07:59:00.000Z", timeOut: null, attendanceSessionStatus: "completed", lateCutoffAt: cutoff })).toBe("absent");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: "2026-09-22T09:00:00.000Z", attendanceSessionStatus: "completed", lateCutoffAt: cutoff, feedbackTaskStatus: "pending", feedbackDueAt: "2026-09-23T09:00:00.000Z", now: new Date("2026-09-23T10:00:00.000Z").getTime() })).toBe("absent");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: "2026-09-22T09:00:00.000Z", attendanceSessionStatus: "completed", lateCutoffAt: cutoff, feedbackTaskStatus: "completed", feedbackDueAt: "2026-09-23T09:00:00.000Z", now: new Date("2026-09-23T10:00:00.000Z").getTime() })).toBe("late");
+  });
+
+  it("keeps feedback expiration separate from raw attendance outcomes", () => {
     const migration = readFileSync(
-      resolve(process.cwd(), "supabase/migrations/20260921171807_event_attendance_pending_until_deadline.sql"),
+      resolve(process.cwd(), "supabase/migrations/20260922150000_three_state_attendance_finalization.sql"),
       "utf8"
     );
+    expect(migration).toContain("new.attendance_status := 'absent'");
+    expect(migration).toContain("new.attendance_status := 'late'");
+    expect(migration).toContain("new.attendance_status := 'present'");
+    expect(migration).toContain("task_status = 'expired'");
+    expect(migration).not.toContain("attendance_status = 'pending'");
+  });
 
-    expect(migration).toContain("pending_until");
-    expect(migration).toContain("actual_end + interval '24 hours' <= now()");
-    expect(migration).toContain("Automatically marked absent after the attendance completion deadline.");
+  it("preserves explicit corrections when attendance facts did not change", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20260922150000_three_state_attendance_finalization.sql"),
+      "utf8"
+    );
+    expect(migration).toContain("if tg_op <> 'INSERT'");
+    expect(migration).toContain("new.time_in is not distinct from old.time_in");
+    expect(migration).toContain("new.time_out is not distinct from old.time_out");
+    expect(migration).toContain("new.event_session_id is not distinct from old.event_session_id");
     expect(migration).toContain("return new;");
-    expect(migration).not.toContain("Attendance finalized absent: Time In or Time Out was not completed before session close.");
   });
 
   it("validates offline session ownership before replay lookup and applies a later checkout", () => {
