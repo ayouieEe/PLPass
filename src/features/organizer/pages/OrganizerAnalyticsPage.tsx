@@ -558,7 +558,7 @@ export function OrganizerAnalyticsPage() {
       const eventById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
       return (sessionsQuery.data?.items ?? []).filter((session) => session.type === "event" && session.status === "completed" && session.eventId).map((session) => {
         const event = eventById.get(session.eventId ?? "");
-        const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id && record.finalizedAt);
+        const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
         const present = records.filter((record) => record.status === "present").length;
         const late = records.filter((record) => record.status === "late").length;
         const absent = records.filter((record) => record.status === "absent").length;
@@ -654,7 +654,7 @@ export function OrganizerAnalyticsPage() {
         .map((session) => session.id)
     );
     const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter(
-      (row) => Boolean(row.finalizedAt) && (sessionIds.size === 0 || sessionIds.has(row.sessionId)) && row.status === "late"
+      (row) => (sessionIds.size === 0 || sessionIds.has(row.sessionId)) && row.status === "late"
     );
 
     const categories = [
@@ -706,7 +706,7 @@ export function OrganizerAnalyticsPage() {
         .filter((session) => session.eventId && validEventIds.has(session.eventId))
         .map((session) => session.id)
     );
-    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => row.finalizedAt && sessionIds.has(row.sessionId) && row.status === "late");
+    const lateRows = (attendanceRecordsQuery.data?.items ?? []).filter((row) => sessionIds.has(row.sessionId) && row.status === "late");
     
     return lateRows
       .filter((row) => row.lateReason && row.lateReason !== row.lateReasonCategory && !(lateReasons as string[]).includes(row.lateReason))

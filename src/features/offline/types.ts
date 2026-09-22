@@ -179,7 +179,7 @@ export interface PLPassDesktopApi {
   queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): Promise<PendingWalkInScan>;
   listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string): Promise<PendingWalkInScan[]>;
   beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
-  confirmWalkInSync(localScanUuid: string, student: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
+  confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
   failWalkInSync(localScanUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   listPending(eventId: string | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
   beginSync(limit: number, forceRetry: boolean | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;

@@ -480,7 +480,9 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       const result = data as unknown as { items?: Row[] } | null;
       return (Array.isArray(result?.items) ? result.items : []).map((row) => mapStudent(row));
     }
-    const scopedDepartmentId = context?.actorRole === "department_admin" ? context.departmentId : undefined;
+    const scopedDepartmentId = context?.actorRole === "department_admin"
+      ? context.departmentId
+      : undefined;
     if (context?.actorRole === "department_admin" && !scopedDepartmentId) return [];
     const uniqueStudentIds = [...new Set(studentIds.filter(Boolean))];
     if (uniqueStudentIds.length === 0) return [];

@@ -55,6 +55,7 @@ import {
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
@@ -156,9 +157,7 @@ type FinalizedSessionSummary = {
   present: number;
   late: number;
   absent: number;
-  pending: number;
   attendanceRate: number;
-  pendingStudentTasks: number;
   mostCommonLateReason: string;
 };
 
@@ -325,10 +324,9 @@ function matchesSearch(event: EventRecord, search: string) {
 
 
 function countRows(rows: AttendanceRow[], participantCount: number) {
-  const finalizedRows = rows.filter((row) => row.isFinalized === true);
-  const present = finalizedRows.filter((row) => row.attendanceStatus === "present").length;
-  const late = finalizedRows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = finalizedRows.filter((row) => row.attendanceStatus === "absent").length;
+  const present = rows.filter((row) => row.attendanceStatus === "present").length;
+  const late = rows.filter((row) => row.attendanceStatus === "late").length;
+  const absent = Math.max(0, participantCount - present - late);
   const rate = participantCount ? Math.round(((present + late) / participantCount) * 100) : 0;
   return { present, late, absent, rate };
 }
@@ -360,13 +358,10 @@ function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
 }
 
 function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
-  const finalizedRows = rows.filter((row) => row.isFinalized === true);
-  const present = finalizedRows.filter((row) => row.attendanceStatus === "present").length;
-  const late = finalizedRows.filter((row) => row.attendanceStatus === "late").length;
-  const pendingStudentTasks = rows.filter((row) => row.isFinalized !== true).length;
-  const absent = finalizedRows.filter((row) => row.attendanceStatus === "absent").length;
-  const pending = Math.max(0, participantCount - present - late - absent);
-  const submittedReasons = finalizedRows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
+  const present = rows.filter((row) => row.attendanceStatus === "present").length;
+  const late = rows.filter((row) => row.attendanceStatus === "late").length;
+  const absent = Math.max(0, participantCount - present - late);
+  const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
   submittedReasons.forEach((row) => {
     const reason = row.lateReason;
@@ -379,9 +374,7 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
     present,
     late,
     absent,
-    pending,
     attendanceRate: participantCount ? Math.round(((present + late) / participantCount) * 100) : 0,
-    pendingStudentTasks: pending,
     mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
   };
 }
@@ -1418,7 +1411,7 @@ export function EventManagementPage() {
               id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Unverified walk-in · ${scan.studentNumber}`,
               eventCode:activeEvent.code,attendanceMethod:scan.identificationMethod==="manual"?"Manual":"QR Code",
               checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
-              attendanceStatus:"absent",isFinalized:false
+              attendanceStatus:resolveOrganizerAttendanceStatus({timeIn:scan.timeIn,timeOut:scan.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt}),isFinalized:false
             })));
             return [...otherRows, ...phoneRows];
           });
@@ -1443,7 +1436,7 @@ export function EventManagementPage() {
       void refreshPhoneAttendance();
     });
     return () => { current = false; unsubscribe(); unsubscribeAttendance(); };
-  }, [activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
+  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
 
   // Filter options are global to the Events workspace. Build them from every
   // loaded event so switching between Today, Incoming, and Cancelled never
@@ -1926,7 +1919,8 @@ export function EventManagementPage() {
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
         const queued=await desktopApi()?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:attendancePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
-        setActiveRows((current)=>upsertAttendanceRow(current,{id:`walkin-${queued.localScanUuid}`,studentId:`walkin:${queued.localScanUuid}`,studentName:`Unverified walk-in · ${queued.studentNumber}`,eventCode:activeEvent.code,attendanceMethod:"QR Code",checkInAt:queued.timeIn,checkInTime:formatLocalTime(queued.timeIn),...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),attendanceStatus:"absent",isFinalized:false}));
+        const walkInStatus=resolveOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
+        setActiveRows((current)=>upsertAttendanceRow(current,{id:`walkin-${queued.localScanUuid}`,studentId:`walkin:${queued.localScanUuid}`,studentName:`Unverified walk-in · ${queued.studentNumber}`,eventCode:activeEvent.code,attendanceMethod:"QR Code",checkInAt:queued.timeIn,checkInTime:formatLocalTime(queued.timeIn),...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),attendanceStatus:walkInStatus,isFinalized:false}));
         lastSuccessfulQrScanAtRef.current=Date.now();
         toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${attendancePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
         return;
@@ -2634,7 +2628,7 @@ export function EventManagementPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <SummaryTile label="Present" value={activeCounts.present.toString()} />
               <SummaryTile label="Late" value={activeCounts.late.toString()} />
-              <SummaryTile label="Pending Time Out" value={missingTimeOutRows.length.toString()} />
+              <SummaryTile label="Absent" value={activeCounts.absent.toString()} />
               <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
             </div>
 
@@ -3166,9 +3160,7 @@ export function EventManagementPage() {
             <SummaryTile label="Present" value={sessionSummary.present.toString()} />
             <SummaryTile label="Late" value={sessionSummary.late.toString()} />
              <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
-             <SummaryTile label="Pending attendance" value={sessionSummary.pending.toString()} />
             <SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} />
-            <SummaryTile label="Student Tasks Pending" value={sessionSummary.pendingStudentTasks.toString()} />
             <div className="rounded-lg border bg-background p-3 sm:col-span-2">
               <p className="text-xs text-muted-foreground">Most Common Late Arrival Reason</p>
               <p className="mt-1 text-lg font-semibold">{sessionSummary.mostCommonLateReason}</p>

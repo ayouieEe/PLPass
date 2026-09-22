@@ -1843,7 +1843,7 @@ export function OrganizerUserManagementPage() {
     const credentialMap = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
 
     const dbAccounts = rawStudents.map((student) => {
-      const studentRecords = (attendanceRecordsQuery.data?.items ?? []).filter((r) => r.studentId === student.id && r.finalizedAt);
+      const studentRecords = (attendanceRecordsQuery.data?.items ?? []).filter((r) => r.studentId === student.id);
       const attendedCount = studentRecords.filter((r) => r.status === "present" || r.status === "late").length;
       const rate = studentRecords.length > 0 ? Math.round((attendedCount / studentRecords.length) * 100) : null;
 

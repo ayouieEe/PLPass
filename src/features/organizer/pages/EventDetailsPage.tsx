@@ -187,7 +187,7 @@ function statusTone(status: AttendanceStatus | "pending" | SessionStatus | Corre
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   return {
     present: finalized.filter((record) => record.status === "present").length,
     late: finalized.filter((record) => record.status === "late").length,
@@ -196,7 +196,7 @@ function attendanceCounts(records: AttendanceRecord[]) {
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   if (finalized.length === 0) {
     return 0;
   }
@@ -865,7 +865,8 @@ export function EventDetailsPage() {
       header: "Attendance",
       cell: ({ row }) => {
         const attendance = attendanceRowByStudentId.get(row.original.id);
-        return <StatusBadge label={attendance?.attendanceStatus === "pending" ? "Pending attendance" : attendance?.attendanceStatus ?? "Pending attendance"} tone={statusTone(attendance?.attendanceStatus ?? "pending")} />;
+        const attendanceStatus = attendance?.attendanceStatus ?? "absent";
+        return <StatusBadge label={attendanceStatus} tone={statusTone(attendanceStatus)} />;
       }
     },
     {
@@ -1310,7 +1311,7 @@ export function EventDetailsPage() {
               />
             </div>
           ) : null}
-          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} pending={attendanceSummary?.pending ?? Math.max(0, participants.length - counts.present - counts.late - counts.absent)} total={attendanceSummary?.totalRegistered ?? participants.length} /> : null}
+          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} total={attendanceSummary?.totalRegistered ?? participants.length} /> : null}
         </div>
       </section>
 

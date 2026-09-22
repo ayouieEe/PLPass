@@ -266,7 +266,7 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   return {
     present: finalized.filter((record) => record.status === "present").length,
     late: finalized.filter((record) => record.status === "late").length,
@@ -275,7 +275,7 @@ function attendanceCounts(records: AttendanceRecord[]) {
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  const finalized = records.filter((record) => Boolean(record.finalizedAt));
+  const finalized = records;
   if (finalized.length === 0) {
     return 0;
   }

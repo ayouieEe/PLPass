@@ -4,7 +4,7 @@ import { formatDisplayTime } from "@/lib/utils/date";
 import { postgresUuidValues } from "@/lib/utils/postgresUuid";
 import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 
-type OrgAttendanceStatus = "present" | "late" | "absent" | "pending";
+type OrgAttendanceStatus = "present" | "late" | "absent";
 
 type ProfileNameRow = {
   first_name?: string | null;
@@ -21,6 +21,7 @@ type EventSessionRow = {
   event_id: string;
   session_status?: string | null;
   actual_end?: string | null;
+  late_cutoff_at?: string | null;
 };
 
 type EventParticipantRow = {
@@ -44,13 +45,46 @@ type AttendanceSummaryRow = {
   students?: StudentRelationRow | StudentRelationRow[] | null;
 };
 
+export function resolveOrganizerAttendanceStatus(input: {
+  timeIn: string | null | undefined;
+  timeOut: string | null | undefined;
+  attendanceSessionStatus: string | null | undefined;
+  lateCutoffAt: string | null | undefined;
+  feedbackTaskStatus?: FeedbackTaskRow["task_status"];
+  feedbackDueAt?: string | null;
+  now?: number;
+}): OrgAttendanceStatus {
+  if (!input.timeIn) return "absent";
+  if (input.attendanceSessionStatus === "completed" && !input.timeOut) return "absent";
+  const rawStatus: OrgAttendanceStatus = input.lateCutoffAt
+    && new Date(input.timeIn).getTime() > new Date(input.lateCutoffAt).getTime()
+    ? "late"
+    : "present";
+  const deadline = input.feedbackDueAt ? new Date(input.feedbackDueAt).getTime() : Number.POSITIVE_INFINITY;
+  if (input.attendanceSessionStatus === "completed"
+    && input.feedbackTaskStatus
+    && input.feedbackTaskStatus !== "completed"
+    && (input.feedbackTaskStatus === "expired" || (input.now ?? Date.now()) >= deadline)) {
+    return "absent";
+  }
+  return rawStatus;
+}
+
+type UnverifiedWalkInRow = {
+  id: string;
+  event_id: string;
+  event_session_id: string;
+  student_number: string;
+  identification_method: string;
+  time_in: string;
+  time_out: string | null;
+};
+
 export type EventAttendanceSummary = {
   rows: Array<Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: OrgAttendanceStatus }>;
   present: number;
   late: number;
   absent: number;
-  pending: number;
-  notCheckedOut: number;
   totalRegistered: number;
   attendanceRate: number; // 0-100
 };
@@ -124,7 +158,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   // 1. Sessions belonging to these events
   const { data: sessions, error: sessionsError } = await client
     .from("event_sessions")
-    .select("id, event_id, session_status, actual_end")
+    .select("id, event_id, session_status, actual_end, late_cutoff_at")
     .in("event_id", remoteEventIds);
   if (sessionsError) throw sessionsError;
 
@@ -170,6 +204,12 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     records = (data ?? []) as AttendanceSummaryRow[];
   }
 
+  const { data: unverifiedWalkIns, error: unverifiedWalkInsError } = await client
+    .from("unverified_walkin_attendance" as never)
+    .select("id, event_id, event_session_id, student_number, identification_method, time_in, time_out")
+    .in("event_id", remoteEventIds);
+  if (unverifiedWalkInsError) throw unverifiedWalkInsError;
+
   const recordIds = records.map((record) => String(record.id)).filter(Boolean);
   const { data: feedbackTaskRows, error: feedbackTaskError } = recordIds.length === 0
     ? { data: [], error: null }
@@ -187,8 +227,6 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
         present: 0,
         late: 0,
         absent: 0,
-        pending: 0,
-        notCheckedOut: 0,
       totalRegistered: registeredCountByEvent.get(eventId) ?? 0,
       attendanceRate: 0
     };
@@ -214,18 +252,17 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const student = studentById.get(participant.student_id);
     const sessionRow = row?.event_session_id ? (sessions as EventSessionRow[]).find((session) => session.id === row.event_session_id) : undefined;
     const feedbackTask = row ? feedbackTaskByRecordId.get(String(row.id)) : undefined;
-    const deadline = feedbackTask?.due_at
-      ? new Date(feedbackTask.due_at).getTime()
-      : sessionRow?.actual_end
-        ? new Date(sessionRow.actual_end).getTime() + 24 * 60 * 60 * 1000
-        : Number.POSITIVE_INFINITY;
-    const isFinal = Boolean(row?.finalized_at);
-    const status: OrgAttendanceStatus = isFinal
-      ? ((row?.attendance_status ?? "absent") as OrgAttendanceStatus)
-      : (feedbackTask?.task_status === "expired" || Date.now() >= deadline ? "absent" : "pending");
+    const status = resolveOrganizerAttendanceStatus({
+      timeIn: row?.time_in,
+      timeOut: row?.time_out,
+      attendanceSessionStatus: sessionRow?.session_status,
+      lateCutoffAt: sessionRow?.late_cutoff_at,
+      feedbackTaskStatus: feedbackTask?.task_status,
+      feedbackDueAt: feedbackTask?.due_at ?? (sessionRow?.actual_end ? new Date(new Date(sessionRow.actual_end).getTime() + 24 * 60 * 60 * 1000).toISOString() : null)
+    });
     const method = row ? mapVerificationMethod(row.verification_method) : "Manual";
     summary.rows.push({
-      id: String(row?.id ?? `pending-${eventId}-${participant.student_id}`),
+      id: String(row?.id ?? `absent-${eventId}-${participant.student_id}`),
       studentId: participant.student_id,
       studentName: student?.name ?? (row ? studentDisplayName(row) : `Student ${participant.student_id.slice(0, 8)}`),
       eventCode: eventId,
@@ -239,9 +276,31 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     if (status === "present") summary.present += 1;
     else if (status === "late") summary.late += 1;
     else if (status === "absent") summary.absent += 1;
-    else summary.pending += 1;
-    if (status === "pending" && row?.time_in && !row.time_out) summary.notCheckedOut += 1;
   });
+
+  for (const walkIn of (unverifiedWalkIns ?? []) as unknown as UnverifiedWalkInRow[]) {
+    const eventId = walkIn.event_id;
+    const summary = summaries[eventId];
+    if (!summary) continue;
+    const sessionRow = (sessions as EventSessionRow[]).find((session) => session.id === walkIn.event_session_id);
+    const isLate = Boolean(sessionRow?.late_cutoff_at && new Date(walkIn.time_in).getTime() > new Date(sessionRow.late_cutoff_at).getTime());
+    const walkInStatus: OrgAttendanceStatus = !walkIn.time_out && sessionRow?.session_status === "completed"
+      ? "absent"
+      : isLate ? "late" : "present";
+    summary.rows.push({
+      id: String(walkIn.id),
+      studentId: `walkin:${walkIn.id}`,
+      studentName: `Unverified walk-in · ${walkIn.student_number}`,
+      eventCode: eventId,
+      attendanceMethod: mapVerificationMethod(walkIn.identification_method),
+      checkInTime: formatDisplayTime(walkIn.time_in),
+      checkOutTime: walkIn.time_out ? formatDisplayTime(walkIn.time_out) : undefined,
+      attendanceStatus: walkInStatus
+    });
+    if (walkInStatus === "present") summary.present += 1;
+    else if (walkInStatus === "late") summary.late += 1;
+    else summary.absent += 1;
+  }
 
   Object.values(summaries).forEach((summary) => {
     const denominator = summary.totalRegistered > 0 ? summary.totalRegistered : summary.rows.length;

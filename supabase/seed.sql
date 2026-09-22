@@ -265,7 +265,7 @@ begin
     set participant_status = excluded.participant_status,
         updated_at = now();
 
-  insert into public.attendance_sessions (
+  insert into public.event_sessions (
     id,
     event_id,
     session_name,
@@ -365,7 +365,7 @@ begin
 
   insert into public.attendance_records (
     id,
-    session_id,
+    event_session_id,
     student_id,
     attendance_status,
     verification_method,
@@ -422,7 +422,7 @@ begin
     );
 
   insert into public.attendance_records (
-    session_id,
+    event_session_id,
     student_id,
     attendance_status,
     verification_method,
@@ -435,7 +435,7 @@ begin
     minutes_late
   )
   select
-    seeded.session_id,
+      seeded.event_session_id,
     seeded.student_id,
     seeded.attendance_status,
     seeded.verification_method,
@@ -448,7 +448,7 @@ begin
     seeded.minutes_late
   from (
     select
-      v_session_present_id as session_id,
+      v_session_present_id as event_session_id,
       student_id,
       case when ordinality % 4 = 0 then 'late' else 'present' end as attendance_status,
       case when ordinality % 3 = 0 then 'facial' else 'qr' end as verification_method,
@@ -464,7 +464,7 @@ begin
     union all
 
     select
-      v_session_late_id as session_id,
+      v_session_late_id as event_session_id,
       student_id,
       case
         when ordinality % 5 = 0 then 'absent'
@@ -484,9 +484,9 @@ begin
     union all
 
     select
-      v_session_absent_id as session_id,
+      v_session_absent_id as event_session_id,
       student_id,
-      case when ordinality % 3 = 0 then 'excused' else 'absent' end as attendance_status,
+      'absent' as attendance_status,
       'manual' as verification_method,
       null as time_in,
       null as time_out,
@@ -497,7 +497,7 @@ begin
     from unnest(v_student_ids) with ordinality as selected_students(student_id, ordinality)
     where student_id <> v_student_id
   ) seeded
-  on conflict (session_id, student_id) where session_id is not null do update
+  on conflict (event_session_id, student_id) where event_session_id is not null do update
     set attendance_status = excluded.attendance_status,
         verification_method = excluded.verification_method,
         time_in = excluded.time_in,
@@ -508,6 +508,11 @@ begin
         late_reason_category = excluded.late_reason_category,
         minutes_late = excluded.minutes_late,
         updated_at = now();
+
+  -- Correction fixtures represent already-completed attendance workflows.
+  update public.attendance_records
+  set finalized_at = coalesce(finalized_at, recorded_at), updated_at = now()
+  where event_session_id in (v_session_present_id, v_session_late_id, v_session_absent_id);
 
   insert into public.attendance_requests (
     student_id,
@@ -523,7 +528,7 @@ begin
     (
       v_student_id,
       v_record_absent_id,
-      'excused',
+      'absent',
       'Seeded student-side test correction request for an absent record.',
       'pending',
       null,
