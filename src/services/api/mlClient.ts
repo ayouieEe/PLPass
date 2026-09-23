@@ -58,7 +58,8 @@ export async function fetchModelInsights(): Promise<MlPredictionInsights | null>
 export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse | null> {
   try {
     // The local ML API reads only through the signed-in organizer's RLS scope.
-    // It must never fall back to an anonymous or service-role database read.
+    // It must never fall back to anonymous access or a privileged server
+    // credential in browser code.
     const { data } = await getSupabaseBrowserClient().auth.getSession();
     const accessToken = data.session?.access_token;
     if (!accessToken) return null;
