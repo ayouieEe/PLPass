@@ -776,17 +776,43 @@ export function OrganizerAnalyticsPage() {
     const positiveImportance = insightsData.feature_importance.filter((factor) => factor.importance_mean > 0).slice(0, 5);
     if (positiveImportance.length > 0) {
       const maxImp = Math.max(...positiveImportance.map(f => f.importance_mean));
+      
+      const getFeatureExplanation = (featureId: string) => {
+        switch (featureId) {
+          case 'rolling_participation_rate': return { detail: "Measures a student's recent historical attendance.", insight: "High historical attendance often reliably predicts future attendance." };
+          case 'tardiness_frequency': return { detail: "How often a student has been late to past events.", insight: "Frequent past tardiness strongly correlates with overall lower on-time turnout." };
+          case 'participation_trend_slope': return { detail: "Indicates whether a student's attendance is improving or declining over time.", insight: "A negative slope acts as an early warning for potential absences." };
+          case 'consecutive_missed_events': return { detail: "The number of events missed in a row.", insight: "Students missing multiple events sequentially have a high risk of being absent again." };
+          case 'has_rolling_rate':
+          case 'has_tardiness_history':
+          case 'has_trend': return { detail: "Indicates whether sufficient historical data exists for this student.", insight: "Newer students with no history are generally harder to predict accurately." };
+          case 'was_ever_late': return { detail: "Whether the student has ever been recorded as late.", insight: "Any history of lateness slightly increases the chance of future tardiness or absences." };
+          case 'duration_hours': return { detail: "The scheduled length of the event.", insight: "Longer events typically see lower turnout or higher late arrival rates." };
+          case 'lead_time_days': return { detail: "How far in advance the event was announced.", insight: "Extremely short or very long lead times often reduce the likelihood of attendance." };
+          case 'predominant_late_reason': return { detail: "The most frequent excuse given by the student for arriving late.", insight: "Recurring specific reasons (like transportation) can highlight systemic barriers to attendance." };
+          case 'event_category': return { detail: "The type or category of the event.", insight: "Certain categories naturally draw higher voluntary attendance than others." };
+          case 'mandatory_voluntary': return { detail: "Whether the event is required.", insight: "Mandatory events obviously drive attendance, but voluntary events rely heavily on interest." };
+          case 'day_of_week': return { detail: "The day the event is held.", insight: "Mid-week events often see more consistent turnout compared to Mondays or Fridays." };
+          case 'time_of_day_bucket': return { detail: "The time block when the event takes place.", insight: "Early morning or late afternoon events typically face lower turnout rates." };
+          case 'venue': return { detail: "The location of the event.", insight: "Distant or difficult-to-access venues can significantly reduce participant turnout." };
+          case 'target_group_size_tier': return { detail: "The size classification of the target audience.", insight: "Larger target groups often suffer from the bystander effect, reducing individual attendance rates." };
+          default: return { detail: "Relative feature importance from the model evaluation dataset; not a causal effect.", insight: "This is a model-level association, not a guarantee that changing this factor will change attendance." };
+        }
+      };
+
       return positiveImportance.map(f => {
         const formattedName = f.feature.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         const actionableFeatures = ['time', 'category', 'venue', 'duration', 'day'];
         const isActionable = actionableFeatures.some(key => f.feature.toLowerCase().includes(key));
+        const explanation = getFeatureExplanation(f.feature);
+        
         return {
           id: f.feature,
           name: formattedName,
           strength: Math.round((f.importance_mean / maxImp) * 100),
-          detail: "Relative feature importance from the model evaluation dataset; not a causal effect.",
+          detail: explanation.detail,
           type: isActionable ? "actionable" : "inherent",
-          insight: "This is a model-level association, not a guarantee that changing this factor will change attendance."
+          insight: explanation.insight
         };
       });
     }
