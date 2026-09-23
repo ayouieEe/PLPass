@@ -15,7 +15,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useAttendanceRecords, useEventMutations, useEvents, useStudents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -1056,6 +1056,11 @@ export function CompletedEventModal({
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     // Who + at-a-glance outcome, grouped first so status doesn't require scrolling to see
     { accessorKey: "studentName", header: "Student Name" },
+    {
+      id: "verification",
+      header: "Verification",
+      cell: ({ row }) => row.original.verificationLabel ?? "Verified"
+    },
     {
       id: "status",
       header: "Attendance Status",

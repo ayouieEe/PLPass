@@ -33,6 +33,15 @@ describe("organizer access boundaries", () => {
     await expectDenied(() => simulatedEventManagementRepository.getEventById("event-2", organizerOne));
   });
 
+  it("persists a bounded turnout forecast only for the organizer's own event", async () => {
+    const saved = await simulatedEventManagementRepository.saveEventForecast("event-1", 63.6, organizerOne);
+    expect(saved.predictedTurnout).toBe(64);
+    await expectDenied(() => simulatedEventManagementRepository.saveEventForecast("event-2", 60, organizerOne));
+    await expect(simulatedEventManagementRepository.saveEventForecast("event-1", 101, organizerOne)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR"
+    });
+  });
+
   it("returns only the signed-in organizer's audit entries", async () => {
     const result = await simulatedAuditLogRepository.listAuditLogs({ pageIndex: 0, pageSize: 100 }, organizerOne);
     expect(result.items.length).toBeGreaterThan(0);

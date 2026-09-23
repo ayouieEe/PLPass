@@ -34,13 +34,18 @@ export type OrganizerEvent = {
 export type OrganizerAttendanceRow = {
   id: string;
   studentId: string;
+  sessionId?: string;
+  localScanUuid?: string;
   studentName: string;
   eventCode: string;
   attendanceMethod: AttendanceMethod;
   checkInTime: string;
   checkOutTime?: string;
+  timeIn?: string;
+  timeOut?: string;
   attendanceStatus: AttendanceStatus;
   lateReason?: LateReason;
+  verificationLabel?: "Verified" | "Unverified walk-in";
 };
 
 export type OrganizerCompletedEvent = OrganizerEvent & {

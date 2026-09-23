@@ -65,8 +65,12 @@ describe("department read-model coverage", () => {
     const repositories = read("src/services/supabase/repositories.ts");
     const credentials = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
     const users = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
-    expect(repositories).toContain('context?.actorRole === "department_admin"\n      ? context.departmentId');
-    expect(repositories).toContain('context?.actorRole === "department_admin" && !context.departmentId');
+    // Assert the authorization invariant rather than an old newline-sensitive
+    // implementation detail. listStudentsByIds must derive a department scope,
+    // return no rows when that scope is missing, and apply it to the query.
+    expect(repositories).toMatch(/const scopedDepartmentId = context\?\.actorRole === "department_admin"\s*\? context\.departmentId\s*:\s*undefined;/);
+    expect(repositories).toContain('context?.actorRole === "department_admin" && !scopedDepartmentId) return []');
+    expect(repositories).toContain('if (scopedDepartmentId) builder = builder.eq("department_id", scopedDepartmentId);');
     expect(credentials).toContain('useEvents({ pageSize: 500 }, scope.context, actorRole === "organizer")');
     expect(users).toContain("fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}");
     expect(users).toContain('row["Department Code"].trim().toLowerCase() !== dept.code.toLowerCase()');

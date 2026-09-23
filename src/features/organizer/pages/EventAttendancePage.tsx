@@ -36,6 +36,7 @@ import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
@@ -65,7 +66,7 @@ import { extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
 import type { AttendanceCapturePhase } from "@/features/offline/types";
 import { readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
-import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
+import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -199,21 +200,16 @@ function statusTone(status: AttendanceStatus | SessionStatus | CorrectionRequest
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
-  const finalized = records;
+  const summary = summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), 0);
   return {
-    present: finalized.filter((record) => record.status === "present").length,
-    late: finalized.filter((record) => record.status === "late").length,
-    absent: finalized.filter((record) => record.status === "absent").length
+    present: summary.present,
+    late: summary.late,
+    absent: summary.absent
   };
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  const finalized = records;
-  if (finalized.length === 0) {
-    return 0;
-  }
-  const attended = finalized.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / finalized.length) * 100);
+  return summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), 0).attendanceRate;
 }
 
 function eventLabel(event: Event | undefined) {
@@ -262,11 +258,20 @@ function eventMatchesDateRange(event: Event, dateFrom: string, dateTo: string) {
   return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
 }
 
-function buildLiveRecords(records: AttendanceRecord[], students: Student[]): LiveAttendanceRecord[] {
+type LiveRecordDisplayOverride = {
+  studentName: string;
+  identifier: string;
+};
+
+function buildLiveRecords(
+  records: AttendanceRecord[],
+  students: Student[],
+  displayOverrides = new Map<string, LiveRecordDisplayOverride>()
+): LiveAttendanceRecord[] {
   return records.map((record) => ({
     id: record.id,
-    studentName: studentName(students.find((student) => student.id === record.studentId)),
-    identifier: students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
+    studentName: displayOverrides.get(record.id)?.studentName ?? studentName(students.find((student) => student.id === record.studentId)),
+    identifier: displayOverrides.get(record.id)?.identifier ?? students.find((student) => student.id === record.studentId)?.studentNumber ?? record.studentId,
     status: record.status,
     timestamp: record.recordedAt,
     timeIn: record.timeIn ?? record.recordedAt,
@@ -329,6 +334,7 @@ export function EventAttendancePage() {
   const { setHeaderOverride } = useHeader();
   const sessionQuery = useAttendanceSession(sessionId, scope.context);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, sessionId }, scope.context);
+  const organizerSummaryQuery = useAttendanceSummaries(sessionQuery.data?.eventId ? [sessionQuery.data.eventId] : []);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
   const participantQuery = useEventParticipants(sessionQuery.data?.eventId ?? "", { pageSize: 500 }, scope.context);
@@ -487,8 +493,8 @@ export function EventAttendancePage() {
   const session = sessionQuery.data ?? (cachedSession ? ({ id: cachedSession.id, type: "event", eventId: cachedSession.eventId, title: cachedSession.title, mode: "required", status: cachedSession.status === "ongoing" ? "active" : cachedSession.status, startsAt: cachedSession.startsAt, endsAt: cachedSession.endsAt, lateCutoffAt: cachedSession.lateCutoffAt, attendanceWindowStartAt: cachedSession.attendanceWindowStartAt, attendanceWindowEndAt: cachedSession.attendanceWindowEndAt, createdByUserId: "offline-cache" } as AttendanceSession) : undefined);
   if(!session)return <ErrorState title="Session unavailable" message="No online or prepared local session is available." />;
   const activeSession: AttendanceSession = session;
-  const resolveOfflineWalkInStatus = (timeIn: string | null | undefined, timeOut: string | null | undefined) =>
-    resolveOrganizerAttendanceStatus({
+  const resolveOfflineWalkInStatus = (timeIn: string, timeOut: string | null | undefined) =>
+    resolveRecordedOrganizerAttendanceStatus({
       timeIn,
       timeOut,
       attendanceSessionStatus: activeSession.status,
@@ -514,7 +520,19 @@ export function EventAttendancePage() {
         }
       : record);
   });
-  const records = [...recordsByStudent.values()];
+  const unverifiedWalkInRows = (organizerSummaryQuery.data?.[session.eventId ?? ""]?.rows ?? [])
+    .filter((row) => row.sessionId === session.id && row.verificationLabel === "Unverified walk-in")
+  const unverifiedWalkInRecords: AttendanceRecord[] = unverifiedWalkInRows.map((row) => ({
+      id: row.id,
+      sessionId: row.sessionId ?? session.id,
+      studentId: row.studentId,
+      status: row.attendanceStatus,
+      verificationMethod: row.attendanceMethod === "QR Code" ? "qr" : "manual",
+      recordedAt: row.timeIn ?? new Date().toISOString(),
+      timeIn: row.timeIn,
+      checkedOutAt: row.timeOut
+    }));
+  const records = [...recordsByStudent.values(), ...unverifiedWalkInRecords];
   const cachedStudents: Student[]=(preparedEvent?.participants??[]).map((item)=>({id:item.studentId,userId:"offline-cache",studentNumber:item.studentNumber,status:"enrolled",programId:"offline-cache",departmentId:"offline-cache",yearLevel:1,section:"",fullName:item.displayName,formattedName:item.displayName,createdAt:preparedEvent?.preparedAt??new Date().toISOString()}));
   const students = studentsQuery.data?.items ?? cachedStudents;
   const participants = participantQuery.data?.items ?? (preparedEvent?.participants??[]).map((item)=>({id:`cached-${item.studentId}`,eventId:preparedEvent?.event.id??"",studentId:item.studentId,registeredAt:preparedEvent?.preparedAt??new Date().toISOString()}));
@@ -530,13 +548,20 @@ export function EventAttendancePage() {
   const missingParticipants = participantStudents.filter((student) => !recordedStudentIds.has(student.id));
   const incompleteCheckouts = records.filter((record) => record.timeIn && !record.checkedOutAt && record.status !== "absent");
   const manualOverrides = records.filter((record) => record.verificationMethod === "manual");
+  const liveRecordDisplayOverrides = new Map(
+    unverifiedWalkInRows.map((row) => [row.id, {
+      studentName: row.studentName,
+      identifier: row.studentName.replace(/^Unverified walk-in\s*·\s*/, "")
+    }])
+  );
   const liveRecords = buildLiveRecords(
     records.filter(
       (record) =>
         (statusFilter === "all" || record.status === statusFilter) &&
         (methodFilter === "all" || record.verificationMethod === (methodFilter as VerificationMethod))
     ),
-    students
+    students,
+    liveRecordDisplayOverrides
   ).filter(
     (record) =>
       !search || `${record.studentName} ${record.identifier}`.toLowerCase().includes(search.toLowerCase())

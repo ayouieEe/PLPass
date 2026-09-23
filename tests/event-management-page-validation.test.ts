@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasValidEventSchedule,
+  eventScheduleLabel,
   shouldDisplayInEventTab,
   type EventRecord
 } from "@/features/organizer/utils/eventManagement";
@@ -34,7 +35,8 @@ describe("event page validation helpers", () => {
   });
   it("calculates live attendance rate against all event participants", () => {
     expect(eventManagementPage).toContain("function countRows(rows: AttendanceRow[], participantCount: number)");
-    expect(eventManagementPage).toContain("((present + late) / participantCount) * 100");
+    expect(eventManagementPage).toContain("summarizeUniqueAttendance");
+    expect(eventManagementPage).toContain("participantCount");
     expect(eventManagementPage).toContain("const activeParticipantCount = activeParticipantIdentities?.length ?? 0");
     expect(eventManagementPage).toContain("totalParticipants: participantCount");
   });
@@ -47,6 +49,11 @@ describe("event page validation helpers", () => {
   it("rejects incomplete event schedules", () => {
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "", endTime: "04:00" })).toBe(false);
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "02:00", endTime: "04:00" })).toBe(true);
+  });
+
+  it("shows the planned time range even when no schedule conflict exists", () => {
+    expect(eventScheduleLabel({ startTime: "08:00 AM", endTime: "10:00 AM" })).toBe("08:00 AM – 10:00 AM");
+    expect(eventScheduleLabel({ startTime: "", endTime: "10:00 AM" })).toBe("Schedule unavailable");
   });
 
   it("converts Manila wall time independently of the computer timezone", () => {
@@ -226,5 +233,36 @@ describe("event page validation helpers", () => {
     expect(attendanceStartMigration).not.toContain("approval_status <> 'approved'");
     expect(attendanceStartMigration).toContain("v_event.organizer_id <> private.current_organizer_id()");
     expect(attendanceStartMigration).toContain("v_event.event_status in ('completed', 'cancelled')");
+  });
+
+  it("starts and ends prepared attendance locally while offline", () => {
+    expect(eventManagementPage).toContain("if (isOfflineMode)");
+    expect(eventManagementPage).toContain("api.getPreparedEvent(eventId, ownerId)");
+    expect(eventManagementPage).toContain("startOfflineEvent(eventId, localSession.id, ownerId)");
+    expect(eventManagementPage).toContain("No server session was changed.");
+    expect(eventManagementPage).toContain("if (desktopApi() && !isOfflineMode)");
+    expect(eventManagementPage).toContain("await endOfflineEvent(");
+    expect(eventDetailsPage).toContain("startOfflineEvent(event.id, localSession.id, ownerId)");
+    expect(eventManagementPage).not.toContain("writeAttendancePhase(window.sessionStorage, startedSession.id");
+  });
+
+  it("keeps offline live sessions local and blocks background preparation", () => {
+    expect(eventManagementPage).toContain("const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined)");
+    expect(eventManagementPage).toContain('offlineLive.status.packageStatus !== "READY"');
+    expect(eventManagementPage).toContain('["START_PENDING", "STARTED"].includes(offlineLocalSession.offlineLifecycle ?? "")');
+    expect(eventManagementPage).toContain('createdByUserId: "offline-cache"');
+    expect(eventManagementPage).toContain("?? offlineLiveSession");
+    expect(eventManagementPage).toContain("?? offlineLiveEvent");
+    expect(eventManagementPage).toContain("useEvents({ pageSize: 100 }, context, !isOfflineMode)");
+    expect(eventManagementPage).toContain("useAttendanceSessions({ pageSize: 200 }, context, !isOfflineMode)");
+    expect(eventManagementPage).toContain("if (eventsQuery.isError && !hasOfflineLiveWorkspace)");
+    expect(eventManagementPage).toContain("isOfflineMode || !navigator.onLine || !(await confirmSupabaseConnectivity())");
+    expect(eventManagementPage).toContain("!canManageOwnedEvents || isOfflineMode || !navigator.onLine");
+    expect(eventManagementPage).toContain("prepareOfflinePackage(event, { silent: true })");
+    expect(eventManagementPage).toContain("offlineLivePackage.participants.map");
+    expect(eventManagementPage).toContain("const offlineParticipantNames = useMemo");
+    expect(eventManagementPage).toContain('offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable"');
+    expect(eventManagementPage).toContain("offlineLivePackage.attendance");
+    expect(eventManagementPage).toContain("offline-walkin-");
   });
 });

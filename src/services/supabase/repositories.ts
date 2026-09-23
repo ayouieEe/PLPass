@@ -991,6 +991,19 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     const savedEvent = mapEvent((metadataRow as Row | null) ?? createdEvent);
     return savedEvent;
   },
+  async saveEventForecast(eventId, predictedTurnout) {
+    if (!Number.isFinite(predictedTurnout) || predictedTurnout < 0 || predictedTurnout > 100) {
+      throw new RepositoryError("The generated turnout forecast is outside the valid 0–100% range.", "VALIDATION_ERROR");
+    }
+    const { data, error } = await getSupabaseBrowserClient()
+      .from("events")
+      .update({ predicted_turnout_percent: Math.round(predictedTurnout) })
+      .eq("id", eventId)
+      .select(eventReadSelect)
+      .single();
+    throwIfSupabaseError(error);
+    return mapEvent(data as unknown as Row);
+  },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
     return pageResult(rows.items.map((row) => ({

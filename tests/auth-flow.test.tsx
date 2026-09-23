@@ -270,6 +270,19 @@ describe("shared user pages", () => {
     await waitFor(() => expect(screen.getByText("0 unread")).toBeInTheDocument());
   });
 
+  it("opens the required student action from an attendance notification", async () => {
+    const user = userEvent.setup();
+    storeSession("student");
+    setRoute("/notifications");
+    render(<App />);
+
+    await user.click(await screen.findByText("Attendance needs attention"));
+    const notificationDialog = await screen.findByRole("dialog");
+    await user.click(within(notificationDialog).getByRole("button", { name: "Open attendance" }));
+
+    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
+  });
+
   it("validates forgot password while keeping responses safe", async () => {
     const user = userEvent.setup();
     setRoute("/forgot-password");

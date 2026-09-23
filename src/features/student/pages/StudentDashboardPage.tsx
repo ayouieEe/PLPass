@@ -24,32 +24,18 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { StatCard } from "@/components/shared/StatCard";
 import { Button } from "@/components/ui/button";
-import { useEvents, useStudentCredentialStatus, useStudentDashboardSummary } from "@/hooks/useRepositoryQueries";
+import { useAttendanceSessions, useEvents, useStudentCredentialStatus, useStudentDashboardSummary } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
   ensureStudentIdentityReadiness,
+  getStudentDashboardEvents,
   hasUsableQrCredential,
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
-import type { Event } from "@/types/domain";
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
-
-type DashboardEvent = Event & {
-  dashboardStatus: "Ongoing" | "Upcoming";
-};
-
-function dashboardEventList(events: Event[]): DashboardEvent[] {
-  const now = Date.now();
-  return events
-    .filter((event) => new Date(event.endsAt ?? event.startsAt).getTime() >= now)
-    .map((event) => ({
-      ...event,
-      dashboardStatus: new Date(event.startsAt).getTime() <= now ? "Ongoing" : "Upcoming"
-    }));
-}
 
 function buildMonthGrid(anchor: Date) {
   const year = anchor.getFullYear();
@@ -168,6 +154,7 @@ function DashboardNotice({
 export function StudentDashboardPage() {
   const scope = useStudentScope();
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 100 }, scope.context);
   const summaryQuery = useStudentDashboardSummary(scope.context);
   const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
   const [selectedDate, setSelectedDate] = useState(dateKey(new Date()));
@@ -182,11 +169,11 @@ export function StudentDashboardPage() {
     return <ErrorState title="Student profile unavailable" message="The signed-in account does not have an active student profile." />;
   }
 
-  if (eventsQuery.isLoading || summaryQuery.isLoading) {
+  if (eventsQuery.isLoading || sessionsQuery.isLoading || summaryQuery.isLoading) {
     return <LoadingState label="Loading dashboard" />;
   }
 
-  if (eventsQuery.isError || summaryQuery.isError) {
+  if (eventsQuery.isError || sessionsQuery.isError || summaryQuery.isError) {
     return (
       <ErrorState
         title="Unable to load student dashboard"
@@ -200,7 +187,7 @@ export function StudentDashboardPage() {
   const qrReady = hasUsableQrCredential(ensureStudentIdentityReadiness(credentialStatusQuery.data));
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
   const sortedEvents = [...events].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
-  const dashboardEvents = dashboardEventList(sortedEvents);
+  const dashboardEvents = getStudentDashboardEvents(sortedEvents, sessionsQuery.data?.items ?? []);
   const ongoingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Ongoing");
   const upcomingEvents = dashboardEvents.filter((event) => event.dashboardStatus === "Upcoming");
 
@@ -209,8 +196,10 @@ export function StudentDashboardPage() {
   const attendanceRate = summary?.attendanceRate ?? 0;
   const lateReasonTasks = summary?.tasks.filter((task) => task.kind === "late_reason") ?? [];
   const pendingFeedbackTasks = summary?.tasks.filter((task) => task.kind === "feedback") ?? [];
-  const rejectedCorrectionTasks = summary?.tasks.filter((task) => task.kind === "correction") ?? [];
-  const pendingTaskCount = summary?.pendingTaskCount ?? 0;
+  // Pending Tasks is reserved for actions that can complete attendance:
+  // submitting a late reason and answering feedback. Correction decisions stay
+  // in Request History and are not attendance tasks.
+  const pendingTaskCount = lateReasonTasks.length + pendingFeedbackTasks.length;
   const eventDateKeys = new Set(dashboardEvents.map((event) => dateKey(event.startsAt)).filter(Boolean));
   const selectedDateEvents = dashboardEvents.filter((event) => dateKey(event.startsAt) === selectedDate);
 
@@ -641,30 +630,6 @@ export function StudentDashboardPage() {
                 </article>
               );
             })}
-
-            {rejectedCorrectionTasks.length ? (
-              <article className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold tracking-tight">
-                      Review rejected correction request{rejectedCorrectionTasks.length === 1 ? "" : "s"}
-                    </h3>
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Check the organizer response, then submit a clearer request if needed.
-                    </p>
-                  </div>
-                  <StatusBadge label={`${rejectedCorrectionTasks.length} rejected`} tone="danger" />
-                </div>
-                <div className="mt-4 flex justify-end border-t pt-4">
-                  <Button asChild variant="outline" size="sm">
-                    <NavLink to={APP_ROUTES.studentRequestHistory}>
-                      Open Request History
-                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                    </NavLink>
-                  </Button>
-                </div>
-              </article>
-            ) : null}
           </div>
         ) : (
           <div className="rounded-2xl border border-success/20 bg-success/10 p-5">

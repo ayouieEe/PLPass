@@ -39,6 +39,7 @@ import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -98,7 +99,7 @@ import type {
 } from "@/types/enums";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
-import { desktopApi } from "@/features/offline/offlineService";
+import { desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
 type OrganizerScope = {
@@ -187,21 +188,16 @@ function statusTone(status: AttendanceStatus | "pending" | SessionStatus | Corre
 }
 
 function attendanceCounts(records: AttendanceRecord[]) {
-  const finalized = records;
+  const summary = summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), 0);
   return {
-    present: finalized.filter((record) => record.status === "present").length,
-    late: finalized.filter((record) => record.status === "late").length,
-    absent: finalized.filter((record) => record.status === "absent").length
+    present: summary.present,
+    late: summary.late,
+    absent: summary.absent
   };
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  const finalized = records;
-  if (finalized.length === 0) {
-    return 0;
-  }
-  const attended = finalized.filter((record) => record.status === "present" || record.status === "late").length;
-  return Math.round((attended / finalized.length) * 100);
+  return summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), 0).attendanceRate;
 }
 
 function eventLabel(event: Event | undefined) {
@@ -302,7 +298,7 @@ type ParticipantInvitationStatus = {
 export function EventDetailsPage() {
   const { eventId } = useParams();
   const scope = useOrganizerScope();
-  const { session } = useDevelopmentSession();
+  const { session, isOfflineMode } = useDevelopmentSession();
   const isAdmin = session?.role === "admin";
   const canManageOwnedEvents = session ? hasCapability(session.role, "events.manage.owned") : false;
   const location = useLocation();
@@ -351,7 +347,8 @@ export function EventDetailsPage() {
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
   const attendanceSummaryQuery = useAttendanceSummaries(eventId ? [eventId] : []);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
-  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context);
+  const participantCredentialIds = [...new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId))].sort();
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, participantCredentialIds);
   const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
   const objectivesQuery = useEventObjectives(eventId, scope.context);
   const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
@@ -496,6 +493,7 @@ export function EventDetailsPage() {
   const counts = attendanceCounts(records);
   const attendanceSummary = eventId ? attendanceSummaryQuery.data?.[eventId] : undefined;
   const attendanceRowByStudentId = new Map((attendanceSummary?.rows ?? []).map((row) => [row.studentId, row]));
+  const effectiveAttendanceRate = attendanceSummary?.attendanceRate ?? attendanceRate(records);
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
 
   async function rescheduleEvent() {
@@ -531,8 +529,8 @@ export function EventDetailsPage() {
         setRescheduleToStart(false);
         setIsStartSessionOpen(true);
       }
-    } catch {
-      // The mutation displays the repository error in a toast.
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "The attendance session could not be started.");
     }
   }
 
@@ -569,18 +567,38 @@ export function EventDetailsPage() {
       return;
     }
     try {
-      const session = await mutations.createEventSessionMutation.mutateAsync({
-        eventId: event.id,
-        venue: event.venue,
-        date: dateKey(event.startsAt),
-        startTime: timeInputValue(event.startsAt),
-        expectedEndTime: timeInputValue(event.endsAt),
-        attendanceMode: "face-to-face",
-        lateCutoffMinutes
-      });
+      let sessionId = "";
+      if (isOfflineMode) {
+        const ownerId = session?.userId;
+        const api = desktopApi();
+        const localPackage = ownerId && api ? await api.getPreparedEvent(event.id, ownerId) : null;
+        const localSession = localPackage?.sessions.find((item) =>
+          ["scheduled", "ongoing"].includes(item.status) && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
+        );
+        if (!ownerId || !api || !localPackage || !localSession) {
+          throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
+        }
+        const updatedPackage = await startOfflineEvent(event.id, localSession.id, ownerId);
+        const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
+        if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
+          throw new Error("The local attendance session did not enter its started state.");
+        }
+        sessionId = updatedSession.id;
+      } else {
+        const created = await mutations.createEventSessionMutation.mutateAsync({
+          eventId: event.id,
+          venue: event.venue,
+          date: dateKey(event.startsAt),
+          startTime: timeInputValue(event.startsAt),
+          expectedEndTime: timeInputValue(event.endsAt),
+          attendanceMode: "face-to-face",
+          lateCutoffMinutes
+        });
+        sessionId = created.id;
+      }
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
-      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(session.id), APP_ROUTES.adminLiveSession(session.id)));
+      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(sessionId), APP_ROUTES.adminLiveSession(sessionId)));
     } catch {
       // The mutation displays the repository error in a toast.
     }
@@ -813,6 +831,7 @@ export function EventDetailsPage() {
       header: "QR credential",
       cell: ({ row }) => {
         if (credentialStatusesQuery.isLoading) return <span className="text-sm text-muted-foreground">Checking...</span>;
+        if (credentialStatusesQuery.isError) return <StatusBadge label="Unavailable" tone="muted" />;
         const credential = credentialStatusByStudentId.get(row.original.id)?.qrCredential;
         const ready = credential?.status === "activated" && !credential.revokedAt && (!credential.expiresAt || new Date(credential.expiresAt).getTime() > now);
         return <StatusBadge label={ready ? "Ready" : "Needs QR"} tone={ready ? "success" : "warning"} />;
@@ -865,7 +884,8 @@ export function EventDetailsPage() {
       header: "Attendance",
       cell: ({ row }) => {
         const attendance = attendanceRowByStudentId.get(row.original.id);
-        const attendanceStatus = attendance?.attendanceStatus ?? "absent";
+        if (!attendance) return <span className="text-sm text-muted-foreground">—</span>;
+        const attendanceStatus = attendance.attendanceStatus;
         return <StatusBadge label={attendanceStatus} tone={statusTone(attendanceStatus)} />;
       }
     },
@@ -996,7 +1016,7 @@ export function EventDetailsPage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Total participants" value={String(participants.length)} icon={Users} className="rounded-xl" />
           <StatCard title="Completed sessions" value={String(sessions.filter((session) => session.status === "completed").length)} icon={CalendarCheck} className="rounded-xl" />
-          <StatCard title="Average participation" value={hasCompletedSession ? `${attendanceRate(records)}%` : "N/A"} icon={BarChart3} className="rounded-xl" />
+          <StatCard title="Average participation" value={hasCompletedSession ? `${effectiveAttendanceRate}%` : "N/A"} icon={BarChart3} className="rounded-xl" />
           <StatCard title="Flagged participants" value={String(flagged.length)} icon={AlertTriangle} tone={flagged.length ? "warning" : "success"} className="rounded-xl" />
         </div>
       </section>
@@ -1488,7 +1508,7 @@ export function EventDetailsPage() {
               <p className="text-sm font-medium text-foreground">Participation summary</p>
               <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
                 <span>Attendance rate</span>
-                <span className="font-semibold text-foreground">{attendanceRate(records)}%</span>
+                <span className="font-semibold text-foreground">{effectiveAttendanceRate}%</span>
               </div>
               <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
                 <span>Risk status</span>

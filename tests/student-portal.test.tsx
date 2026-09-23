@@ -54,6 +54,7 @@ describe("student route access", () => {
     expect(screen.getByRole("link", { name: "Open event cards" })).toHaveAttribute("href", "/student/events");
     expect(screen.getByRole("button", { name: "Open pending tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Request History" })).toHaveAttribute("href", "/student/request-history");
+    expect(screen.queryByText("Online", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
@@ -182,6 +183,7 @@ describe("student UI flows", () => {
     expect(presentTask).not.toBeNull();
     expect(within(presentTask as HTMLElement).getByText("present")).toBeInTheDocument();
     expect(within(feedbackDialog).queryByText(/Submit your late reason before event feedback/i)).not.toBeInTheDocument();
+    expect(within(feedbackDialog).queryByText(/Review rejected correction request/i)).not.toBeInTheDocument();
     const feedbackLinks = within(feedbackDialog).getAllByRole("link", { name: "Answer Feedback" });
     expect(feedbackLinks.length).toBeGreaterThan(0);
     expect(feedbackLinks[0]).toHaveAttribute("href", expect.stringMatching(/^\/student\/events\//));

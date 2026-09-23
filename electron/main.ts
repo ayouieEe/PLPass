@@ -3,7 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
@@ -25,6 +25,31 @@ function offlineAttendanceEvent(input: LocalAttendanceInput, result: LocalAttend
 
 const workspaceRoot = path.resolve(directory, "..", "..");
 const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+function backupOfflineDatabaseBeforeIndexRepair(databasePath: string, indexes: string[]) {
+  if (!existsSync(databasePath)) return;
+  const backupDirectory = path.join(path.dirname(databasePath), "offline-index-repair-backups");
+  mkdirSync(backupDirectory, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const source = `${databasePath}${suffix}`;
+    if (!existsSync(source)) continue;
+    copyFileSync(source, path.join(backupDirectory, `plpass-offline-${timestamp}${suffix}`));
+  }
+  console.warn(`Backed up PLPass offline SQLite files before rebuilding indexes: ${indexes.join(", ")}`);
+}
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.focus();
+  });
+}
 
 async function facialServiceReady() {
   try {
@@ -73,7 +98,7 @@ async function ensureLocalFacialService() {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     if (await facialServiceReady()) return;
   }
-  throw new Error("The local facial recognition service did not start. Use QR or manual attendance.");
+  throw new Error("The local PLPass model service did not start. Check the configured Python runtime and try again.");
 }
 
 async function identifyOfflineFace(eventId: string, capture: number[]) {
@@ -186,10 +211,11 @@ function registerHandlers() {
     "offline:recordScanner": (input, phase) => { const attendanceInput = input as unknown as LocalAttendanceInput; const capturePhase = phase as unknown as "time_in" | "time_out"; const result = capturePhase === "time_out" ? store.recordScannerCheckOut(attendanceInput) : store.recordScannerCheckIn(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
     "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId),
     "offline:queueWalkin": (input) => { const walkInInput = input as unknown as {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:"time_in"|"time_out";attendanceTimestamp:string;organizerProfileId:string}; const result = store.queueWalkInScan(walkInInput); publishOfflineAttendance({ eventId: walkInInput.eventId, sessionId: walkInInput.sessionId, studentNumber: result.studentNumber, action: walkInInput.capturePhase === "time_in" ? "checked_in" : "checked_out", recordedAt: walkInInput.attendanceTimestamp, timeIn: result.timeIn, timeOut: result.timeOut, syncStatus: result.syncStatus, message: `${walkInInput.capturePhase === "time_in" ? "Time In" : "Time Out"} saved on this device at ${new Date(walkInInput.attendanceTimestamp).toLocaleTimeString()}; not synced.`,source:"organizer" }); return result; }, "offline:listWalkins": (eventId,ownerId) => store.listPendingWalkInScans(eventId,ownerId),
-    "offline:beginWalkinSync": (limit,ownerId,forceRetry) => store.beginWalkInSync(limit,ownerId,forceRetry), "offline:confirmWalkinSync": (id,student) => store.confirmWalkInSync(id,student), "offline:failWalkinSync": (id,status,error) => store.failWalkInSync(id,status,error),
+    "offline:beginWalkinSync": (limit,ownerId,forceRetry) => store.beginWalkInSync(limit,ownerId,forceRetry), "offline:confirmWalkinSync": (id,student) => store.confirmWalkInSync(id,student), "offline:discardWalkinSync": (id,ownerId) => store.discardWalkInSync(id,ownerId), "offline:failWalkinSync": (id,status,error) => store.failWalkInSync(id,status,error),
     "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
     "offline:confirmSync": (uuid, serverId, status, timeOut) => store.confirmSync(uuid, serverId, status, timeOut), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
-    "offline:recover": (organizerId) => store.recoverInterruptedSync(organizerId), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed)
+    "offline:recover": (organizerId) => store.recoverInterruptedSync(organizerId), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed), "offline:integrity": () => store.checkIntegrity(),
+    "ml:ensure": () => ensureLocalFacialService()
   };
   handlers["scanner:start"] = (eventId, sessionId, phase, ownerId) => {
     if (!store.getPreparedEventForOrganizer(eventId, ownerId)) throw new Error("The event package is not available to this organizer on this device.");
@@ -205,7 +231,7 @@ function registerHandlers() {
   Object.entries(handlers).forEach(([channel, handler]) => ipcMain.handle(channel, (_event, ...args) => handler(...args as never[])));
 }
 
-app.whenReady().then(() => {
+if (hasSingleInstanceLock) app.whenReady().then(() => {
   const rendererDirectory = path.resolve(directory, "..", "..", "dist");
   protocol.handle("plpass", (request) => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
@@ -223,8 +249,14 @@ app.whenReady().then(() => {
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
+  console.info(`PLPass offline SQLite database: ${dbPath}`);
   const secureStorage= safeStorage.isEncryptionAvailable() ? { encrypt:(value:string)=>safeStorage.encryptString(value).toString("base64"), decrypt:(value:string)=>safeStorage.decryptString(Buffer.from(value,"base64")) } : undefined;
-  store = new LocalAttendanceDatabase(new DatabaseSync(dbPath),secureStorage,true);
+  store = new LocalAttendanceDatabase(
+    new DatabaseSync(dbPath),
+    secureStorage,
+    true,
+    (indexes) => backupOfflineDatabaseBeforeIndexRepair(dbPath, indexes)
+  );
   scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")), publishOfflineAttendance);
   registerHandlers();
   const preloadPath = path.join(directory, "preload.cjs");

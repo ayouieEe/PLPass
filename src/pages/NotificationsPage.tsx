@@ -1,6 +1,7 @@
 import { RefreshCw, RotateCcw, Settings, X } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
@@ -10,6 +11,7 @@ import { PreferenceToggle } from "@/components/shared/PreferenceToggle";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useNotifications, useNotificationPreferences } from "@/hooks/useRepositoryQueries";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import { categoriesForRole, notificationCategory, notificationCategoryLabels, isNotificationVisibleForRole, type NotificationCategory } from "@/lib/notifications/policy";
 import { formatDateTime } from "@/lib/utils/date";
 import type { Notification } from "@/types/domain";
@@ -35,8 +37,26 @@ function notificationPreview(value: string) {
   return singleLine.length > 150 ? `${singleLine.slice(0, 147).trimEnd()}…` : singleLine;
 }
 
+function notificationAction(notification: Notification, role?: string) {
+  // Action URLs are written by trusted server-side notification producers. Only
+  // accept an application-relative route so a notification cannot become an
+  // external redirect.
+  if (notification.actionUrl?.startsWith("/") && !notification.actionUrl.startsWith("//") && !notification.actionUrl.includes("\\")) {
+    return { label: "Open action", to: notification.actionUrl };
+  }
+
+  const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
+  if (role === "student" && code.includes("feedback")) return { label: "Complete feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` };
+  if (role === "student" && code.includes("late")) return { label: "Submit late reason", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` };
+  if (role === "student" && notification.type === "correction") return { label: "View request", to: APP_ROUTES.studentRequestHistory };
+  if (role === "student" && notification.type === "attendance") return { label: "Open attendance", to: APP_ROUTES.studentAttendance };
+  if (role === "organizer" && notification.type === "correction") return { label: "Review correction", to: APP_ROUTES.organizerCorrections };
+  return undefined;
+}
+
 export function NotificationsPage() {
   const { session } = useDevelopmentSession();
+  const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
@@ -63,6 +83,14 @@ export function NotificationsPage() {
   function resetFilters() {
     setStatusFilter("all");
     setCategoryFilter("all");
+  }
+
+  function openNotificationAction(notification: Notification) {
+    const action = notificationAction(notification, session?.role);
+    if (!action) return;
+    if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
+    setSelectedNotification(null);
+    navigate(action.to);
   }
 
   return (
@@ -206,6 +234,11 @@ export function NotificationsPage() {
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
                   <div className="flex items-center gap-2">
+                    {selectedNotification.requiresAction && notificationAction(selectedNotification, session?.role) ? (
+                      <Button type="button" onClick={() => openNotificationAction(selectedNotification)}>
+                        {notificationAction(selectedNotification, session?.role)?.label}
+                      </Button>
+                    ) : null}
                     {selectedNotification.status === "unread" ? (
                       <Button type="button" variant="outline" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>Mark as read</Button>
                     ) : null}

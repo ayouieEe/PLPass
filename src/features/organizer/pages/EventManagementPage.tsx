@@ -35,6 +35,7 @@ import type { PriorityLevel } from "@/types/enums";
 import type { Event } from "@/types/domain";
 import {
   hasValidEventSchedule,
+  eventScheduleLabel,
   isTodayEvent,
   resolveManualAttendanceLookup,
   shouldDisplayInEventTab,
@@ -54,9 +55,11 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
-import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
+import { resolveRecordedOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
+import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
+import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 
@@ -324,11 +327,12 @@ function matchesSearch(event: EventRecord, search: string) {
 
 
 function countRows(rows: AttendanceRow[], participantCount: number) {
-  const present = rows.filter((row) => row.attendanceStatus === "present").length;
-  const late = rows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = Math.max(0, participantCount - present - late);
-  const rate = participantCount ? Math.round(((present + late) / participantCount) * 100) : 0;
-  return { present, late, absent, rate };
+  const summary = summarizeUniqueAttendance(
+    rows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus })),
+    participantCount,
+    true
+  );
+  return { present: summary.present, late: summary.late, absent: summary.absent, rate: summary.attendanceRate };
 }
 
 function lateBreakdown(rows: AttendanceRow[]) {
@@ -357,10 +361,15 @@ function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
 }
 
-function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
-  const present = rows.filter((row) => row.attendanceStatus === "present").length;
-  const late = rows.filter((row) => row.attendanceStatus === "late").length;
-  const absent = Math.max(0, participantCount - present - late);
+function summarizeFinalizedSession(rows: Array<{ studentId?: string; attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
+  const summary = summarizeUniqueAttendance(
+    rows.map((row, index) => ({ identity: row.studentId ?? `row:${index}`, attendanceStatus: row.attendanceStatus })),
+    participantCount,
+    true
+  );
+  const present = summary.present;
+  const late = summary.late;
+  const absent = summary.absent;
   const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
   const reasonCounts = new Map<string, number>();
   submittedReasons.forEach((row) => {
@@ -374,7 +383,7 @@ function summarizeFinalizedSession(rows: Array<{ attendanceStatus: AttendanceSta
     present,
     late,
     absent,
-    attendanceRate: participantCount ? Math.round(((present + late) / participantCount) * 100) : 0,
+    attendanceRate: summary.attendanceRate,
     mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
   };
 }
@@ -716,6 +725,58 @@ export function EventManagementPage() {
   const autoCancelledEventIdsRef = useRef(new Set<string>());
 
   const { session, isOfflineMode } = useDevelopmentSession();
+  const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined);
+  const offlineLivePackage = offlineLive.preparedEvent;
+  // The online student query is intentionally disabled while offline. Keep a
+  // name lookup from the prepared package so live attendance never renders a
+  // profile UUID as a student's name after a local scanner submission.
+  const offlineParticipantNames = useMemo(() => new Map(
+    (offlineLivePackage?.participants ?? [])
+      .map((participant) => [participant.studentId, participant.displayName || participant.studentNumber] as const)
+      .filter(([, displayName]) => Boolean(displayName))
+  ), [offlineLivePackage]);
+  const offlineLocalSession = useMemo(
+    () => offlineLivePackage?.sessions.find((item) => item.id === sessionIdFromQuery),
+    [offlineLivePackage, sessionIdFromQuery]
+  );
+  const offlineLiveSession = useMemo(() => {
+    if (!isOfflineMode || offlineLive.status.packageStatus !== "READY" || !offlineLocalSession) return undefined;
+    if (!["START_PENDING", "STARTED"].includes(offlineLocalSession.offlineLifecycle ?? "")) return undefined;
+    if (!offlineLivePackage || offlineLocalSession.eventId !== offlineLivePackage.event.id) return undefined;
+    return {
+      id: offlineLocalSession.id,
+      type: "event" as const,
+      eventId: offlineLocalSession.eventId,
+      title: offlineLocalSession.title || offlineLivePackage.event.title,
+      mode: "face-to-face" as const,
+      status: "active" as const,
+      startsAt: offlineLocalSession.startsAt,
+      endsAt: offlineLocalSession.endsAt,
+      lateCutoffAt: offlineLocalSession.lateCutoffAt,
+      attendanceWindowStartAt: offlineLocalSession.attendanceWindowStartAt ?? offlineLocalSession.offlineStartedAt,
+      attendanceWindowEndAt: offlineLocalSession.attendanceWindowEndAt,
+      createdAt: offlineLivePackage.preparedAt,
+      createdByUserId: "offline-cache"
+    };
+  }, [isOfflineMode, offlineLive.status.packageStatus, offlineLivePackage, offlineLocalSession]);
+  const offlineLiveEvent = useMemo<EventRecord | undefined>(() => {
+    if (!offlineLivePackage || !offlineLocalSession || !offlineLiveSession) return undefined;
+    return {
+      id: offlineLivePackage.event.id,
+      code: offlineLivePackage.event.code,
+      name: offlineLivePackage.event.title,
+      category: "Offline event",
+      venue: offlineLocalSession.venue,
+      date: dateKey(offlineLivePackage.event.startsAt),
+      startTime: formatDisplayTime(offlineLivePackage.event.startsAt, "08:00 AM"),
+      endTime: formatDisplayTime(offlineLivePackage.event.endsAt, "05:00 PM"),
+      predictedTurnout: "N/A",
+      objectives: [],
+      status: "ongoing",
+      priorityLevel: "Flexible",
+      impactScore: null
+    };
+  }, [offlineLivePackage, offlineLiveSession, offlineLocalSession]);
   useEffect(()=>{
     if(!session?.userId)return;
     try{
@@ -731,19 +792,24 @@ export function EventManagementPage() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
-  const eventsQuery = useEvents({ pageSize: 100 }, context);
-  const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context);
+  // A valid prepared package is the authoritative source for offline live
+  // attendance. Do not start remote list queries while disconnected: their
+  // expected failure used to win the render race and hide the local session.
+  const eventsQuery = useEvents({ pageSize: 100 }, context, !isOfflineMode);
+  const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context, !isOfflineMode);
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
   const activeAttendanceSession = useMemo(
     () =>
       sessionsList.find((item) => item.id === liveSessionId && item.status === "active")
-      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active"),
-    [activeEvent?.id, liveSessionId, sessionsList]
+      ?? sessionsList.find((item) => item.eventId === activeEvent?.id && item.status === "active")
+      ?? offlineLiveSession,
+    [activeEvent?.id, liveSessionId, offlineLiveSession, sessionsList]
   );
   const activeScannerSessionId = liveSessionId ?? activeAttendanceSession?.id;
   const attendanceRecordsQuery = useAttendanceRecords(
     { pageSize: 500, sessionId: activeScannerSessionId },
-    activeScannerSessionId ? context : undefined
+    activeScannerSessionId ? context : undefined,
+    !isOfflineMode
   );
   const { refetch: refetchAttendanceRecords } = attendanceRecordsQuery;
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
@@ -754,8 +820,12 @@ export function EventManagementPage() {
   const [participantStudentIdsByEventId, setParticipantStudentIdsByEventId] = useState<Map<string, string[]>>(new Map());
   const [selectedObjectivesEvent, setSelectedObjectivesEvent] = useState<EventRecord | null>(null);
 
-  const studentsQuery = useStudents({ pageSize: 200 }, context);
-  const credentialStatusesQuery = useStudentCredentialStatuses(context);
+  const studentsQuery = useStudents({ pageSize: 200 }, context, !isOfflineMode);
+  const credentialStudentIds = useMemo(
+    () => [...new Set([...participantStudentIdsByEventId.values()].flat())].sort(),
+    [participantStudentIdsByEventId]
+  );
+  const credentialStatusesQuery = useStudentCredentialStatuses(context, credentialStudentIds);
 
   useEffect(() => {
     const checkUnstartedEvents = () => {
@@ -927,6 +997,14 @@ export function EventManagementPage() {
       setActiveParticipantIdentities(null);
       return;
     }
+    if (isOfflineMode && offlineLivePackage?.event.id === activeEventId) {
+      setActiveParticipantIdentities(offlineLivePackage.participants.map((participant) => ({
+        studentId: participant.studentId,
+        studentNumber: participant.studentNumber,
+        fullName: participant.displayName
+      })));
+      return;
+    }
     // Repository-backed event IDs are UUIDs. Mock/demo event IDs must not be
     // sent to Postgres, and this also keeps isolated UI tests credential-free.
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(activeEventId)) {
@@ -987,7 +1065,7 @@ export function EventManagementPage() {
 
     void loadActiveParticipants();
     return () => { current = false; };
-  }, [activeEventId]);
+  }, [activeEventId, isOfflineMode, offlineLivePackage]);
 
   useEffect(() => {
     const eventIds = (eventsQuery.data?.items ?? [])
@@ -1087,10 +1165,17 @@ export function EventManagementPage() {
       return;
     }
 
-    const requestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
-    const requestedEvent = requestedSession
-      ? repositoryEvents.find((event) => event.id === requestedSession.eventId)
+    const serverRequestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
+    const serverRequestedEvent = serverRequestedSession
+      ? repositoryEvents.find((event) => event.id === serverRequestedSession.eventId)
       : undefined;
+    const requestedSession = serverRequestedSession ?? offlineLiveSession;
+    const requestedEvent = serverRequestedEvent ?? offlineLiveEvent;
+
+    // The local package is authoritative for a valid offline live session.
+    // Wait for its read model before deciding that a direct route is invalid;
+    // the remote queries are expected to fail while disconnected.
+    if (isOfflineMode && offlineLive.status.connectivity === "checking") return;
 
     if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
       if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
@@ -1121,7 +1206,7 @@ export function EventManagementPage() {
       setManualInput("");
       setQrInput("");
     }
-  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, liveSessionId, navigate, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, isOfflineMode, offlineLive.status.connectivity, liveSessionId, navigate, offlineLiveEvent, offlineLiveSession, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
 
   // The renderer can unmount when an organizer visits another screen, but the
   // Electron scanner coordinator remains alive in the main process. Restore
@@ -1371,6 +1456,38 @@ export function EventManagementPage() {
     });
   }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
+  // When disconnected, the prepared package is the read model for the live
+  // workspace. Hydrate its existing attendance before accepting new scans so
+  // a reload never presents an empty table or treats a repeat scan as new.
+  useEffect(() => {
+    if (!isOfflineMode || !activeEvent?.id || !activeScannerSessionId || !offlineLivePackage) return;
+    if (offlineLivePackage.event.id !== activeEvent.id) return;
+    const participantById = new Map(offlineLivePackage.participants.map((participant) => [participant.studentId, participant]));
+    const localRows: DraftAttendanceRow[] = offlineLivePackage.attendance
+      .filter((record) => record.sessionId === activeScannerSessionId && Boolean(record.timeIn))
+      .map((record) => {
+        const participant = participantById.get(record.studentId);
+        const status: AttendanceStatus = record.attendanceStatus === "late" ? "late" : record.attendanceStatus === "absent" ? "absent" : "present";
+        return {
+          id: `offline-cached-${record.studentId}`,
+          studentId: record.studentId,
+          studentName: participant?.displayName || participant?.studentNumber || "Student details unavailable",
+          eventCode: activeEvent.code,
+          attendanceMethod: "QR Code",
+          checkInAt: record.timeIn ?? "",
+          checkInTime: formatLocalTime(record.timeIn ?? ""),
+          ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
+          attendanceStatus: status,
+          isFinalized: false
+        };
+      });
+    if (!localRows.length) return;
+    setActiveRows((rows) => {
+      const localIds = new Set(localRows.map((row) => row.studentId));
+      return [...rows.filter((row) => !localIds.has(row.studentId)), ...localRows];
+    });
+  }, [activeEvent?.code, activeEvent?.id, activeScannerSessionId, isOfflineMode, offlineLivePackage]);
+
   // Scanner phones write to the laptop's local database. Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
   // organizer immediately, including while the laptop is offline. Do not poll
@@ -1398,7 +1515,7 @@ export function EventManagementPage() {
             return {
               id: `offline-${record.localAttendanceUuid}`,
               studentId: record.studentId,
-              studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
+              studentName: offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable",
               eventCode: activeEvent.code,
               attendanceMethod: (record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code") as AttendanceMethod,
               checkInAt: record.timeIn,
@@ -1411,7 +1528,7 @@ export function EventManagementPage() {
               id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Unverified walk-in · ${scan.studentNumber}`,
               eventCode:activeEvent.code,attendanceMethod:scan.identificationMethod==="manual"?"Manual":"QR Code",
               checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
-              attendanceStatus:resolveOrganizerAttendanceStatus({timeIn:scan.timeIn,timeOut:scan.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt}),isFinalized:false
+              attendanceStatus:resolveRecordedOrganizerAttendanceStatus({timeIn:scan.timeIn,timeOut:scan.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt}),isFinalized:false
             })));
             return [...otherRows, ...phoneRows];
           });
@@ -1431,12 +1548,12 @@ export function EventManagementPage() {
       if (event.eventId !== activeEvent.id || event.sessionId !== activeScannerSessionId) return;
       if(event.source==="phone_scanner"&&event.studentId) {
         const student=(studentsQuery.data?.items??[]).find((candidate)=>candidate.id===event.studentId);
-        toast.success(`${event.displayName??student?.fullName??event.studentNumber??"Student"}: ${event.action==="checked_out"?"Time Out":"Time In"} at ${new Date(event.recordedAt).toLocaleTimeString()}`,{description:"Recorded on this desktop; awaiting server sync."});
+        toast.success(`${event.displayName??offlineParticipantNames.get(event.studentId)??student?.fullName??event.studentNumber??"Student"}: ${event.action==="checked_out"?"Time Out":"Time In"} at ${new Date(event.recordedAt).toLocaleTimeString()}`,{description:"Recorded on this desktop; awaiting server sync."});
       } else if(event.source==="phone_scanner"&&event.studentNumber) toast.success(`Walk-in ${event.studentNumber}: ${event.action==="checked_out"?"Time Out":"Time In"}`,{description:"Saved on this desktop; awaiting verification and sync."});
       void refreshPhoneAttendance();
     });
     return () => { current = false; unsubscribe(); unsubscribeAttendance(); };
-  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent, activeScannerSessionId, canManageOwnedEvents, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
+  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent, activeScannerSessionId, canManageOwnedEvents, offlineParticipantNames, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
 
   // Filter options are global to the Events workspace. Build them from every
   // loaded event so switching between Today, Incoming, and Cancelled never
@@ -1457,12 +1574,15 @@ export function EventManagementPage() {
     () => (activeTab === "today" ? todayEvents : activeTab === "incoming" ? incomingEvents : cancelledEvents),
     [activeTab, cancelledEvents, incomingEvents, todayEvents]
   );
-  const prepareOfflinePackage = useCallback(async (event: EventRecord) => {
+  const prepareOfflinePackage = useCallback(async (event: EventRecord, options: { silent?: boolean } = {}) => {
     const eventId = event.id;
     if (!eventId) return;
     if (!desktopApi()) {
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "NOT_PREPARED", error: "Open PLPass in the desktop app to prepare offline." }));
       return;
+    }
+    if (isOfflineMode || !navigator.onLine || !(await confirmSupabaseConnectivity())) {
+      throw new Error("Offline preparation requires a verified online connection.");
     }
     setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "PREPARING", preparing: true }));
     try {
@@ -1477,10 +1597,10 @@ export function EventManagementPage() {
       const message=error instanceof Error ? error.message : "Preparation failed.";
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: message }));
       if(session?.userId){const failuresKey=`plpass-offline-package-failures:${session.userId}:${getManilaCalendarDate()}`;const failures=JSON.parse(window.localStorage.getItem(failuresKey)??"{}") as Record<string,string>;failures[eventId]=message;window.localStorage.setItem(failuresKey,JSON.stringify(failures));}
-      toast.error(`Unable to prepare ${event.code} for offline use.`);
+      if (!options.silent) toast.error(`Unable to prepare ${event.code} for offline use.`);
       throw error;
     }
-  }, [session?.userId]);
+  }, [isOfflineMode, session?.userId]);
 
   useEffect(() => {
     const api = desktopApi();
@@ -1510,7 +1630,7 @@ export function EventManagementPage() {
   // organizer a ready offline package before starting while avoiding a request
   // loop or a burst on every render.
   useEffect(() => {
-    if (!desktopApi() || !session?.userId || !canManageOwnedEvents) return;
+    if (!desktopApi() || !session?.userId || !canManageOwnedEvents || isOfflineMode || !navigator.onLine) return;
     const today = getManilaCalendarDate();
     repositoryEvents
       .filter((event): event is EventRecord & { id: string } => Boolean(event.id) && event.date === today && event.status !== "cancelled" && event.status !== "completed")
@@ -1518,9 +1638,9 @@ export function EventManagementPage() {
         const current = offlinePreparationByEventId.get(event.id);
         if (current?.packageStatus === "READY" || current?.preparing || autoPreparedOfflineEventIdsRef.current.has(event.id)) return;
         autoPreparedOfflineEventIdsRef.current.add(event.id);
-        void prepareOfflinePackage(event).catch(() => undefined);
+        void prepareOfflinePackage(event, { silent: true }).catch(() => undefined);
       });
-  }, [canManageOwnedEvents, offlinePreparationByEventId, prepareOfflinePackage, repositoryEvents, session?.userId]);
+  }, [canManageOwnedEvents, isOfflineMode, offlinePreparationByEventId, prepareOfflinePackage, repositoryEvents, session?.userId]);
 
   // Daily package preparation is owned by the authenticated session provider;
   // opening this screen never starts an automatic RPC burst. Operators retain
@@ -1596,7 +1716,7 @@ export function EventManagementPage() {
     toast.error("This event is missing an ID and cannot start an attendance session.");
     return;
   }
-  if (desktopApi()) {
+  if (desktopApi() && !isOfflineMode) {
     const preparation = offlinePreparationByEventId.get(eventToStart.id);
     if (preparation?.packageStatus !== "READY") {
       const confirmed = window.confirm(`Offline resources for ${eventToStart.code} are not ready. Starting this event will download the required offline package now. The event can start only after that download succeeds. Continue?`);
@@ -1609,25 +1729,48 @@ export function EventManagementPage() {
       }
     }
   }
-  let startedSession;
+  let startedSessionId = "";
+  let startedAt = "";
   try {
-    startedSession = await createEventSessionMutation.mutateAsync({
-      eventId: eventToStart.id,
-      venue: sessionForm.venue,
-      date: sessionForm.date,
-      startTime: sessionForm.startTime,
-      expectedEndTime: sessionForm.endTime,
-      attendanceMode: "face-to-face",
-      lateCutoffMinutes: sessionForm.lateCutoffMinutes
-    });
+    if (isOfflineMode) {
+      const ownerId = session?.userId;
+      const api = desktopApi();
+      const localPackage = ownerId && api ? await api.getPreparedEvent(eventId, ownerId) : null;
+      const localSession = localPackage?.sessions.find((item) =>
+        ["scheduled", "ongoing"].includes(item.status) && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
+      );
+      if (!ownerId || !api || !localPackage || !localSession) {
+        throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
+      }
+      const updatedPackage = await startOfflineEvent(eventId, localSession.id, ownerId);
+      const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
+      if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
+        throw new Error("The local attendance session did not enter its started state.");
+      }
+      startedSessionId = updatedSession.id;
+      startedAt = updatedSession.attendanceWindowStartAt ?? updatedSession.offlineStartedAt ?? new Date().toISOString();
+    } else {
+      const startedSession = await createEventSessionMutation.mutateAsync({
+        eventId: eventToStart.id,
+        venue: sessionForm.venue,
+        date: sessionForm.date,
+        startTime: sessionForm.startTime,
+        expectedEndTime: sessionForm.endTime,
+        attendanceMode: "face-to-face",
+        lateCutoffMinutes: sessionForm.lateCutoffMinutes
+      });
+      startedSessionId = startedSession.id;
+      startedAt = startedSession.attendanceWindowStartAt ?? new Date().toISOString();
+    }
   } catch {
+    toast.error(isOfflineMode ? "The prepared local session could not be started. No server session was changed." : "The attendance session could not be started.");
     return;
   }
 
   // Refresh the offline package after creating the session. A package prepared
   // before the event starts can be READY while still missing this newly
   // ongoing session, which would make scanner startup reject it.
-  if (desktopApi()) {
+  if (desktopApi() && !isOfflineMode) {
     try {
       const refreshed = await prepareEventForOffline(eventId, session?.userId ?? "");
       if (refreshed.packageStatus !== "READY") throw new Error("Offline package is not ready.");
@@ -1643,15 +1786,15 @@ export function EventManagementPage() {
   setSummaryEvent(null);
   setCaptureMode(defaultAttendanceMethod);
   setAttendancePhase("time_in");
-  writeAttendancePhase(window.sessionStorage, startedSession.id, "time_in");
-  setLiveSessionId(startedSession.id);
+  writeAttendancePhase(window.sessionStorage, startedSessionId, "time_in");
+  setLiveSessionId(startedSessionId);
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
   setSelectedEventForSession(null);
-  navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSession.id), APP_ROUTES.adminLiveSession(startedSession.id)), { replace: true });
-  const startedAt = new Date(startedSession.attendanceWindowStartAt ?? Date.now()).getTime();
+  navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSessionId), APP_ROUTES.adminLiveSession(startedSessionId)), { replace: true });
+  const startedAtTimestamp = new Date(startedAt).getTime();
   const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
-  const delayedMinutes = Math.max(0, Math.floor((startedAt - scheduledAt) / 60_000));
+  const delayedMinutes = Math.max(0, Math.floor((startedAtTimestamp - scheduledAt) / 60_000));
   toast.success(
     delayedMinutes > 0
       ? `${eventToStart.code} started ${delayedMinutes} minutes later than scheduled. Late attendance is calculated from the actual start.`
@@ -1919,7 +2062,7 @@ export function EventManagementPage() {
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
         const queued=await desktopApi()?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:attendancePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
-        const walkInStatus=resolveOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
+        const walkInStatus=resolveRecordedOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
         setActiveRows((current)=>upsertAttendanceRow(current,{id:`walkin-${queued.localScanUuid}`,studentId:`walkin:${queued.localScanUuid}`,studentName:`Unverified walk-in · ${queued.studentNumber}`,eventCode:activeEvent.code,attendanceMethod:"QR Code",checkInAt:queued.timeIn,checkInTime:formatLocalTime(queued.timeIn),...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),attendanceStatus:walkInStatus,isFinalized:false}));
         lastSuccessfulQrScanAtRef.current=Date.now();
         toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${attendancePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
@@ -2341,23 +2484,27 @@ export function EventManagementPage() {
       header: "Schedule",
       cell: ({ row }) => {
         const conflicts = conflictsByCode.get(row.original.code);
+        const schedule = eventScheduleLabel(row.original);
         if (!conflicts || conflicts.length === 0) {
-          return <span className="text-sm text-muted-foreground">—</span>;
+          return <span className="whitespace-nowrap text-sm text-muted-foreground">{schedule}</span>;
         }
         const conflictCodes = conflicts.map((item) => item.code).join(", ");
         return (
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-left text-sm font-medium text-danger underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            title={`Another event uses the same venue at the same time: ${conflictCodes}`}
-            aria-label={`View schedule warning for ${row.original.code}`}
-            onClick={() => {
-              if (row.original.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(row.original.id), APP_ROUTES.adminEvent(row.original.id)));
-            }}
-          >
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            {conflicts.length === 1 ? `Same venue and time as ${conflictCodes}` : `${conflicts.length} events share this schedule`}
-          </button>
+          <div className="space-y-1">
+            <span className="block whitespace-nowrap text-sm text-muted-foreground">{schedule}</span>
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-left text-xs font-medium text-danger underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              title={`Another event uses the same venue at the same time: ${conflictCodes}`}
+              aria-label={`View schedule warning for ${row.original.code}`}
+              onClick={() => {
+                if (row.original.id) navigate(workspaceRoute(APP_ROUTES.organizerEvent(row.original.id), APP_ROUTES.adminEvent(row.original.id)));
+              }}
+            >
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+              {conflicts.length === 1 ? `Same venue and time as ${conflictCodes}` : `${conflicts.length} events share this schedule`}
+            </button>
+          </div>
         );
       }
     },
@@ -2491,7 +2638,7 @@ export function EventManagementPage() {
     );
   }
 
-  if (eventsQuery.isLoading && !repositoryEvents.length) {
+  if (eventsQuery.isLoading && !repositoryEvents.length && !offlineLiveSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
 
@@ -2501,6 +2648,7 @@ export function EventManagementPage() {
   }
 
   const isOpeningLiveSession = canManageOwnedEvents && Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
+  const hasOfflineLiveWorkspace = Boolean(isOfflineMode && activeEvent && liveSessionId && offlineLiveSession?.id === liveSessionId);
 
   if (isOpeningLiveSession) {
     return (
@@ -2511,7 +2659,18 @@ export function EventManagementPage() {
     );
   }
 
-  if (eventsQuery.isError) {
+  if (eventsQuery.isError && isOfflineMode && sessionIdFromQuery && offlineLive.status.connectivity !== "checking" && !hasOfflineLiveWorkspace) {
+    return (
+      <div className="space-y-4 lg:space-y-5">
+        <ErrorState
+          title="Offline session unavailable"
+          message="This prepared session is missing, not ready, ended, or in conflict. Reconnect and prepare the event again before starting offline."
+        />
+      </div>
+    );
+  }
+
+  if (eventsQuery.isError && !hasOfflineLiveWorkspace) {
     return (
       <div className="space-y-4 lg:space-y-5">
 

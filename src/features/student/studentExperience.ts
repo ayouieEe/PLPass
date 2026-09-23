@@ -222,6 +222,60 @@ export function studentVisibleEvents(events: Event[]) {
   return sortEventsByDate(visible);
 }
 
+export type StudentDashboardEvent = Event & {
+  dashboardStatus: "Ongoing" | "Upcoming";
+};
+
+/**
+ * The dashboard must not infer that an event is ongoing from its planned time
+ * after its attendance session has ended. Session state is authoritative when
+ * it exists; the schedule is only a fallback for an event whose session has
+ * not been created yet.
+ */
+export function getStudentDashboardEvents(
+  events: Event[],
+  sessions: AttendanceSession[],
+  now = Date.now()
+): StudentDashboardEvent[] {
+  const sessionsByEvent = new Map<string, AttendanceSession[]>();
+  for (const session of sessions) {
+    if (!session.eventId) continue;
+    const matchingSessions = sessionsByEvent.get(session.eventId) ?? [];
+    matchingSessions.push(session);
+    sessionsByEvent.set(session.eventId, matchingSessions);
+  }
+
+  return events.flatMap((event): StudentDashboardEvent[] => {
+    const eventSessions = sessionsByEvent.get(event.id) ?? [];
+    const hasActiveSession = eventSessions.some((session) => session.status === "active");
+    const hasTerminalSession = eventSessions.some((session) => session.status === "completed" || session.status === "cancelled");
+    const startsAt = toValidDate(event.startsAt)?.getTime();
+    const endsAt = toValidDate(event.endsAt ?? event.startsAt)?.getTime();
+
+    if (hasActiveSession) {
+      return [{ ...event, dashboardStatus: "Ongoing" }];
+    }
+
+    // A completed/cancelled attendance session takes precedence over a stale
+    // event status or a scheduled end time that has not yet elapsed.
+    if (event.status === "completed" || event.status === "cancelled" || hasTerminalSession) {
+      return [];
+    }
+
+    if (startsAt !== undefined && startsAt > now) {
+      return [{ ...event, dashboardStatus: "Upcoming" }];
+    }
+
+    // Until a session exists, retain the scheduled-window fallback so a
+    // student can still find an event that is ready to start.
+    if (eventSessions.length === 0 && endsAt !== undefined && endsAt >= now) {
+      return [{ ...event, dashboardStatus: "Ongoing" }];
+    }
+
+    return [];
+  });
+}
+
 export function studentAttendanceMethodLabel(method: AttendanceRecord["verificationMethod"]): StudentEventRecord["method"] {
   if (method === "qr") return "QR";
   if (method === "facial") return "Facial";

@@ -24,6 +24,7 @@ Feature set decisions (see hand-off_file.md for the full rationale):
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import joblib
 import numpy as np
@@ -36,12 +37,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-DATA_DIR = "data"
-STUDENT_FEATURES_FILE = f"{DATA_DIR}/PLPass_Student_Features_Dummy.xlsx"
-EVENT_FEATURES_FILE = f"{DATA_DIR}/PLPass_Event_Features_Table.xlsx"
+ML_DIRECTORY = Path(__file__).resolve().parent
+PROJECT_DIRECTORY = ML_DIRECTORY.parent
+DATA_DIR = ML_DIRECTORY / "data"
+STUDENT_FEATURES_FILE = DATA_DIR / "PLPass_Student_Features_Dummy.xlsx"
+EVENT_FEATURES_FILE = DATA_DIR / "PLPass_Event_Features_Table.xlsx"
 
-MODEL_OUT = "attendance_model.pkl"
-INSIGHTS_OUT = "model_insights.json"
+MODEL_OUT = PROJECT_DIRECTORY / "api" / "models" / "attendance_model.pkl"
+INSIGHTS_OUT = PROJECT_DIRECTORY / "api" / "models" / "model_insights.json"
 
 # Columns the model is actually allowed to see.
 NUMERIC_FEATURES = [
@@ -123,7 +126,7 @@ def build_pipeline() -> Pipeline:
     return Pipeline(steps=[("preprocessor", preprocessor), ("classifier", classifier)])
 
 
-def main():
+def train_and_write_artifacts(write_insights: bool = True):
     print("Loading and joining Student Features + Event Features...")
     df = load_and_join()
     df = apply_missingness_handling(df)
@@ -210,17 +213,20 @@ def main():
         "model_features": ALL_FEATURES,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
-    with open(INSIGHTS_OUT, "w") as f:
-        json.dump(insights, f, indent=2)
-    print(f"\nSaved global model insights to {INSIGHTS_OUT}")
+    if write_insights:
+        with open(INSIGHTS_OUT, "w") as f:
+            json.dump(insights, f, indent=2)
+        print(f"\nSaved global model insights to {INSIGHTS_OUT}")
 
     # --- Refit on the FULL dataset for the artifact that actually gets served
     print("Refitting on full dataset...")
     final_pipeline = build_pipeline()
     final_pipeline.fit(X, y)
+    MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(final_pipeline, MODEL_OUT)
     print(f"Saved trained pipeline to {MODEL_OUT}")
+    return final_pipeline
 
 
 if __name__ == "__main__":
-    main()
+    train_and_write_artifacts()

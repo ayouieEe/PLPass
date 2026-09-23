@@ -24,12 +24,24 @@ if os.path.exists(env_path):
                 os.environ.setdefault(k, v)
 
 supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL", "")
-supabase_key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY", "")
+# Forecast reads are always made as the signed-in organizer below. Deliberately
+# use the public anon key here; a local desktop ML process must never inherit a
+# service-role key that could bypass event ownership and RLS policies.
+supabase_key = os.environ.get("VITE_SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_ANON_KEY", "")
 
-supabase = create_client(supabase_url, supabase_key)
+def _scoped_supabase(access_token: str):
+    """Create a short-lived client that enforces the caller's RLS scope."""
+    client = create_client(supabase_url, supabase_key)
+    # supabase-py replaces Authorization supplied through ClientOptions with
+    # the anon key while initializing. Authenticate the PostgREST client after
+    # creation so requests actually carry the organizer JWT and RLS applies.
+    client.postgrest.auth(access_token)
+    return client
 
 
-def get_batch_student_history(student_ids: list[str], before_starts_at: str) -> dict[str, pd.DataFrame]:
+def get_batch_student_history(
+    student_ids: list[str], before_starts_at: str, access_token: str
+) -> dict[str, pd.DataFrame]:
     """
     Fetches the attendance history for a batch of students in a single Supabase query.
     student_ids: list of students.id (uuid)
@@ -41,7 +53,7 @@ def get_batch_student_history(student_ids: list[str], before_starts_at: str) -> 
         return {}
         
     response = (
-        supabase.table("attendance_records")
+        _scoped_supabase(access_token).table("attendance_records")
         .select(
             "student_id, attendance_status, late_reason_category, "
             "event_sessions(event_id, events(starts_at))"
@@ -76,9 +88,9 @@ def get_batch_student_history(student_ids: list[str], before_starts_at: str) -> 
     return dfs
 
 
-def get_event_features(event_id: str) -> dict:
+def get_event_features(event_id: str, access_token: str) -> dict:
     response = (
-        supabase.table("events")
+        _scoped_supabase(access_token).table("events")
         .select(
             "category_id, event_categories(category_name), starts_at, ends_at, "
             "venue, target_group, participation_status, created_at"

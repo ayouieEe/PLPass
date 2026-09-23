@@ -2,6 +2,8 @@ import os
 import sys
 import json
 import asyncio
+import threading
+from contextlib import suppress
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 from typing import List
@@ -29,13 +31,40 @@ load_dotenv(os.path.join(parent_dir, ".env.local"))
 load_dotenv(os.path.join(parent_dir, ".env"))
 
 from api.services.prediction_insights import get_risk_level, get_pattern_insights
-from api.services.facial_recognition import FacialRecognitionError, MIN_CAPTURE_FRAMES, enroll_pose, identify_and_record, identify_offline_capture, warm_model
-
 # Global dictionary to store ML artifacts
 ml_artifacts = {}
+prediction_model_lock = threading.Lock()
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "attendance_model.pkl")
 INSIGHTS_PATH = os.path.join(os.path.dirname(__file__), "models", "model_insights.json")
+
+async def warm_facial_model_in_background():
+    """Keep optional facial initialization off the forecast API startup path."""
+    try:
+        # Importing the facial stack loads TensorFlow/DeepFace. Keep that
+        # optional import off the API import and startup paths as well.
+        from api.services.facial_recognition import warm_model
+        await asyncio.to_thread(warm_model)
+        print("DeepFace ArcFace model warmed successfully.")
+    except Exception as error:
+        print(f"WARNING: DeepFace model warm-up failed: {error}")
+
+def load_or_train_prediction_pipeline():
+    """Return the served pipeline, creating the missing local artifact once."""
+    import joblib
+
+    with prediction_model_lock:
+        pipeline = ml_artifacts.get("pipeline")
+        if pipeline is not None:
+            return pipeline
+        if not os.path.exists(MODEL_PATH):
+            from ml.train_attendance_model import train_and_write_artifacts
+            # The explanation file is already versioned separately. The runtime
+            # only needs the deterministic pipeline artifact here.
+            train_and_write_artifacts(write_insights=False)
+        pipeline = joblib.load(MODEL_PATH)
+        ml_artifacts["pipeline"] = pipeline
+        return pipeline
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,17 +84,18 @@ async def lifespan(app: FastAPI):
         print(f"WARNING: Insights not found at {INSIGHTS_PATH}.")
         ml_artifacts["insights"] = None
 
-    # Model initialization is deliberately best-effort. A facial outage must
-    # never prevent QR/manual attendance or the rest of the ML API from starting.
-    try:
-        await asyncio.to_thread(warm_model)
-        print("DeepFace ArcFace model warmed successfully.")
-    except Exception as error:
-        print(f"WARNING: DeepFace model warm-up failed: {error}")
+    # Facial recognition is optional and can take substantially longer to load
+    # than the turnout pipeline. Starting it in the background keeps forecasts,
+    # model insights, QR, and manual attendance available immediately.
+    facial_warm_task = asyncio.create_task(warm_facial_model_in_background())
         
     yield # App is now running and accepting requests!
     
     # --- SHUTDOWN ---
+    if not facial_warm_task.done():
+        facial_warm_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await facial_warm_task
     print("Shutting down server, cleaning up ML models...")
     ml_artifacts.clear()
 
@@ -106,29 +136,28 @@ def read_root():
     return {"status": "ok", "message": "PLPass ML API is running"}
 
 @app.post("/predict/batch", response_model=BatchPredictResponse)
-async def predict_attendance_batch(req: BatchPredictRequest):
-    import joblib
+async def predict_attendance_batch(
+    req: BatchPredictRequest,
+    authorization: str | None = Header(default=None),
+):
     import pandas as pd
     from ml.feature_assembly import assemble_student_features
     from api.services.supabase_client import get_event_features, get_batch_student_history
 
-    pipeline = ml_artifacts.get("pipeline")
-    if pipeline is None and os.path.exists(MODEL_PATH):
-        pipeline = joblib.load(MODEL_PATH)
-        ml_artifacts["pipeline"] = pipeline
-    if not pipeline:
-        raise HTTPException(status_code=503, detail="Model is not loaded.")
-        
     if not req.student_ids:
         raise HTTPException(status_code=400, detail="No student_ids provided.")
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="An authenticated organizer session is required.")
+    access_token = authorization.split(" ", 1)[1].strip()
         
     try:
+        pipeline = await asyncio.to_thread(load_or_train_prediction_pipeline)
         # Fetch event features once for the batch
-        event_data = get_event_features(req.event_id)
+        event_data = get_event_features(req.event_id, access_token)
         event_date = event_data.pop("event_date")
         
         # 1. Fetch ALL student histories in a single Supabase query (N+1 fix)
-        histories_by_student = get_batch_student_history(req.student_ids, event_date)
+        histories_by_student = get_batch_student_history(req.student_ids, event_date, access_token)
         
         predictions = []
         rows = []
@@ -188,20 +217,22 @@ async def identify_live_face(
     captures: list[UploadFile] = File(...),
     authorization: str | None = Header(default=None),
 ):
+    from api.services import facial_recognition
+
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="An authenticated organizer session is required.")
-    if len(captures) != MIN_CAPTURE_FRAMES:
-        raise HTTPException(status_code=422, detail=f"Exactly {MIN_CAPTURE_FRAMES} camera frames are required.")
+    if len(captures) != facial_recognition.MIN_CAPTURE_FRAMES:
+        raise HTTPException(status_code=422, detail=f"Exactly {facial_recognition.MIN_CAPTURE_FRAMES} camera frames are required.")
     if any(capture.content_type not in {"image/jpeg", "image/png", "image/webp"} for capture in captures):
         raise HTTPException(status_code=415, detail="Capture must be a JPEG, PNG, or WebP image.")
     try:
-        return await identify_and_record(
+        return await facial_recognition.identify_and_record(
             access_token=authorization.split(" ", 1)[1].strip(),
             event_session_id=event_session_id,
             intended_action=intended_action,
             capture_bytes_list=[await capture.read() for capture in captures],
         )
-    except FacialRecognitionError as error:
+    except facial_recognition.FacialRecognitionError as error:
         raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error
 
 
@@ -211,16 +242,18 @@ async def enroll_facial_pose(
     capture: UploadFile = File(...),
     authorization: str | None = Header(default=None),
 ):
+    from api.services import facial_recognition
+
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail={"code": "UNAUTHORIZED", "message": "Sign in to enroll your face."})
     if capture.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(status_code=415, detail={"code": "LOW_QUALITY_IMAGE", "message": "Capture must be a JPEG, PNG, or WebP image."})
     try:
-        return await enroll_pose(
+        return await facial_recognition.enroll_pose(
             access_token=authorization.split(" ", 1)[1].strip(), pose=pose,
             capture_bytes=await capture.read(),
         )
-    except FacialRecognitionError as error:
+    except facial_recognition.FacialRecognitionError as error:
         raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error
 
 
@@ -235,6 +268,8 @@ async def identify_offline_face(
     loopback endpoint from its main process while offline and keeps both the
     event templates and the resulting attendance record on the local machine.
     """
+    from api.services import facial_recognition
+
     if capture.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(status_code=415, detail={"code": "LOW_QUALITY_IMAGE", "message": "Capture must be a JPEG, PNG, or WebP image."})
     try:
@@ -244,7 +279,7 @@ async def identify_offline_face(
     if not isinstance(decoded_candidates, list):
         raise HTTPException(status_code=422, detail={"code": "INVALID_OFFLINE_PACKAGE", "message": "The offline facial package is invalid."})
     try:
-        student_id = await identify_offline_capture(capture_bytes=await capture.read(), candidates=decoded_candidates)
+        student_id = await facial_recognition.identify_offline_capture(capture_bytes=await capture.read(), candidates=decoded_candidates)
         return {"student_id": student_id}
-    except FacialRecognitionError as error:
+    except facial_recognition.FacialRecognitionError as error:
         raise HTTPException(status_code=error.status_code, detail={"code": error.code, "message": str(error)}) from error
