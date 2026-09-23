@@ -275,6 +275,14 @@ export function useEventMutations(context?: RepositoryContext) {
         toast.error(getErrorMessage(error));
       }
     }),
+    saveEventForecastMutation: useMutation({
+      mutationFn: (input: { eventId: string; predictedTurnout: number }) =>
+        repositories.eventManagement.saveEventForecast(input.eventId, input.predictedTurnout, context),
+      onSuccess: async () => {
+        await invalidateEvents();
+        await queryClient.invalidateQueries({ queryKey: ["mlPredictions"] });
+      }
+    }),
     completeEventMutation: useMutation({
       mutationFn: (eventId: string) => repositories.eventManagement.completeEvent(eventId, context),
       onSuccess: invalidateEvents,
@@ -369,7 +377,7 @@ export function useEventResources(eventId: string, query?: Partial<ListQuery>, c
   });
 }
 
-export function useAttendanceSessions(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useAttendanceSessions(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceSessions", listQuery, context],
@@ -377,7 +385,7 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
     retry: retryUnlessTimedOut,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
 }
 

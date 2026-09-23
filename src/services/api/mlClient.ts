@@ -4,8 +4,12 @@
  * Client for the FastAPI Machine Learning backend running on localhost:8000.
  * Operates gracefully with resilient null fallbacks when the ML backend is offline.
  */
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const API_BASE = import.meta.env.VITE_ML_API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+// Electron binds the local model service explicitly to IPv4 loopback. Using
+// `localhost` here can resolve to IPv6 first on Windows and silently miss the
+// service, leaving automatic forecasts perpetually unavailable.
+const API_BASE = import.meta.env.VITE_ML_API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export interface MlPredictionInsights {
   feature_importance: Array<{
@@ -53,10 +57,17 @@ export async function fetchModelInsights(): Promise<MlPredictionInsights | null>
 
 export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse | null> {
   try {
+    // The local ML API reads only through the signed-in organizer's RLS scope.
+    // It must never fall back to anonymous access or a privileged server
+    // credential in browser code.
+    const { data } = await getSupabaseBrowserClient().auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) return null;
     const response = await fetch(`${API_BASE}/predict/batch`, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(request)
     });

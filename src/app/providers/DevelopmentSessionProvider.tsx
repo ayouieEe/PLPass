@@ -63,6 +63,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [offlineResumeAvailable, setOfflineResumeAvailable] = useState(false);
   const [hasOfflineWork, setHasOfflineWork] = useState(false);
   const [offlineConflictCount, setOfflineConflictCount] = useState(0);
+  const [reconciliationState, setReconciliationState] = useState<"idle" | "syncing" | "blocked">("idle");
+  const [offlineSyncError, setOfflineSyncError] = useState<string | undefined>();
   const reconnectInFlight = useRef<Promise<boolean> | null>(null);
 
   useEffect(() => {
@@ -237,17 +239,38 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const refreshOfflineWork = useCallback(async () => {
     if (!session || session.role !== "organizer" || !window.plpassDesktop) { setHasOfflineWork(false); return false; }
     try {
-      const [hasWork,pending,prepared]=await Promise.all([
-        window.plpassDesktop.hasUnresolvedWork(session.userId),
+      if (typeof window.plpassDesktop.checkIntegrity === "function") {
+        const integrity = await window.plpassDesktop.checkIntegrity();
+        if (integrity.integrity !== "ok") {
+          setHasOfflineWork(true);
+          setOfflineSyncError(`Local offline database integrity requires review${integrity.details ? `: ${integrity.details}` : "."}`);
+          setReconciliationState("blocked");
+          return true;
+        }
+        // An integrity warning may have been reported before a known derived
+        // index was rebuilt. Clear only that exact stale warning after a fresh
+        // clean integrity result; leave sync and authorization errors intact.
+        if (offlineSyncError?.startsWith("Local offline database integrity requires review")) {
+          setOfflineSyncError(undefined);
+          setReconciliationState("idle");
+        }
+      }
+      // hasUnresolvedWork is the authoritative, owner-scoped answer for the
+      // banner. Diagnostic lists must not retain an old `true` value when a
+      // transient IPC read fails after the authoritative check succeeds.
+      const hasWork = await window.plpassDesktop.hasUnresolvedWork(session.userId);
+      setHasOfflineWork(hasWork);
+      const [pendingResult,preparedResult] = await Promise.allSettled([
         window.plpassDesktop.listPending(undefined,session.userId),
         window.plpassDesktop.listPreparedEvents(session.userId,getManilaCalendarDate())
       ]);
-      setHasOfflineWork(hasWork);
+      const pending = pendingResult.status === "fulfilled" ? pendingResult.value : [];
+      const prepared = preparedResult.status === "fulfilled" ? preparedResult.value : [];
       setOfflineConflictCount(pending.filter((record)=>record.syncStatus==="CONFLICT").length + prepared.filter((item)=>item.lifecycle==="CONFLICT").length);
       return hasWork;
     }
     catch { return hasOfflineWork; }
-  }, [hasOfflineWork,session]);
+  }, [hasOfflineWork,offlineSyncError,session]);
 
   useEffect(() => { void refreshOfflineWork(); }, [refreshOfflineWork]);
 
@@ -273,25 +296,39 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
 
   const performOnlineReconnect = useCallback(async (forceRetry:boolean) => {
       if (!session || !window.plpassDesktop) return false;
+      setReconciliationState("syncing");
       try {
+      if (typeof window.plpassDesktop.checkIntegrity === "function") {
+        const integrity = await window.plpassDesktop.checkIntegrity();
+        if (integrity.integrity !== "ok") {
+          setHasOfflineWork(true);
+          setOfflineSyncError(`Local offline database integrity requires review${integrity.details ? `: ${integrity.details}` : "."}`);
+          setReconciliationState("blocked");
+          return false;
+        }
+      }
       const supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase.auth.getUser();
-      if (error || data.user?.id !== session.userId) return false;
+      if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
       const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
-      if (!confirmed || confirmed.role !== "organizer") return false;
+      if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
       await cacheDesktopOfflineSession(confirmed);
       setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);
-      setIsOfflineMode(false);
       const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");
       const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry);
       const unresolved=await refreshOfflineWork();
       if (!reconciliation.completed) {
-        setAuthError(reconciliation.message);
+        setOfflineSyncError(reconciliation.message);
+        setReconciliationState("blocked");
         return false;
       }
+      await queryClient.invalidateQueries();
+      setIsOfflineMode(false);
       setAuthError(undefined);
+      setOfflineSyncError(undefined);
+      setReconciliationState("idle");
       return !unresolved;
-      } catch { await refreshOfflineWork(); return false; }
+      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); return false; }
   }, [refreshOfflineWork,session]);
 
   const reconnectOnline = useCallback((forceRetry=false):Promise<boolean> => {
@@ -474,6 +511,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
 
   const signInWithPassword = useCallback(async (email: string, password: string) => {
     setAuthError(undefined);
+    setOfflineSyncError(undefined);
     queryClient.clear();
     if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
       const accounts = await repositories.authentication.listDevelopmentAccounts();
@@ -504,6 +542,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           setIsOfflineMode(true);
           setOfflineResumeAvailable(false);
           setAuthError(undefined);
+          setOfflineSyncError(undefined);
           queryClient.clear();
           return offlineSession;
         }
@@ -574,8 +613,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [isOfflineMode,session]);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
-    [authError, continueOffline, hasOfflineWork, offlineConflictCount, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
+    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
+    [authError, continueOffline, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

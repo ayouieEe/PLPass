@@ -73,8 +73,10 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("v_session.actual_end + interval '24 hours' <= now()");
   });
 
-  it("resolves organizer attendance to Present, Late, or Absent only", () => {
+  it("keeps pre-session attendance neutral and resolves recorded attendance to Present, Late, or Absent", () => {
     const cutoff = "2026-09-22T08:00:00.000Z";
+    expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: null, lateCutoffAt: cutoff })).toBeNull();
+    expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: "active", lateCutoffAt: cutoff })).toBeNull();
     expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T07:59:00.000Z", timeOut: null, attendanceSessionStatus: "ongoing", lateCutoffAt: cutoff })).toBe("present");
     expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: null, attendanceSessionStatus: "ongoing", lateCutoffAt: cutoff })).toBe("late");
     expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: "completed", lateCutoffAt: cutoff })).toBe("absent");

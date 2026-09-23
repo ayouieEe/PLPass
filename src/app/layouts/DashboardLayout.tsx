@@ -48,7 +48,7 @@ export function DashboardLayout({
   children
 }: DashboardLayoutProps) {
   const { theme, setTheme } = useTheme();
-  const { session, logout, isNetworkOnline, isOfflineMode, hasOfflineWork, offlineConflictCount, reconnectOnline } = useDevelopmentSession();
+  const { session, logout, isNetworkOnline, isOfflineMode } = useDevelopmentSession();
   const { headerOverride } = useHeader();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -61,8 +61,8 @@ export function DashboardLayout({
   const [collapsed, setCollapsed] = useState(readCollapsedState);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [reconnectMessage, setReconnectMessage] = useState("");
   const offlineLocked = isOfflineMode;
+  const connectionOffline = isOfflineMode || !isNetworkOnline;
   const isDark = theme === "dark";
   const notificationContext = session && !isOfflineMode ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const unreadCount = useNotificationUnreadCount(notificationContext);
@@ -333,10 +333,11 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        <div role="status" aria-live="polite" className={cn("flex flex-wrap items-center justify-between gap-2 border-b px-6 py-2 text-sm", !isNetworkOnline || isOfflineMode ? "border-amber-400/40 bg-amber-50 text-amber-900" : "border-emerald-400/40 bg-emerald-50 text-emerald-900")}>
-          <span className="inline-flex items-center gap-2 font-medium">{!isNetworkOnline || isOfflineMode ? <CloudOff className="h-4 w-4" aria-hidden="true" /> : <Cloud className="h-4 w-4" aria-hidden="true" />}{!isNetworkOnline || isOfflineMode ? "Offline — saved locally; sync pending" : "Online"}{offlineConflictCount ? ` · ${offlineConflictCount} item${offlineConflictCount === 1 ? "" : "s"} need review` : hasOfflineWork && isNetworkOnline ? " · Saved work is syncing or awaiting confirmation" : ""}{reconnectMessage ? ` · ${reconnectMessage}` : ""}</span>
-          {(isOfflineMode || hasOfflineWork) ? <Button type="button" size="sm" variant="outline" disabled={!isNetworkOnline} onClick={async()=>{setReconnectMessage("Checking connection and reconciling saved attendance…");const complete=await reconnectOnline(true);setReconnectMessage(complete?"Reconnect complete; all saved work is confirmed.":"Some local work is still unresolved. It has been retained for retry or review.");}}>{isNetworkOnline ? "Retry sync" : "Waiting for internet"}</Button> : null}
-        </div>
+        {role !== "student" ? (
+          <div role="status" aria-live="polite" className={cn("flex items-center border-b px-6 py-2 text-sm", connectionOffline ? "border-amber-400/40 bg-amber-50 text-amber-900" : "border-emerald-400/40 bg-emerald-50 text-emerald-900")}>
+            <span className="inline-flex items-center gap-2 font-medium">{connectionOffline ? <CloudOff className="h-4 w-4" aria-hidden="true" /> : <Cloud className="h-4 w-4" aria-hidden="true" />}{connectionOffline ? "Offline" : "Online"}</span>
+          </div>
+        ) : null}
         <main id="main-content" tabIndex={-1} className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>

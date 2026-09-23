@@ -151,6 +151,13 @@ export type LocalAttendanceResult = {
 };
 
 export type CleanupResult = { cleaned: boolean; message: string };
+export type OfflineIntegrityReport = {
+  integrity: "ok" | "failed";
+  pendingAttendanceRows: number;
+  pendingWalkInRows: number;
+  unresolvedSessions: number;
+  details?: string;
+};
 export type ScannerStation = { id: string; name: string; joinedAt: string; lastSeenAt: string; lastScanAt?: string };
 export type AttendanceCapturePhase = "time_in" | "time_out";
 export type ScannerCoordinatorStatus = { active: boolean; eventId?: string; sessionId?: string; port?: number; addresses: string[]; joinUrl?: string; stations: ScannerStation[]; capturePhase?: AttendanceCapturePhase; certificateFingerprint?: string; certificateExpiresAt?: string };
@@ -180,6 +187,7 @@ export interface PLPassDesktopApi {
   listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string): Promise<PendingWalkInScan[]>;
   beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
   confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
+  discardWalkInSync(localScanUuid: string, organizerProfileId: string): Promise<void>;
   failWalkInSync(localScanUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   listPending(eventId: string | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
   beginSync(limit: number, forceRetry: boolean | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
@@ -187,6 +195,8 @@ export interface PLPassDesktopApi {
   failSync(localAttendanceUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   recoverInterruptedSync(organizerProfileId: string): Promise<number>;
   cleanupEvent(eventId: string, serverVerified: boolean, eventCompleted: boolean): Promise<CleanupResult>;
+  checkIntegrity(): Promise<OfflineIntegrityReport>;
+  ensureMlService(): Promise<void>;
   startScannerStations(eventId: string, sessionId: string, capturePhase: AttendanceCapturePhase, organizerProfileId: string): Promise<ScannerCoordinatorStatus>;
   stopScannerStations(): Promise<void>;
   getScannerStations(): Promise<ScannerCoordinatorStatus>;

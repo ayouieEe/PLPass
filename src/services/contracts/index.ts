@@ -439,6 +439,7 @@ export interface EventManagementRepository {
   removeEventResource(resourceId: string, context?: RepositoryContext): Promise<void>;
   generateNextEventCode(context?: RepositoryContext): Promise<string>;
   createEvent(input: CreateEventInput, context?: RepositoryContext): Promise<Event>;
+  saveEventForecast(eventId: string, predictedTurnout: number, context?: RepositoryContext): Promise<Event>;
   updateEventStatus(eventId: string, status: Extract<EventStatus, "approved" | "rejected">, reason?: string, context?: RepositoryContext): Promise<Event>;
   completeEvent(eventId: string, context?: RepositoryContext): Promise<Event>;
   cancelEvent(eventId: string, reason: string, context?: RepositoryContext): Promise<Event>;

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -65,6 +65,8 @@ import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
+import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -74,7 +76,6 @@ import {
   useAttendanceSessions,
   useCorrectionRequests,
   useEvent,
-  useEventParticipants,
   useEvents,
   useMlPredictions,
   useNfcTapAttempts,
@@ -84,7 +85,8 @@ import {
   useAllEventSummarySnapshots,
   useAllEventFeedback
 } from "@/hooks/useRepositoryQueries";
-import { useModelInsights, useBatchPrediction } from "@/hooks/useMlApi";
+import { useModelInsights } from "@/hooks/useMlApi";
+import { useAutomaticForecasts } from "@/features/organizer/hooks/useAutomaticForecasts";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
@@ -492,8 +494,14 @@ export function OrganizerAnalyticsPage() {
   const scope = useOrganizerScope();
   const auditLogMutations = useAuditLogMutations(scope.context);
   const eventsQuery = useEvents({ pageSize: 200 }, scope.context);
+  const automaticForecasts = useAutomaticForecasts(eventsQuery.data?.items ?? [], scope.context, session?.role === "organizer");
   const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 1000 }, scope.context);
+  const organizerAttendanceEventIds = useMemo(
+    () => (eventsQuery.data?.items ?? []).map((event) => event.id),
+    [eventsQuery.data?.items]
+  );
+  const organizerAttendanceSummariesQuery = useAttendanceSummaries(organizerAttendanceEventIds);
   const objectivesQuery = useAllEventObjectives({ pageIndex: 0, pageSize: 1000 }, scope.context);
   const summariesQuery = useAllEventSummarySnapshots({ pageIndex: 0, pageSize: 200 }, scope.context);
   const feedbackQuery = useAllEventFeedback({ pageIndex: 0, pageSize: 1000 }, scope.context);
@@ -559,14 +567,16 @@ export function OrganizerAnalyticsPage() {
       return (sessionsQuery.data?.items ?? []).filter((session) => session.type === "event" && session.status === "completed" && session.eventId).map((session) => {
         const event = eventById.get(session.eventId ?? "");
         const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
-        const present = records.filter((record) => record.status === "present").length;
-        const late = records.filter((record) => record.status === "late").length;
-        const absent = records.filter((record) => record.status === "absent").length;
-        const totalRegistered = records.length;
-        return { eventCode: event?.code ?? session.title, eventId: session.eventId, date: dateKey(session.startsAt), present, late, absent, totalRegistered, attendanceRate: totalRegistered ? Math.round(((present + late) / totalRegistered) * 100) : 0 };
+        const walkInRows = (organizerAttendanceSummariesQuery.data?.[session.eventId ?? ""]?.rows ?? [])
+          .filter((row) => row.sessionId === session.id && row.verificationLabel === "Unverified walk-in");
+        const summary = summarizeUniqueAttendance([
+          ...records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })),
+          ...walkInRows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus }))
+        ], 0);
+        return { eventCode: event?.code ?? session.title, eventId: session.eventId, date: dateKey(session.startsAt), present: summary.present, late: summary.late, absent: summary.absent, totalRegistered: summary.population, attendanceRate: summary.attendanceRate };
       });
     },
-    [attendanceRecordsQuery.data?.items, eventsQuery.data?.items, sessionsQuery.data?.items]
+    [attendanceRecordsQuery.data?.items, eventsQuery.data?.items, organizerAttendanceSummariesQuery.data, sessionsQuery.data?.items]
   );
 
   const filteredSessionSummaryData = useMemo(() => {
@@ -719,23 +729,20 @@ export function OrganizerAnalyticsPage() {
       .slice(0, 10);
   }, [attendanceRecordsQuery.data?.items, filteredEventData, sessionsQuery.data?.items]);
 
-  const nextEvent = eventData.filter((event) => new Date(event.startsAt) >= new Date()).sort((first, second) => first.startsAt.localeCompare(second.startsAt))[0];
-  const targetEventId = eventFilter === "all" ? nextEvent?.id : eventLookup.get(eventFilter)?.id;
-  
-  const participantsQuery = useEventParticipants(targetEventId ?? "", { pageIndex: 0, pageSize: 1000 }, scope.context);
-  const studentIds = useMemo(() => [...new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId))], [participantsQuery.data]);
+  const insightsQuery = useModelInsights();
+  const insightsData = insightsQuery.data;
+  const selectedForecastEvent = eventFilter === "all"
+    ? filteredEventData.find((event) => event.predictedTurnout != null)
+    : eventLookup.get(eventFilter);
+  const isPredicting = automaticForecasts.status === "running";
 
-  const { data: insightsData } = useModelInsights();
-  // This API currently gathers institution-wide student histories; do not call
-  // it from a department-only view. Department Admins use saved event forecasts.
-  const { data: batchData, isFetching: isPredicting } = useBatchPrediction(isDepartmentAdmin ? "" : targetEventId ?? "", studentIds);
+  useEffect(() => {
+    if (automaticForecasts.completedRun > 0) void insightsQuery.refetch();
+  }, [automaticForecasts.completedRun, insightsQuery]);
 
   const selectedPrediction = useMemo(() => {
-    if (batchData && studentIds.length > 0) {
-      return Math.round((batchData.aggregate_expected_turnout / studentIds.length) * 100);
-    }
-    return eventFilter === "all" ? nextEvent?.predictedTurnout ?? null : eventLookup.get(eventFilter)?.predictedTurnout ?? null;
-  }, [batchData, studentIds, eventFilter, nextEvent, eventLookup]);
+    return selectedForecastEvent?.predictedTurnout ?? null;
+  }, [selectedForecastEvent]);
 
   const topLateReason = useMemo(() => {
     const reasons = filteredLateReasons;

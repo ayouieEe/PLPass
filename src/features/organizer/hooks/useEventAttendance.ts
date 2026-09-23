@@ -3,8 +3,9 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatDisplayTime } from "@/lib/utils/date";
 import { postgresUuidValues } from "@/lib/utils/postgresUuid";
 import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
+import { mergeOrganizerAttendanceRows, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 
-type OrgAttendanceStatus = "present" | "late" | "absent";
+export type OrgAttendanceStatus = "present" | "late" | "absent";
 
 type ProfileNameRow = {
   first_name?: string | null;
@@ -20,6 +21,7 @@ type EventSessionRow = {
   id: string;
   event_id: string;
   session_status?: string | null;
+  actual_start?: string | null;
   actual_end?: string | null;
   late_cutoff_at?: string | null;
 };
@@ -34,6 +36,7 @@ type AttendanceSummaryRow = {
   id: string;
   event_session_id: string | null;
   student_id: string | null;
+  local_attendance_uuid?: string | null;
   attendance_status: string | null;
   verification_method: string | null;
   time_in: string | null;
@@ -45,7 +48,7 @@ type AttendanceSummaryRow = {
   students?: StudentRelationRow | StudentRelationRow[] | null;
 };
 
-export function resolveOrganizerAttendanceStatus(input: {
+export type OrganizerAttendanceStatusInput = {
   timeIn: string | null | undefined;
   timeOut: string | null | undefined;
   attendanceSessionStatus: string | null | undefined;
@@ -53,8 +56,13 @@ export function resolveOrganizerAttendanceStatus(input: {
   feedbackTaskStatus?: FeedbackTaskRow["task_status"];
   feedbackDueAt?: string | null;
   now?: number;
-}): OrgAttendanceStatus {
-  if (!input.timeIn) return "absent";
+};
+
+export function resolveOrganizerAttendanceStatus(input: OrganizerAttendanceStatusInput): OrgAttendanceStatus | null {
+  // A registered participant has no attendance outcome until a session has
+  // completed. Do not turn a new event or an active pre-check-in into a
+  // synthetic absence.
+  if (!input.timeIn) return input.attendanceSessionStatus === "completed" ? "absent" : null;
   if (input.attendanceSessionStatus === "completed" && !input.timeOut) return "absent";
   const rawStatus: OrgAttendanceStatus = input.lateCutoffAt
     && new Date(input.timeIn).getTime() > new Date(input.lateCutoffAt).getTime()
@@ -70,8 +78,17 @@ export function resolveOrganizerAttendanceStatus(input: {
   return rawStatus;
 }
 
+/** Attendance capture paths have already persisted a Time In. They must never
+ * fabricate a status if that invariant is broken. */
+export function resolveRecordedOrganizerAttendanceStatus(input: OrganizerAttendanceStatusInput & { timeIn: string }): OrgAttendanceStatus {
+  const status = resolveOrganizerAttendanceStatus(input);
+  if (!status) throw new Error("A recorded attendance outcome requires a Time In.");
+  return status;
+}
+
 type UnverifiedWalkInRow = {
   id: string;
+  local_scan_uuid: string;
   event_id: string;
   event_session_id: string;
   student_number: string;
@@ -158,7 +175,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   // 1. Sessions belonging to these events
   const { data: sessions, error: sessionsError } = await client
     .from("event_sessions")
-    .select("id, event_id, session_status, actual_end, late_cutoff_at")
+    .select("id, event_id, session_status, actual_start, actual_end, late_cutoff_at")
     .in("event_id", remoteEventIds);
   if (sessionsError) throw sessionsError;
 
@@ -166,7 +183,8 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   ((sessions ?? []) as EventSessionRow[]).forEach((session) => sessionToEvent.set(session.id, session.event_id));
   const sessionIds = Array.from(sessionToEvent.keys());
 
-  // 2. Registered participants per event (also the source of Pending rows)
+  // 2. Registered participants per event. A participant does not become an
+  // attendance row until they are recorded or the applicable session ends.
   const { data: participants, error: participantsError } = await client
     .from("event_participants")
     .select("id, event_id, student_id, participant_status")
@@ -197,7 +215,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, attendance_status, verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -244,13 +262,26 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     }
   });
 
+  const effectiveSessionByEvent = new Map<string, EventSessionRow>();
+  for (const eventId of remoteEventIds) {
+    const eventSessions = (sessions as EventSessionRow[]).filter((session) => session.event_id === eventId);
+    const activeSession = eventSessions.find((session) => session.session_status === "active" || session.session_status === "ongoing");
+    const latestCompletedSession = eventSessions
+      .filter((session) => session.session_status === "completed")
+      .sort((left, right) => new Date(right.actual_end ?? right.actual_start ?? 0).getTime() - new Date(left.actual_end ?? left.actual_start ?? 0).getTime())[0];
+    const effectiveSession = activeSession ?? latestCompletedSession;
+    if (effectiveSession) effectiveSessionByEvent.set(eventId, effectiveSession);
+  }
+
   participantRows.forEach((participant) => {
     const eventId = participant.event_id;
     const summary = summaries[eventId];
     if (!summary) return;
     const row = recordByEventAndStudent.get(`${eventId}:${participant.student_id}`);
     const student = studentById.get(participant.student_id);
-    const sessionRow = row?.event_session_id ? (sessions as EventSessionRow[]).find((session) => session.id === row.event_session_id) : undefined;
+    const sessionRow = row?.event_session_id
+      ? (sessions as EventSessionRow[]).find((session) => session.id === row.event_session_id)
+      : effectiveSessionByEvent.get(eventId);
     const feedbackTask = row ? feedbackTaskByRecordId.get(String(row.id)) : undefined;
     const status = resolveOrganizerAttendanceStatus({
       timeIn: row?.time_in,
@@ -260,16 +291,22 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       feedbackTaskStatus: feedbackTask?.task_status,
       feedbackDueAt: feedbackTask?.due_at ?? (sessionRow?.actual_end ? new Date(new Date(sessionRow.actual_end).getTime() + 24 * 60 * 60 * 1000).toISOString() : null)
     });
+    if (!status) return;
     const method = row ? mapVerificationMethod(row.verification_method) : "Manual";
     summary.rows.push({
       id: String(row?.id ?? `absent-${eventId}-${participant.student_id}`),
       studentId: participant.student_id,
+      sessionId: row?.event_session_id ?? sessionRow?.id,
+      ...(row?.local_attendance_uuid ? { localScanUuid: row.local_attendance_uuid } : {}),
       studentName: student?.name ?? (row ? studentDisplayName(row) : `Student ${participant.student_id.slice(0, 8)}`),
       eventCode: eventId,
       attendanceMethod: method,
       checkInTime: row?.time_in ? formatDisplayTime(row.time_in) : "-",
       checkOutTime: row?.time_out ? formatDisplayTime(row.time_out) : undefined,
+      ...(row?.time_in ? { timeIn: row.time_in } : {}),
+      ...(row?.time_out ? { timeOut: row.time_out } : {}),
       attendanceStatus: status,
+      ...(row ? { verificationLabel: "Verified" as const } : {}),
       lateReason: status === "late" ? mapLateReason(row?.late_reason_category ?? row?.late_reason ?? null) : undefined
     });
 
@@ -278,7 +315,13 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     else if (status === "absent") summary.absent += 1;
   });
 
+  const walkInByIdentity = new Map<string, UnverifiedWalkInRow>();
   for (const walkIn of (unverifiedWalkIns ?? []) as unknown as UnverifiedWalkInRow[]) {
+    // The durable walk-in row is the identity. Student number is deliberately
+    // not used here because two unverified submissions may share a number.
+    walkInByIdentity.set(`${walkIn.event_id}:${walkIn.id}`, walkIn);
+  }
+  for (const walkIn of walkInByIdentity.values()) {
     const eventId = walkIn.event_id;
     const summary = summaries[eventId];
     if (!summary) continue;
@@ -290,12 +333,17 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     summary.rows.push({
       id: String(walkIn.id),
       studentId: `walkin:${walkIn.id}`,
+      sessionId: walkIn.event_session_id,
+      localScanUuid: walkIn.local_scan_uuid,
       studentName: `Unverified walk-in · ${walkIn.student_number}`,
       eventCode: eventId,
       attendanceMethod: mapVerificationMethod(walkIn.identification_method),
       checkInTime: formatDisplayTime(walkIn.time_in),
       checkOutTime: walkIn.time_out ? formatDisplayTime(walkIn.time_out) : undefined,
-      attendanceStatus: walkInStatus
+      timeIn: walkIn.time_in,
+      ...(walkIn.time_out ? { timeOut: walkIn.time_out } : {}),
+      attendanceStatus: walkInStatus,
+      verificationLabel: "Unverified walk-in"
     });
     if (walkInStatus === "present") summary.present += 1;
     else if (walkInStatus === "late") summary.late += 1;
@@ -303,8 +351,15 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   }
 
   Object.values(summaries).forEach((summary) => {
-    const denominator = summary.totalRegistered > 0 ? summary.totalRegistered : summary.rows.length;
-    summary.attendanceRate = denominator > 0 ? Math.round(((summary.present + summary.late) / denominator) * 1000) / 10 : 0;
+    summary.rows = mergeOrganizerAttendanceRows(summary.rows);
+    const calculated = summarizeUniqueAttendance(
+      summary.rows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus })),
+      summary.totalRegistered
+    );
+    summary.present = calculated.present;
+    summary.late = calculated.late;
+    summary.absent = calculated.absent;
+    summary.attendanceRate = calculated.attendanceRate;
   });
 
   return summaries;

@@ -123,6 +123,10 @@ export function MyAttendancePage() {
   const [correctionFormOpen, setCorrectionFormOpen] = useState(false);
   const [correctionProofFile, setCorrectionProofFile] = useState<File | null>(null);
   const [correctionProofError, setCorrectionProofError] = useState("");
+
+  useEffect(() => {
+    if (searchParams.get("pendingTasks") === "1") setFeedbackDueModalOpen(true);
+  }, [searchParams]);
   const [correctionProofNotice, setCorrectionProofNotice] = useState("");
   const [isCompressingCorrectionProof, setIsCompressingCorrectionProof] = useState(false);
   const [correctionProofInputKey, setCorrectionProofInputKey] = useState(0);
@@ -189,14 +193,12 @@ export function MyAttendancePage() {
     && (record.status === "present" || record.status === "late")
     && !needsLateReason(record)
   );
-  const pendingTaskRecords = (summaryQuery.data?.tasks ?? [])
-    .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
-    .map((task) => records.find((record) => record.id === task.attendanceRecordId || record.eventId === task.eventId))
-    .filter((record): record is StudentEventRecord => Boolean(record));
+  const attendanceTasks = (summaryQuery.data?.tasks ?? [])
+    .filter((task) => task.kind === "late_reason" || task.kind === "feedback");
   const finalizedRecords = records.filter((record) => record.finalized === true && (
     record.status === "absent" || isCompletedAttendedRecord(record)
   ));
-  const pendingTaskCount = summaryQuery.data?.pendingTaskCount ?? pendingTaskRecords.length;
+  const pendingTaskCount = attendanceTasks.length;
   const yearOptions = (finalizedEventYearsQuery.data ?? []).map(String);
   const visibleRecords = finalizedRecords.filter((record) => {
     const term = search.trim().toLowerCase();
@@ -531,10 +533,9 @@ export function MyAttendancePage() {
         size="lg"
         onClose={() => setFeedbackDueModalOpen(false)}
       >
-        {(summaryQuery.data?.tasks ?? []).length ? (
+        {attendanceTasks.length ? (
           <div className="space-y-3">
-            {(summaryQuery.data?.tasks ?? [])
-              .filter((task) => task.kind === "late_reason" || task.kind === "feedback")
+            {attendanceTasks
               .sort((first, second) => new Date(second.startsAt ?? 0).getTime() - new Date(first.startsAt ?? 0).getTime())
               .map((task) => {
               const needsReason = task.kind === "late_reason";
@@ -595,20 +596,6 @@ export function MyAttendancePage() {
                 </article>
               );
               })}
-            {(summaryQuery.data?.tasks ?? []).filter((task) => task.kind === "correction").map((task) => (
-              <article key={task.id} className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold tracking-tight">Review rejected correction request</h3>
-                    <p className="mt-2 text-sm text-muted-foreground">Check the organizer response, then submit a clearer request if needed.</p>
-                  </div>
-                  <StatusBadge label="Rejected" tone="danger" />
-                </div>
-                <div className="mt-4 flex justify-end border-t pt-4">
-                  <Button asChild variant="outline" size="sm"><NavLink to={APP_ROUTES.studentRequestHistory}>Open Request History</NavLink></Button>
-                </div>
-              </article>
-            ))}
           </div>
         ) : (
           <div className="rounded-2xl border border-success/20 bg-success/10 p-5">

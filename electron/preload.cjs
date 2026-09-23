@@ -26,13 +26,16 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   listPendingWalkInScans: (eventId, ownerId) => ipcRenderer.invoke("offline:listWalkins", eventId, ownerId),
   beginWalkInSync: (limit, ownerId, forceRetry) => ipcRenderer.invoke("offline:beginWalkinSync", limit, ownerId, forceRetry),
   confirmWalkInSync: (id, student) => ipcRenderer.invoke("offline:confirmWalkinSync", id, student),
+  discardWalkInSync: (id, ownerId) => ipcRenderer.invoke("offline:discardWalkinSync", id, ownerId),
   failWalkInSync: (id, status, error) => ipcRenderer.invoke("offline:failWalkinSync", id, status, error),
   listPending: (eventId, organizerId) => ipcRenderer.invoke("offline:listPending", eventId, organizerId),
   beginSync: (limit, forceRetry, organizerId) => ipcRenderer.invoke("offline:beginSync", limit, forceRetry, organizerId),
   confirmSync: (uuid, id, status, timeOut) => ipcRenderer.invoke("offline:confirmSync", uuid, id, status, timeOut),
   failSync: (uuid, status, error) => ipcRenderer.invoke("offline:failSync", uuid, status, error),
   recoverInterruptedSync: (organizerId) => ipcRenderer.invoke("offline:recover", organizerId),
-  cleanupEvent: (eventId, verified, completed) => ipcRenderer.invoke("offline:cleanup", eventId, verified, completed)
+  cleanupEvent: (eventId, verified, completed) => ipcRenderer.invoke("offline:cleanup", eventId, verified, completed),
+  checkIntegrity: () => ipcRenderer.invoke("offline:integrity"),
+  ensureMlService: () => ipcRenderer.invoke("ml:ensure")
   ,startScannerStations: (eventId, sessionId, phase, organizerId) => ipcRenderer.invoke("scanner:start", eventId, sessionId, phase, organizerId)
   ,stopScannerStations: () => ipcRenderer.invoke("scanner:stop")
   ,getScannerStations: () => ipcRenderer.invoke("scanner:status")

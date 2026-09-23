@@ -19,6 +19,8 @@ export type DevelopmentSessionContextValue = {
   offlineResumeAvailable: boolean;
   hasOfflineWork: boolean;
   offlineConflictCount: number;
+  reconciliationState: "idle" | "syncing" | "blocked";
+  offlineSyncError?: string;
   authError?: string;
   continueOffline: () => Promise<DevelopmentSession | null>;
   reconnectOnline: (forceRetry?: boolean) => Promise<boolean>;

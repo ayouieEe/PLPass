@@ -80,6 +80,10 @@ function safeSyncError(error: unknown) {
   if (["42501", "22023", "23503", "23514"].includes(code)) return "The offline record needs manual review before synchronization can continue.";
   return "Synchronization was temporarily unavailable; the local record was retained for retry.";
 }
+function safeWalkInSyncError(error: unknown) {
+  if (errorCode(error) === "55006") return "Walk-in synchronization was rate limited; the local scan was retained for a later retry.";
+  return "The server did not confirm this walk-in yet; the local scan was retained for retry.";
+}
 function syncFailureStatus(error: unknown): "RETRY" | "CONFLICT" {
   const code = errorCode(error);
   const text = errorText(error);
@@ -88,7 +92,28 @@ function syncFailureStatus(error: unknown): "RETRY" | "CONFLICT" {
   return permanentRequest || code === "23505" || (code === "40001" && !transientSerialization) ? "CONFLICT" : "RETRY";
 }
 
-let activeSync: Promise<{confirmed:number;failed:number}> | null = null;
+type ServerSessionState = { id: string; eventId: string; status: string; actualEnd?: string | null };
+
+async function readServerSessionStates(eventIds: string[]): Promise<ServerSessionState[]> {
+  if (!eventIds.length) return [];
+  const client = getSupabaseBrowserClient() as unknown as { from?: (table: string) => { select: (fields: string) => { in?: (column: string, values: string[]) => Promise<{ data?: unknown[] | null; error?: unknown | null }> } } };
+  if (typeof client.from !== "function") return [];
+  const selected = client.from("event_sessions").select("id,event_id,session_status,actual_end");
+  if (typeof selected.in !== "function") return [];
+  const { data, error } = await selected.in("event_id", eventIds);
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const item = row as Record<string, unknown>;
+    return { id: String(item.id ?? ""), eventId: String(item.event_id ?? ""), status: String(item.session_status ?? ""), actualEnd: item.actual_end == null ? null : String(item.actual_end) };
+  }).filter((item) => item.id && item.eventId);
+}
+
+async function isServerSessionCompleted(eventId: string, sessionId: string): Promise<boolean> {
+  const sessions = await readServerSessionStates([eventId]);
+  return sessions.some((session) => session.id === sessionId && session.eventId === eventId && session.status === "completed");
+}
+
+let activeSync: Promise<{confirmed:number;failed:number;discarded:number}> | null = null;
 let activeLifecycleSync: Promise<{completed:boolean;message:string}> | null = null;
 const syncBackoffBaseMs = 5_000;
 const syncBackoffMaxMs = 5 * 60_000;
@@ -99,6 +124,7 @@ let nextSyncAllowedAt = 0;
 export type OfflineSyncMetrics = {
   attempts: number;
   successfulRecords: number;
+  discardedWalkIns: number;
   transientFailures: number;
   permanentFailures: number;
   lastRetryDelayMs: number;
@@ -109,6 +135,7 @@ export type OfflineSyncMetrics = {
 const syncMetrics: OfflineSyncMetrics = {
   attempts: 0,
   successfulRecords: 0,
+  discardedWalkIns: 0,
   transientFailures: 0,
   permanentFailures: 0,
   lastRetryDelayMs: 0,
@@ -123,13 +150,48 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
     const api=desktopApi();
     if(!api || (!connectionAlreadyConfirmed && !(await confirmSupabaseConnectivity()))) return {completed:false,message:"A verified connection is required. Local attendance remains saved."};
     const events=await api.listPreparedEvents(organizerProfileId,getManilaCalendarDate());
+    // listPreparedEvents is intentionally event-oriented and may return only
+    // the latest session summary. Reconciliation, however, must account for
+    // every locally unresolved session in the package; otherwise an older
+    // START_PENDING/END_PENDING session can keep the global banner stuck.
+    const packages=(await Promise.all(events.map(async (summary)=>({summary,pkg:typeof api.getPreparedEvent === "function" ? await api.getPreparedEvent(summary.event.id,organizerProfileId) : null}))))
+      .filter((item): item is {summary: typeof events[number]; pkg: PreparedEventPackage} => Boolean(item.pkg));
+    const unresolvedSessions=packages.flatMap(({pkg})=>pkg.sessions
+      .filter((session)=>["START_PENDING","END_PENDING"].includes(session.offlineLifecycle ?? ""))
+      .map((session)=>({pkg,local:session})));
+    const failures:string[]=[];
+    try {
+      const serverSessions=await readServerSessionStates(packages.map(({pkg})=>pkg.event.id));
+      for (const {pkg} of packages) {
+        const localSessions = pkg.sessions.filter((session) => session.eventId === pkg.event.id);
+        const serverOngoing = serverSessions.filter((session) => session.eventId === pkg.event.id && session.status === "ongoing");
+        // The end RPC is idempotent server-side, but a response can be lost
+        // after the server has already completed the session.  A local
+        // CONFLICT must not keep the saved-work banner alive in that case.
+        // Only a fresh, matching *completed* server session can resolve it;
+        // no end request is issued from this recovery branch.
+        for (const local of localSessions.filter((session) => ["END_PENDING", "CONFLICT"].includes(session.offlineLifecycle ?? ""))) {
+          const server = serverSessions.find((candidate) => candidate.id === local.id && candidate.eventId === pkg.event.id);
+          if (server?.status === "completed") {
+            await api.setOfflineLifecycleState(pkg.event.id, local.id, "ENDED");
+          }
+        }
+        for (const server of serverOngoing) {
+          const local = localSessions.find((session) => session.id === server.id);
+          if (!local) {
+            failures.push(`${pkg.event.code}: server session ${server.id} has no matching local prepared session`);
+          } else if (!["START_PENDING", "STARTED", "END_PENDING"].includes(local.offlineLifecycle ?? "")) {
+            failures.push(`${pkg.event.code}: server session ${server.id} is still ongoing but no local end record exists`);
+          }
+        }
+      }
+    } catch (error) {
+      failures.push(`Server session state could not be verified${errorCode(error) ? ` (${errorCode(error)})` : ""}`);
+    }
     // Reconcile every saved start first. Attendance uploads are gated in the
     // local database until the server knows that its session has started.
-    for(const summary of events){
-      if(!summary.sessionId || !["START_PENDING","END_PENDING"].includes(summary.lifecycle)) continue;
-      const pkg=await api.getPreparedEvent(summary.event.id,organizerProfileId);
-      const local=pkg?.sessions.find((item)=>item.id===summary.sessionId);
-      if(!pkg || !local || local.offlineStartReconciledAt) continue;
+    for(const {pkg,local} of unresolvedSessions){
+      if(local.offlineStartReconciledAt) continue;
       try {
         if(!local.offlineStartedAt) throw new Error("The local event start time is missing.");
         const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_start",{p_session_id:local.id,p_actual_start:local.offlineStartedAt});
@@ -137,28 +199,42 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
         await api.setOfflineLifecycleState(pkg.event.id,local.id,"STARTED");
       } catch(error) {
         const code=errorCode(error);
-        if(["42501","22023","23503","23514"].includes(code) && summary.sessionId) await api.setOfflineLifecycleState(pkg.event.id,summary.sessionId,"CONFLICT");
-        return {completed:false,message:"Reconciliation could not be confirmed. The saved event and attendance were retained for review."};
+        if(["42501","22023","23503","23514"].includes(code)) await api.setOfflineLifecycleState(pkg.event.id,local.id,"CONFLICT");
+        failures.push(`${pkg.event.code}: session start could not be confirmed${code ? ` (${code})` : ""}`);
       }
     }
 
     // Upload attendance independently of lifecycle transitions. In
     // particular, a session already marked STARTED still has queued scans.
+    let discardedWalkIns=0;
     for(let i=0;i<5;i++) {
       const result=await synchronizePendingAttendance(20,forceRetry,true,organizerProfileId);
-      if(result.failed || result.confirmed<20) break;
+      discardedWalkIns+=result.discarded;
+      if(result.failed || result.confirmed + result.discarded<20) break;
     }
+
+    // Reload package/session state. Start reconciliation may have changed a
+    // START_PENDING session into END_PENDING, and the original snapshot must
+    // never decide whether a server end is safe.
+    const refreshedEvents=await api.listPreparedEvents(organizerProfileId,getManilaCalendarDate());
+    const refreshedPackages=(await Promise.all(refreshedEvents.map(async (summary)=>({summary,pkg:typeof api.getPreparedEvent === "function" ? await api.getPreparedEvent(summary.event.id,organizerProfileId) : null})))).filter((item): item is {summary: typeof refreshedEvents[number]; pkg: PreparedEventPackage} => Boolean(item.pkg));
+    const refreshedEndSessions=refreshedPackages.flatMap(({pkg})=>pkg.sessions
+      .filter((session)=>session.offlineLifecycle === "END_PENDING")
+      .map((local)=>({pkg,local})));
 
     // Only commit an offline end after every saved attendance row for that
     // event has a server confirmation.
-    for(const summary of events){
-      if(!summary.sessionId || summary.lifecycle!=="END_PENDING") continue;
-      const pkg=await api.getPreparedEvent(summary.event.id,organizerProfileId);
-      const local=pkg?.sessions.find((item)=>item.id===summary.sessionId);
-      if(!pkg || !local) continue;
+    for(const {pkg,local} of refreshedEndSessions){
+      if(local.offlineLifecycle!=="END_PENDING") continue;
       try {
-        if((await api.listPending(pkg.event.id,organizerProfileId)).length) continue;
-        if(typeof api.listPendingWalkInScans==="function" && (await api.listPendingWalkInScans(pkg.event.id,organizerProfileId)).some((scan)=>scan.syncStatus!=="CONFIRMED")) continue;
+        if((await api.listPending(pkg.event.id,organizerProfileId)).length) {
+          failures.push(`${pkg.event.code}: attendance is still awaiting confirmation`);
+          continue;
+        }
+        if(typeof api.listPendingWalkInScans==="function" && (await api.listPendingWalkInScans(pkg.event.id,organizerProfileId)).some((scan)=>scan.syncStatus!=="CONFIRMED")) {
+          failures.push(`${pkg.event.code}: walk-in attendance is still awaiting confirmation`);
+          continue;
+        }
         if(!local.offlineEndedAt) throw new Error("The local event end time is missing.");
         const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_end",{
           p_session_id:local.id,
@@ -169,19 +245,37 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
         if(error) throw error;
         await api.setOfflineLifecycleState(pkg.event.id,local.id,"ENDED");
       } catch(error) {
+        // A timeout or transport failure can occur after the server commits
+        // the idempotent end RPC. Verify the exact server session once before
+        // classifying local evidence as conflicting; this prevents a false
+        // permanent conflict from a lost successful response.
+        try {
+          if (await isServerSessionCompleted(pkg.event.id, local.id)) {
+            await api.setOfflineLifecycleState(pkg.event.id,local.id,"ENDED");
+            continue;
+          }
+        } catch {
+          // Preserve the original failure below when the follow-up read is
+          // unavailable. The local end evidence remains retryable.
+        }
         const code=errorCode(error);
-        if(["42501","22023","23503","23514"].includes(code)) await api.setOfflineLifecycleState(pkg.event.id,summary.sessionId,"CONFLICT");
-        return {completed:false,message:"Reconciliation could not be confirmed. The saved event and attendance were retained for review."};
+        if(["42501","22023","23503","23514"].includes(code)) await api.setOfflineLifecycleState(pkg.event.id,local.id,"CONFLICT");
+        failures.push(`${pkg.event.code}: session end could not be confirmed${code ? ` (${code})` : ""}`);
       }
     }
 
     const pending=await api.hasUnresolvedWork(organizerProfileId);
-    return {completed:!pending,message:pending?"Some offline work is still awaiting confirmation; nothing was discarded.":"Offline event sessions and attendance are confirmed."};
+    const discardDetail=discardedWalkIns ? ` ${discardedWalkIns} invalid offline walk-in record${discardedWalkIns === 1 ? " was" : "s were"} discarded automatically.` : "";
+    if (pending || failures.length) {
+      const detail=failures.length ? ` ${failures.join("; ")}.` : "";
+      return {completed:false,message:`Some offline work is still awaiting confirmation.${detail}${discardDetail}`};
+    }
+    return {completed:true,message:`Offline event sessions and attendance are confirmed.${discardDetail}`};
   })().finally(()=>{activeLifecycleSync=null;});
   return activeLifecycleSync;
 }
 
-function registerSyncResult(result: { confirmed: number; failed: number }) {
+function registerSyncResult(result: { confirmed: number; failed: number; discarded: number }) {
   if (result.failed === 0) {
     syncBackoffExponent = 0;
     nextSyncAllowedAt = 0;
@@ -194,9 +288,9 @@ function registerSyncResult(result: { confirmed: number; failed: number }) {
   syncMetrics.lastRetryDelayMs = delay;
 }
 
-export async function synchronizePendingAttendance(batchSize=20, forceRetry=false, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number}> {
+export async function synchronizePendingAttendance(batchSize=20, forceRetry=false, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number;discarded:number}> {
   if (activeSync) return activeSync;
-  if (!forceRetry && Date.now() < nextSyncAllowedAt) return { confirmed: 0, failed: 0 };
+  if (!forceRetry && Date.now() < nextSyncAllowedAt) return { confirmed: 0, failed: 0, discarded: 0 };
   const boundedBatchSize = Math.min(20, Math.max(1, Math.floor(batchSize) || 20));
   syncMetrics.attempts += 1;
   syncMetrics.activeSyncs += 1;
@@ -204,15 +298,16 @@ export async function synchronizePendingAttendance(batchSize=20, forceRetry=fals
   activeSync = synchronizePendingAttendanceOnce(boundedBatchSize, forceRetry, connectionAlreadyConfirmed,organizerProfileId).then((result) => {
     registerSyncResult(result);
     syncMetrics.successfulRecords += result.confirmed;
+    syncMetrics.discardedWalkIns += result.discarded;
     return result;
   });
   try { return await activeSync; } finally { activeSync = null; syncMetrics.activeSyncs = Math.max(0, syncMetrics.activeSyncs - 1); }
 }
 
-async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: boolean, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number}> {
-  const api=desktopApi(); if(!api || !organizerProfileId || (!connectionAlreadyConfirmed && !(await confirmSupabaseConnectivity()))) return {confirmed:0,failed:0};
+async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: boolean, connectionAlreadyConfirmed=false,organizerProfileId?:string): Promise<{confirmed:number;failed:number;discarded:number}> {
+  const api=desktopApi(); if(!api || !organizerProfileId || (!connectionAlreadyConfirmed && !(await confirmSupabaseConnectivity()))) return {confirmed:0,failed:0,discarded:0};
   await api.recoverInterruptedSync(organizerProfileId);
-  const records=await api.beginSync(batchSize, forceRetry,organizerProfileId); const inFlight=new Set<string>(); let confirmed=0,failed=0; let lastRpcAt=0;
+  const records=await api.beginSync(batchSize, forceRetry,organizerProfileId); const inFlight=new Set<string>(); let confirmed=0,failed=0,discarded=0; let lastRpcAt=0;
   for(const record of records){
     if (inFlight.has(record.localAttendanceUuid)) continue;
     inFlight.add(record.localAttendanceUuid);
@@ -263,9 +358,14 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
         p_time_in:scan.timeIn,...(scan.timeOut?{p_time_out:scan.timeOut}:{})
       });
       if(error) throw error;
-      const payload=data as {attendance?:{id?:string;local_attendance_uuid?:string|null;attendance_status?:string;time_in?:string|null;time_out?:string|null};student?:{id?:string;studentNumber?:string;displayName?:string};unverifiedWalkIn?:{localScanUuid?:string}}|null;
+      const payload=data as {disposition?:"confirmed_registered"|"discarded_permanent_conflict";reasonCode?:string;attendance?:{id?:string;local_attendance_uuid?:string|null;attendance_status?:string;time_in?:string|null;time_out?:string|null};student?:{id?:string;studentNumber?:string;displayName?:string};unverifiedWalkIn?:{localScanUuid?:string}}|null;
+      if(payload?.disposition==="discarded_permanent_conflict"){
+        await api.discardWalkInSync(scan.localScanUuid,organizerProfileId);
+        discarded++;
+        continue;
+      }
       if(payload?.unverifiedWalkIn?.localScanUuid===scan.localScanUuid){ await api.confirmWalkInSync(scan.localScanUuid); confirmed++; continue; }
-      if(!payload?.attendance?.id||payload.attendance.local_attendance_uuid!==scan.localScanUuid||!payload.student?.id||!payload.student.studentNumber){
+      if(payload?.disposition!=="confirmed_registered"||!payload.attendance?.id||payload.attendance.local_attendance_uuid!==scan.localScanUuid||!payload.student?.id||!payload.student.studentNumber){
         throw new Error("The server did not confirm this walk-in scan.");
       }
       await api.confirmWalkInSync(scan.localScanUuid,{
@@ -275,13 +375,15 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
       });
       confirmed++;
     }catch(error){
-      const status=syncFailureStatus(error);
-      if(status==="CONFLICT") syncMetrics.permanentFailures++; else syncMetrics.transientFailures++;
-      await api.failWalkInSync(scan.localScanUuid,status,safeSyncError(error));
+      // A walk-in is removed only when the server returned its explicit
+      // permanent-discard disposition. Transport and unexpected failures are
+      // always retained for retry rather than becoming a dead-end conflict.
+      syncMetrics.transientFailures++;
+      await api.failWalkInSync(scan.localScanUuid,"RETRY",safeWalkInSyncError(error));
       failed++;
     }
   }
-  return {confirmed,failed};
+  return {confirmed,failed,discarded};
 }
 
 export async function getOfflineSessionEndState(eventId:string,sessionId:string,organizerProfileId:string) {

@@ -1221,6 +1221,20 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     ];
     return created;
   },
+  async saveEventForecast(eventId, predictedTurnout, context) {
+    await beforeRead("eventManagement", context, ["organizer"]);
+    if (!Number.isFinite(predictedTurnout) || predictedTurnout < 0 || predictedTurnout > 100) {
+      throw new RepositoryError("The generated turnout forecast is outside the valid 0–100% range.", "VALIDATION_ERROR");
+    }
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) {
+      throw new RepositoryError("Organizers can only save forecasts for their own events.", "PERMISSION_DENIED");
+    }
+    const updated = { ...event, predictedTurnout: Math.round(predictedTurnout) };
+    eventState = eventState.map((entry) => (entry.id === eventId ? updated : entry));
+    return updated;
+  },
   async updateEventStatus(eventId, status: Extract<EventStatus, "approved" | "rejected">, reason, context) {
     await beforeRead("eventManagement", context, ["admin"]);
     if (status === "rejected" && !reason?.trim()) {
@@ -1586,7 +1600,7 @@ export const simulatedAttendanceRecordRepository: AttendanceRecordRepository = {
       lateReasonTaskCount: tasks.filter((task) => task.kind === "late_reason").length,
       feedbackTaskCount: tasks.filter((task) => task.kind === "feedback").length,
       rejectedCorrectionCount: rejectedCorrections.length,
-      pendingTaskCount: tasks.length + rejectedCorrections.length,
+      pendingTaskCount: tasks.length,
       tasks
     };
   },

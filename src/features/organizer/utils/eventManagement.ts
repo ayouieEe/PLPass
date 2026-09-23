@@ -73,6 +73,11 @@ export function hasValidEventSchedule(event: Pick<EventRecord, "date" | "startTi
   return Boolean(start && end && end.getTime() > start.getTime());
 }
 
+export function eventScheduleLabel(event: Pick<EventRecord, "startTime" | "endTime">) {
+  if (!event.startTime || !event.endTime) return "Schedule unavailable";
+  return `${event.startTime} – ${event.endTime}`;
+}
+
 export function shouldDisplayInEventTab(
   event: EventRecord,
   tab: "today" | "incoming",
