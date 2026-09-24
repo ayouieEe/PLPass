@@ -129,6 +129,21 @@ describe("OrganizerAuditLogsPage UI component tests", () => {
     });
   });
 
+  it("filters audit logs by actor role instead of a specific user", async () => {
+    storeSession(organizerSession);
+    setRoute("/organizer/audit-logs");
+    render(<App />);
+    const user = userEvent.setup();
+
+    const roleSelect = await screen.findByLabelText(/^role$/i);
+    await user.selectOptions(roleSelect, "organizer");
+
+    await waitFor(() => {
+      expect(screen.getByText("QR credential issued")).toBeInTheDocument();
+      expect(screen.queryByText("Event approved")).not.toBeInTheDocument();
+    });
+  });
+
   it("opens log details modal when 'View details' button is clicked", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/audit-logs");

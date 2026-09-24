@@ -10,16 +10,16 @@ describe("administrator creation contract", () => {
     expect(source).toContain("University admin");
     expect(source).toContain("Department admin");
     expect(source).toContain('adminRole: "admin"');
-    expect(source).toContain('form.adminRole !== "department_admin" ? <label');
-    expect(source).toContain('placeholder="e.g. Office of the Dean"');
+    expect(source).not.toContain('placeholder="e.g. Office of the Dean"');
   });
 
-  it("preserves the database office column while defaulting department-admin metadata safely", () => {
+  it("preserves the legacy database column without showing an office field during creation", () => {
     const worker = read("supabase/functions/manage-users/index.ts");
     expect(worker).toContain('role: adminRole');
     expect(worker).toContain('role: adminRole, employee_id: employeeNumber');
-    expect(worker).toContain('"Department Administration"');
-    expect(worker).toContain('adminRole === "admin" && !normalizedOfficeName');
+    expect(worker).toContain('"University Admin"');
+    expect(worker).toContain('"Department Admin"');
+    expect(worker).not.toContain('adminRole === "admin" && !normalizedOfficeName');
   });
 
   it("supplies the required employee identifier before creating staff profiles", () => {
@@ -45,6 +45,7 @@ describe("administrator creation contract", () => {
 
   it("supplies the required organization value from the selected department", () => {
     const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
-    expect(source).toContain('organizationName: department.code');
+    expect(source).toContain('const organizationName = departments.find((department) => department.id === departmentId)?.code;');
+    expect(source).toContain('departmentId, organizationName, email: generatedEmail');
   });
 });

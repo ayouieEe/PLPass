@@ -18,6 +18,7 @@ import type { Notification } from "@/types/domain";
 
 type StatusFilter = "all" | "unread";
 type CategoryFilter = "all" | NotificationCategory;
+type NotificationAction = { label: string; to: string; variant?: "default" | "destructive" };
 
 function hasRepositoryCode(error: Error | null, code: string) {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
@@ -37,21 +38,35 @@ function notificationPreview(value: string) {
   return singleLine.length > 150 ? `${singleLine.slice(0, 147).trimEnd()}…` : singleLine;
 }
 
-function notificationAction(notification: Notification, role?: string) {
+function trustedActionUrl(notification: Notification) {
   // Action URLs are written by trusted server-side notification producers. Only
   // accept an application-relative route so a notification cannot become an
   // external redirect.
   if (notification.actionUrl?.startsWith("/") && !notification.actionUrl.startsWith("//") && !notification.actionUrl.includes("\\")) {
-    return { label: "Open action", to: notification.actionUrl };
+    return notification.actionUrl;
+  }
+  return undefined;
+}
+
+function notificationActions(notification: Notification, role?: string): NotificationAction[] {
+  const actionUrl = trustedActionUrl(notification);
+  if (role === "organizer" && notification.code === "event.lifecycle.unstarted" && actionUrl) {
+    const separator = actionUrl.includes("?") ? "&" : "?";
+    return [
+      { label: "Reschedule", to: `${actionUrl}${separator}lifecycleAction=reschedule` },
+      { label: "Cancel event", to: `${actionUrl}${separator}lifecycleAction=cancel`, variant: "destructive" }
+    ];
   }
 
+  if (actionUrl) return [{ label: "Open action", to: actionUrl }];
+
   const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
-  if (role === "student" && code.includes("feedback")) return { label: "Complete feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` };
-  if (role === "student" && code.includes("late")) return { label: "Submit late reason", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` };
-  if (role === "student" && notification.type === "correction") return { label: "View request", to: APP_ROUTES.studentRequestHistory };
-  if (role === "student" && notification.type === "attendance") return { label: "Open attendance", to: APP_ROUTES.studentAttendance };
-  if (role === "organizer" && notification.type === "correction") return { label: "Review correction", to: APP_ROUTES.organizerCorrections };
-  return undefined;
+  if (role === "student" && code.includes("feedback")) return [{ label: "Complete feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
+  if (role === "student" && code.includes("late")) return [{ label: "Submit late reason", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
+  if (role === "student" && notification.type === "correction") return [{ label: "View request", to: APP_ROUTES.studentRequestHistory }];
+  if (role === "student" && notification.type === "attendance") return [{ label: "Open attendance", to: APP_ROUTES.studentAttendance }];
+  if (role === "organizer" && notification.type === "correction") return [{ label: "Review correction", to: APP_ROUTES.organizerCorrections }];
+  return [];
 }
 
 export function NotificationsPage() {
@@ -85,9 +100,7 @@ export function NotificationsPage() {
     setCategoryFilter("all");
   }
 
-  function openNotificationAction(notification: Notification) {
-    const action = notificationAction(notification, session?.role);
-    if (!action) return;
+  function openNotificationAction(notification: Notification, action: NotificationAction) {
     if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
     setSelectedNotification(null);
     navigate(action.to);
@@ -233,12 +246,12 @@ export function NotificationsPage() {
                 </div>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
-                  <div className="flex items-center gap-2">
-                    {selectedNotification.requiresAction && notificationAction(selectedNotification, session?.role) ? (
-                      <Button type="button" onClick={() => openNotificationAction(selectedNotification)}>
-                        {notificationAction(selectedNotification, session?.role)?.label}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedNotification.requiresAction ? notificationActions(selectedNotification, session?.role).map((action) => (
+                      <Button key={action.label} type="button" variant={action.variant} onClick={() => openNotificationAction(selectedNotification, action)}>
+                        {action.label}
                       </Button>
-                    ) : null}
+                    )) : null}
                     {selectedNotification.status === "unread" ? (
                       <Button type="button" variant="outline" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>Mark as read</Button>
                     ) : null}
@@ -259,7 +272,9 @@ export function NotificationsPage() {
         <ErrorState title="Unable to load notifications" message="The notification repository returned an error." />
       ) : null}
       <section className="space-y-3">
-        {items.map((notification) => (
+        {items.map((notification) => {
+          const actions = notification.requiresAction ? notificationActions(notification, session?.role) : [];
+          return (
           <article key={notification.id} className="rounded-xl border bg-surface p-4 shadow-sm transition hover:border-primary/40 hover:shadow-md">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div
@@ -285,18 +300,26 @@ export function NotificationsPage() {
                 <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{notificationPreview(notification.body)}</p>
                 <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(notification.createdAt, "Date unavailable")}</p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={notification.status === "read"}
-                onClick={() => notifications.markReadMutation.mutate(notification.id)}
-              >
-                Mark read
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {actions.map((action) => (
+                  <Button key={action.label} type="button" size="sm" variant={action.variant} onClick={() => openNotificationAction(notification, action)}>
+                    {action.label}
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={notification.status === "read"}
+                  onClick={() => notifications.markReadMutation.mutate(notification.id)}
+                >
+                  Mark read
+                </Button>
+              </div>
             </div>
           </article>
-        ))}
+          );
+        })}
       </section>
     </div>
   );

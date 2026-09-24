@@ -10,7 +10,6 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { createVisibleInterval, createVisibleTabLease } from "@/lib/browser/visibilityControls";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { extractStudentNumber, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -23,7 +22,7 @@ import { useHeader } from "@/app/providers/HeaderContext";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayTime, formatLocalTime, manilaDateTimeToIso } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -721,8 +720,7 @@ export function EventManagementPage() {
   const autoPreparedOfflineEventIdsRef = useRef(new Set<string>());
   const [attendanceDraftReadySessionId, setAttendanceDraftReadySessionId] = useState<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
-  const notifiedEventCodesRef = useRef(new Set<string>());
-  const autoCancelledEventIdsRef = useRef(new Set<string>());
+  const promptedLifecycleEventIdsRef = useRef(new Set<string>());
 
   const { session, isOfflineMode } = useDevelopmentSession();
   const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined);
@@ -797,6 +795,10 @@ export function EventManagementPage() {
   // expected failure used to win the render race and hide the local session.
   const eventsQuery = useEvents({ pageSize: 100 }, context, !isOfflineMode);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context, !isOfflineMode);
+  const lifecycleNotificationsQuery = useNotifications(
+    { pageSize: 100, notificationCode: "event.lifecycle.unstarted" },
+    isOfflineMode ? undefined : context
+  );
   const sessionsList = useMemo(() => attendanceSessionsQuery.data?.items ?? [], [attendanceSessionsQuery.data?.items]);
   const activeAttendanceSession = useMemo(
     () =>
@@ -828,48 +830,19 @@ export function EventManagementPage() {
   const credentialStatusesQuery = useStudentCredentialStatuses(context, credentialStudentIds);
 
   useEffect(() => {
-    const checkUnstartedEvents = () => {
-      if (!canManageOwnedEvents) return;
-      if (attendanceSessionsQuery.isLoading) return;
-      const events = eventsQuery.data?.items ?? [];
-      const today = dateKey(new Date());
-      const startedEventIds = new Set(sessionsList.filter((session) => session.eventId).map((session) => session.eventId));
-
-      events.forEach((event) => {
-        if (!event.id || event.status === "completed" || event.status === "cancelled" || startedEventIds.has(event.id)) return;
-        const eventDate = dateKey(event.startsAt);
-        if (eventDate < today && !autoCancelledEventIdsRef.current.has(event.id)) {
-          autoCancelledEventIdsRef.current.add(event.id);
-          void cancelEventMutation.mutateAsync({
-            eventId: event.id,
-            reason: "Automatically cancelled because it was not started, rescheduled, or cancelled within its scheduled day."
-          }).then(() => {
-            toast.warning(`${event.code} was automatically cancelled and moved to Cancelled events.`);
-          }).catch(() => {
-            autoCancelledEventIdsRef.current.delete(event.id);
-          });
-          return;
-        }
-
-        if (eventDate === today && Date.now() >= new Date(event.startsAt).getTime() && !notifiedEventCodesRef.current.has(event.code)) {
-          notifiedEventCodesRef.current.add(event.code);
-          setEventAttention(eventRecordFromRepository(event));
-          toast.warning(`${event.code} has not been started. Choose whether to reschedule or cancel it.`);
-        }
-      });
-    };
-
-    const lease = createVisibleTabLease("event-management-unstarted-check", (isLeader) => {
-      if (isLeader) checkUnstartedEvents();
+    if (!canManageOwnedEvents || attendanceSessionsQuery.isLoading || lifecycleNotificationsQuery.isLoading) return;
+    const eventsById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
+    const attentionNotification = (lifecycleNotificationsQuery.data?.items ?? []).find((notification) => {
+      const event = notification.referenceId ? eventsById.get(notification.referenceId) : undefined;
+      if (!event || event.status === "completed" || event.status === "cancelled" || promptedLifecycleEventIdsRef.current.has(event.id)) return false;
+      return !sessionsList.some((session) => session.eventId === event.id && !["scheduled", "cancelled"].includes(session.status));
     });
-    const removeInterval = createVisibleInterval(() => {
-      if (lease.isLeader()) checkUnstartedEvents();
-    }, 60_000);
-    return () => {
-      removeInterval();
-      lease.dispose();
-    };
-  }, [attendanceSessionsQuery.isLoading, cancelEventMutation, eventsQuery.data?.items, canManageOwnedEvents, sessionsList]);
+    if (!attentionNotification?.referenceId) return;
+    const event = eventsById.get(attentionNotification.referenceId);
+    if (!event) return;
+    promptedLifecycleEventIdsRef.current.add(event.id);
+    setEventAttention(eventRecordFromRepository(event));
+  }, [attendanceSessionsQuery.isLoading, canManageOwnedEvents, eventsQuery.data?.items, lifecycleNotificationsQuery.data?.items, lifecycleNotificationsQuery.isLoading, sessionsList]);
   // A newly started live session stays local until End Session. Only reuse an
   // already persisted ongoing session when opening the separate verification view.
   const resolvedLiveSessionId = useMemo(

@@ -10,6 +10,12 @@ const organizerTwo = { actorUserId: "user-organizer-2", actorRole: "organizer" a
 beforeEach(() => resetSimulatedRepositoryState());
 
 describe("branding ownership", () => {
+  it("resolves an organizer's branding from their department", async () => {
+    await expect(simulatedUserManagementRepository.getOrganizerBranding("organizer-1", organizerOne)).resolves.toMatchObject({
+      collegeName: "College of Computer Studies"
+    });
+  });
+
   it("rejects organizer branding edits", async () => {
     await expect(simulatedUserManagementRepository.updateOrganizerBranding({
       organizerId: "organizer-1",

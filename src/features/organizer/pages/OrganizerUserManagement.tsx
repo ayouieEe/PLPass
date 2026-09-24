@@ -1,6 +1,8 @@
+/* Legacy account-modal variants remain isolated below while their supported replacements are in use. */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useMemo, useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "react-router-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import {
   BadgeCheck,
@@ -11,11 +13,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
-  GraduationCap,
-  History,
   IdCard,
-  Layers,
-  Mail,
   type LucideIcon,
   Search,
   ShieldCheck,
@@ -33,14 +31,13 @@ import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus } from "@/lib/credentials/status";
+import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
   useOrganizerProfiles,
   useEvents,
   useUsers,
-  useStudentCredentialMutations,
   useStudentCredentialStatuses,
   useStudents,
   useAuditLogMutations,
@@ -75,7 +72,7 @@ function useOrganizerScope() {
 }
 
 type StudentStatus = "Active" | "Deactivated";
-type CredentialStatus = CredentialDisplayStatus;
+type CredentialStatus = CredentialDisplayStatus | FacialCredentialDisplayStatus;
 const studentNameExtensions = ["Jr.", "Sr.", "II", "III", "IV", "V"] as const;
 const emptyStudentForm: CreateStudentInput = {
   studentNumber: "",
@@ -89,14 +86,6 @@ const emptyStudentForm: CreateStudentInput = {
   sectionId: "",
   yearLevel: 1
 };
-type ParticipationRecord = {
-  eventCode: string;
-  eventTitle: string;
-  date: string;
-  status: "Present" | "Late" | "Absent";
-  method: "QR" | "Facial" | "Manual";
-};
-
 type StudentAccount = {
   id: string;
   userId: string;
@@ -111,8 +100,7 @@ type StudentAccount = {
   attendanceRate: number | null;
   eventsJoined: number;
   qrStatus: CredentialStatus;
-  facialStatus: "Active" | "Deactivated";
-  participationHistory: ParticipationRecord[];
+  facialStatus: FacialCredentialDisplayStatus;
 };
 type OrganizerDirectoryRow = {
   id: string;
@@ -137,25 +125,17 @@ function nextEmployeeId(items: Array<{ employeeNumber: string }>, prefix: "O" | 
   }, 0);
   return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
 }
-function formatDate(date: string) {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric"
-  }).format(new Date(`${date}T00:00:00`));
-}
-
-function statusClass(status: StudentStatus | CredentialStatus | ParticipationRecord["status"]) {
-  if (status === "Active" || status === "Present") {
+function statusClass(status: StudentStatus | CredentialStatus) {
+  if (status === "Active") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
-  if (status === "Late" || status === "Pending") {
+  if (status === "Pending") {
     return "border-amber-200 bg-amber-50 text-amber-700";
   }
   return "border-red-200 bg-red-50 text-red-700";
 }
 
-function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | ParticipationRecord["status"] }) {
+function StatusBadge({ value }: { value: StudentStatus | CredentialStatus }) {
   return (
     <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${statusClass(value)}`}>
       {value}
@@ -192,39 +172,6 @@ function MetricCard({
 function NameExtensionSelect({ value, onChange, id }: { value?: string; onChange: (value: string) => void; id: string }) {
   return <label className="text-sm font-medium" htmlFor={id}>Extension Name (Optional)<select id={id} className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={value ?? ""} onChange={(event) => onChange(event.target.value)}><option value="">No extension</option>{studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}</select></label>;
 }
-function ExportButton({ icon: Icon, label, onClick }: { icon: LucideIcon; label: string; onClick?: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex h-9 min-w-20 items-center justify-center gap-2 rounded-md border bg-background px-3 text-sm font-semibold text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-    >
-      <Icon className="h-4 w-4" aria-hidden="true" />
-      {label}
-    </button>
-  );
-}
-
-function ReportExportGroup({
-  title,
-  description,
-  children
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
-      <div className="min-w-0">
-        <p className="font-medium text-foreground">{title}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      </div>
-      <div className="flex flex-none gap-2">{children}</div>
-    </div>
-  );
-}
-
 function DetailTile({
   label,
   children
@@ -378,44 +325,6 @@ function StudentDetailModal({
                 </div>
               </section>
 
-              <section className="rounded-lg border bg-background p-4">
-                <div className="flex items-center gap-2">
-                  <History className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
-                  <h3 className="font-semibold text-foreground">Full Participation History</h3>
-                </div>
-                {student.participationHistory.length ? (
-                  <div className="mt-4 overflow-hidden rounded-xl border bg-surface">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Event</th>
-                          <th className="px-3 py-2 font-medium">Date</th>
-                          <th className="px-3 py-2 font-medium">Method</th>
-                          <th className="px-3 py-2 text-right font-medium">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {student.participationHistory.map((record) => (
-                          <tr key={`${record.eventCode}-${record.date}`}>
-                            <td className="px-3 py-3">
-                              <p className="font-medium text-foreground">{record.eventCode}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{record.eventTitle}</p>
-                            </td>
-                            <td className="px-3 py-3 text-muted-foreground">{formatDate(record.date)}</td>
-                            <td className="px-3 py-3"><span className="rounded-md border bg-background px-2 py-1 text-xs font-medium text-muted-foreground">{record.method}</span></td>
-                            <td className="px-3 py-3 text-right"><StatusBadge value={record.status} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="mt-4 flex min-h-28 items-center gap-3 rounded-xl border border-dashed bg-surface px-4 text-sm text-muted-foreground">
-                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><History className="h-4 w-4" aria-hidden="true" /></span>
-                    <div><p className="font-medium text-foreground">No participation history yet</p><p className="mt-0.5">Attendance from completed events will appear here.</p></div>
-                  </div>
-                )}
-              </section>
             </div>
 
             <div className="space-y-4">
@@ -1108,13 +1017,13 @@ function OrganizerDirectoryConsistent({ organizers, users, events, departments, 
   const normalizedQuery = query.trim().toLowerCase();
   const rows = organizers.filter((organizer) => {
     const user = users.find((item) => item.id === organizer.userId);
-    return !normalizedQuery || `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.organizationName} ${organizer.position}`.toLowerCase().includes(normalizedQuery);
+    return !normalizedQuery || `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.position}`.toLowerCase().includes(normalizedQuery);
   });
   const exportRows = rows.map((organizer) => {
     const user = users.find((item) => item.id === organizer.userId);
-    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, Department: departments.find((department) => department.id === organizer.departmentId)?.code ?? "—", "Organization / unit": organizer.organizationName, Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
+    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, Department: departments.find((department) => department.id === organizer.departmentId)?.code ?? "—", Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
   });
-  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, organization..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Organization / unit", field: "organizationName", minWidth: 200, flex: 1 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
+  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, or position..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
 }
 
 function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, canRevokeSessions, onRevokeSessions, onResendInvitation }: { isOpen: boolean; onClose: () => void; admin: AdminProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateAdminAccountMutation>; canRevokeSessions: boolean; onRevokeSessions: (userId: string, displayName: string) => void; onResendInvitation: (userId: string, displayName: string) => Promise<void> }) {
@@ -1128,7 +1037,7 @@ function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, c
     const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
     const firstName = parts.shift() ?? "";
     const lastName = parts.pop() ?? "";
-    const next = { id: admin.id, profileId: admin.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as typeof emptyForm.nameExtension, employeeNumber: admin.employeeNumber, departmentId: admin.departmentId, officeName: admin.officeName, accountStatus: user.isActive ? "active" as const : "inactive" as const };
+    const next = { id: admin.id, profileId: admin.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as typeof emptyForm.nameExtension, employeeNumber: admin.employeeNumber, departmentId: admin.departmentId, officeName: user.role === "department_admin" && admin.officeName === "Department Administration" ? "Department Administrator" : admin.officeName, accountStatus: user.isActive ? "active" as const : "inactive" as const };
     setForm(next); setInitialForm(next);
   }, [admin, emptyForm, isOpen, user]);
   if (!isOpen || !admin || !user) return null;
@@ -1136,7 +1045,7 @@ function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, c
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value) }));
   const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
-  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-admin-title" className="account-edit-dialog w-full max-w-5xl overflow-hidden rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 id="edit-admin-title" className="text-2xl font-semibold">Edit admin</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">Office / unit<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium">Department<select required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
+  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-admin-title" className="account-edit-dialog w-full max-w-5xl overflow-hidden rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 id="edit-admin-title" className="text-2xl font-semibold">Edit admin</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">{user.role === "department_admin" ? "Position" : "Office / unit"}<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium">Department<select required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
 }
 
 function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
@@ -1157,7 +1066,6 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
           <label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label>
           <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Admin ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
-          {form.adminRole !== "department_admin" ? <label className="text-sm font-medium">Office / unit<input required placeholder="e.g. Office of the Dean" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label> : null}
           <label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>
           <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">The address is generated from the name and a secure invitation is sent to it.</p>
           <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div>
@@ -1186,18 +1094,15 @@ function AddOrganizerModalLegacy({ isOpen, onClose, mutation, departments, gener
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Add organizer</h2></div><button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted" aria-label="Close add organizer dialog"><X className="h-5 w-5" /></button></div><form onSubmit={(event) => void submit(event)} className="grid gap-4 p-6 sm:grid-cols-2"><label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><label className="text-sm font-medium">Employee ID<input readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /><span className="mt-1 block text-xs font-normal text-muted-foreground">Assigned automatically when the account is created.</span></label><label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">College / department<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.organizationName} onChange={(event) => update("organizationName", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">A secure invitation will be sent to the organizer's email. The employee ID is only an identifier, never a password.</p><div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div></form></div></div>, document.body);
 }
 
+type OrganizerCreationForm = Omit<CreateOrganizerInput, "email" | "employeeNumber" | "organizationName">;
+
 function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId, fixedDepartmentId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string; fixedDepartmentId?: string }) {
-  const [form, setForm] = useState<CreateOrganizerInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", organizationName: "", position: "Organizer" });
-  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId, departmentId: fixedDepartmentId ?? current.departmentId })); }, [fixedDepartmentId, generatedEmployeeId, isOpen]);
-  useEffect(() => {
-    if (!isOpen || form.organizationName.trim() || !form.departmentId) return;
-    const department = departments.find((item) => item.id === form.departmentId);
-    if (department) setForm((current) => ({ ...current, organizationName: department.code }));
-  }, [departments, form.departmentId, form.organizationName, isOpen]);
+  const [form, setForm] = useState<OrganizerCreationForm>({ firstName: "", middleName: "", lastName: "", nameExtension: undefined, departmentId: "", position: "Organizer" });
+  useEffect(() => { if (isOpen) setForm((current) => ({ ...current, departmentId: fixedDepartmentId ?? current.departmentId })); }, [fixedDepartmentId, isOpen]);
   if (!isOpen) return null;
-  const update = <Key extends keyof CreateOrganizerInput>(key: Key, value: CreateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
+  const update = <Key extends keyof OrganizerCreationForm>(key: Key, value: OrganizerCreationForm[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
   const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName);
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync({ ...form, email: generatedEmail, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation presents the safe error */ } };
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) return; try { await mutation.mutateAsync({ ...form, departmentId, organizationName, email: generatedEmail, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation presents the safe error */ } };
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
@@ -1209,7 +1114,7 @@ function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEm
           <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Employee ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
           <label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label>
-          {fixedDepartmentId ? <label className="text-sm font-medium">Department<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /></label> : <label className="text-sm font-medium">Department<select className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>}
+          {fixedDepartmentId ? <label className="text-sm font-medium">Department<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /></label> : <label className="text-sm font-medium">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>}
           <p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">The address is generated from the name and a secure invitation is sent to it.</p>
           <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div>
         </form>
@@ -1266,8 +1171,8 @@ function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mut
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
   const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
-  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-organizer-title" className="account-edit-dialog w-full max-w-5xl rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 id="edit-organizer-title" className="text-2xl font-semibold">Edit organizer</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">College / department<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.organizationName} onChange={(event) => update("organizationName", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Employment status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync({ ...form, organizationName: organizer.organizationName }); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-organizer-title" className="account-edit-dialog w-full max-w-5xl rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 id="edit-organizer-title" className="text-2xl font-semibold">Edit organizer</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Employment status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
 }
 
 function BulkAddOrganizerModalLegacy({ isOpen, onClose, mutation }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useBulkOrganizerAccountMutation> }) {
@@ -1753,9 +1658,16 @@ export function OrganizerUserManagementPage() {
   const isDepartmentAdmin = session?.role === "department_admin";
   const studentsQuery = useStudents({ pageSize: 100 }, scope.context, true);
   const academicCatalog = useAcademicCatalog({ pageSize: 100 }, scope.context, true);
-  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
-  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, undefined, !isDepartmentAdmin);
-  const credentialMutations = useStudentCredentialMutations(scope.context);
+  const departmentStudentIds = useMemo(
+    () => isDepartmentAdmin
+      ? (studentsQuery.data?.items ?? [])
+          .filter((student) => student.departmentId === session?.departmentId)
+          .map((student) => student.id)
+      : undefined,
+    [isDepartmentAdmin, session?.departmentId, studentsQuery.data?.items]
+  );
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, departmentStudentIds);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentMutations = useStudentMutations(scope.context);
   const organizerMutation = useOrganizerAccountMutation(scope.context);
@@ -1767,12 +1679,16 @@ export function OrganizerUserManagementPage() {
   const usersQuery = useUsers({ pageSize: 100 }, scope.context);
   const adminProfilesQuery = useAdminProfiles({ pageSize: 100 }, scope.context, !isDepartmentAdmin);
   const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
+  const [searchParams] = useSearchParams();
 
   const [query, setQuery] = useState("");
   const [programFilter, setProgramFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [activeTab, setActiveTab] = useState<"students" | "organizers" | "admins">("students");
+  const [activeTab, setActiveTab] = useState<"students" | "organizers" | "admins">(() => {
+    const requestedTab = searchParams.get("tab");
+    return requestedTab === "organizers" || (!isDepartmentAdmin && requestedTab === "admins") ? requestedTab : "students";
+  });
   const [isAddOrganizerModalOpen, setIsAddOrganizerModalOpen] = useState(false);
   const [isBulkOrganizerModalOpen, setIsBulkOrganizerModalOpen] = useState(false);
   const [isAddAdminModalOpen, setIsAddAdminModalOpen] = useState(false);
@@ -1786,6 +1702,13 @@ export function OrganizerUserManagementPage() {
   useEffect(() => {
     if (isDepartmentAdmin && activeTab === "admins") setActiveTab("students");
   }, [isDepartmentAdmin, activeTab]);
+
+  useEffect(() => {
+    const requestedTab = searchParams.get("tab");
+    if (requestedTab === "students" || requestedTab === "organizers" || (!isDepartmentAdmin && requestedTab === "admins")) {
+      setActiveTab(requestedTab);
+    }
+  }, [isDepartmentAdmin, searchParams]);
 
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState(false);
@@ -1805,7 +1728,6 @@ export function OrganizerUserManagementPage() {
   const canCreateStudent = session ? hasCapability(session.role, isDepartmentAdmin ? "users.create.student.department" : "users.create.student") : false;
   const canUpdateStudent = session ? hasCapability(session.role, isDepartmentAdmin ? "users.update.student.department" : "users.update.student") : false;
   const canCreateAdmin = session ? hasCapability(session.role, "users.create.admin") : false;
-  const canManageUserStatus = session ? hasCapability(session.role, isDepartmentAdmin ? "users.status.manage.department" : "users.status.manage") : false;
   const canManageStudentStatus = session ? hasCapability(session.role, isDepartmentAdmin ? "users.status.manage.student.department" : "users.status.manage.student") : false;
   const canRevokeSessions = session ? hasCapability(session.role, isDepartmentAdmin ? "users.sessions.revoke.department" : "users.sessions.revoke") : false;
   const canRevokeStudentSessions = session ? hasCapability(session.role, isDepartmentAdmin ? "users.sessions.revoke.student.department" : "users.sessions.revoke.student") : false;
@@ -1865,8 +1787,7 @@ export function OrganizerUserManagementPage() {
         attendanceRate: rate,
         eventsJoined: attendedCount,
         qrStatus: getQrCredentialDisplayStatus(qrCredential),
-        facialStatus: getFacialCredentialDisplayStatus(facialProfile),
-        participationHistory: []
+        facialStatus: getFacialCredentialDisplayStatus(facialProfile)
       };
     });
 
@@ -1903,24 +1824,6 @@ export function OrganizerUserManagementPage() {
   const sections = useMemo(() => Array.from(new Set(studentAccounts.map((student) => student.section))), [studentAccounts]);
   const studentsWithRate = studentAccounts.filter((s) => s.attendanceRate !== null);
   const averageAttendance = studentsWithRate.length ? Math.round(studentsWithRate.reduce((sum, student) => sum + (student.attendanceRate ?? 0), 0) / studentsWithRate.length) : 0;
-
-  async function regenerateQrCredential(studentId: string) {
-    try {
-      await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId });
-      toast.success("QR credential issued in Supabase.");
-    } catch {
-      // The repository mutation reports the backend error; never simulate success locally.
-    }
-  }
-
-  async function markFacialReady(studentId: string) {
-    try {
-      await credentialMutations.setCredentialStatusMutation.mutateAsync({ studentId, credentialType: "facial", status: "activated" });
-      toast.success("Facial credential activated in Supabase.");
-    } catch {
-      // The repository mutation reports the backend error; never simulate success locally.
-    }
-  }
 
   async function toggleStudentAccountStatus(studentId: string, nextStatus: "active" | "inactive") {
     const student = studentsQuery.data?.items?.find((item) => item.id === studentId);

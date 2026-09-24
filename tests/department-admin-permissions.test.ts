@@ -73,6 +73,17 @@ describe("department-admin permission contract", () => {
     expect(read("src/features/department/pages/DepartmentWorkspacePages.tsx")).toContain("return <AuthenticationMethodsPage />;");
   });
 
+  it("loads only visible department students' attendance and credential summaries", () => {
+    const page = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
+
+    expect(page).toContain("const departmentStudentIds = useMemo(");
+    expect(page).toContain("student.departmentId === session?.departmentId");
+    expect(page).toContain("useAttendanceRecords({ pageSize: 100 }, scope.context)");
+    expect(page).toContain("useStudentCredentialStatuses(scope.context, departmentStudentIds)");
+    expect(page).not.toContain("useAttendanceRecords({ pageSize: 100 }, scope.context, !isDepartmentAdmin)");
+    expect(page).not.toContain("useStudentCredentialStatuses(scope.context, undefined, !isDepartmentAdmin)");
+  });
+
   it("blocks production releases when linked Supabase migration history is missing or drifted", () => {
     const preflight = read("scripts/release-preflight.mjs");
     expect(preflight).toContain('checkLinkedSupabaseReadiness(productionProjectRef)');

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { AuditLog } from "@/types/domain";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import {
@@ -31,6 +32,9 @@ import {
   type AuditLogFilters
 } from "../utils/auditLogUtils";
 
+const AUDIT_ACTOR_ROLE_OPTIONS = ["admin", "department_admin", "organizer", "student"];
+const DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS = ["department_admin", "organizer", "student"];
+
 export function OrganizerAuditLogsPage() {
   const { session } = useDevelopmentSession();
 
@@ -39,7 +43,7 @@ export function OrganizerAuditLogsPage() {
   const [datePreset, setDatePreset] = useState<AuditLogFilters["datePreset"]>("all");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
-  const [actorUserId, setActorUserId] = useState("all");
+  const [actorRole, setActorRole] = useState("all");
   const [actionCategory, setActionCategory] = useState<AuditLogFilters["actionCategory"]>("all");
 
   // Selected Log for Details Modal
@@ -67,11 +71,6 @@ export function OrganizerAuditLogsPage() {
     [auditLogsQuery.data?.items]
   );
 
-  const actorOptions = useMemo(
-    () => [...new Set(rawLogs.map((log) => log.actorUserId).filter(Boolean))],
-    [rawLogs]
-  );
-
   // Entity queries for target resolution
   const studentsQuery = useStudents({ pageSize: 200 }, context);
   const eventsQuery = useEvents({ pageSize: 200 }, context);
@@ -80,6 +79,40 @@ export function OrganizerAuditLogsPage() {
   const organizersQuery = useOrganizerProfiles({ pageSize: 200 }, context);
   const adminsQuery = useAdminProfiles({ pageSize: 200 }, context);
   const catalog = useAcademicCatalog({ pageSize: 200 }, context);
+  const [actorAvatarUrls, setActorAvatarUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const usersWithAvatars = (usersQuery.data?.items ?? []).filter(
+      (user): user is typeof user & { avatarUrl: string } => Boolean(user.avatarUrl)
+    );
+    let cancelled = false;
+
+    if (!usersWithAvatars.length) {
+      setActorAvatarUrls({});
+      return;
+    }
+
+    void Promise.all(usersWithAvatars.map(async (user) => {
+      const { avatarUrl } = user;
+      if (!avatarUrl.startsWith("profile-avatars:")) return [user.id, avatarUrl] as const;
+
+      const { data, error } = await getSupabaseBrowserClient()
+        .storage
+        .from("profile-avatars")
+        .createSignedUrl(avatarUrl.slice("profile-avatars:".length), 3600);
+      return error ? undefined : [user.id, data.signedUrl] as const;
+    })).then((avatars) => {
+      if (!cancelled) {
+        setActorAvatarUrls(Object.fromEntries(avatars.filter((avatar): avatar is readonly [string, string] => Boolean(avatar))));
+      }
+    }).catch(() => {
+      if (!cancelled) setActorAvatarUrls({});
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [usersQuery.data?.items]);
 
   const lookups = useMemo(
     () => ({
@@ -104,10 +137,10 @@ export function OrganizerAuditLogsPage() {
       datePreset,
       customStartDate,
       customEndDate,
-      actorUserId,
+      actorRole,
       actionCategory
     }),
-    [search, datePreset, customStartDate, customEndDate, actorUserId, actionCategory]
+    [search, datePreset, customStartDate, customEndDate, actorRole, actionCategory]
   );
 
   const filteredLogs = useMemo(
@@ -119,7 +152,7 @@ export function OrganizerAuditLogsPage() {
     Boolean(search) ||
     datePreset !== "all" ||
     Boolean(customStartDate || customEndDate) ||
-    actorUserId !== "all" ||
+    actorRole !== "all" ||
     actionCategory !== "all";
 
   function handleClearFilters() {
@@ -127,7 +160,7 @@ export function OrganizerAuditLogsPage() {
     setDatePreset("all");
     setCustomStartDate("");
     setCustomEndDate("");
-    setActorUserId("all");
+    setActorRole("all");
     setActionCategory("all");
   }
 
@@ -154,6 +187,19 @@ export function OrganizerAuditLogsPage() {
   }
 
   function getActorInfo(userId: string) {
+    const user = usersQuery.data?.items.find((candidate) => candidate.id === userId);
+    if (user) {
+      const organizer = organizersQuery.data?.items.find((candidate) => candidate.userId === userId);
+      const admin = adminsQuery.data?.items.find((candidate) => candidate.userId === userId);
+      const student = studentsQuery.data?.items.find((candidate) => candidate.userId === userId);
+      return {
+        name: user.displayName,
+        role: user.role,
+        identifier: organizer?.employeeNumber ?? admin?.employeeNumber ?? student?.studentNumber,
+        email: user.email,
+        avatarUrl: actorAvatarUrls[userId]
+      };
+    }
     const log = rawLogs.find((entry) => entry.actorUserId === userId && entry.actorDisplayName);
     if (log?.actorDisplayName) {
       return {
@@ -167,6 +213,30 @@ export function OrganizerAuditLogsPage() {
     return { name: "Deleted account", role: "User", identifier: userId ? `ID ${userId.slice(0, 8)}` : undefined };
   }
 
+  const actorRoleOptions = useMemo(
+    () => {
+      if (isDepartmentAdmin) return DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS;
+
+      const rolesInHistory = rawLogs.map((log) => {
+        const currentRole = usersQuery.data?.items.find((user) => user.id === log.actorUserId)?.role;
+        return (currentRole ?? log.actorRole ?? "").toLowerCase();
+      }).filter(Boolean);
+      return [...AUDIT_ACTOR_ROLE_OPTIONS, ...rolesInHistory.filter((role) => !AUDIT_ACTOR_ROLE_OPTIONS.includes(role))];
+    },
+    [isDepartmentAdmin, rawLogs, usersQuery.data?.items]
+  );
+
+  useEffect(() => {
+    if (isDepartmentAdmin && !DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS.includes(actorRole) && actorRole !== "all") {
+      setActorRole("all");
+    }
+  }, [actorRole, isDepartmentAdmin]);
+
+  function formatRole(role: string) {
+    if (role === "admin") return "University Admin";
+    return role.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
   async function exportAuditLogs(format: "xlsx" | "pdf" = "xlsx") {
     await exportTabularReport(
       `Audit Logs ${format.toUpperCase()}`,
@@ -178,7 +248,7 @@ export function OrganizerAuditLogsPage() {
           "Action": formatAuditAction(log.action),
           "Action Code": log.action,
           "User": actor.name,
-          "User Role": actor.role,
+          "User Role": formatRole(actor.role),
           "Target Name": target.name,
           "Target Category": target.badge,
           "Target Reference": target.reference ?? "—",
@@ -215,11 +285,13 @@ export function OrganizerAuditLogsPage() {
         return (
           <div className="flex items-center gap-2.5 h-full">
             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0 border border-primary/20 shadow-xs">
-              {initials}
+              {actor.avatarUrl ? (
+                <img src={actor.avatarUrl} alt={`${actor.name}'s profile`} className="h-full w-full rounded-full object-cover" />
+              ) : initials}
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <span className="truncate whitespace-nowrap text-sm font-semibold text-foreground">{actor.name}</span>
-              <span className="text-xs capitalize leading-tight text-muted-foreground">{actor.role}{actor.identifier ? ` · ${actor.identifier}` : ""}</span>
+              <span className="text-xs leading-tight text-muted-foreground">{formatRole(actor.role)}{actor.identifier ? ` · ${actor.identifier}` : ""}</span>
             </div>
           </div>
         );
@@ -337,21 +409,21 @@ export function OrganizerAuditLogsPage() {
               </select>
             </div>
 
-            {/* Performer User Filter */}
+            {/* Performer Role Filter */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="audit-filter-user" className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+              <label htmlFor="audit-filter-role" className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
                 <UserIcon className="h-3 w-3" />
-                User / Performer
+                Role
               </label>
               <select
-                id="audit-filter-user"
+                id="audit-filter-role"
                 className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={actorUserId}
-                onChange={(e) => setActorUserId(e.target.value)}
+                value={actorRole}
+                onChange={(e) => setActorRole(e.target.value)}
               >
-                <option value="all">All Users</option>
-                {actorOptions.map((actorId) => (
-                  <option key={actorId} value={actorId}>{getActorInfo(actorId).name}</option>
+                <option value="all">All Roles</option>
+                {actorRoleOptions.map((role) => (
+                  <option key={role} value={role}>{formatRole(role)}</option>
                 ))}
               </select>
             </div>
@@ -481,7 +553,7 @@ export function OrganizerAuditLogsPage() {
                     </h3>
                     <div className="space-y-1 text-xs">
                       <div><strong className="text-muted-foreground">User:</strong> <span className="font-medium text-foreground">{actor.name}</span></div>
-                      <div><strong className="text-muted-foreground">Role:</strong> <span className="font-medium text-foreground capitalize">{actor.role}</span></div>
+                      <div><strong className="text-muted-foreground">Role:</strong> <span className="font-medium text-foreground">{formatRole(actor.role)}</span></div>
                       {actor.identifier ? <div><strong className="text-muted-foreground">ID:</strong> <span className="font-medium text-foreground">{actor.identifier}</span></div> : null}
                       {actor.email ? <div><strong className="text-muted-foreground">Email:</strong> <span className="font-medium text-foreground">{actor.email}</span></div> : null}
                     </div>
