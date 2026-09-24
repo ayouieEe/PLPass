@@ -87,6 +87,8 @@ export type PendingAttendanceRecord = LocalAttendanceInput & {
 };
 
 export type PendingWalkInScan = {
+  /** Result of this submission; repeated Time In/Out scans are idempotent. */
+  action?: "checked_in" | "checked_out" | "already_recorded";
   localScanUuid: string;
   eventId: string;
   sessionId: string;

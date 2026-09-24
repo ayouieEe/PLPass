@@ -999,17 +999,30 @@ export function useAuditLogs(query?: Partial<ListQuery>, context?: RepositoryCon
 
 export function useAuditLogMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
+  const mutationFn = (input: { action: string; targetType: string; targetId?: string; metadata?: Record<string, unknown> }) =>
+    repositories.auditLogs.logClientAction(input, context);
 
   return {
     logActionMutation: useMutation({
-      mutationFn: (input: { action: string; targetType: string; targetId?: string; metadata?: Record<string, unknown> }) =>
-        repositories.auditLogs.logClientAction(input, context),
+      mutationFn,
       onSuccess: async () => {
         await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
       },
       onError: (error: unknown) => {
         console.error("Failed to log client action:", error);
         toast.error("Failed to log client action: " + getErrorMessage(error));
+      }
+    }),
+    // Export is already complete once the file is downloaded. Keep the audit
+    // attempt, but do not turn an authorization/availability issue in the
+    // optional audit trail into a false export failure toast.
+    logExportActionMutation: useMutation({
+      mutationFn,
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
+      },
+      onError: (error: unknown) => {
+        console.error("Failed to log export action:", error);
       }
     })
   };

@@ -7,7 +7,7 @@ import type { RepositoryContext } from "@/services/repositoryUtils";
 export type ReportExportScope = { type: "event"; eventId: string } | { type: "organizer"; organizerId: string } | { type: "global" };
 export type ReportExportRow = Record<string, string | number | boolean | null | undefined>;
 export type ReportExportColumn = { key: string; header: string; width?: number };
-export type ReportExportSection = { name: string; rows: ReportExportRow[]; columns?: ReportExportColumn[] };
+export type ReportExportSection = { name: string; rows: ReportExportRow[]; columns?: ReportExportColumn[]; header?: string };
 export type ReportFilterSummary = Record<string, string | number | boolean | null | undefined>;
 export type ReportFilterState = ReportFilterSummary & { search?: string; eventId?: string; schoolYear?: string; dateFrom?: string; dateTo?: string };
 
@@ -50,6 +50,8 @@ export type ReportExportOptions = {
   summaryCards?: ReportSummaryCard[];
   insightsNarrative?: ReportInsightsNarrative;
   charts?: ReportChartItem[];
+  /** Render each section title above its table, including when there is only one section. */
+  showSectionHeaders?: boolean;
 };
 
 export type ExportBranding = { plpLogoUrl: string; collegeName?: string; collegeLogoUrl?: string; systemName: string };
@@ -530,12 +532,13 @@ export async function exportReportPdf(options: ReportExportOptions) {
       cursorY = 20;
     }
 
-    if (sections.length > 1 || options.charts?.length || options.insightsNarrative) {
+    if (options.showSectionHeaders || sections.length > 1 || options.charts?.length || options.insightsNarrative) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(21, 72, 34);
-      doc.text(section.name, 14, cursorY);
-      cursorY += 5;
+      const sectionHeaderLines = (section.header ?? section.name).split("\n");
+      doc.text(sectionHeaderLines, 14, cursorY);
+      cursorY += sectionHeaderLines.length * 5;
     }
 
     const headers = headersFor(section);
@@ -616,8 +619,8 @@ export async function exportReportXlsx(options: ReportExportOptions) {
 
     ws.getCell(5, 1).value = mainTitle.toUpperCase();
     ws.getCell(5, 1).font = { bold: true, size: 13, color: { argb: "FF1A371F" } };
-    ws.getCell(5, 1).alignment = { horizontal: "left", vertical: "middle" };
-    ws.getRow(5).height = 24;
+    ws.getCell(5, 1).alignment = { horizontal: "left", vertical: "middle", wrapText: mainTitle.includes("\n") };
+    ws.getRow(5).height = mainTitle.includes("\n") ? 52 : 24;
 
     if (plpLogo) {
       try {
@@ -885,7 +888,8 @@ export async function exportReportXlsx(options: ReportExportOptions) {
 
     worksheet.views = [{ state: "frozen", ySplit: 6, showGridLines: true }];
 
-    renderHeaderBanner(worksheet, maxWidthCols, options.subtitle ?? `Section ${sIdx + 1}: ${section.name}`, `${cleanTitle(options.title)} — ${section.name}`);
+    const sectionHeader = section.header ?? section.name;
+    renderHeaderBanner(worksheet, maxWidthCols, options.subtitle ?? `Section ${sIdx + 1}: ${sectionHeader}`, `${cleanTitle(options.title)} — ${sectionHeader}`);
 
     safeMerge(worksheet, 6, 1, 6, maxWidthCols);
     worksheet.getCell(6, 1).value = `Section Records: ${section.rows.length}  ·  Generated: ${new Date().toLocaleDateString()}`;

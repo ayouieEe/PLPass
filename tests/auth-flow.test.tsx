@@ -270,7 +270,7 @@ describe("shared user pages", () => {
     await waitFor(() => expect(screen.getByText("0 unread")).toBeInTheDocument());
   });
 
-  it("opens the required student action from an attendance notification", async () => {
+  it("does not expose a generic action for a non-feedback student notification", async () => {
     const user = userEvent.setup();
     storeSession("student");
     setRoute("/notifications");
@@ -278,9 +278,9 @@ describe("shared user pages", () => {
 
     await user.click(await screen.findByText("Attendance needs attention"));
     const notificationDialog = await screen.findByRole("dialog");
-    await user.click(within(notificationDialog).getByRole("button", { name: "Open attendance" }));
-
-    expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
+    expect(within(notificationDialog).queryByRole("button", { name: "Open attendance" })).not.toBeInTheDocument();
+    await user.click(within(notificationDialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("validates forgot password while keeping responses safe", async () => {

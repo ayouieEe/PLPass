@@ -192,11 +192,18 @@ export class ScannerCoordinator {
         if(!pkg?.organizerProfileId) return json(response,409,{error:"The organizer-owned offline event package is unavailable."});
         const recordedAt=new Date().toISOString();
         try {
+          // Keep the phone coordinator and the local session cache on the
+          // same one-way phase. This also repairs a stale coordinator after
+          // the organizer page is reloaded or restored from server state.
+          const localPhase=this.store.getAttendanceCapturePhase(this.sessionId,pkg.organizerProfileId);
+          if(this.capturePhase==="time_out"&&localPhase==="time_in") this.store.advanceAttendanceCapturePhase(this.sessionId,pkg.organizerProfileId);
+          else if(localPhase!==this.capturePhase){this.capturePhase=localPhase;this.status={...this.status,capturePhase:localPhase};this.publish();}
           const queued=this.store.queueWalkInScan({eventId:this.eventId,sessionId:this.sessionId,studentNumber,identificationMethod:"qr",capturePhase:this.capturePhase,attendanceTimestamp:recordedAt,organizerProfileId:pkg.organizerProfileId});
           station.lastSeenAt=recordedAt;station.lastScanAt=recordedAt;
-          const action: OfflineAttendanceEvent["action"] = this.capturePhase === "time_in" ? "checked_in" : "checked_out";
-          const result={accepted:true,action,studentNumber:queued.studentNumber,recordedAt,message:`${this.capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(recordedAt).toLocaleTimeString()}; not synced. Identity is unverified.`};
-          this.onAttendance({eventId:this.eventId,sessionId:this.sessionId,studentNumber:queued.studentNumber,action:result.action,recordedAt,timeIn:queued.timeIn,timeOut:queued.timeOut,syncStatus:queued.syncStatus,message:result.message,source:"phone_scanner"});
+          const action: OfflineAttendanceEvent["action"] = queued.action ?? (this.capturePhase === "time_in" ? "checked_in" : "checked_out");
+          const resultRecordedAt = action === "already_recorded" ? queued.timeIn : recordedAt;
+          const result={accepted:action !== "already_recorded",action,studentNumber:queued.studentNumber,recordedAt:resultRecordedAt,message:action === "already_recorded" ? "This walk-in already has Time In recorded." : `${this.capturePhase==="time_in"?"Time In":"Time Out"} saved on this device at ${new Date(recordedAt).toLocaleTimeString()}; not synced. Identity is unverified.`};
+          this.onAttendance({eventId:this.eventId,sessionId:this.sessionId,studentNumber:queued.studentNumber,action:result.action,recordedAt:resultRecordedAt,timeIn:queued.timeIn,timeOut:queued.timeOut,syncStatus:queued.syncStatus,message:result.message,source:"phone_scanner"});
           this.publish();this.sockets.clients.forEach((socket)=>this.send(socket,{type:"scan",result}));return json(response,200,result);
         }catch(error){return json(response,409,{accepted:false,error:error instanceof Error?error.message:"Walk-in scan could not be saved."});}
       }

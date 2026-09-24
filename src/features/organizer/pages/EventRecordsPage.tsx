@@ -21,7 +21,7 @@ import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date"
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
-import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
+import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
@@ -70,6 +70,7 @@ type EventRecord = {
   predictedTurnout: string;
   objectives: Array<EventObjective | string>;
   priorityLevel?: PriorityLevel;
+  collegeOffice?: string;
   impactScore?: number | null;
 };
 
@@ -204,6 +205,7 @@ function completedFromRepositoryEvent(event: {
   priorityLevel: PriorityLevel;
   impactScore: number | null;
   predictedTurnout: number | null;
+  collegeOffice?: string;
   objectives?: Array<EventObjective | string>;
 }): CompletedRecord {
   return {
@@ -218,6 +220,7 @@ function completedFromRepositoryEvent(event: {
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
+    collegeOffice: event.collegeOffice,
     objectives: event.objectives ?? [],
     priorityLevel: event.priorityLevel,
     impactScore: event.impactScore,
@@ -236,76 +239,26 @@ function completedFromRepositoryEvent(event: {
 function EventRecordsExportModal({
   isOpen,
   onClose,
-  records,
   filteredRecords,
-  venueOptions,
-  categoryOptions,
-  activeVenue,
-  activeCategory,
-  activePriority,
-  activeFromDate,
-  activeToDate,
   onExportSubmit
 }: {
   isOpen: boolean;
   onClose: () => void;
-  records: CompletedRecord[];
   filteredRecords: CompletedRecord[];
-  venueOptions: string[];
-  categoryOptions: string[];
-  activeVenue: string;
-  activeCategory: string;
-  activePriority: string;
-  activeFromDate: string;
-  activeToDate: string;
   onExportSubmit: (request: {
     reportType: "summary" | "attendance";
-    scope: "filtered" | "all";
     format: "xlsx" | "pdf";
-    venue: string;
-    category: string;
-    priority: string;
-    fromDate: string;
-    toDate: string;
   }) => void;
 }) {
   const [reportType, setReportType] = useState<"summary" | "attendance">("summary");
-  const [exportScope, setExportScope] = useState<"filtered" | "all">("filtered");
-  const [exportVenue, setExportVenue] = useState(activeVenue);
-  const [exportCategory, setExportCategory] = useState(activeCategory);
-  const [exportPriority, setExportPriority] = useState(activePriority);
-  const [exportFromDate, setExportFromDate] = useState(activeFromDate);
-  const [exportToDate, setExportToDate] = useState(activeToDate);
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
 
   if (!isOpen) return null;
 
-  let targetRecords = exportScope === "all" ? records : filteredRecords;
-  if (exportVenue) targetRecords = targetRecords.filter((e) => e.venue === exportVenue);
-  if (exportCategory) targetRecords = targetRecords.filter((e) => e.category === exportCategory);
-  if (exportPriority) targetRecords = targetRecords.filter((e) => e.priorityLevel === exportPriority);
-  if (exportFromDate) targetRecords = targetRecords.filter((e) => dateKey(e.startsAt ?? e.date) >= exportFromDate);
-  if (exportToDate) targetRecords = targetRecords.filter((e) => dateKey(e.startsAt ?? e.date) <= exportToDate);
-
-  function handleResetFilters() {
-    setExportScope("filtered");
-    setExportVenue("");
-    setExportCategory("");
-    setExportPriority("");
-    setExportFromDate("");
-    setExportToDate("");
-  }
-
   function handleExport() {
     onExportSubmit({
       reportType,
-      scope: exportScope,
-      format: exportFormat,
-      venue: exportVenue,
-      category: exportCategory,
-      priority: exportPriority,
-      fromDate: exportFromDate,
-      toDate: exportToDate
+      format: exportFormat
     });
     onClose();
   }
@@ -329,7 +282,7 @@ function EventRecordsExportModal({
               <h2 id="event-records-export-modal-title" className="text-base font-bold text-slate-900">
                 Export Event Records
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select report type, scope criteria, and download format.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a report type and format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -397,81 +350,7 @@ function EventRecordsExportModal({
             </div>
           </div>
 
-          {/* Step 2: Scope & Filters */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-medium">
-                2. Scope & Filters
-              </span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
-              >
-                Reset filters
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Export Record Scope</label>
-                <select
-                  value={exportScope}
-                  onChange={(e) => setExportScope(e.target.value as "filtered" | "all")}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="filtered">Current Filtered Results ({filteredRecords.length} records)</option>
-                  <option value="all">All Completed Event Records ({records.length} records)</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Venue</label>
-                  <select
-                    value={exportVenue}
-                    onChange={(e) => setExportVenue(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                  >
-                    <option value="">All Venues</option>
-                    {venueOptions.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Category</label>
-                  <select
-                    value={exportCategory}
-                    onChange={(e) => setExportCategory(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                  >
-                    <option value="">All Categories</option>
-                    {categoryOptions.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Priority</label>
-                  <select
-                    value={exportPriority}
-                    onChange={(e) => setExportPriority(e.target.value)}
-                    className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                  >
-                    <option value="">All Priorities</option>
-                    <option value="Time-Sensitive">Time-Sensitive</option>
-                    <option value="Business-Critical">Business-Critical</option>
-                    <option value="Flexible">Flexible</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3: Download Format Selection */}
+          {/* Step 2: Download Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 font-medium">
               3. Download Format
@@ -521,7 +400,7 @@ function EventRecordsExportModal({
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {targetRecords.length} {targetRecords.length === 1 ? "Event Selected" : "Events Selected"}
+              {filteredRecords.length} {filteredRecords.length === 1 ? "Event Selected" : "Events Selected"}
             </span>
           </div>
 
@@ -623,6 +502,7 @@ export function EventRecordsPage() {
           priorityLevel: event.priorityLevel,
           impactScore: event.impactScore,
           predictedTurnout: event.predictedTurnout,
+          collegeOffice: event.collegeOffice,
           objectives: objectivesByEventId.get(event.id) ?? []
         })
       );
@@ -735,24 +615,28 @@ export function EventRecordsPage() {
   }
 
   function exportAllAttendanceReport(label: string, events = pastEvents) {
-    const attendanceRows = events.flatMap((event) =>
-      event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
-        "Event Code": event.code,
-        "Event Name": event.name,
+    const sections = events.map((event) => ({
+      name: `${event.code} — ${event.name}`,
+      rows: event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
         "Student Name": row.studentName,
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
         "Check-out Time": row.checkOutTime ?? "Not checked out",
-       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+        "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
         "Late Arrival Reason": row.lateReason ?? "-"
       })) : []
-    );
-    exportTabularReport(label, attendanceRows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
+    }));
+    if (sections.every((section) => section.rows.length === 0)) {
+      toast.warning("No attendance records match the selected events.");
+      return;
+    }
+    const collegeName = events.length === 1 ? events[0]?.collegeOffice : undefined;
+    void exportTabularReportSections(label, sections, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined, true, collegeName ? { collegeName } : undefined);
     toast.success(`${label} downloaded.`);
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Attendance Report",
       targetType: "export_action",
-      metadata: { label, eventCount: pastEvents.length }
+      metadata: { label, eventCount: events.length }
     });
   }
 
@@ -904,22 +788,9 @@ export function EventRecordsPage() {
       <EventRecordsExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        records={completedRows}
         filteredRecords={pastEvents}
-        venueOptions={venueOptions}
-        categoryOptions={categoryOptions}
-        activeVenue={venueFilter}
-        activeCategory={categoryFilter}
-        activePriority={priorityFilter}
-        activeFromDate={fromDate}
-        activeToDate={toDate}
         onExportSubmit={(req) => {
-          let targetEvents = req.scope === "all" ? completedRows : pastEvents;
-          if (req.venue) targetEvents = targetEvents.filter((e) => e.venue === req.venue);
-          if (req.category) targetEvents = targetEvents.filter((e) => e.category === req.category);
-          if (req.priority) targetEvents = targetEvents.filter((e) => e.priorityLevel === req.priority);
-          if (req.fromDate) targetEvents = targetEvents.filter((e) => dateKey(e.startsAt ?? e.date) >= req.fromDate);
-          if (req.toDate) targetEvents = targetEvents.filter((e) => dateKey(e.startsAt ?? e.date) <= req.toDate);
+          const targetEvents = pastEvents;
 
           if (targetEvents.length === 0) {
             toast.warning("No completed event records match the selected export criteria.");

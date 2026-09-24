@@ -35,6 +35,7 @@ import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type Cr
 import {
   useAcademicCatalog,
   useAttendanceRecords,
+  useAttendanceSessions,
   useOrganizerProfiles,
   useEvents,
   useUsers,
@@ -47,8 +48,9 @@ import {
 import Papa from "papaparse";
 import { downloadStudentCsvTemplate } from "@/features/organizer/utils/csvTemplate";
 import type { CreateAdminInput, CreateOrganizerInput, CreateStudentInput, UpdateOrganizerInput, UpdateStudentInput } from "@/services/contracts";
-import type { AdminProfile, OrganizerProfile, Section, Student, User } from "@/types/domain";
+import type { AdminProfile, AttendanceRecord, AttendanceSession, Event, OrganizerProfile, Section, Semester, Student, User } from "@/types/domain";
 import { exportReportPdf, exportReportXlsx } from "@/lib/exports/reportExport";
+import type { ExportOrganizerEventsSection, ExportOrganizerRow } from "@/features/organizer/utils/exportUtils";
 import { capitalizePersonName } from "@/lib/utils/names";
 import { generateAccountEmail } from "@/lib/utils/accountEmail";
 import { formatStudentNumber } from "@/lib/utils/studentNumber";
@@ -73,6 +75,7 @@ function useOrganizerScope() {
 
 type StudentStatus = "Active" | "Deactivated";
 type CredentialStatus = CredentialDisplayStatus | FacialCredentialDisplayStatus;
+type OrganizerStatus = "Active" | "Inactive";
 const studentNameExtensions = ["Jr.", "Sr.", "II", "III", "IV", "V"] as const;
 const emptyStudentForm: CreateStudentInput = {
   studentNumber: "",
@@ -125,7 +128,7 @@ function nextEmployeeId(items: Array<{ employeeNumber: string }>, prefix: "O" | 
   }, 0);
   return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
 }
-function statusClass(status: StudentStatus | CredentialStatus) {
+function statusClass(status: StudentStatus | CredentialStatus | OrganizerStatus) {
   if (status === "Active") {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
@@ -135,7 +138,7 @@ function statusClass(status: StudentStatus | CredentialStatus) {
   return "border-red-200 bg-red-50 text-red-700";
 }
 
-function StatusBadge({ value }: { value: StudentStatus | CredentialStatus }) {
+function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | OrganizerStatus }) {
   return (
     <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${statusClass(value)}`}>
       {value}
@@ -357,134 +360,129 @@ function StudentDetailModal({
 function ReportExportModal({
   isOpen,
   onClose,
-  studentAccounts,
-  programs,
-  sections,
-  activeProgramFilter,
-  activeSectionFilter,
-  activeStatusFilter,
-  activeSearch,
+  filteredStudents,
+  organizerRows,
+  organizerEventSections,
+  organizerInstitution,
+  exportKind = "students",
   onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
-  studentAccounts: StudentAccount[];
-  programs: string[];
-  sections: string[];
-  activeProgramFilter: string;
-  activeSectionFilter: string;
-  activeStatusFilter: string;
-  activeSearch: string;
+  filteredStudents?: StudentAccount[];
+  organizerRows?: ExportOrganizerRow[];
+  organizerEventSections?: ExportOrganizerEventsSection[];
+  organizerInstitution?: { collegeName?: string; schoolYear?: string };
+  exportKind?: "students" | "organizers";
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
-  const [reportType, setReportType] = useState<"students" | "participation">("students");
-  const [exportProgram, setExportProgram] = useState(activeProgramFilter);
-  const [exportSection, setExportSection] = useState(activeSectionFilter);
-  const [exportStatus, setExportStatus] = useState(activeStatusFilter);
-  const [exportSearch, setExportSearch] = useState(activeSearch);
-  const [exportAttendance, setExportAttendance] = useState("all");
+  const [reportType, setReportType] = useState<"students" | "participation" | "organizerDirectory" | "eventsManaged">(exportKind === "organizers" ? "organizerDirectory" : "students");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setReportType(exportKind === "organizers" ? "organizerDirectory" : "students");
+    setExportFormat("xlsx");
+  }, [exportKind, isOpen]);
 
   if (!isOpen) {
     return null;
   }
 
-  const filteredStudents = studentAccounts.filter((s) => {
-    const normalizedSearch = exportSearch.trim().toLowerCase();
-    const matchSearch = !normalizedSearch || `${s.name} ${s.email} ${s.studentId} ${s.program} ${s.section}`.toLowerCase().includes(normalizedSearch);
-    const matchProg = exportProgram === "all" || s.program === exportProgram;
-    const matchSec = exportSection === "all" || s.section === exportSection;
-    const matchStat = exportStatus === "all" || s.status === exportStatus;
-    let matchAtt = true;
-    if (exportAttendance === "low") matchAtt = (s.attendanceRate ?? 0) < 75;
-    else if (exportAttendance === "high") matchAtt = (s.attendanceRate ?? 0) >= 75;
-
-    return matchSearch && matchProg && matchSec && matchStat && matchAtt;
-  });
-
-  function handleResetFilters() {
-    setExportProgram("all");
-    setExportSection("all");
-    setExportStatus("all");
-    setExportAttendance("all");
-    setExportSearch("");
-  }
-
   async function handleExport() {
-    if (filteredStudents.length === 0) {
-      toast.warning("No student records match the selected export criteria.");
+    const records = exportKind === "organizers" ? organizerRows ?? [] : filteredStudents ?? [];
+    if (records.length === 0) {
+      toast.warning(`No ${exportKind === "organizers" ? "organizer" : "student"} records match the selected export criteria.`);
       return;
     }
 
     setIsExportLoading(true);
-    const exportTools = await import("@/features/organizer/utils/exportUtils")
-      .catch(() => {
+    try {
+      const exportTools = await import("@/features/organizer/utils/exportUtils").catch(() => null);
+      if (!exportTools) {
         toast.error("Unable to prepare the export. Please try again.");
-        return null;
-      })
-      .finally(() => setIsExportLoading(false));
-    if (!exportTools) return;
-
-    if (reportType === "students") {
-      const data = filteredStudents.map((s) => ({
-        studentId: s.studentId,
-        name: s.name,
-        email: s.email,
-        program: s.program,
-        yearLevel: s.yearLevel,
-        section: s.section,
-        status: s.status,
-        attendanceRate: s.attendanceRate ?? 0,
-        eventsJoined: s.eventsJoined,
-        qrStatus: s.qrStatus,
-        facialStatus: s.facialStatus
-      }));
-
-      if (exportFormat === "xlsx") {
-        await exportTools.exportStudentListXlsx(data);
-        toast.success(`Exported ${data.length} student record(s) as XLSX.`);
-      } else {
-        await exportTools.exportStudentListPdf(data);
-        toast.success(`Exported ${data.length} student record(s) as PDF.`);
+        return;
       }
-    } else {
-      const data = filteredStudents.map((s) => ({
-        studentId: s.studentId,
-        name: s.name,
-        program: s.program,
-        yearLevel: s.yearLevel,
-        section: s.section,
-        attendanceRate: s.attendanceRate ?? 0,
-        eventsJoined: s.eventsJoined
-      }));
 
-      if (exportFormat === "xlsx") {
-        await exportTools.exportParticipationHistoryXlsx(data);
-        toast.success(`Exported participation summary for ${data.length} student(s) as XLSX.`);
+      if (exportKind === "organizers") {
+        const data = records as ExportOrganizerRow[];
+        if (reportType === "organizerDirectory") {
+          if (exportFormat === "xlsx") await exportTools.exportOrganizerDirectoryXlsx(data);
+          else await exportTools.exportOrganizerDirectoryPdf(data);
+          toast.success(`Exported ${data.length} organizer record(s) as ${exportFormat.toUpperCase()}.`);
+        } else {
+          const sections = (organizerEventSections ?? []).filter((section) => section.rows.length > 0);
+          const managedEventCount = sections.reduce((count, section) => count + section.rows.length, 0);
+          if (managedEventCount === 0) {
+            toast.warning("No managed events match the selected organizer criteria.");
+            return;
+          }
+          if (exportFormat === "xlsx") await exportTools.exportOrganizerEventsSummaryXlsx(sections, organizerInstitution);
+          else await exportTools.exportOrganizerEventsSummaryPdf(sections, organizerInstitution);
+          toast.success(`Exported ${managedEventCount} managed event(s) across ${sections.length} organizer(s) as ${exportFormat.toUpperCase()}.`);
+        }
+      } else if (reportType === "students") {
+        const students = records as StudentAccount[];
+        const data = students.map((s) => ({
+          studentId: s.studentId,
+          name: s.name,
+          email: s.email,
+          program: s.program,
+          yearLevel: s.yearLevel,
+          section: s.section,
+          status: s.status,
+          attendanceRate: s.attendanceRate ?? 0,
+          eventsJoined: s.eventsJoined,
+          qrStatus: s.qrStatus,
+          facialStatus: s.facialStatus
+        }));
+
+        if (exportFormat === "xlsx") {
+          await exportTools.exportStudentListXlsx(data);
+          toast.success(`Exported ${data.length} student record(s) as XLSX.`);
+        } else {
+          await exportTools.exportStudentListPdf(data);
+          toast.success(`Exported ${data.length} student record(s) as PDF.`);
+        }
       } else {
-        await exportTools.exportParticipationHistoryPdf(data);
-        toast.success(`Exported participation summary for ${data.length} student(s) as PDF.`);
-      }
-    }
+        const data = (records as StudentAccount[]).map((s) => ({
+          studentId: s.studentId,
+          name: s.name,
+          program: s.program,
+          yearLevel: s.yearLevel,
+          section: s.section,
+          attendanceRate: s.attendanceRate ?? 0,
+          eventsJoined: s.eventsJoined
+        }));
 
-    onExportAction(
-      reportType === "students" ? "Exported Student Directory" : "Exported Participation Summary",
-      "export_action",
-      {
-        reportType,
-        format: exportFormat,
-        recordCount: filteredStudents.length,
-        filters: {
-          program: exportProgram,
-          section: exportSection,
-          status: exportStatus,
-          attendance: exportAttendance
+        if (exportFormat === "xlsx") {
+          await exportTools.exportParticipationHistoryXlsx(data);
+          toast.success(`Exported participation summary for ${data.length} student(s) as XLSX.`);
+        } else {
+          await exportTools.exportParticipationHistoryPdf(data);
+          toast.success(`Exported participation summary for ${data.length} student(s) as PDF.`);
         }
       }
-    );
 
-    onClose();
+      onExportAction(
+        exportKind === "organizers" ? (reportType === "organizerDirectory" ? "Exported Organizer Directory" : "Exported Events Managed Summary") : (reportType === "students" ? "Exported Student Directory" : "Exported Participation Summary"),
+        "export_action",
+        {
+          reportType,
+          exportKind,
+          format: exportFormat,
+          recordCount: records.length,
+          filters: "page-filtered"
+        }
+      );
+
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to export the selected records. Please try again.");
+    } finally {
+      setIsExportLoading(false);
+    }
   }
 
   return createPortal(
@@ -506,7 +504,7 @@ function ReportExportModal({
               <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
                 Export Report
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select report type, criteria, and download format.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a report type and format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -529,132 +527,60 @@ function ReportExportModal({
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setReportType("students")}
+                onClick={() => setReportType(exportKind === "organizers" ? "organizerDirectory" : "students")}
                 className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
-                  reportType === "students"
+                  (exportKind === "organizers" ? reportType === "organizerDirectory" : reportType === "students")
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
                     : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${reportType === "students" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                  <div className={`p-2 rounded-lg ${(exportKind === "organizers" ? reportType === "organizerDirectory" : reportType === "students") ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
                     <IdCard className="h-4 w-4" />
                   </div>
-                  {reportType === "students" && (
+                  {(exportKind === "organizers" ? reportType === "organizerDirectory" : reportType === "students") && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
                       Selected
                     </span>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-900">Student Directory</p>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Full profiles, contact emails, credentials & status.</p>
+                  <p className="text-sm font-bold text-slate-900">{exportKind === "organizers" ? "Organizer Directory" : "Student Directory"}</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">{exportKind === "organizers" ? "Profiles, department, position, status & events managed." : "Full profiles, contact emails, credentials & status."}</p>
                 </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setReportType("participation")}
+                onClick={() => setReportType(exportKind === "organizers" ? "eventsManaged" : "participation")}
                 className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
-                  reportType === "participation"
+                  (exportKind === "organizers" ? reportType === "eventsManaged" : reportType === "participation")
                     ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
                     : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${reportType === "participation" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
+                  <div className={`p-2 rounded-lg ${(exportKind === "organizers" ? reportType === "eventsManaged" : reportType === "participation") ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
                     <ClipboardList className="h-4 w-4" />
                   </div>
-                  {reportType === "participation" && (
+                  {(exportKind === "organizers" ? reportType === "eventsManaged" : reportType === "participation") && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
                       Selected
                     </span>
                   )}
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-900">Participation Summary</p>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Attendance rates, events joined & request counts.</p>
+                  <p className="text-sm font-bold text-slate-900">{exportKind === "organizers" ? "Events Managed Summary" : "Participation Summary"}</p>
+                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">{exportKind === "organizers" ? "Aggregate event counts by organizer and department." : "Attendance rates, events joined & request counts."}</p>
                 </div>
               </button>
             </div>
           </div>
 
-          {/* Step 2: Filters Grid */}
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Scope & Filters
-              </span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
-              >
-                Reset filters
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Program</label>
-                <select
-                  value={exportProgram}
-                  onChange={(e) => setExportProgram(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All programs</option>
-                  {programs.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Section</label>
-                <select
-                  value={exportSection}
-                  onChange={(e) => setExportSection(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All sections</option>
-                  {sections.map((sec) => (
-                    <option key={sec} value={sec}>{sec}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Account Status</label>
-                <select
-                  value={exportStatus}
-                  onChange={(e) => setExportStatus(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="Active">Active</option>
-                  <option value="Deactivated">Deactivated</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Attendance Level</label>
-                <select
-                  value={exportAttendance}
-                  onChange={(e) => setExportAttendance(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All attendance rates</option>
-                  <option value="high">75% & above</option>
-                  <option value="low">Below 75% (At-risk)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3: File Format Selection */}
+          {/* Step 2: File Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -701,7 +627,7 @@ function ReportExportModal({
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {filteredStudents.length} records selected
+              {(exportKind === "organizers" ? organizerRows?.length ?? 0 : filteredStudents?.length ?? 0)} records selected
             </span>
           </div>
 
@@ -716,7 +642,7 @@ function ReportExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={filteredStudents.length === 0 || isExportLoading}
+              disabled={(exportKind === "organizers" ? (organizerRows?.length ?? 0) : (filteredStudents?.length ?? 0)) === 0 || isExportLoading}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
@@ -750,12 +676,13 @@ function AddStudentModal({
   const [formData, setFormData] = useState<CreateStudentInput>(() => ({ ...emptyStudentForm }));
   const [isLoading, setIsLoading] = useState(false);
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
   const availableSections = sections.filter(
     (section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel
   );
   const cleanForm = { ...emptyStudentForm, departmentId: fixedDepartmentId ?? "" };
   const isDirty = JSON.stringify(formData) !== JSON.stringify(cleanForm);
-  const generatedEmail = generateAccountEmail(formData.lastName, formData.firstName, formData.middleName);
+  const generatedEmail = generateAccountEmail(formData.lastName, formData.firstName, formData.middleName, formData.nameExtension);
 
   useEffect(() => {
     if (isOpen && fixedDepartmentId) {
@@ -780,8 +707,12 @@ function AddStudentModal({
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitConfirmOpen(true);
+  };
+  const confirmSubmit = async () => {
+    setIsSubmitConfirmOpen(false);
     setIsLoading(true);
     try {
       await mutations.createStudentMutation.mutateAsync({ ...formData, email: generatedEmail, departmentId: fixedDepartmentId ?? formData.departmentId });
@@ -891,6 +822,15 @@ function AddStudentModal({
       onConfirm={resetAndClose}
       onCancel={() => setIsDiscardConfirmOpen(false)}
     />
+    <ConfirmModal
+      open={isSubmitConfirmOpen}
+      title="Create student account?"
+      description={`Create ${formData.firstName} ${formData.lastName} and send an invitation to ${generatedEmail}.`}
+      confirmLabel="Create student"
+      confirmDisabled={isLoading}
+      onConfirm={() => void confirmSubmit()}
+      onCancel={() => setIsSubmitConfirmOpen(false)}
+    />
     </>,
     document.body
   );
@@ -999,19 +939,7 @@ function RevokeUserSessionsDialog({ target, onClose, onConfirm }: { target: { us
   return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}><form onSubmit={(event) => void submit(event)} className="w-full max-w-md rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><h2 className="text-lg font-semibold">Revoke all sessions</h2><p className="mt-2 text-sm text-muted-foreground">This signs <strong>{target.displayName}</strong> out of future refresh sessions. Existing access tokens expire normally; no account data is deleted.</p><label className="mt-4 block text-sm font-semibold">Reason<textarea autoFocus value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} className="mt-2 min-h-24 w-full rounded-lg border bg-background p-3 text-sm font-normal" placeholder="Why are these sessions being revoked?" /></label>{error ? <p role="alert" className="mt-2 text-sm text-red-700">{error}</p> : null}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onClose} disabled={working} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={working} className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{working ? "Revoking…" : "Revoke all sessions"}</button></div></form></div>, document.body);
 }
 
-function OrganizerExportChoiceModal({ isOpen, onClose, rows }: { isOpen: boolean; onClose: () => void; rows: Array<Record<string, string | number>> }) {
-  if (!isOpen) return null;
-  const fileName = `plpass-organizer-directory-${new Date().toISOString().slice(0, 10)}`;
-  const exportFormat = async (format: "xlsx" | "pdf") => {
-    const options = { title: "PLPass Organizer Directory Report", rows, fileName };
-    if (format === "pdf") await exportReportPdf(options);
-    else await exportReportXlsx(options);
-    onClose();
-  };
-  return createPortal(<div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 p-4" onClick={onClose}><div className="w-full max-w-sm rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer directory</p><h2 className="text-lg font-semibold">Export report</h2></div><button type="button" onClick={onClose} aria-label="Close export dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div><p className="mt-3 text-sm text-muted-foreground">Choose a file format for the organizer directory.</p><div className="mt-5 grid gap-2 sm:grid-cols-2"><button type="button" onClick={() => void exportFormat("pdf")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-3 text-sm font-semibold text-white"><FileText className="h-4 w-4" />PDF</button><button type="button" onClick={() => void exportFormat("xlsx")} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><FileSpreadsheet className="h-4 w-4" />XLSX</button></div></div></div>, document.body);
-}
-
-function OrganizerDirectoryConsistent({ organizers, users, events, departments, onAdd, onBulkAdd, onEdit, canAdd }: { organizers: OrganizerProfile[]; users: User[]; events: Array<{ organizerId: string }>; departments: Array<{ id: string; code: string; name?: string }>; onAdd: () => void; onBulkAdd: () => void; onEdit: (organizerId: string) => void; canAdd: boolean }) {
+function OrganizerDirectoryConsistent({ organizers, users, events, attendanceRecords, attendanceSessions, activeSemester, departments, onAdd, onBulkAdd, onEdit, canAdd, onExportAction }: { organizers: OrganizerProfile[]; users: User[]; events: Event[]; attendanceRecords: AttendanceRecord[]; attendanceSessions: AttendanceSession[]; activeSemester?: Semester; departments: Array<{ id: string; code: string; name?: string }>; onAdd: () => void; onBulkAdd: () => void; onEdit: (organizerId: string) => void; canAdd: boolean; onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void }) {
   const [query, setQuery] = useState("");
   const [exportOpen, setExportOpen] = useState(false);
   const normalizedQuery = query.trim().toLowerCase();
@@ -1019,11 +947,55 @@ function OrganizerDirectoryConsistent({ organizers, users, events, departments, 
     const user = users.find((item) => item.id === organizer.userId);
     return !normalizedQuery || `${user?.displayName ?? ""} ${user?.email ?? ""} ${organizer.employeeNumber} ${organizer.position}`.toLowerCase().includes(normalizedQuery);
   });
-  const exportRows = rows.map((organizer) => {
+  const exportRows: ExportOrganizerRow[] = rows.map((organizer) => {
     const user = users.find((item) => item.id === organizer.userId);
-    return { Organizer: user?.displayName ?? "", Email: user?.email ?? "", "Employee ID": organizer.employeeNumber, Department: departments.find((department) => department.id === organizer.departmentId)?.code ?? "—", Position: organizer.position, Status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", "Events Managed": events.filter((event) => event.organizerId === organizer.id).length };
+    const department = departments.find((item) => item.id === organizer.departmentId);
+    const departmentName = department?.name ?? department?.code ?? "—";
+    const collegeName = /^ccs$/i.test(departmentName) ? "College of Computer Studies" : departmentName;
+    return { organizerId: organizer.id, name: user?.displayName ?? "", email: user?.email ?? "", employeeNumber: organizer.employeeNumber, department: collegeName, position: organizer.position, status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", eventsManaged: events.filter((event) => event.organizerId === organizer.id).length };
   });
-  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, or position..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><OrganizerExportChoiceModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={exportRows} /></>;
+  const sessionEventMap = new Map(attendanceSessions.filter((session) => session.eventId).map((session) => [session.id, session.eventId as string]));
+  const attendanceByEvent = new Map<string, { total: number; attended: number }>();
+  attendanceRecords.forEach((record) => {
+    const eventId = sessionEventMap.get(record.sessionId);
+    if (!eventId) return;
+    const current = attendanceByEvent.get(eventId) ?? { total: 0, attended: 0 };
+    current.total += 1;
+    if (record.status === "present" || record.status === "late") current.attended += 1;
+    attendanceByEvent.set(eventId, current);
+  });
+  const schoolYear = activeSemester?.schoolYear;
+  const semester = activeSemester?.label ?? "Current Semester";
+  const organizerEventSections: ExportOrganizerEventsSection[] = exportRows.map((organizer) => ({
+    organizerName: organizer.name || "Unnamed organizer",
+    organizerEmail: organizer.email,
+    employeeNumber: organizer.employeeNumber,
+    department: organizer.department,
+    position: organizer.position,
+    accountStatus: organizer.status,
+    rows: events.filter((event) => event.organizerId === organizer.organizerId).map((event) => ({
+      organizerName: organizer.name || "Unnamed organizer",
+      organizerEmail: organizer.email,
+      employeeNumber: organizer.employeeNumber,
+      department: organizer.department,
+      position: organizer.position,
+      accountStatus: organizer.status,
+      college: /^ccs$/i.test(event.collegeOffice ?? "") ? "College of Computer Studies" : (event.collegeOffice || organizer.department),
+      schoolYear: schoolYear ?? "Current School Year",
+      semester,
+      eventCode: event.code,
+      eventName: event.title,
+      category: event.category,
+      venue: event.venue,
+      startsAt: new Date(event.startsAt).toLocaleString(),
+      endsAt: new Date(event.endsAt).toLocaleString(),
+      status: event.status,
+      priority: event.priorityLevel,
+      attendanceRate: (() => { const stats = attendanceByEvent.get(event.id); return stats?.total ? `${Math.round((stats.attended / stats.total) * 100)}%` : "N/A"; })()
+    }))
+  }));
+  const colleges = [...new Set(exportRows.map((organizer) => organizer.department).filter(Boolean))];
+  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, or position..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, cellRenderer: ({ value }: ICellRendererParams<OrganizerProfile, OrganizerStatus>) => <StatusBadge value={value ?? "Inactive"} />, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><ReportExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} exportKind="organizers" organizerRows={exportRows} organizerEventSections={organizerEventSections} organizerInstitution={{ collegeName: colleges.length === 1 ? colleges[0] : "All Participating Colleges", schoolYear }} onExportAction={onExportAction} /></>;
 }
 
 function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, canRevokeSessions, onRevokeSessions, onResendInvitation }: { isOpen: boolean; onClose: () => void; admin: AdminProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateAdminAccountMutation>; canRevokeSessions: boolean; onRevokeSessions: (userId: string, displayName: string) => void; onResendInvitation: (userId: string, displayName: string) => Promise<void> }) {
@@ -1032,6 +1004,7 @@ function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, c
   const [initialForm, setInitialForm] = useState(emptyForm);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resendConfirmOpen, setResendConfirmOpen] = useState(false);
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   useEffect(() => {
     if (!isOpen || !admin || !user) return;
     const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
@@ -1044,18 +1017,22 @@ function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, c
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value) }));
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync(form); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
-  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-admin-title" className="account-edit-dialog w-full max-w-5xl overflow-hidden rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 id="edit-admin-title" className="text-2xl font-semibold">Edit admin</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">{user.role === "department_admin" ? "Position" : "Office / unit"}<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium">Department<select required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
+  const submit = (event: React.FormEvent) => { event.preventDefault(); setSaveConfirmOpen(true); };
+  const confirmSubmit = async () => { if (!admin || !user || form.id !== admin.id || form.profileId !== user.id) { setSaveConfirmOpen(false); toast.error("This administrator record changed. Refresh and try again."); return; } try { await mutation.mutateAsync(form); setInitialForm(form); setSaveConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-admin-title" className="account-edit-dialog w-full max-w-5xl overflow-hidden rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 id="edit-admin-title" className="text-2xl font-semibold">Edit admin</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">{user.role === "department_admin" ? "Position" : "Office / unit"}<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium">Department<select required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /><ConfirmModal open={saveConfirmOpen} title="Save administrator changes?" description="The administrator profile and account access settings will be updated." confirmLabel="Save changes" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setSaveConfirmOpen(false)} /></>, document.body);
 }
 
 function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, generatedEmployeeId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useAdminAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string }) {
   const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedEmployeeId, departmentId: "", officeName: "", adminRole: "admin" });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, employeeNumber: generatedEmployeeId })); }, [generatedEmployeeId, isOpen]);
   if (!isOpen) return null;
   const update = (key: keyof CreateAdminInput, value: string | undefined) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value) }));
-  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName);
-  async function submit(event: React.FormEvent) { event.preventDefault(); try { await mutation.mutateAsync({ ...form, email: generatedEmail, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation displays the error */ } }
+  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);
+  function submit(event: React.FormEvent) { event.preventDefault(); setConfirmOpen(true); }
+  async function confirmSubmit() { try { await mutation.mutateAsync({ ...form, email: generatedEmail, employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation displays the error */ } }
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 className="text-lg font-semibold">Add admin</h2></div><button type="button" onClick={onClose} aria-label="Close add admin dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div>
@@ -1064,6 +1041,7 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
           <label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label>
           <label className="text-sm font-medium">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label>
           <label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label>
+          <NameExtensionSelect id="add-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as CreateAdminInput["nameExtension"])} />
           <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Admin ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
           <label className="text-sm font-medium sm:col-span-2">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>
@@ -1071,7 +1049,9 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
           <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div>
         </form>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal open={confirmOpen} title="Create administrator account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${generatedEmail}.`} confirmLabel="Create admin" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
+    </>,
     document.body,
   );
 }
@@ -1098,12 +1078,15 @@ type OrganizerCreationForm = Omit<CreateOrganizerInput, "email" | "employeeNumbe
 
 function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId, fixedDepartmentId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string; fixedDepartmentId?: string }) {
   const [form, setForm] = useState<OrganizerCreationForm>({ firstName: "", middleName: "", lastName: "", nameExtension: undefined, departmentId: "", position: "Organizer" });
+  const [confirmOpen, setConfirmOpen] = useState(false);
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, departmentId: fixedDepartmentId ?? current.departmentId })); }, [fixedDepartmentId, isOpen]);
   if (!isOpen) return null;
   const update = <Key extends keyof OrganizerCreationForm>(key: Key, value: OrganizerCreationForm[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
-  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName);
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) return; try { await mutation.mutateAsync({ ...form, departmentId, organizationName, email: generatedEmail, employeeNumber: generatedEmployeeId }); onClose(); } catch { /* mutation presents the safe error */ } };
+  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);
+  const submit = (event: React.FormEvent) => { event.preventDefault(); const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) return; setConfirmOpen(true); };
+  const confirmSubmit = async () => { const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) { setConfirmOpen(false); return; } try { await mutation.mutateAsync({ ...form, departmentId, organizationName, email: generatedEmail, employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 className="text-lg font-semibold">Add organizer</h2></div><button type="button" onClick={onClose} aria-label="Close add organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border"><X className="h-5 w-5" /></button></div>
@@ -1111,15 +1094,18 @@ function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEm
           <label className="text-sm font-medium">First name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label>
           <label className="text-sm font-medium">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label>
           <label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label>
+          <NameExtensionSelect id="add-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as OrganizerCreationForm["nameExtension"])} />
           <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Employee ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
-          <label className="text-sm font-medium">Position<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label>
+          <label className="text-sm font-medium">Position<input required readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value="Organizer" /></label>
           {fixedDepartmentId ? <label className="text-sm font-medium">Department<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /></label> : <label className="text-sm font-medium">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>}
           <p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">The address is generated from the name and a secure invitation is sent to it.</p>
           <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div>
         </form>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal open={confirmOpen} title="Create organizer account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${generatedEmail}.`} confirmLabel="Create organizer" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
+    </>,
     document.body,
   );
 }
@@ -1159,6 +1145,7 @@ function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mut
   const [initialForm, setInitialForm] = useState<UpdateOrganizerInput>(emptyForm);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resendConfirmOpen, setResendConfirmOpen] = useState(false);
+  const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   useEffect(() => {
     if (!isOpen || !organizer || !user) return;
     const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
@@ -1171,14 +1158,15 @@ function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mut
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
   const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); try { await mutation.mutateAsync({ ...form, organizationName: organizer.organizationName }); setInitialForm(form); onClose(); } catch { /* mutation presents the safe error */ } };
-  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-organizer-title" className="account-edit-dialog w-full max-w-5xl rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 id="edit-organizer-title" className="text-2xl font-semibold">Edit organizer</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Employment status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /></>, document.body);
+  const submit = (event: React.FormEvent) => { event.preventDefault(); setSaveConfirmOpen(true); };
+  const confirmSubmit = async () => { if (!organizer || !user || form.id !== organizer.id || form.profileId !== user.id) { setSaveConfirmOpen(false); toast.error("This organizer record changed. Refresh and try again."); return; } try { await mutation.mutateAsync({ ...form, organizationName: organizer.organizationName }); setInitialForm(form); setSaveConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
+  return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-organizer-title" className="account-edit-dialog w-full max-w-5xl rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 id="edit-organizer-title" className="text-2xl font-semibold">Edit organizer</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Employment status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /><ConfirmModal open={saveConfirmOpen} title="Save organizer changes?" description="The organizer profile and account access settings will be updated." confirmLabel="Save changes" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setSaveConfirmOpen(false)} /></>, document.body);
 }
 
 function BulkAddOrganizerModalLegacy({ isOpen, onClose, mutation }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useBulkOrganizerAccountMutation> }) {
   const [error, setError] = useState("");
-  const downloadTemplate = () => { const csv = "First Name,Middle Name,Last Name,College/Department,Position\nJuan,,Dela Cruz,Student Affairs,Events Coordinator\n"; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const link = document.createElement("a"); link.href = url; link.download = "organizer-accounts-template.csv"; link.click(); URL.revokeObjectURL(url); };
-  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.currentTarget.files?.[0]; if (!file) return; setError(""); Papa.parse<Record<string, string>>(file, { header: true, skipEmptyLines: true, complete: async (results) => { try { const required = ["First Name", "Last Name", "College/Department", "Position"]; const missing = required.filter((key) => !results.meta.fields?.includes(key)); if (missing.length) throw new Error(`Missing columns: ${missing.join(", ")}`); const inputs = results.data.map((row, index) => { const missingRow = required.find((key) => !row[key]?.trim()); if (missingRow) throw new Error(`Row ${index + 2}: ${missingRow} is required.`); return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"]), employeeNumber: "", organizationName: row["College/Department"].trim(), position: row.Position.trim() }; }); const duplicateEmail = new Set(inputs.map((input) => input.email.toLowerCase())).size !== inputs.length; if (duplicateEmail) throw new Error("The names generate duplicate email addresses."); const result = await mutation.mutateAsync(inputs); if (result.failed) setError(`${result.success} created, ${result.failed} failed. ${result.errors.map((item) => `Row ${item.row}: ${item.error}`).join(" ")}`); else onClose(); } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); } }, error: () => setError("The CSV file could not be read.") }); };
+  const downloadTemplate = () => { const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\nJuan,,Dela Cruz,,Student Affairs\n"; const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); const link = document.createElement("a"); link.href = url; link.download = "organizer-accounts-template.csv"; link.click(); onClose(); setTimeout(() => URL.revokeObjectURL(url), 0); };
+  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.currentTarget.files?.[0]; if (!file) return; setError(""); Papa.parse<Record<string, string>>(file, { header: true, skipEmptyLines: true, complete: async (results) => { try { const required = ["First Name", "Last Name", "College/Department"]; const missing = required.filter((key) => !results.meta.fields?.includes(key)); if (missing.length) throw new Error(`Missing columns: ${missing.join(", ")}`); const inputs = results.data.map((row, index) => { const missingRow = required.find((key) => !row[key]?.trim()); if (missingRow) throw new Error(`Row ${index + 2}: ${missingRow} is required.`); return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), nameExtension: row["Name Extension"]?.trim() as CreateOrganizerInput["nameExtension"], email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"], row["Name Extension"]), employeeNumber: "", organizationName: row["College/Department"].trim(), position: "Organizer" }; }); const duplicateEmail = new Set(inputs.map((input) => input.email?.toLowerCase())).size !== inputs.length; if (duplicateEmail) throw new Error("The names generate duplicate email addresses."); const result = await mutation.mutateAsync(inputs); if (result.failed) setError(`${result.success} created, ${result.failed} failed. ${result.errors.map((item) => `Row ${item.row}: ${item.error}`).join(" ")}`); else onClose(); } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); } }, error: () => setError("The CSV file could not be read.") }); };
   if (!isOpen) return null;
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}><div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b bg-primary/5 px-6 py-4"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer accounts</p><h2 className="text-lg font-semibold">Bulk add organizers</h2></div><button type="button" onClick={onClose} aria-label="Close bulk organizer dialog" className="grid h-9 w-9 place-items-center rounded-lg border bg-surface text-muted-foreground hover:bg-muted"><X className="h-5 w-5" /></button></div><div className="space-y-5 p-6"><div className="rounded-xl border bg-muted/30 p-4 text-sm"><p className="font-semibold">Use the CSV template</p><p className="mt-1 text-muted-foreground">Each organizer receives a secure invitation email. Employee IDs are identifiers only. Employee IDs are generated automatically during import.</p><button type="button" onClick={downloadTemplate} className="mt-3 inline-flex items-center gap-2 font-semibold text-primary hover:underline"><FileDown className="h-4 w-4" />Download template</button></div>{error ? <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}<label className="flex cursor-pointer flex-col items-center rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 p-8 text-center hover:bg-primary/10"><UploadCloud className="h-8 w-8 text-primary" /><span className="mt-2 text-sm font-semibold">Choose CSV file</span><span className="mt-1 text-xs text-muted-foreground">Invitation emails are sent after each account is created.</span><input type="file" accept=".csv,text/csv" className="sr-only" onChange={handleUpload} disabled={mutation.isPending} /></label><div className="flex justify-end"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Close</button></div></div></div></div>, document.body);
 }
@@ -1187,6 +1175,7 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
   const [isLoading, setIsLoading] = useState(false);
   const [fileError, setFileError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pendingInputs, setPendingInputs] = useState<CreateOrganizerInput[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1227,24 +1216,18 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
       complete: async (results) => {
         try {
           if (results.errors.length) throw new Error("The CSV could not be read. Please use the provided template.");
-          const required = ["First Name", "Last Name", "College/Department", "Position"];
+          const required = ["First Name", "Last Name", "College/Department"];
           const missing = required.filter((key) => !results.meta.fields?.includes(key));
           if (missing.length) throw new Error("The CSV headers do not match the provided template.");
           const inputs = results.data.map((row, index) => {
             const missingField = required.find((key) => !row[key]?.trim());
             if (missingField) throw new Error(`Row ${index + 2}: Complete all required fields.`);
-            return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"]), employeeNumber: "", organizationName: row["College/Department"].trim(), position: row.Position.trim() };
+            return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), nameExtension: row["Name Extension"]?.trim() as CreateOrganizerInput["nameExtension"], email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"], row["Name Extension"]), employeeNumber: "", organizationName: row["College/Department"].trim(), position: "Organizer" };
           });
           if (!inputs.length) throw new Error("The CSV has no organizer records.");
           const duplicateEmail = new Set(inputs.map((input) => input.email.toLowerCase())).size !== inputs.length;
           if (duplicateEmail) throw new Error("The CSV contains duplicate email addresses.");
-          const result = await mutation.mutateAsync(inputs);
-          if (result.failed > 0) {
-            setFileError(`${result.success} organizer account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed. Please correct the failed rows and try again.`);
-          } else {
-            toast.success(`Successfully imported ${result.success} organizer account${result.success === 1 ? "" : "s"}.`);
-            onClose();
-          }
+          setPendingInputs(inputs);
         } catch (error) {
           const message = getErrorMessage(error);
           setFileError(/^(Row \d+: Complete|The CSV |Please choose )/i.test(message) ? message : "The organizer accounts could not be imported. Please check the CSV and try again.");
@@ -1259,17 +1242,31 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
     });
   };
 
+  const confirmImport = async () => {
+    if (!pendingInputs) return;
+    setIsLoading(true);
+    try {
+      const result = await mutation.mutateAsync(pendingInputs);
+      if (result.failed > 0) setFileError(`${result.success} organizer account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed. Please correct the failed rows and try again.`);
+      else { toast.success(`Successfully imported ${result.success} organizer account${result.success === 1 ? "" : "s"}.`); onClose(); }
+      setPendingInputs(null);
+    } catch (error) { setFileError(getErrorMessage(error)); }
+    finally { setIsLoading(false); }
+  };
+
   const downloadTemplate = () => {
-    const csv = "First Name,Middle Name,Last Name,College/Department,Position\nJuan,,Dela Cruz,Student Affairs,Events Coordinator\n";
+    const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\nJuan,,Dela Cruz,,Student Affairs\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = "organizer-accounts-template.csv";
     link.click();
-    URL.revokeObjectURL(url);
+    onClose();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-6 py-5 sm:px-9">
@@ -1288,7 +1285,9 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
           </div>
         </div>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal open={Boolean(pendingInputs)} title="Import organizer accounts?" description={`${pendingInputs?.length ?? 0} organizer account${pendingInputs?.length === 1 ? "" : "s"} will be created and invitation emails will be sent.`} confirmLabel="Import accounts" confirmDisabled={isLoading || mutation.isPending} onConfirm={() => void confirmImport()} onCancel={() => setPendingInputs(null)} />
+    </>,
     document.body
   );
 }
@@ -1349,6 +1348,7 @@ function EditStudentModal({
     }
   }, [fixedDepartmentId, sections, student]);
   const [isDiscardConfirmOpen, setIsDiscardConfirmOpen] = useState(false);
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -1366,8 +1366,17 @@ function EditStudentModal({
     else onClose();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitConfirmOpen(true);
+  };
+
+  const confirmSubmit = async () => {
+    setIsSubmitConfirmOpen(false);
+    if (!student || formData.id !== student.id || formData.profileId !== student.userId) {
+      toast.error("This student record changed. Refresh and try again.");
+      return;
+    }
     setIsLoading(true);
     try {
       await mutations.updateStudentMutation.mutateAsync(formData);
@@ -1468,6 +1477,7 @@ function EditStudentModal({
       </div>
     </div>
     <ConfirmModal open={isDiscardConfirmOpen} title="Discard student changes?" description="Your unsaved student profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setIsDiscardConfirmOpen(false); onClose(); }} onCancel={() => setIsDiscardConfirmOpen(false)} />
+    <ConfirmModal open={isSubmitConfirmOpen} title="Save student changes?" description="The updated student profile and account status will be saved." confirmLabel="Save changes" confirmDisabled={isLoading} onConfirm={() => void confirmSubmit()} onCancel={() => setIsSubmitConfirmOpen(false)} />
     </>,
     document.body
   );
@@ -1491,6 +1501,7 @@ function BulkAddStudentModal({
   const [isLoading, setIsLoading] = useState(false);
   const [fileError, setFileError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [pendingInputs, setPendingInputs] = useState<CreateStudentInput[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1547,7 +1558,8 @@ function BulkAddStudentModal({
             }
             return {
               studentNumber: formatStudentNumber(row["Student Number"] ?? ""),
-              email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"]),
+              email: generateAccountEmail(row["Last Name"], row["First Name"], row["Middle Name"], row["Name Extension"]),
+              nameExtension: row["Name Extension"]?.trim() as CreateStudentInput["nameExtension"],
               firstName: row["First Name"],
               middleName: row["Middle Name"],
               lastName: row["Last Name"],
@@ -1558,19 +1570,7 @@ function BulkAddStudentModal({
             };
           });
 
-          const result = await mutations.bulkCreateStudentsMutation.mutateAsync(inputs);
-          if (result.failed > 0) {
-            const errorDetails = result.errors
-              .slice(0, 3)
-              .map((item) => `${item.row ? `Row ${item.row}: ` : ""}${conciseImportError(item.error, item.studentNumber)}`)
-              .join(" ");
-            const summary = `${result.success} student account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed.${errorDetails ? ` ${errorDetails}` : ""}`;
-            setFileError(summary);
-            toast.warning(`${result.success} added successfully; ${result.failed} failed.`);
-          } else {
-            toast.success(`Successfully imported ${result.success} student account${result.success === 1 ? "" : "s"}.`);
-            onClose();
-          }
+          setPendingInputs(inputs);
         } catch (error) {
           const errorMessage = getErrorMessage(error);
           const isUserFriendlyMessage = /^(Row \d+: (Check the Program Code and Department Code\.|The student must belong to your department)|The CSV |Please choose )/i.test(errorMessage);
@@ -1586,6 +1586,21 @@ function BulkAddStudentModal({
     });
   };
 
+  const confirmImport = async () => {
+    if (!pendingInputs) return;
+    setIsLoading(true);
+    try {
+      const result = await mutations.bulkCreateStudentsMutation.mutateAsync(pendingInputs);
+      if (result.failed > 0) {
+        const errorDetails = result.errors.slice(0, 3).map((item) => `${item.row ? `Row ${item.row}: ` : ""}${conciseImportError(item.error, item.studentNumber)}`).join(" ");
+        setFileError(`${result.success} student account${result.success === 1 ? "" : "s"} added successfully. ${result.failed} failed.${errorDetails ? ` ${errorDetails}` : ""}`);
+        toast.warning(`${result.success} added successfully; ${result.failed} failed.`);
+      } else { toast.success(`Successfully imported ${result.success} student account${result.success === 1 ? "" : "s"}.`); onClose(); }
+      setPendingInputs(null);
+    } catch (error) { setFileError(conciseImportError(getErrorMessage(error))); }
+    finally { setIsLoading(false); }
+  };
+
   const conciseImportError = (error: string, studentNumber?: string) => {
     if (/student id|student_id|duplicate key/i.test(error)) {
       return studentNumber ? `Student ID "${studentNumber}" already exists.` : "Student ID already exists.";
@@ -1596,6 +1611,7 @@ function BulkAddStudentModal({
   };
 
   return createPortal(
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
@@ -1647,7 +1663,9 @@ function BulkAddStudentModal({
         </div>
         </div>
       </div>
-    </div>,
+    </div>
+    <ConfirmModal open={Boolean(pendingInputs)} title="Import student accounts?" description={`${pendingInputs?.length ?? 0} student account${pendingInputs?.length === 1 ? "" : "s"} will be created and invitation emails will be sent.`} confirmLabel="Import accounts" confirmDisabled={isLoading || mutations.bulkCreateStudentsMutation.isPending} onConfirm={() => void confirmImport()} onCancel={() => setPendingInputs(null)} />
+    </>,
     document.body
   );
 }
@@ -1667,6 +1685,7 @@ export function OrganizerUserManagementPage() {
     [isDepartmentAdmin, session?.departmentId, studentsQuery.data?.items]
   );
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
+  const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, departmentStudentIds);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const studentMutations = useStudentMutations(scope.context);
@@ -1797,6 +1816,7 @@ export function OrganizerUserManagementPage() {
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [statusUpdatingStudentId, setStatusUpdatingStudentId] = useState<string | null>(null);
+  const [pendingStudentStatus, setPendingStudentStatus] = useState<{ studentId: string; nextStatus: "active" | "inactive"; name: string } | null>(null);
 
   const filteredStudents = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -1825,13 +1845,25 @@ export function OrganizerUserManagementPage() {
   const studentsWithRate = studentAccounts.filter((s) => s.attendanceRate !== null);
   const averageAttendance = studentsWithRate.length ? Math.round(studentsWithRate.reduce((sum, student) => sum + (student.attendanceRate ?? 0), 0) / studentsWithRate.length) : 0;
 
-  async function toggleStudentAccountStatus(studentId: string, nextStatus: "active" | "inactive") {
+  function toggleStudentAccountStatus(studentId: string, nextStatus: "active" | "inactive") {
     const student = studentsQuery.data?.items?.find((item) => item.id === studentId);
     if (!student) {
       toast.error("Student information is no longer available. Refresh the page and try again.");
       return;
     }
 
+    setPendingStudentStatus({ studentId, nextStatus, name: student.formattedName || student.fullName || student.studentNumber });
+  }
+
+  async function confirmStudentAccountStatus() {
+    if (!pendingStudentStatus) return;
+    const { studentId, nextStatus } = pendingStudentStatus;
+    const student = studentsQuery.data?.items?.find((item) => item.id === studentId);
+    if (!student) {
+      setPendingStudentStatus(null);
+      toast.error("Student information is no longer available. Refresh the page and try again.");
+      return;
+    }
     setStatusUpdatingStudentId(studentId);
     try {
       await studentMutations.updateStudentMutation.mutateAsync({
@@ -1853,6 +1885,7 @@ export function OrganizerUserManagementPage() {
       toast.error(getErrorMessage(error));
     } finally {
       setStatusUpdatingStudentId(null);
+      setPendingStudentStatus(null);
     }
   }
 
@@ -2109,7 +2142,7 @@ export function OrganizerUserManagementPage() {
         </section>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} showAdmins={!isDepartmentAdmin} />
         <div className="organizer-directory-page">
-          <OrganizerDirectoryConsistent organizers={departmentOrganizers} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} departments={academicCatalog.departments.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} canAdd={canCreateOrganizer} />
+          <OrganizerDirectoryConsistent organizers={departmentOrganizers} users={usersQuery.data?.items ?? []} events={eventsQuery.data?.items ?? []} attendanceRecords={attendanceRecordsQuery.data?.items ?? []} attendanceSessions={attendanceSessionsQuery.data?.items ?? []} activeSemester={academicCatalog.semesters.data?.items.find((semester) => semester.isActive)} departments={academicCatalog.departments.data?.items ?? []} onAdd={() => setIsAddOrganizerModalOpen(true)} onBulkAdd={() => setIsBulkOrganizerModalOpen(true)} onEdit={(organizerId) => { setSelectedOrganizerId(organizerId); setIsEditOrganizerModalOpen(true); }} canAdd={canCreateOrganizer} onExportAction={(action, targetType, metadata) => { void auditLogMutations.logExportActionMutation.mutateAsync({ action, targetType, metadata }); }} />
         </div>
       </> : <>
         <AccountDirectoryTabs activeTab={activeTab} onChange={setActiveTab} />
@@ -2131,15 +2164,9 @@ export function OrganizerUserManagementPage() {
       <ReportExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        studentAccounts={studentAccounts}
-        programs={programs}
-        sections={sections}
-        activeProgramFilter={programFilter}
-        activeSectionFilter={sectionFilter}
-        activeStatusFilter={statusFilter}
-        activeSearch={query}
+        filteredStudents={filteredStudents}
         onExportAction={(action, targetType, metadata) => {
-          void auditLogMutations.logActionMutation.mutateAsync({
+          void auditLogMutations.logExportActionMutation.mutateAsync({
             action,
             targetType,
             metadata
@@ -2187,6 +2214,16 @@ export function OrganizerUserManagementPage() {
       {canCreateAdmin ? <AddAdminModalAutomatic isOpen={isAddAdminModalOpen} onClose={() => setIsAddAdminModalOpen(false)} mutation={adminMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(adminProfilesQuery.data?.items ?? [], "A")} /> : null}
       <EditAdminModal isOpen={isEditAdminModalOpen} onClose={() => setIsEditAdminModalOpen(false)} admin={selectedAdmin} user={selectedAdminUser} departments={academicCatalog.departments.data?.items ?? []} mutation={updateAdminMutation} canRevokeSessions={canRevokeSessions && selectedAdminUser?.id !== session?.userId} onRevokeSessions={requestSessionRevocation} onResendInvitation={resendInvitation} />
       <RevokeUserSessionsDialog target={sessionRevocationTarget} onClose={() => setSessionRevocationTarget(null)} onConfirm={revokeSessions} />
+      <ConfirmModal
+        open={Boolean(pendingStudentStatus)}
+        title={pendingStudentStatus?.nextStatus === "active" ? "Reactivate student account?" : "Deactivate student account?"}
+        description={pendingStudentStatus ? `${pendingStudentStatus.name} will be ${pendingStudentStatus.nextStatus === "active" ? "able to sign in again" : "unable to sign in"}. Existing credentials and attendance history will be preserved.` : undefined}
+        confirmLabel={pendingStudentStatus?.nextStatus === "active" ? "Reactivate account" : "Deactivate account"}
+        tone={pendingStudentStatus?.nextStatus === "active" ? "default" : "danger"}
+        confirmDisabled={Boolean(statusUpdatingStudentId)}
+        onCancel={() => setPendingStudentStatus(null)}
+        onConfirm={() => void confirmStudentAccountStatus()}
+      />
     </div>
   );
 }

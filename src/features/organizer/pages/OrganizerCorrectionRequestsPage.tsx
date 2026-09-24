@@ -6,6 +6,7 @@ import { AlertCircle, Check, CheckCircle2, Download, FileSpreadsheet, FileText, 
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -108,46 +109,26 @@ function ReportExportModal({
   isOpen,
   onClose,
   requests,
-  activeStatusFilter,
-  activeSearch,
   onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
   requests: CorrectionRequest[];
-  activeStatusFilter: string;
-  activeSearch: string;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"directory" | "summary">("directory");
-  const [exportStatus, setExportStatus] = useState(activeStatusFilter);
-  const [exportSearch, setExportSearch] = useState(activeSearch);
-  const [exportTypeFilter, setExportTypeFilter] = useState<"all" | RequestType>("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const filtered = requests.filter((r) => {
-    const matchSearch = !exportSearch.trim() || `${r.studentName} ${r.studentNumber} ${r.eventCode} ${r.eventName}`.toLowerCase().includes(exportSearch.trim().toLowerCase());
-    const matchStatus = exportStatus === "all" || r.status === exportStatus;
-    const matchType = exportTypeFilter === "all" || r.requestType === exportTypeFilter;
-    return matchSearch && matchStatus && matchType;
-  });
-
-  function handleResetFilters() {
-    setExportStatus("all");
-    setExportTypeFilter("all");
-    setExportSearch("");
-  }
-
   async function handleExport() {
-    if (filtered.length === 0) {
+    if (requests.length === 0) {
       toast.warning("No correction request records match the selected export criteria.");
       return;
     }
 
-    const data: ExportCorrectionRequestRow[] = filtered.map((r) => ({
+    const data: ExportCorrectionRequestRow[] = requests.map((r) => ({
       requestId: r.requestId,
       studentId: r.studentNumber,
       studentName: r.studentName,
@@ -182,11 +163,8 @@ function ReportExportModal({
       {
         reportType,
         format: exportFormat,
-        recordCount: filtered.length,
-        filters: {
-          status: exportStatus,
-          requestType: exportTypeFilter
-        }
+        recordCount: requests.length,
+        filters: "page-filtered"
       }
     );
 
@@ -212,7 +190,7 @@ function ReportExportModal({
               <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
                 Export Report
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select report type, criteria, and download format.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a report type and format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -285,56 +263,7 @@ function ReportExportModal({
             </div>
           </div>
 
-          {/* Step 2: Filters Grid */}
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Scope & Filters
-              </span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
-              >
-                Reset filters
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search requests</label>
-                <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Student, event code, or event name" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Request Status</label>
-                <select
-                  value={exportStatus}
-                  onChange={(e) => setExportStatus(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All statuses</option>
-                  <option value="pending">Pending</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Request Type</label>
-                <select
-                  value={exportTypeFilter}
-                  onChange={(e) => setExportTypeFilter(e.target.value as "all" | RequestType)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All types</option>
-                  <option value="Correction">Correction</option>
-                  <option value="Excuse">Excuse</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3: File Format Selection */}
+          {/* Step 2: File Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
               3. Download Format
@@ -384,7 +313,7 @@ function ReportExportModal({
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {filtered.length} records selected
+              {requests.length} records selected
             </span>
           </div>
 
@@ -399,7 +328,7 @@ function ReportExportModal({
             <button
               type="button"
               onClick={handleExport}
-              disabled={filtered.length === 0 || isExportLoading}
+              disabled={requests.length === 0 || isExportLoading}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
@@ -626,47 +555,44 @@ export function OrganizerCorrectionRequestsPage() {
   }
 
   const { reviewMutation } = correctionRequestsQuery;
+  const [pendingDecision, setPendingDecision] = useState<{ status: "approved" | "rejected"; remark: string } | null>(null);
 
-  async function approveRequest() {
+  function approveRequest() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || `Approved. Attendance status updated to ${selectedRequest.requestedStatus}.`;
-
-    try {
-      await reviewMutation.mutateAsync({
-        requestId: selectedRequest.id,
-        status: "approved",
-        reason: remark
-      });
-      setSelectedRequest((current) => (current ? { ...current, status: "approved", decision: "approved", decisionRemarks: remark } : null));
-      toast.success(`${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.`);
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Approved Correction Request",
-        targetType: "correction_request",
-        targetId: selectedRequest.id,
-        metadata: { requestId: selectedRequest.id, remark }
-      });
-    } catch (error) { toast.error(getErrorMessage(error)); }
+    setPendingDecision({ status: "approved", remark });
   }
 
-  async function rejectRequest() {
+  function rejectRequest() {
     if (!selectedRequest) return;
     const remark = decisionRemarks.trim() || "Rejected. Original attendance status retained.";
+    setPendingDecision({ status: "rejected", remark });
+  }
 
+  async function confirmDecision() {
+    if (!selectedRequest || !pendingDecision) return;
+    const latestRequest = requests.find((request) => request.id === selectedRequest.id);
+    if (!latestRequest || latestRequest.status !== "pending") {
+      setPendingDecision(null);
+      toast.error("This correction request is no longer pending. Refresh the queue and try again.");
+      return;
+    }
+    const decision = pendingDecision;
     try {
       await reviewMutation.mutateAsync({
         requestId: selectedRequest.id,
-        status: "rejected",
-        reason: remark
+        status: decision.status,
+        reason: decision.remark
       });
-      setSelectedRequest((current) => (current ? { ...current, status: "rejected", decision: "rejected", decisionRemarks: remark } : null));
-      toast.error(`${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
+      setSelectedRequest((current) => (current ? { ...current, status: decision.status, decision: decision.status, decisionRemarks: decision.remark } : null));
+      setPendingDecision(null);
+      toast[decision.status === "approved" ? "success" : "error"](decision.status === "approved" ? `${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.` : `${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
       
       void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Rejected Correction Request",
+        action: decision.status === "approved" ? "Approved Correction Request" : "Rejected Correction Request",
         targetType: "correction_request",
         targetId: selectedRequest.id,
-        metadata: { requestId: selectedRequest.id, remark }
+        metadata: { requestId: selectedRequest.id, remark: decision.remark }
       });
     } catch (error) { toast.error(getErrorMessage(error)); }
   }
@@ -802,9 +728,7 @@ export function OrganizerCorrectionRequestsPage() {
       <ReportExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        requests={requests}
-        activeStatusFilter={statusFilter}
-        activeSearch={search}
+        requests={filteredRequests}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,
@@ -918,6 +842,16 @@ export function OrganizerCorrectionRequestsPage() {
           </div>
         </ModalFrame>
       ) : null}
+      <ConfirmModal
+        open={Boolean(pendingDecision)}
+        title={pendingDecision?.status === "approved" ? "Approve correction request?" : "Reject correction request?"}
+        description={pendingDecision && selectedRequest ? `${pendingDecision.status === "approved" ? "Approve" : "Reject"} ${selectedRequest.requestId} for ${selectedRequest.studentName} · ${selectedRequest.eventCode}.${pendingDecision.remark ? ` Remarks: ${pendingDecision.remark}` : ""}` : undefined}
+        confirmLabel={pendingDecision?.status === "approved" ? "Approve request" : "Reject request"}
+        tone={pendingDecision?.status === "approved" ? "default" : "danger"}
+        confirmDisabled={reviewMutation.isPending}
+        onCancel={() => setPendingDecision(null)}
+        onConfirm={() => void confirmDecision()}
+      />
     </div>
   );
 }

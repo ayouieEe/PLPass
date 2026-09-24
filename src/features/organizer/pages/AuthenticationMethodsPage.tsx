@@ -176,6 +176,7 @@ function FacialActionsRenderer({
   if (!data) return null;
 
   const isFacialActive = data.status === "Active";
+  const canToggleFacialStatus = data.status === "Active" || data.status === "Deactivated";
 
   return (
     <div className="flex items-center gap-2">
@@ -190,19 +191,21 @@ function FacialActionsRenderer({
         View
       </Button>
 
-      <Button
-        ref={buttonRef}
-        type="button"
-        variant="secondary"
-        size="sm"
-        className="h-8 shadow-xs"
-        onClick={toggleMenu}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-      >
-        Manage
-        <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
-      </Button>
+      {canToggleFacialStatus ? (
+        <Button
+          ref={buttonRef}
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 shadow-xs"
+          onClick={toggleMenu}
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+        >
+          Manage
+          <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      ) : null}
 
       {isOpen && menuPos && createPortal(
         <div
@@ -233,7 +236,7 @@ function FacialActionsRenderer({
             ) : (
               <>
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                Activate Facial
+                Reactivate Facial
               </>
             )}
           </button>
@@ -250,8 +253,6 @@ function ReportExportModal({
   qrRows,
   facialRows,
   activeTab,
-  activeSearch,
-  activeStatusFilter,
   onExportAction
 }: {
   isOpen: boolean;
@@ -259,26 +260,17 @@ function ReportExportModal({
   qrRows: QrRow[];
   facialRows: FacialRow[];
   activeTab: ActiveTab;
-  activeSearch: string;
-  activeStatusFilter: AuthenticationStatusFilter;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
-  const [statusFilter, setStatusFilter] = useState(activeStatusFilter === "All" ? "all" : activeStatusFilter);
-  const [exportSearch, setExportSearch] = useState(activeSearch);
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const filteredQr = qrRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
-  const filteredFacial = facialRows.filter((r) => (!exportSearch.trim() || `${r.studentName} ${r.studentId}`.toLowerCase().includes(exportSearch.trim().toLowerCase())) && (statusFilter === "all" || r.status === statusFilter));
+  const filteredQr = qrRows;
+  const filteredFacial = facialRows;
   const count = reportType === "qr" ? filteredQr.length : filteredFacial.length;
-
-  function handleResetFilters() {
-    setStatusFilter("all");
-    setExportSearch("");
-  }
 
   async function handleExport() {
     if (count === 0) {
@@ -297,7 +289,7 @@ function ReportExportModal({
 
     if (reportType === "qr") {
       const data: ExportQrCredentialRow[] = filteredQr.map((r) => ({
-        studentId: r.studentId,
+        studentId: r.studentNumber,
         studentName: r.studentName,
         status: r.status,
         dateGenerated: r.dateGenerated,
@@ -312,7 +304,7 @@ function ReportExportModal({
       }
     } else {
       const data: ExportFacialProfileRow[] = filteredFacial.map((r) => ({
-        studentId: r.studentId,
+        studentId: r.studentNumber,
         studentName: r.studentName,
         status: r.status,
         enrollmentDate: r.enrollmentDate,
@@ -333,10 +325,7 @@ function ReportExportModal({
       {
         reportType,
         format: exportFormat,
-        recordCount: count,
-        filters: {
-          status: statusFilter
-        }
+        recordCount: count
       }
     );
 
@@ -361,7 +350,7 @@ function ReportExportModal({
               <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
                 Export Authentication Report
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select method type, status filter, and download format.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a method and format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -434,40 +423,7 @@ function ReportExportModal({
             </div>
           </div>
 
-          {/* Step 2: Filters Grid */}
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Scope & Filters
-              </span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
-              >
-                Reset filters
-              </button>
-            </div>
-
-            <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Search students</label>
-              <input value={exportSearch} onChange={(e) => setExportSearch(e.target.value)} placeholder="Name or student ID" className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800" />
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold text-slate-600 block mb-1">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-              >
-                <option value="all">All statuses</option>
-                <option value="Active">Active</option>
-                <option value="Deactivated">Deactivated</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Step 3: File Format Selection */}
+          {/* Step 2: File Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
               3. Download Format
@@ -683,9 +639,9 @@ export function AuthenticationMethodsPage() {
   const handleDisableQr = useCallback((student: QrRow) => {
     setActiveModal({
       type: "qr",
-      title: "Disable QR credential",
+      title: "Deactivate QR credential",
       description: `Revoke the current QR credential for ${student.studentName}? They will need a new credential before using QR check-in.`,
-      confirmLabel: "Disable credential",
+      confirmLabel: "Deactivate",
       cancelLabel: "Cancel",
       tone: "danger",
       studentName: student.studentName,
@@ -696,9 +652,9 @@ export function AuthenticationMethodsPage() {
   const handleActivateQr = useCallback((student: QrRow) => {
     setActiveModal({
       type: "qr",
-      title: "Enable QR credential",
+      title: "Reactivate QR credential",
       description: `Reactivate the existing QR credential for ${student.studentName}?`,
-      confirmLabel: "Enable credential",
+      confirmLabel: "Reactivate",
       cancelLabel: "Cancel",
       tone: "default",
       studentName: student.studentName,
@@ -734,7 +690,7 @@ export function AuthenticationMethodsPage() {
       type: "qr",
       title: "QR credential details",
       description: `Review the current QR credential for ${student.studentName}.`,
-      confirmLabel: canManage ? (isActive ? "Disable credential" : "Enable credential") : "Close",
+      confirmLabel: canManage ? (isActive ? "Deactivate" : "Reactivate") : "Close",
       cancelLabel: canManage ? "Cancel" : "Close",
       tone: canManage && isActive ? "danger" : "default",
       studentName: student.studentName,
@@ -769,9 +725,9 @@ export function AuthenticationMethodsPage() {
   const handleActivateFacial = useCallback((student: FacialRow) => {
     setActiveModal({
       type: "facial",
-      title: "Activate facial credential",
+      title: "Reactivate facial credential",
       description: `Reactivate the existing facial enrollment for ${student.studentName}?`,
-      confirmLabel: "Activate",
+      confirmLabel: "Reactivate",
       cancelLabel: "Cancel",
       tone: "default",
       studentName: student.studentName,
@@ -780,6 +736,7 @@ export function AuthenticationMethodsPage() {
   }, []);
 
   const handleToggleFacialStatus = useCallback((student: FacialRow) => {
+    if (student.status === "Pending") return;
     if (student.status === "Active") {
       handleDeactivateFacial(student);
     } else {
@@ -804,23 +761,32 @@ export function AuthenticationMethodsPage() {
         setActiveModal(null);
         return;
       }
+      if (activeModal.title === "QR credential details") {
+        if (!student.credentialId) {
+          setActiveModal(null);
+          return;
+        }
+        if (student.status === "Active") handleDisableQr(student);
+        else handleActivateQr(student);
+        return;
+      }
       if (/Reissue|Regenerate/i.test(activeModal.title)) {
         await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
         toast.success(`A new QR credential was issued for ${student.studentName}.`);
-      } else if (activeModal.title.includes("Disable") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
+      } else if (activeModal.title.includes("Deactivate") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
           status: "inactive"
         });
-        toast.success(`QR credential disabled for ${activeModal.studentName}.`);
-      } else if (activeModal.title.includes("Enable") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate") || (activeModal.title === "QR credential details" && student.status !== "Active" && Boolean(student.credentialId))) {
+        toast.success(`QR credential deactivated for ${activeModal.studentName}.`);
+      } else if (activeModal.title.includes("Reactivate") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate") || (activeModal.title === "QR credential details" && student.status !== "Active" && Boolean(student.credentialId))) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "qr",
           status: "activated"
         });
-        toast.success(`QR credential updated for ${activeModal.studentName}.`);
+        toast.success(`QR credential reactivated for ${activeModal.studentName}.`);
       }
     }
 
@@ -831,6 +797,10 @@ export function AuthenticationMethodsPage() {
         setActiveModal(null);
         return;
       }
+      if (student.status === "Pending") {
+        setActiveModal(null);
+        return;
+      }
       if (activeModal.title.includes("Deactivate")) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
@@ -838,13 +808,13 @@ export function AuthenticationMethodsPage() {
           status: "inactive"
         });
         toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
-      } else if (activeModal.title.includes("Activate")) {
+      } else if (activeModal.title.includes("Reactivate") || activeModal.title.includes("Activate")) {
         await credentialMutations.setCredentialStatusMutation.mutateAsync({
           studentId: student.studentId,
           credentialType: "facial",
           status: "activated"
         });
-        toast.success(`Facial enrollment activated for ${activeModal.studentName}.`);
+        toast.success(`Facial enrollment reactivated for ${activeModal.studentName}.`);
       } else {
         toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
       }
@@ -943,7 +913,7 @@ export function AuthenticationMethodsPage() {
       <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-1.5 shadow-sm">
         <button
           type="button"
-          onClick={() => setActiveTab("qr")}
+          onClick={() => { setActiveTab("qr"); if (statusFilter === "Pending") setStatusFilter("All"); }}
           className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
         >
           <QrCode className="h-4 w-4" />
@@ -1008,6 +978,7 @@ export function AuthenticationMethodsPage() {
             >
               <option value="All">All statuses</option>
               <option value="Active">Active</option>
+              {activeTab === "facial" ? <option value="Pending">Pending</option> : null}
               <option value="Deactivated">Deactivated</option>
             </select>
           </div>
@@ -1031,7 +1002,7 @@ export function AuthenticationMethodsPage() {
         onConfirm={confirmModalAction}
         onCancel={() => setActiveModal(null)}
       >
-        {activeModal?.type === "qr" && activeModal.studentName ? (
+        {activeModal?.type === "qr" && activeModal.title === "QR credential details" && activeModal.studentName ? (
           <div className="space-y-4 rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-surface to-surface p-4 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
               <div>
@@ -1056,7 +1027,7 @@ export function AuthenticationMethodsPage() {
           </div>
         ) : null}
 
-        {activeModal?.type === "facial" && activeModal.studentName ? (
+        {activeModal?.type === "facial" && activeModal.title === "Facial enrollment details" && activeModal.studentName ? (
           <div className="space-y-3 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
             <div className="flex items-center justify-between">
               <p className="font-medium text-foreground">Facial profile preview</p>
@@ -1077,7 +1048,7 @@ export function AuthenticationMethodsPage() {
             <p>
               This preview shows the stored facial profile and recent verification activity for the student.
             </p>
-            {activeModal.title === "Facial enrollment details" && selectedStudentFacialInfo ? (
+            {selectedStudentFacialInfo && (selectedStudentFacialInfo.status === "Active" || selectedStudentFacialInfo.status === "Deactivated") ? (
               <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
                 {(selectedStudentFacialInfo.status === "Active" ? canRevokeCredentials : canResetCredentials) ? <Button
                   type="button"
@@ -1085,7 +1056,7 @@ export function AuthenticationMethodsPage() {
                   size="sm"
                   onClick={() => handleToggleFacialStatus(selectedStudentFacialInfo)}
                 >
-                  {selectedStudentFacialInfo.status === "Active" ? "Deactivate facial" : "Activate facial"}
+                  {selectedStudentFacialInfo.status === "Active" ? "Deactivate" : "Reactivate"}
                 </Button> : null}
               </div>
             ) : null}
@@ -1124,11 +1095,9 @@ export function AuthenticationMethodsPage() {
       <ReportExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        qrRows={qrRows}
-        facialRows={facialRows}
+        qrRows={filteredQrRows}
+        facialRows={filteredFacialRows}
         activeTab={activeTab}
-        activeSearch={searchQuery}
-        activeStatusFilter={statusFilter}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,

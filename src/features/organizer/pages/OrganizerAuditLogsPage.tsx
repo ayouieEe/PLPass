@@ -14,7 +14,6 @@ import {
   useEvents,
   useStudents,
   useAttendanceSessions,
-  useAuditLogMutations,
   useAcademicCatalog,
   useUsers,
   useOrganizerProfiles,
@@ -28,6 +27,7 @@ import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import {
   formatAuditAction,
   getAuditTargetInfo,
+  getAuditLogDetailItems,
   filterAuditLogs,
   type AuditLogFilters
 } from "../utils/auditLogUtils";
@@ -48,7 +48,6 @@ export function OrganizerAuditLogsPage() {
 
   // Selected Log for Details Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
-  const [isReverting, setIsReverting] = useState(false);
 
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
@@ -65,7 +64,6 @@ export function OrganizerAuditLogsPage() {
     []
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
-  const auditLogMutations = useAuditLogMutations(context);
   const rawLogs = useMemo(
     () => auditLogsQuery.data?.items ?? [],
     [auditLogsQuery.data?.items]
@@ -162,28 +160,6 @@ export function OrganizerAuditLogsPage() {
     setCustomEndDate("");
     setActorRole("all");
     setActionCategory("all");
-  }
-
-  async function markAuditLogReviewed() {
-    if (!selectedLog || selectedLog.action === "audit_log.reviewed") return;
-    setIsReverting(true);
-    try {
-      await auditLogMutations.logActionMutation.mutateAsync({
-        action: "audit_log.reviewed",
-        targetType: "audit_log",
-        targetId: selectedLog.id,
-        metadata: {
-          reviewedAction: selectedLog.action,
-          reviewedTargetType: selectedLog.targetType,
-          reviewedTargetId: selectedLog.targetId ?? null,
-          reviewedAt: new Date().toISOString()
-        }
-      });
-      toast.success("Review recorded in Audit Logs.");
-      setSelectedLog(null);
-    } finally {
-      setIsReverting(false);
-    }
   }
 
   function getActorInfo(userId: string) {
@@ -504,19 +480,11 @@ export function OrganizerAuditLogsPage() {
         <ModalShell
           open={Boolean(selectedLog)}
           title="Audit Log Details"
-          description="Detailed technical information and metadata recorded for this action."
+          description="Review who performed this action, what it affected, and the recorded change details."
           size="lg"
           onClose={() => setSelectedLog(null)}
           footer={
-            <div className="flex w-full items-center justify-between gap-3">
-              {!isDepartmentAdmin ? <Button
-                type="button"
-                variant="destructive"
-                disabled={isReverting || selectedLog.action === "audit_log.reviewed"}
-                onClick={markAuditLogReviewed}
-              >
-                {isReverting ? "Recording..." : "Mark as reviewed"}
-              </Button> : <span />}
+            <div className="flex w-full justify-end">
               <Button type="button" variant="secondary" onClick={() => setSelectedLog(null)}>Close</Button>
             </div>
           }
@@ -527,6 +495,7 @@ export function OrganizerAuditLogsPage() {
             const formattedAction = formatAuditAction(selectedLog.action);
             const dateStr = formatDisplayDate(selectedLog.timestamp);
             const timeStr = formatDisplayTime(selectedLog.timestamp);
+            const detailItems = getAuditLogDetailItems(selectedLog);
 
             return (
               <div className="space-y-5 text-sm">
@@ -572,11 +541,11 @@ export function OrganizerAuditLogsPage() {
                   </div>
                 </div>
 
-                {/* Metadata Breakdown */}
-                {selectedLog.metadata && Object.keys(selectedLog.metadata).length > 0 ? (
+                {/* Curated user-facing details; raw metadata is intentionally never rendered. */}
+                {detailItems.length > 0 ? (
                   <div className="space-y-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Log Details & Metadata
+                      Change details
                     </h3>
                     <div className="rounded-lg border overflow-hidden">
                       <table className="w-full text-left text-xs border-collapse">
@@ -587,17 +556,12 @@ export function OrganizerAuditLogsPage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border/60">
-                          {Object.entries(selectedLog.metadata).map(([key, val]) => {
-                            // Format camelCase key to Human Title Case
-                            const formattedKey = key
-                              .replace(/([A-Z])/g, " $1")
-                              .replace(/_/g, " ")
-                              .replace(/^\w/, (c) => c.toUpperCase());
+                          {detailItems.map(({ label, value }) => {
                             return (
-                              <tr key={key} className="hover:bg-surface-muted/20">
-                                <td className="p-2.5 text-muted-foreground font-medium">{formattedKey}</td>
+                              <tr key={label} className="hover:bg-surface-muted/20">
+                                <td className="p-2.5 text-muted-foreground font-medium">{label}</td>
                                 <td className="p-2.5 font-medium text-foreground">
-                                  {typeof val === "object" ? JSON.stringify(val) : String(val)}
+                                  {value}
                                 </td>
                               </tr>
                             );

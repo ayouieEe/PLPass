@@ -8,6 +8,7 @@ import {
   formatAuditAction,
   formatTargetType,
   getAuditTargetInfo,
+  getAuditLogDetailItems,
   filterAuditLogs
 } from "../utils/auditLogUtils";
 import type { AuditLog } from "@/types/domain";
@@ -92,6 +93,52 @@ describe("auditLogUtils helper unit tests", () => {
     expect(eventLogs).toHaveLength(1);
     expect(eventLogs[0].id).toBe("2");
   });
+
+  it("returns curated details and excludes technical or sensitive metadata", () => {
+    const items = getAuditLogDetailItems({
+      id: "log-1",
+      actorUserId: "user-1",
+      action: "event.rescheduled",
+      targetType: "event",
+      targetId: "event-1",
+      timestamp: "2026-06-26T08:00:00.000Z",
+      metadata: {
+        reason: "Venue changed",
+        old_start: "2026-06-26T08:00:00.000Z",
+        new_start: "2026-06-27T08:00:00.000Z",
+        old_venue: "Old venue",
+        new_venue: "New venue",
+        targetId: "internal-id",
+        sessionId: "internal-session-id",
+        token: "secret-token",
+        faceDescriptor: "sensitive-data",
+        rawPayload: { internal: true }
+      } as unknown as AuditLog["metadata"]
+    });
+
+    expect(items.map((item) => item.label)).toEqual([
+      "Reason",
+      "Previous venue",
+      "New venue",
+      "Previous start",
+      "New start"
+    ]);
+    expect(items.map((item) => item.value)).not.toContain("internal-id");
+    expect(items.map((item) => item.value)).not.toContain("secret-token");
+    expect(items.map((item) => item.value)).not.toContain("sensitive-data");
+  });
+
+  it("returns no details when metadata has no safe user-facing fields", () => {
+    expect(getAuditLogDetailItems({
+      id: "log-2",
+      actorUserId: "user-1",
+      action: "audit_log.reviewed",
+      targetType: "audit_log",
+      targetId: "log-1",
+      timestamp: "2026-06-26T08:00:00.000Z",
+      metadata: { reviewedTargetId: "internal-id", reviewedAt: "2026-06-26T08:00:00.000Z" }
+    })).toEqual([]);
+  });
 });
 
 describe("OrganizerAuditLogsPage UI component tests", () => {
@@ -161,6 +208,7 @@ describe("OrganizerAuditLogsPage UI component tests", () => {
     expect(await screen.findByRole("dialog", { name: /audit log details/i })).toBeInTheDocument();
     expect(screen.getByText(/^performer$/i)).toBeInTheDocument();
     expect(screen.getByText(/^affected target$/i)).toBeInTheDocument();
-    expect(screen.getByText(/log details & metadata/i)).toBeInTheDocument();
+    expect(screen.getByText(/change details/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /mark as reviewed/i })).not.toBeInTheDocument();
   });
 });

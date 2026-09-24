@@ -1,4 +1,4 @@
-import { exportReportPdf, exportReportXlsx, type ReportExportScope } from "@/lib/exports/reportExport";
+import { exportReportPdf, exportReportXlsx, type ReportExportScope, type ReportExportSection } from "@/lib/exports/reportExport";
 
 /**
  * Export utilities for organizer reports.
@@ -30,6 +30,48 @@ export type ExportParticipationRow = {
   section: string;
   attendanceRate: number;
   eventsJoined: number;
+};
+
+export type ExportOrganizerRow = {
+  organizerId: string;
+  name: string;
+  email: string;
+  employeeNumber: string;
+  department: string;
+  position: string;
+  status: string;
+  eventsManaged: number;
+};
+
+export type ExportOrganizerEventRow = {
+  organizerName: string;
+  organizerEmail: string;
+  employeeNumber: string;
+  department: string;
+  position: string;
+  accountStatus: string;
+  college: string;
+  schoolYear: string;
+  semester: string;
+  eventCode: string;
+  eventName: string;
+  category: string;
+  venue: string;
+  startsAt: string;
+  endsAt: string;
+  status: string;
+  priority: string;
+  attendanceRate: string;
+};
+
+export type ExportOrganizerEventsSection = {
+  organizerName: string;
+  organizerEmail: string;
+  employeeNumber: string;
+  department: string;
+  position: string;
+  accountStatus: string;
+  rows: ExportOrganizerEventRow[];
 };
 
 // ---------------------------------------------------------------------------
@@ -69,6 +111,13 @@ export async function exportTabularReportPdf(title: string, rows: ExportTableRow
 export async function exportTabularReport(title: string, rows: ExportTableRow[], scope?: ReportExportScope) {
   if (/\bpdf\b/i.test(title)) await exportReportPdf({ title, rows, fileName: reportFileName(title), scope });
   else await exportReportXlsx({ title, rows, fileName: reportFileName(title), scope });
+}
+
+/** Export a tabular report as separate, clearly labelled sections (for example, one section per event). */
+export async function exportTabularReportSections(title: string, sections: ReportExportSection[], scope?: ReportExportScope, showSectionHeaders = false, institution?: { collegeName?: string; schoolYear?: string }) {
+  const options = { title, sections, fileName: reportFileName(title), scope, showSectionHeaders, institution };
+  if (/\bpdf\b/i.test(title)) await exportReportPdf(options);
+  else await exportReportXlsx(options);
 }
 
 function buildCsvString(headers: string[], rows: (string | number)[][]): string {
@@ -166,6 +215,36 @@ export async function exportParticipationHistoryXlsx(students: ExportParticipati
 
 export async function exportParticipationHistoryPdf(students: ExportParticipationRow[]) {
   await exportReportPdf({ title: "Participation History Report", fileName: `participation-history-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, "Attendance Rate": `${s.attendanceRate}%`, "Events Joined": s.eventsJoined })) });
+}
+
+export async function exportOrganizerDirectoryXlsx(organizers: ExportOrganizerRow[]) {
+  await exportReportXlsx({ title: "Organizer Directory Report", fileName: `organizer-directory-${todayLabel()}`, rows: organizers.map((organizer) => ({ Organizer: organizer.name, Email: organizer.email, "Employee ID": organizer.employeeNumber, Department: organizer.department, Position: organizer.position, Status: organizer.status, "Events Managed": organizer.eventsManaged })) });
+}
+
+export async function exportOrganizerDirectoryPdf(organizers: ExportOrganizerRow[]) {
+  await exportReportPdf({ title: "Organizer Directory Report", fileName: `organizer-directory-${todayLabel()}`, rows: organizers.map((organizer) => ({ Organizer: organizer.name, Email: organizer.email, "Employee ID": organizer.employeeNumber, Department: organizer.department, Position: organizer.position, Status: organizer.status, "Events Managed": organizer.eventsManaged })) });
+}
+
+function eventReportRows(section: ExportOrganizerEventsSection) {
+  return section.rows.map((event) => ({
+    "Event Code": event.eventCode,
+    "Event Name": event.eventName,
+    Category: event.category,
+    Venue: event.venue,
+    Start: event.startsAt,
+    End: event.endsAt,
+    "Attendance Rate": event.attendanceRate,
+    Status: event.status,
+    Priority: event.priority
+  }));
+}
+
+export async function exportOrganizerEventsSummaryXlsx(sections: ExportOrganizerEventsSection[], institution?: { collegeName?: string; schoolYear?: string }) {
+  await exportReportXlsx({ title: "Events Managed Summary Report", fileName: `organizer-events-managed-${todayLabel()}`, showSectionHeaders: true, institution, sections: sections.map((section) => ({ name: section.organizerName, header: `${section.organizerName}\nEmployee ID: ${section.employeeNumber}\nEvents handled: ${section.rows.length}`, rows: eventReportRows(section) })) });
+}
+
+export async function exportOrganizerEventsSummaryPdf(sections: ExportOrganizerEventsSection[], institution?: { collegeName?: string; schoolYear?: string }) {
+  await exportReportPdf({ title: "Events Managed Summary Report", fileName: `organizer-events-managed-${todayLabel()}`, showSectionHeaders: true, institution, sections: sections.map((section) => ({ name: section.organizerName, header: `${section.organizerName}\nEmployee ID: ${section.employeeNumber}\nEvents handled: ${section.rows.length}`, rows: eventReportRows(section) })) });
 }
 
 // ---------------------------------------------------------------------------

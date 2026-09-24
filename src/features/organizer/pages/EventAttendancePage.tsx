@@ -63,7 +63,7 @@ import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { desktopApi, identifyOfflineStudent, recordOfflineAttendance } from "@/features/offline/offlineService";
 import { extractSchoolStudentNumber } from "@/lib/credentials/qrCredential";
-import type { AttendanceCapturePhase } from "@/features/offline/types";
+import type { AttendanceCapturePhase, PendingWalkInScan } from "@/features/offline/types";
 import { readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
@@ -388,6 +388,24 @@ export function EventAttendancePage() {
     }catch(error){toast.error(error instanceof Error?error.message:"Could not advance to Time Out.");}
   }
 
+  // The local desktop session is authoritative for offline writes. A page
+  // reload can leave this renderer one step ahead of that cache, so reconcile
+  // only forward to Time Out immediately before saving a scan.
+  async function reconcileOfflineCapturePhase(): Promise<AttendanceCapturePhase> {
+    const api = desktopApi();
+    if (!api || !authSession?.userId || !sessionId) return offlineCapturePhase;
+    const localPhase = await api.getAttendanceCapturePhase(sessionId, authSession.userId);
+    const resolved = offlineCapturePhase === "time_out" && localPhase === "time_in"
+      ? await api.advanceAttendanceCapturePhase(sessionId, authSession.userId)
+      : localPhase;
+    if (resolved !== offlineCapturePhase) {
+      setOfflineCapturePhase(resolved);
+      setFacialActionMode(resolved === "time_out" ? "check_out" : "check_in");
+      writeAttendancePhase(window.sessionStorage, sessionId, resolved);
+    }
+    return resolved;
+  }
+
   useEffect(() => {
     if (selectedSession) {
       setHeaderOverride({
@@ -596,15 +614,37 @@ export function EventAttendancePage() {
     }
     return activeSession.startsAt ? new Date(new Date(activeSession.startsAt).getTime() + 120_000).toISOString() : undefined;
   }
+
+  function showWalkInResult(queued: PendingWalkInScan, displayName: string, phase: AttendanceCapturePhase, method: "qr" | "manual", description: string) {
+    const duplicate = queued.action === "already_recorded";
+    const walkInStatus = resolveOfflineWalkInStatus(queued.timeIn, queued.timeOut);
+    setLatestResult({
+      resultStatus: duplicate ? "Already Recorded" : phase === "time_in" ? "Time In Recorded" : "Time Out Recorded",
+      studentDisplayName: displayName,
+      studentNumber: queued.studentNumber,
+      attendanceStatus: walkInStatus,
+      verificationMethod: method,
+      recordedAt: duplicate ? queued.timeIn : queued.timeIn,
+      safeMessage: duplicate ? "This walk-in already has Time In recorded." : description,
+      summary: { present: walkInStatus === "present" ? 1 : 0, late: walkInStatus === "late" ? 1 : 0, absent: walkInStatus === "absent" ? 1 : 0, duplicateAttempts: duplicate ? 1 : 0, failedAttempts: 0 }
+    });
+    if (duplicate) toast.warning(`${displayName}: Already Time In`, { description: "This walk-in was already recorded for the current attendance step." });
+    else toast.success(`${displayName}: ${phase === "time_in" ? "Time In" : "Time Out"} recorded`, { description });
+  }
+
   async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
     try {
       if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
         const recordedAt=simulatedTime(outcome)??new Date().toISOString();
         const student=await identifyOfflineStudent(event.id,method,code);
-        if(student?.isParticipant===false){if(!window.confirm(`${student.displayName} (${student.studentNumber}) is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`))return;const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber:student.studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The verified walk-in could not be securely saved.");const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Verified walk-in · ${student.displayName}`,studentNumber:student.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${student.displayName} walk-in saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Verified against the cached student directory; not synced."});await offline.refresh();return;}
-        if(!student){const studentNumber=method==="qr"?extractSchoolStudentNumber(code):"";if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save as an unverified walk-in for later review?`))throw new Error("No eligible participant matched the local event package; no scan was saved.");const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"qr",capturePhase:offlineCapturePhase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The walk-in scan could not be securely saved.");const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"qr",recordedAt,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${queued.studentNumber} ${offlineCapturePhase==="time_in"?"Time In":"Time Out"} saved at ${new Date(recordedAt).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;}
-        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:recordedAt},offlineCapturePhase);
-        setLatestResult({resultStatus:local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}}); toast.success("Attendance recorded locally",{description:local.safeMessage}); await offline.refresh(); return;
+        if(student?.isParticipant===false){if(!window.confirm(`${student.displayName} (${student.studentNumber}) is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`))return;const phase=await reconcileOfflineCapturePhase();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber:student.studentNumber,identificationMethod:"qr",capturePhase:phase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The verified walk-in could not be securely saved.");showWalkInResult(queued,`Verified walk-in · ${student.displayName}`,phase,"qr","Verified against the cached student directory; not synced.");await offline.refresh();return;}
+        if(!student){const studentNumber=method==="qr"?extractSchoolStudentNumber(code):"";if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save as an unverified walk-in for later review?`))throw new Error("No eligible participant matched the local event package; no scan was saved.");const phase=await reconcileOfflineCapturePhase();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"qr",capturePhase:phase,attendanceTimestamp:recordedAt,organizerProfileId:authSession?.userId??""});if(!queued)throw new Error("The walk-in scan could not be securely saved.");showWalkInResult(queued,`Unverified walk-in · ${queued.studentNumber}`,phase,"qr","Unverified; saved on this device and not synced.");await offline.refresh();return;}
+        const phase=await reconcileOfflineCapturePhase();
+        const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:recordedAt},phase);
+        setLatestResult({resultStatus:local.action==="already_recorded"?"Already Recorded":local.record.attendanceStatus==="late"?"Late":"Present",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:local.record.attendanceTimestamp,safeMessage:local.safeMessage,summary:{present:local.record.attendanceStatus==="present"?1:0,late:local.record.attendanceStatus==="late"?1:0,absent:0,duplicateAttempts:local.action==="already_recorded"?1:0,failedAttempts:0}});
+        if (local.action === "already_recorded") toast.warning("Attendance already recorded",{description:local.safeMessage});
+        else toast.success("Attendance recorded locally",{description:local.safeMessage});
+        await offline.refresh(); return;
       }
       const result = await attendanceMutations.credentialScanMutation.mutateAsync({
         sessionId: activeSession.id,
@@ -694,11 +734,13 @@ export function EventAttendancePage() {
       if (!selectedStudent) {
         const studentNumber=extractSchoolStudentNumber(manualStudentId);
         if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event&&studentNumber&&window.confirm(`Student ${studentNumber} is not in the downloaded roster. Save as an unverified walk-in for later review?`)){
-          const at=new Date().toISOString();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"manual",capturePhase:offlineCapturePhase,attendanceTimestamp:at,organizerProfileId:authSession?.userId??""});
+          const at=new Date().toISOString();const phase=await reconcileOfflineCapturePhase();const queued=await desktopApi()?.queueWalkInScan({eventId:event.id,sessionId:activeSession.id,studentNumber,identificationMethod:"manual",capturePhase:phase,attendanceTimestamp:at,organizerProfileId:authSession?.userId??""});
           if(!queued)throw new Error("The walk-in scan could not be securely saved.");
           const walkInStatus=resolveOfflineWalkInStatus(queued.timeIn,queued.timeOut);
-          setLatestResult({resultStatus:offlineCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"manual",recordedAt:at,safeMessage:"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:0,failedAttempts:0}});
-          toast.success(`${queued.studentNumber} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});await offline.refresh();return;
+          setLatestResult({resultStatus:queued.action==="already_recorded"?"Already Recorded":phase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:`Unverified walk-in · ${queued.studentNumber}`,studentNumber:queued.studentNumber,attendanceStatus:walkInStatus,verificationMethod:"manual",recordedAt:queued.timeIn,safeMessage:queued.action==="already_recorded"?"This walk-in already has Time In recorded.":"Saved on this device; not synced.",summary:{present:walkInStatus==="present"?1:0,late:walkInStatus==="late"?1:0,absent:walkInStatus==="absent"?1:0,duplicateAttempts:queued.action==="already_recorded"?1:0,failedAttempts:0}});
+          if (queued.action === "already_recorded") toast.warning(`${queued.studentNumber}: Already recorded`,{description:"This walk-in already has Time In recorded."});
+          else toast.success(`${queued.studentNumber} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Unverified; saved on this device and not synced."});
+          await offline.refresh();return;
         }
         toast.error("Select an assigned participant by student ID or exact name.");
         return;

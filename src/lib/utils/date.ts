@@ -105,7 +105,10 @@ export function manilaDateTimeToIso(date: string, time: string) {
   const [, hour, minute] = timeMatch;
   if (Number(hour) > 23 || Number(minute) > 59) throw new Error("The Manila date and time are invalid.");
   const parsed = new Date(`${date}T${time}:00+08:00`);
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+  // The ISO string is UTC, so its calendar date is the previous day for
+  // valid Manila times before 08:00. Validate against the intended wall-clock
+  // timezone instead of comparing the UTC date portion.
+  if (Number.isNaN(parsed.getTime()) || dateKey(parsed) !== date) {
     throw new Error("The Manila date and time are invalid.");
   }
   return parsed.toISOString();

@@ -59,6 +59,7 @@ describe("scanner coordinator", () => {
       const replay = await post(scanUrl, { credentialCode: "2026-001", scanAttemptId: "attempt-1" }, stationToken);
       expect(replay.body).toEqual(scan.body);
       const secondScan = await post(scanUrl, { credentialCode: "2026-001", scanAttemptId: "attempt-2" }, stationToken);
+      expect(secondScan.body.accepted).toBe(false);
       expect(secondScan.body.action).toBe("already_recorded");
       expect(secondScan.body.message).toBe("Time In was already recorded.");
       expect(store.listPending()).toHaveLength(1);
@@ -76,6 +77,17 @@ describe("scanner coordinator", () => {
       expect(unlisted.body.requiresWalkInConfirmation).toBe(true);expect(unlisted.body.accepted).toBe(false);
       const saved=await post(`${base}/api/walk-in`,{studentNumber:"23-00265"},token);
       expect(saved.body.accepted).toBe(true);expect(saved.body.recordedAt).toEqual(expect.any(String));
+      const duplicate=await post(`${base}/api/walk-in`,{studentNumber:"23-00265"},token);
+      expect(duplicate.body.accepted).toBe(false);
+      expect(duplicate.body.action).toBe("already_recorded");
+      expect(duplicate.body.recordedAt).toBe(saved.body.recordedAt);
+      // Simulate the organizer advancing the local cache while the phone
+      // coordinator still holds its previous capture phase.
+      store.advanceAttendanceCapturePhase("session-1","organizer-a");
+      const checkout=await post(`${base}/api/walk-in`,{studentNumber:"23-00265"},token);
+      expect(checkout.body.accepted).toBe(false);
+      expect(String(checkout.body.error)).toMatch(/at least one minute/i);
+      expect(String(checkout.body.error)).not.toMatch(/different attendance step/i);
       expect(store.listPendingWalkInScans("event-1","organizer-a")).toHaveLength(1);
     }finally{await coordinator.stop();}
   });
