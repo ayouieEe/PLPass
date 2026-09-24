@@ -774,7 +774,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const profileId = `organizer-profile-${stamp}`;
     const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
     const employeeNumber = `O-${String(nextId).padStart(3, "0")}`;
-    const profile = { id: profileId, userId, employeeNumber, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" as const };
+    const organizationName = departmentFixtures.find((department) => department.id === input.departmentId)?.name ?? input.organizationName;
+    const profile = { id: profileId, userId, employeeNumber, organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" as const };
     userFixtures.push({
       id: userId,
       role: "organizer",
@@ -796,7 +797,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const updatedOrganizer = {
       ...organizer,
       departmentId: input.departmentId || undefined,
-      organizationName: input.organizationName,
+      organizationName: departmentFixtures.find((department) => department.id === input.departmentId)?.name ?? input.organizationName,
       position: input.position,
       employmentStatus: input.employmentStatus
     };
@@ -854,7 +855,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     inputs.forEach((input, index) => {
       const userId = `organizer-user-${Date.now()}-${index}`;
       const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
-      organizerProfileFixtures.push({ id: `organizer-${Date.now()}-${index}`, userId, employeeNumber: `O-${String(nextId).padStart(3, "0")}`, organizationName: input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" });
+      organizerProfileFixtures.push({ id: `organizer-${Date.now()}-${index}`, userId, employeeNumber: `O-${String(nextId).padStart(3, "0")}`, organizationName: departmentFixtures.find((department) => department.id === input.departmentId)?.name ?? input.organizationName, departmentId: input.departmentId, position: input.position, employmentStatus: "active" });
       userFixtures.push({
         id: userId,
         role: "organizer",
@@ -873,36 +874,18 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     if (!profile || (currentContext.actorRole === "organizer" && profile.userId !== currentContext.actorUserId)) {
       throw new RepositoryError("You can only view your own branding.", "PERMISSION_DENIED");
     }
+    const department = departmentFixtures.find((item) => item.id === profile.departmentId);
     return {
       organizerId: profile.id,
-      collegeName: profile.organizationName,
-      collegeLogoPath: profile.collegeLogoPath,
-      collegeLogoUrl: profile.collegeLogoPath,
+      collegeName: department?.name ?? profile.organizationName,
+      collegeLogoPath: undefined,
+      collegeLogoUrl: undefined,
       updatedAt: new Date().toISOString()
     };
   },
   async updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context) {
-    await beforeRead("userManagement", context, ["admin"]);
-    const currentContext = contextOrDefault(context);
-    const profile = organizerProfileFixtures.find((item) => item.id === input.organizerId);
-    if (!profile || (currentContext.actorRole === "organizer" && profile.userId !== currentContext.actorUserId)) {
-      throw new RepositoryError("You can only update your own branding.", "PERMISSION_DENIED");
-    }
-    if (!input.collegeName.trim()) throw new RepositoryError("College name is required.", "VALIDATION_ERROR");
-    if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
-      throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
-    }
-    profile.organizationName = input.collegeName.trim();
-    if (input.removeLogo) profile.collegeLogoPath = undefined;
-    if (input.logo) profile.collegeLogoPath = URL.createObjectURL(input.logo);
-    await simulatedRepositoryRegistry.auditLogs.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: profile.id, metadata: { collegeName: profile.organizationName } }, context);
-    return {
-      organizerId: profile.id,
-      collegeName: profile.organizationName,
-      collegeLogoPath: profile.collegeLogoPath,
-      collegeLogoUrl: profile.collegeLogoPath,
-      updatedAt: new Date().toISOString()
-    };
+    await beforeRead("userManagement", context, ["admin", "organizer"]);
+    throw new RepositoryError("Organizer branding is managed through the organizer's department branding settings.", "PERMISSION_DENIED");
   },
   async getDepartmentBranding(departmentId, context) {
     await beforeRead("userManagement", context, ["admin", "department_admin"]);
@@ -2015,11 +1998,9 @@ export const simulatedAuditLogRepository: AuditLogRepository = {
       (currentContext.actorRole === "admin" ||
         (currentContext.actorRole === "organizer" && log.actorUserId === currentContext.actorUserId) ||
         (currentContext.actorRole === "department_admin" && Boolean(currentContext.departmentId) && (
+          log.actorUserId === currentContext.actorUserId ||
           organizerProfileFixtures.some((profile) => profile.departmentId === currentContext.departmentId && profile.userId === log.actorUserId) ||
-          (log.targetType === "event" && eventState.some((event) => event.id === log.targetId && event.departmentId === currentContext.departmentId)) ||
-          (log.targetType === "attendance_session" && attendanceSessionState.some((session) => session.id === log.targetId && isSessionInActorScope(session, currentContext))) ||
-          (log.targetType === "event_session" && attendanceSessionState.some((session) => session.id === log.targetId && isSessionInActorScope(session, currentContext))) ||
-          (log.targetType === "attendance_record" && attendanceRecordState.some((record) => record.id === log.targetId && attendanceSessionState.some((session) => session.id === record.sessionId && isSessionInActorScope(session, currentContext))))
+          studentFixtures.some((student) => student.departmentId === currentContext.departmentId && student.userId === log.actorUserId)
         ))
       )
     ), query);

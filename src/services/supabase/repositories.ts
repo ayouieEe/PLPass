@@ -663,50 +663,32 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     requireBrandingContext(context, organizerId);
     const currentContext = context;
     if (currentContext?.actorRole === "organizer") {
-      const current = await selectRowsFiltered("organizers", { pageIndex: 0, pageSize: 1 }, "id, profile_id, organization_name, college_logo_path, updated_at", { profile_id: currentContext.actorUserId });
+      const current = await selectRowsFiltered("organizers", { pageIndex: 0, pageSize: 1 }, "id, profile_id, department_id", { profile_id: currentContext.actorUserId });
       const owned = current.items[0];
       if (!owned || String(owned.id) !== organizerId) throw new RepositoryError("You can only view your own branding.", "PERMISSION_DENIED");
     }
-    const row = await selectSingleRowWithColumns("organizers", organizerId, "id, organization_name, college_logo_path, updated_at");
+    const row = await selectSingleRowWithColumns("organizers", organizerId, "id, department_id, organization_name, college_logo_path, updated_at");
+    const departmentId = typeof row.department_id === "string" ? row.department_id : undefined;
+    const department = departmentId
+      ? await selectSingleRowWithColumns("departments", departmentId, "department_name, brand_name_override, logo_path, updated_at")
+      : undefined;
+    const collegeName = department
+      ? (typeof department.brand_name_override === "string" && department.brand_name_override.trim() ? department.brand_name_override : String(department.department_name ?? "PLP"))
+      : String(row.organization_name ?? "PLP");
+    const collegeLogoPath = department
+      ? (typeof department.logo_path === "string" ? department.logo_path : undefined)
+      : (typeof row.college_logo_path === "string" ? row.college_logo_path : undefined);
     return {
       organizerId: String(row.id),
-      collegeName: String(row.organization_name ?? "PLP"),
-      collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined,
-      collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined),
-      updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined
+      collegeName,
+      collegeLogoPath,
+      collegeLogoUrl: await signedBrandingUrl(collegeLogoPath),
+      updatedAt: typeof department?.updated_at === "string" ? department.updated_at : typeof row.updated_at === "string" ? row.updated_at : undefined
     };
   },
   async updateOrganizerBranding(input, context) {
     requireBrandingContext(context, input.organizerId);
-    if (context?.actorRole === "organizer") {
-      throw new RepositoryError("Organizers cannot edit branding. A department administrator manages department branding.", "PERMISSION_DENIED");
-    }
-    if (!input.collegeName.trim()) throw new RepositoryError("College name is required.", "VALIDATION_ERROR");
-    if (input.logo && (!["image/jpeg", "image/png", "image/webp"].includes(input.logo.type) || input.logo.size > 2 * 1024 * 1024)) {
-      throw new RepositoryError("College logos must be JPG, PNG, or WebP files up to 2 MB.", "VALIDATION_ERROR");
-    }
-    const current = await selectSingleRowWithColumns("organizers", input.organizerId, "id, college_logo_path");
-    const previousLogoPath = typeof current.college_logo_path === "string" ? current.college_logo_path : null;
-    let logoPath = previousLogoPath;
-    const client = getSupabaseBrowserClient();
-    if (input.logo) {
-      const extension = input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg";
-      logoPath = `${input.organizerId}/college-logo.${extension}`;
-      const { error } = await client.storage.from("branding-assets").upload(logoPath, input.logo, { contentType: input.logo.type, cacheControl: "3600", upsert: true });
-      throwIfSupabaseError(error);
-    } else if (input.removeLogo) logoPath = null;
-    const { data, error } = await client.from("organizers").update({ organization_name: input.collegeName.trim(), college_logo_path: logoPath, updated_at: new Date().toISOString() } as never).eq("id", input.organizerId).select("id, organization_name, college_logo_path, updated_at").single();
-    if (error && input.logo && logoPath && logoPath !== previousLogoPath) {
-      try { await client.storage.from("branding-assets").remove([logoPath]); } catch { /* Preserve the old reference; orphan cleanup is best effort. */ }
-    }
-    throwIfSupabaseError(error);
-    if (previousLogoPath && previousLogoPath !== logoPath) {
-      try { await client.storage.from("branding-assets").remove([previousLogoPath]); } catch { /* The database now points to the new valid state. */ }
-    }
-    const row = data as unknown as Row;
-    const result = { organizerId: String(row.id), collegeName: String(row.organization_name ?? "PLP"), collegeLogoPath: typeof row.college_logo_path === "string" ? row.college_logo_path : undefined, collegeLogoUrl: await signedBrandingUrl(typeof row.college_logo_path === "string" ? row.college_logo_path : undefined), updatedAt: typeof row.updated_at === "string" ? row.updated_at : undefined };
-    try { await supabaseAuditLogRepository.logClientAction({ action: "organizer.branding_updated", targetType: "organizer_profile", targetId: input.organizerId, metadata: { collegeName: result.collegeName, logoUpdated: Boolean(input.logo), logoRemoved: Boolean(input.removeLogo) } }, context); } catch { /* Branding remains committed if audit logging is unavailable. */ }
-    return result;
+    throw new RepositoryError("Organizer branding is managed through the organizer's department branding settings.", "PERMISSION_DENIED");
   },
   async getDepartmentBranding(departmentId, context) {
     if (context?.actorRole !== "department_admin" && context?.actorRole !== "admin") {

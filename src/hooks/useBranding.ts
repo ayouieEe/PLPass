@@ -17,7 +17,7 @@ export function useBranding() {
   const branding = useOrganizerBranding(organizerId, organizerContext);
   return {
     ...DEFAULT_BRANDING,
-    collegeName: branding.data?.collegeName ?? (session?.role === "organizer" ? profiles.data?.items[0]?.organizationName : DEFAULT_BRANDING.collegeName),
+    collegeName: branding.data?.collegeName ?? DEFAULT_BRANDING.collegeName,
     collegeLogoUrl: branding.data?.collegeLogoUrl,
     isLoading: session?.role === "organizer" && (profiles.isLoading || branding.isLoading)
   };

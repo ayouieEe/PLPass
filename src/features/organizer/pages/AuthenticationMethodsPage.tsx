@@ -103,7 +103,8 @@ function useOrganizerScope() {
 }
 
 function facialTone(status: FacialStatus) {
-  return status === "Active" ? "success" as const : "danger" as const;
+  if (status === "Active") return "success" as const;
+  return status === "Pending" ? "warning" as const : "danger" as const;
 }
 
 function qrTone(status: QRStatus) {
@@ -671,6 +672,8 @@ export function AuthenticationMethodsPage() {
         matchesStatus = r.status === "Active";
       } else if (statusFilter === "Deactivated") {
         matchesStatus = r.status === "Deactivated";
+      } else if (statusFilter === "Pending") {
+        matchesStatus = r.status === "Pending";
       }
 
       return matchesSearch && matchesStatus;
@@ -921,7 +924,7 @@ export function AuthenticationMethodsPage() {
     <div className="space-y-6">
       <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes and facial recognition credentials institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage credentials for participants in your owned events."} />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Credential overview">
+      <section className="grid gap-3 sm:grid-cols-3" aria-label="Credential overview">
         {activeTab === "qr" ? (
           <>
             <CredentialMetric label="QR credentials" value={qrRows.length} icon={<QrCode className="h-4 w-4" />} />
@@ -930,7 +933,7 @@ export function AuthenticationMethodsPage() {
           </>
         ) : (
           <>
-            <CredentialMetric label="Enrolled" value={facialRows.length} icon={<Camera className="h-4 w-4" />} />
+            <CredentialMetric label="Pending" value={facialRows.filter((row) => row.status === "Pending").length} icon={<Camera className="h-4 w-4" />} accent="warning" />
             <CredentialMetric label="Active" value={facialRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
             <CredentialMetric label="Deactivated" value={facialRows.filter((row) => row.status === "Deactivated").length} icon={<Camera className="h-4 w-4" />} accent="danger" />
           </>

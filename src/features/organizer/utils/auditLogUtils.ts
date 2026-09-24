@@ -224,7 +224,7 @@ export interface AuditLogFilters {
   datePreset?: "all" | "today" | "past_7_days" | "past_30_days" | "custom";
   customStartDate?: string;
   customEndDate?: string;
-  actorUserId?: string;
+  actorRole?: string;
   actionCategory?: "all" | "credentials" | "events" | "attendance" | "correction" | "user" | "system";
 }
 
@@ -292,9 +292,12 @@ export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, look
       }
     }
 
-    // 3. Actor user filter
-    if (filters.actorUserId && filters.actorUserId !== "all") {
-      if (log.actorUserId !== filters.actorUserId) return false;
+    // 3. Actor role filter. Prefer the current profile role, with the
+    // historical audit snapshot retained for deleted or unavailable accounts.
+    if (filters.actorRole && filters.actorRole !== "all") {
+      const currentRole = lookups?.users?.find((user) => user.id === log.actorUserId)?.role;
+      const role = (currentRole ?? log.actorRole ?? "").toLowerCase();
+      if (role !== filters.actorRole) return false;
     }
 
     // 4. Action Category filter

@@ -338,7 +338,7 @@ Deno.serve(async (request) => {
     const email = resolveAccountEmail({ firstName, middleName, lastName });
     const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     const normalizedOfficeName = typeof officeName === "string" ? officeName.trim() : "";
-    if (!firstName || !lastName || !departmentId || (adminRole === "admin" && !normalizedOfficeName)) return json({ error: "Please complete all required admin information." }, 400);
+    if (!firstName || !lastName || !departmentId) return json({ error: "Please complete all required admin information." }, 400);
     if (!["admin", "department_admin"].includes(adminRole)) return json({ error: "The selected administrator type is not valid." }, 400);
     if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
@@ -347,7 +347,10 @@ Deno.serve(async (request) => {
       const userId = user.id;
       const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: adminRole, employee_id: employeeNumber, account_status: "active" });
       if (profileInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(profileInsertError.message); }
-      const { error: adminInsertError } = await supabase.from("admin_profiles").insert({ profile_id: userId, employee_number: employeeNumber, department_id: departmentId, office_name: normalizedOfficeName || "Department Administration" });
+      // `office_name` remains non-null for legacy records, but it is not
+      // collected or shown in the Add Admin experience.
+      const defaultOfficeName = adminRole === "admin" ? "University Admin" : "Department Admin";
+      const { error: adminInsertError } = await supabase.from("admin_profiles").insert({ profile_id: userId, employee_number: employeeNumber, department_id: departmentId, office_name: normalizedOfficeName || defaultOfficeName });
       if (adminInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(adminInsertError.message); }
       try { await recordAdminAudit(supabase, authData.user.id, userId, "user.admin_created", { email, employeeNumber, source: "manual" }); }
       catch (auditError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw auditError; }

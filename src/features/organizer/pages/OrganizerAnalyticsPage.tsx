@@ -1525,7 +1525,7 @@ export function OrganizerAnalyticsPage() {
         <section className="space-y-4 pt-2">
           <div className="grid gap-6 xl:grid-cols-2">
             <ChartPanel title="Objective Performance" description="Average rating score and response volume per goal." empty={objectivePerformance.length === 0} emptyMessage="No objective rating data submitted for the selected filters.">
-              <div className="space-y-3">
+              <div className="h-full max-h-full space-y-3 overflow-y-auto pr-2">
                 {objectivePerformance.map((objective) => (
                   <div key={objective.label} className="rounded-lg border bg-background p-3">
                     <div className="flex items-center justify-between gap-3">

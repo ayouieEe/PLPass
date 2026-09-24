@@ -1,5 +1,5 @@
 export type CredentialDisplayStatus = "Pending" | "Active";
-export type FacialCredentialDisplayStatus = "Active" | "Deactivated";
+export type FacialCredentialDisplayStatus = "Pending" | "Active" | "Deactivated";
 
 export function getQrCredentialDisplayStatus(credential?: {
   status?: string;
@@ -11,5 +11,6 @@ export function getQrCredentialDisplayStatus(credential?: {
 }
 
 export function getFacialCredentialDisplayStatus(profile?: { status?: string }): FacialCredentialDisplayStatus {
-  return profile?.status?.toLowerCase() === "activated" ? "Active" : "Deactivated";
+  if (!profile) return "Pending";
+  return profile.status?.toLowerCase() === "activated" ? "Active" : "Deactivated";
 }

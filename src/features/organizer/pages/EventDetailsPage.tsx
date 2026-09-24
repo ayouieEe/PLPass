@@ -374,6 +374,14 @@ export function EventDetailsPage() {
   }, [selectedEvent]);
 
   useEffect(() => {
+    if (!selectedEvent || !canManageOwnedEvents || ["completed", "cancelled"].includes(selectedEvent.status)) return;
+    const lifecycleAction = new URLSearchParams(location.search).get("lifecycleAction");
+    if (lifecycleAction === "reschedule") setIsRescheduleOpen(true);
+    if (lifecycleAction === "cancel") setIsCancelOpen(true);
+    if (lifecycleAction) navigate(location.pathname, { replace: true });
+  }, [canManageOwnedEvents, location.pathname, location.search, navigate, selectedEvent]);
+
+  useEffect(() => {
     setIsStartSessionOpen(false);
     setSessionModalMode("start");
     setLateCutoffMinutes(15);
