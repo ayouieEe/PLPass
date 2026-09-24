@@ -9,11 +9,12 @@ function compactNamePart(value: string | undefined) {
 }
 
 /** Builds the institution account address from a person's legal name. */
-export function generateAccountEmail(lastName: string, firstName: string, middleName?: string) {
+export function generateAccountEmail(lastName: string, firstName: string, _middleName?: string, nameExtension?: string) {
   const surname = compactNamePart(lastName);
-  const givenNames = `${compactNamePart(firstName)}${compactNamePart(middleName)}`;
-  if (!surname || !givenNames) return "";
-  return `${surname}_${givenNames}@${ACCOUNT_EMAIL_DOMAIN}`;
+  const extension = compactNamePart(nameExtension);
+  const givenName = compactNamePart(firstName);
+  if (!surname || !givenName) return "";
+  return `${surname}${extension}_${givenName}@${ACCOUNT_EMAIL_DOMAIN}`;
 }
 
 export { ACCOUNT_EMAIL_DOMAIN };

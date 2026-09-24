@@ -31,6 +31,24 @@ describe("organizer account editing", () => {
     expect(userManager).toContain('return json({ success: true, employeeNumber });');
   });
 
+  it("locks the position to Organizer when adding an organizer", () => {
+    expect(page).toContain('value="Organizer" />');
+    expect(page).toContain('position: "Organizer" });');
+    expect(userManager).toContain('const position = "Organizer";');
+  });
+
+  it("keeps organizer bulk templates position-free and closes after download", () => {
+    expect(page).toContain('const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\\nJuan,,Dela Cruz,,Student Affairs\\n";');
+    expect(page).not.toContain('Name Extension,College/Department,Position\\nJuan,,Dela Cruz,,Student Affairs,Events Coordinator');
+    expect(page).toContain('position: "Organizer" }');
+    expect(page).toContain('onClose();\n    setTimeout(() => URL.revokeObjectURL(url), 0);');
+  });
+
+  it("renders organizer statuses with the shared account-status badge", () => {
+    expect(page).toContain('headerName: "Status", valueGetter: ({ data }) =>');
+    expect(page).toContain('cellRenderer: ({ value }: ICellRendererParams<OrganizerProfile, OrganizerStatus>) => <StatusBadge value={value ?? "Inactive"} />');
+  });
+
   it("keeps access changes in university-admin account management", () => {
     const profile = readFileSync("src/pages/ProfilePage.tsx", "utf8");
     expect(profile).not.toContain("Close my organizer account");

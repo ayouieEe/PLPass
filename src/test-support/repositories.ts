@@ -654,7 +654,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       yearLevel: input.yearLevel,
       section: input.sectionId,
       createdAt: new Date().toISOString(),
-      email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
+      email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
@@ -694,7 +694,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     for (const [index, input] of inputs.entries()) {
       const studentNumber = formatStudentNumber(input.studentNumber);
       if (existingStudentNumbers.has(studentNumber)) {
-        errors.push({ row: index + 2, email: generateAccountEmail(input.lastName, input.firstName, input.middleName), studentNumber, error: `Student ID "${studentNumber}" already exists.` });
+        errors.push({ row: index + 2, email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), studentNumber, error: `Student ID "${studentNumber}" already exists.` });
         continue;
       }
       const newStudent: Student = {
@@ -707,7 +707,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
         yearLevel: input.yearLevel,
         section: input.sectionId,
         createdAt: new Date().toISOString(),
-        email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
+        email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
         firstName: input.firstName,
         middleName: input.middleName,
         lastName: input.lastName,
@@ -779,7 +779,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     userFixtures.push({
       id: userId,
       role: "organizer",
-      email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
+      email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
       displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
       isActive: true,
       createdAt: new Date().toISOString()
@@ -816,7 +816,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const userId = `admin-user-${stamp}`;
     const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^A-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
     const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `A-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
-    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName), displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
+    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
     adminProfileFixtures.push(profile);
     return profile;
   },
@@ -859,7 +859,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       userFixtures.push({
         id: userId,
         role: "organizer",
-        email: generateAccountEmail(input.lastName, input.firstName, input.middleName),
+        email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
         displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
         isActive: true,
         createdAt: new Date().toISOString()

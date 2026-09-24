@@ -48,7 +48,22 @@ function trustedActionUrl(notification: Notification) {
   return undefined;
 }
 
+function notificationHasUserAction(notification: Notification, role?: string) {
+  if (!notification.requiresAction) return false;
+  if (notification.code === "account.status_changed") return false;
+  if (role === "student") {
+    const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
+    return code.includes("feedback") || code.includes("late");
+  }
+  return true;
+}
+
 function notificationActions(notification: Notification, role?: string): NotificationAction[] {
+  const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
+  if (role === "student" && code.includes("feedback")) return [{ label: "Answer feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
+  if (role === "student" && code.includes("late")) return [{ label: "Submit late reason", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
+  if (role === "student") return [];
+
   const actionUrl = trustedActionUrl(notification);
   if (role === "organizer" && notification.code === "event.lifecycle.unstarted" && actionUrl) {
     const separator = actionUrl.includes("?") ? "&" : "?";
@@ -60,11 +75,6 @@ function notificationActions(notification: Notification, role?: string): Notific
 
   if (actionUrl) return [{ label: "Open action", to: actionUrl }];
 
-  const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
-  if (role === "student" && code.includes("feedback")) return [{ label: "Complete feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
-  if (role === "student" && code.includes("late")) return [{ label: "Submit late reason", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
-  if (role === "student" && notification.type === "correction") return [{ label: "View request", to: APP_ROUTES.studentRequestHistory }];
-  if (role === "student" && notification.type === "attendance") return [{ label: "Open attendance", to: APP_ROUTES.studentAttendance }];
   if (role === "organizer" && notification.type === "correction") return [{ label: "Review correction", to: APP_ROUTES.organizerCorrections }];
   return [];
 }
@@ -233,7 +243,7 @@ export function NotificationsPage() {
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <StatusBadge label={selectedNotification.status} tone={selectedNotification.status === "unread" ? "info" : "muted"} />
                       <StatusBadge label={selectedNotification.type} tone="muted" />
-                      {selectedNotification.requiresAction ? <StatusBadge label="Action required" tone="warning" /> : null}
+                      {notificationHasUserAction(selectedNotification, session?.role) ? <StatusBadge label="Action required" tone="warning" /> : null}
                       {selectedNotification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
                     </div>
                   </div>
@@ -247,7 +257,7 @@ export function NotificationsPage() {
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
                   <div className="flex flex-wrap items-center gap-2">
-                    {selectedNotification.requiresAction ? notificationActions(selectedNotification, session?.role).map((action) => (
+                    {notificationHasUserAction(selectedNotification, session?.role) ? notificationActions(selectedNotification, session?.role).map((action) => (
                       <Button key={action.label} type="button" variant={action.variant} onClick={() => openNotificationAction(selectedNotification, action)}>
                         {action.label}
                       </Button>
@@ -273,7 +283,6 @@ export function NotificationsPage() {
       ) : null}
       <section className="space-y-3">
         {items.map((notification) => {
-          const actions = notification.requiresAction ? notificationActions(notification, session?.role) : [];
           return (
           <article key={notification.id} className="rounded-xl border bg-surface p-4 shadow-sm transition hover:border-primary/40 hover:shadow-md">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -294,18 +303,13 @@ export function NotificationsPage() {
                   <h2 className="font-semibold">{cleanNotificationText(notification.title)}</h2>
                   <StatusBadge label={notification.status} tone={notification.status === "unread" ? "info" : "muted"} />
                   <StatusBadge label={notification.type} tone="muted" />
-                  {notification.requiresAction ? <StatusBadge label="Action required" tone="warning" /> : null}
+                  {notificationHasUserAction(notification, session?.role) ? <StatusBadge label="Action required" tone="warning" /> : null}
                   {notification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
                 </div>
                 <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{notificationPreview(notification.body)}</p>
                 <p className="mt-2 text-xs text-muted-foreground">{formatDateTime(notification.createdAt, "Date unavailable")}</p>
               </div>
               <div className="flex flex-wrap justify-end gap-2">
-                {actions.map((action) => (
-                  <Button key={action.label} type="button" size="sm" variant={action.variant} onClick={() => openNotificationAction(notification, action)}>
-                    {action.label}
-                  </Button>
-                ))}
                 <Button
                   type="button"
                   variant="outline"

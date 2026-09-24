@@ -11,6 +11,8 @@ describe("administrator creation contract", () => {
     expect(source).toContain("Department admin");
     expect(source).toContain('adminRole: "admin"');
     expect(source).not.toContain('placeholder="e.g. Office of the Dean"');
+    expect(source).toContain('id="add-admin-name-extension"');
+    expect(source).toContain('id="add-organizer-name-extension"');
   });
 
   it("preserves the legacy database column without showing an office field during creation", () => {

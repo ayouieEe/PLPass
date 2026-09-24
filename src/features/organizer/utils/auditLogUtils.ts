@@ -1,4 +1,5 @@
 import type { AuditLog, AttendanceSession, Department, Event, EventCategory, OrganizerProfile, AdminProfile, Program, Section, Student, User } from "@/types/domain";
+import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 
 const ACRONYM_MAP: Record<string, string> = {
   qr: "QR",
@@ -90,6 +91,104 @@ export function formatTargetType(targetType: string | undefined | null): string 
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(" ");
+}
+
+export interface AuditLogDetailItem {
+  label: string;
+  value: string;
+}
+
+const AUDIT_DETAIL_LABELS: Record<string, string> = {
+  status: "Status",
+  reason: "Reason",
+  requestedStatus: "Requested status",
+  method: "Method",
+  venue: "Venue",
+  old_venue: "Previous venue",
+  new_venue: "New venue",
+  old_start: "Previous start",
+  new_start: "New start",
+  old_end: "Previous end",
+  new_end: "New end",
+  category: "Category",
+  title: "Title",
+  type: "Type",
+  records: "Records",
+  participantCount: "Participants",
+  resourceCount: "Resources",
+  reportType: "Report type",
+  eventCode: "Event code",
+  label: "Description"
+};
+
+const SAFE_CHANGED_FIELD_KEYS = new Set([
+  "first_name",
+  "middle_name",
+  "last_name",
+  "extension_name",
+  "email",
+  "role",
+  "department",
+  "position",
+  "employment_status",
+  "status",
+  "venue",
+  "starts_at",
+  "ends_at",
+  "category",
+  "title",
+  "reason",
+  "requested_status",
+  "program",
+  "section",
+  "year_level",
+  "account_status"
+]);
+
+function formatAuditDetailLabel(key: string) {
+  return key
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .replace(/^\w/, (character) => character.toUpperCase());
+}
+
+function formatAuditDetailValue(key: string, value: string | number | boolean) {
+  if (/_(start|end)$/.test(key)) {
+    const dateInput = typeof value === "boolean" ? undefined : value;
+    const date = formatDisplayDate(dateInput, "");
+    const time = formatDisplayTime(dateInput, "");
+    if (date && time) return `${date} at ${time}`;
+  }
+  return String(value);
+}
+
+/**
+ * Returns only the small set of metadata fields that are meaningful to users.
+ * Raw audit metadata can contain identifiers, implementation details, or
+ * sensitive credential data and must never be rendered wholesale.
+ */
+export function getAuditLogDetailItems(log: AuditLog): AuditLogDetailItem[] {
+  const metadata = (log.metadata ?? {}) as Record<string, unknown>;
+  const items: AuditLogDetailItem[] = [];
+
+  for (const [key, label] of Object.entries(AUDIT_DETAIL_LABELS)) {
+    const value = metadata[key];
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    items.push({ label, value: formatAuditDetailValue(key, value) });
+  }
+
+  const changedFields = metadata.changedFields;
+  if (Array.isArray(changedFields)) {
+    const safeFields = changedFields
+      .filter((field): field is string => typeof field === "string")
+      .filter((field) => SAFE_CHANGED_FIELD_KEYS.has(field.trim().toLowerCase()))
+      .map(formatAuditDetailLabel)
+      .filter(Boolean);
+    if (safeFields.length) items.push({ label: "Changed fields", value: safeFields.join(", ") });
+  }
+
+  return items;
 }
 
 export interface AuditTargetLookups {

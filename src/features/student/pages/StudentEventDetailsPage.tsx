@@ -23,7 +23,7 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
-import { getEventResourceDownloadUrl } from "@/features/organizer/lib/eventResources";
+import { downloadEventResource } from "@/features/organizer/lib/eventResources";
 import {
   buildStudentEventWorkflow,
   recordsForStudentEvents,
@@ -324,8 +324,7 @@ export function StudentEventDetailsPage() {
 
   async function openEventResource(resource: EventResource) {
     try {
-      const url = await getEventResourceDownloadUrl(resource);
-      window.open(url, "_blank", "noopener,noreferrer");
+      await downloadEventResource(resource);
     } catch {
       toast.error("This resource could not be opened. Please try again.");
     }

@@ -325,11 +325,11 @@ function matchesSearch(event: EventRecord, search: string) {
 }
 
 
-function countRows(rows: AttendanceRow[], participantCount: number) {
+function countRows(rows: AttendanceRow[], participantCount: number, inferMissingRegisteredAsAbsent = false) {
   const summary = summarizeUniqueAttendance(
     rows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus })),
     participantCount,
-    true
+    inferMissingRegisteredAsAbsent
   );
   return { present: summary.present, late: summary.late, absent: summary.absent, rate: summary.attendanceRate };
 }
@@ -408,9 +408,24 @@ function localAttendanceRow(
 }
 
 function upsertAttendanceRow(rows: DraftAttendanceRow[], next: DraftAttendanceRow) {
-  const existing = rows.find((row) => row.studentId === next.studentId);
+  const nextIdentity = attendanceRowIdentity(next);
+  const existing = rows.find((row) => attendanceRowIdentity(row) === nextIdentity);
   if (!existing) return [...rows, next];
-  return rows.map((row) => row.studentId === next.studentId ? { ...row, ...next, id: row.id } : row);
+  let keptExisting = false;
+  return rows
+    .filter((row) => {
+      if (attendanceRowIdentity(row) !== nextIdentity) return true;
+      if (keptExisting) return false;
+      keptExisting = true;
+      return true;
+    })
+    .map((row) => attendanceRowIdentity(row) === nextIdentity ? { ...row, ...next, id: row.id } : row);
+}
+
+function attendanceRowIdentity(row: DraftAttendanceRow) {
+  if (!row.studentId.startsWith("walkin:")) return row.studentId;
+  const studentNumber = row.studentName.match(/(?:·|:)\s*(\d{2}-\d{5})\s*$/)?.[1]?.toUpperCase();
+  return studentNumber ? `walkin-number:${studentNumber}` : row.studentId;
 }
 
 function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | undefined, completedCodes: Set<string>, cancelledCodes: string[]) {
@@ -1341,7 +1356,10 @@ export function EventManagementPage() {
   }, [todayEvents, incomingEvents]);
 
   const activeParticipantCount = activeParticipantIdentities?.length ?? 0;
-  const activeCounts = countRows(activeRows, activeParticipantCount);
+  // While a session is live, students who have not checked in yet are still
+  // pending, not absent. Missing participants become absent only in the
+  // finalized session summary.
+  const activeCounts = countRows(activeRows, activeParticipantCount, false);
   // A Time Out must be at least a minute after Time In. This is enforced at
   // capture time; the extra check is only a recovery safeguard for an old,
   // already-saved invalid value so End Session can still complete safely.
@@ -1376,7 +1394,7 @@ export function EventManagementPage() {
 
     hydratedAttendanceDraftSessionIdRef.current = activeScannerSessionId;
     const restoredRows = readLiveAttendanceDraft(activeScannerSessionId, activeEvent.id);
-    if (restoredRows.length > 0) setActiveRows(restoredRows);
+    if (restoredRows.length > 0) setActiveRows(restoredRows.reduce(upsertAttendanceRow, []));
     setAttendanceDraftReadySessionId(activeScannerSessionId);
   }, [activeEvent?.id, activeScannerSessionId, canManageOwnedEvents]);
 
@@ -1503,7 +1521,7 @@ export function EventManagementPage() {
               checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
               attendanceStatus:resolveRecordedOrganizerAttendanceStatus({timeIn:scan.timeIn,timeOut:scan.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt}),isFinalized:false
             })));
-            return [...otherRows, ...phoneRows];
+            return phoneRows.reduce(upsertAttendanceRow, otherRows);
           });
         }
         // A scanner-status event is already a targeted signal. Refresh only the
@@ -1864,7 +1882,7 @@ export function EventManagementPage() {
     try {
       const api = desktopApi();
       const localPackage = api && activeEvent?.id && session?.userId && activeScannerSessionId
-        ? await api.getPreparedEvent(activeEvent.id, session.userId)
+        ? await api.getPreparedEventBySession(activeScannerSessionId, session.userId)
         : null;
       const hasLocalSession = Boolean(localPackage?.sessions.some((item) => item.id === activeScannerSessionId));
       let serverPhase: AttendanceCapturePhase = "time_out";
@@ -2029,19 +2047,45 @@ export function EventManagementPage() {
       if(session?.userId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) throw new Error("This event was ended on this device. Attendance capture is locked until synchronization is confirmed.");
       const recordedAt=new Date().toISOString();
       const student = await identifyOfflineStudent(eventId, "qr", scanCode);
+      const api = desktopApi();
+      let effectivePhase = attendancePhase;
+      const reconcilePhase = async () => {
+        if (!api || !session?.userId) return effectivePhase;
+        const localPhase = await api.getAttendanceCapturePhase(sessionId, session.userId);
+        // The local cache is authoritative for desktop writes.  A renderer
+        // reload or a lost phase response can leave it one step behind the
+        // page/server.  Reconcile only in the forward direction; never
+        // downgrade a local Time Out session back to Time In.
+        if (attendancePhase === "time_out" && localPhase === "time_in") {
+          effectivePhase = await api.advanceAttendanceCapturePhase(sessionId, session.userId);
+        } else {
+          effectivePhase = localPhase;
+        }
+        if (effectivePhase !== attendancePhase) {
+          setAttendancePhase(effectivePhase);
+          writeAttendancePhase(window.sessionStorage, sessionId, effectivePhase);
+        }
+        return effectivePhase;
+      };
       if (!student) {
         const studentNumber=extractStudentNumber(scanCode);
         if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
-        const queued=await desktopApi()?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:attendancePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
+        effectivePhase = await reconcilePhase();
+        const queued=await api?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:effectivePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
         const walkInStatus=resolveRecordedOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
         setActiveRows((current)=>upsertAttendanceRow(current,{id:`walkin-${queued.localScanUuid}`,studentId:`walkin:${queued.localScanUuid}`,studentName:`Unverified walk-in · ${queued.studentNumber}`,eventCode:activeEvent.code,attendanceMethod:"QR Code",checkInAt:queued.timeIn,checkInTime:formatLocalTime(queued.timeIn),...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),attendanceStatus:walkInStatus,isFinalized:false}));
         lastSuccessfulQrScanAtRef.current=Date.now();
-        toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${attendancePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
+        if (queued.action === "already_recorded") {
+          toast.warning(`Unverified walk-in ${queued.studentNumber}: Already Time In`, { description: "This walk-in was already recorded for the current attendance step." });
+        } else {
+          toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${effectivePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
+        }
         return;
       }
-      const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt },attendancePhase);
+      effectivePhase = await reconcilePhase();
+      const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt },effectivePhase);
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, student)));
       lastSuccessfulQrScanAtRef.current = Date.now();
       toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} at ${new Date(recordedAt).toLocaleTimeString()}`, { description: `${local.safeMessage} Saved on this device; not synced.` });

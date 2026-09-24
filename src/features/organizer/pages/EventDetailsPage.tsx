@@ -66,7 +66,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   createEventLinkResource,
   eventResourceErrorMessage,
-  getEventResourceDownloadUrl,
+  downloadEventResource,
   isSecureResourceUrl,
   MAX_EVENT_RESOURCES,
   MAX_EVENT_RESOURCE_BYTES,
@@ -702,7 +702,7 @@ export function EventDetailsPage() {
 
   async function openResource(resource: EventResource) {
     try {
-      window.open(await getEventResourceDownloadUrl(resource), "_blank", "noopener,noreferrer");
+      await downloadEventResource(resource);
     } catch (error) {
       toast.error(getErrorMessage(error));
     }

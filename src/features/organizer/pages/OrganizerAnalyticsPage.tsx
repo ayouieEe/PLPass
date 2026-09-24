@@ -206,32 +206,19 @@ function ChartPanel({
 function AnalyticsExportModal({
   isOpen,
   onClose,
-  events,
-  activeEventFilter,
   onExport
 }: {
   isOpen: boolean;
   onClose: () => void;
-  events: Array<{ code: string; title: string }>;
-  activeEventFilter: string;
-  onExport: (request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; eventCode: string; category: string; range: string; format: "xlsx" | "pdf" }) => void;
+  onExport: (request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; format: "xlsx" | "pdf" }) => void;
 }) {
   const [reportType, setReportType] = useState<"master" | "attendance" | "prediction" | "sentiment" | "late">("master");
-  const [selectedEvent, setSelectedEvent] = useState(activeEventFilter);
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [selectedRange, setSelectedRange] = useState("all");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
 
   if (!isOpen) return null;
 
-  function handleResetFilters() {
-    setSelectedEvent("all");
-    setSelectedCategory("all");
-    setSelectedRange("all");
-  }
-
   function handleExportSubmit() {
-    onExport({ reportType, eventCode: selectedEvent, category: selectedCategory, range: selectedRange, format: exportFormat });
+    onExport({ reportType, format: exportFormat });
     onClose();
   }
 
@@ -253,7 +240,7 @@ function AnalyticsExportModal({
               <h2 id="analytics-export-modal-title" className="text-base font-bold text-slate-900">
                 Export Report
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select report type, scope criteria, and download format.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a report type and format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -339,67 +326,7 @@ function AnalyticsExportModal({
             </div>
           </div>
 
-          {/* Step 2: Scope & Filters */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                2. Scope & Filters
-              </span>
-              <button
-                type="button"
-                onClick={handleResetFilters}
-                className="text-xs font-semibold text-slate-500 hover:text-primary transition"
-              >
-                Reset filters
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Target Event</label>
-                <select
-                  value={selectedEvent}
-                  onChange={(e) => setSelectedEvent(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All Events</option>
-                  {events.map((ev) => (
-                    <option key={ev.code} value={ev.code}>
-                      {ev.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Category</label>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">All Categories</option>
-                  <option value="career">Career Development</option>
-                  <option value="skills">Skills Training</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Time Horizon</label>
-                <select
-                  value={selectedRange}
-                  onChange={(e) => setSelectedRange(e.target.value)}
-                  className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-2.5 text-xs outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition font-medium text-slate-800"
-                >
-                  <option value="all">Last 6 Months</option>
-                  <option value="quarter">Last Quarter</option>
-                  <option value="ay2026">AY 2025-2026</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3: Download Format Selection */}
+          {/* Step 2: Download Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 font-medium">
               3. Download Format
@@ -449,7 +376,7 @@ function AnalyticsExportModal({
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {selectedEvent === "all" ? "All Events Scope" : `Scope: ${selectedEvent}`}
+              "Current page-filtered results"
             </span>
           </div>
 
@@ -793,14 +720,11 @@ export function OrganizerAnalyticsPage() {
     return [];
   }, [insightsData, isDepartmentAdmin]);
 
-  async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; eventCode: string; category: string; range: string; format: "xlsx" | "pdf" }) {
-    const selectedEvent = request.eventCode === "all" ? undefined : eventLookup.get(request.eventCode);
-    const now = new Date();
-    const rangeStart = request.range === "quarter" ? new Date(now.getTime() - 90 * 86400000) : request.range === "ay2026" ? new Date("2025-06-01") : new Date(now.getTime() - 180 * 86400000);
-    const matchesEvent = (event: { id: string; code: string; category?: string; date: string }) => (!selectedEvent || event.id === selectedEvent.id) && (request.category === "all" || (event.category ?? "").toLowerCase().includes(request.category === "career" ? "career" : "skill")) && new Date(event.date) >= rangeStart;
-    const selectedEvents = eventData.filter(matchesEvent);
+  async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; format: "xlsx" | "pdf" }) {
+    const selectedEvent = eventFilter === "all" ? undefined : eventLookup.get(eventFilter);
+    const selectedEvents = filteredEventData;
     const selectedIds = new Set(selectedEvents.map((event) => event.id));
-    const selectedSummaries = sessionSummaryData.filter((row) => row.eventId ? selectedIds.has(row.eventId) && new Date(row.date) >= rangeStart : false);
+    const selectedSummaries = filteredSessionSummaryData;
     const eventLookupForId = (events: typeof eventData, eventId: string) => events.find((event) => event.id === eventId)?.code ?? eventId;
     const reportNames = { master: "PLPass Master Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Prediction Report", sentiment: "PLPass Performance and Sentiment Report", late: "PLPass Late Arrival Patterns Report" };
     const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered }));
@@ -810,7 +734,7 @@ export function OrganizerAnalyticsPage() {
     const sections: ReportExportSection[] = request.reportType === "master" ? [{ name: "Attendance Summary", rows: attendanceRows }, { name: "Turnout Prediction", rows: predictionRows }, { name: "Performance and Sentiment", rows: summaryRows }, { name: "Late Arrival Patterns", rows: lateRows }] : [{ name: reportNames[request.reportType].replace("PLPass ", "").replace(" Report", ""), rows: request.reportType === "attendance" ? attendanceRows : request.reportType === "prediction" ? predictionRows : request.reportType === "sentiment" ? summaryRows : lateRows }];
     const scope = selectedEvent ? { type: "event" as const, eventId: selectedEvent.id } : { type: "global" as const };
     const scopeSlug = selectedEvent ? selectedEvent.code : "all-events";
-    const filters = { "Target Event": selectedEvent ? `${selectedEvent.code} — ${selectedEvent.title}` : "All Events", Category: request.category === "all" ? "All Categories" : request.category === "career" ? "Career Development" : "Skills Training", "Time Horizon": request.range === "quarter" ? "Last Quarter" : request.range === "ay2026" ? "AY 2025-2026" : "Last 6 Months" };
+    const filters = { "Target Event": selectedEvent ? `${selectedEvent.code} — ${selectedEvent.title}` : "All Events", Category: "All Categories", "Time Horizon": dateRangePreset === "all" ? "All time" : dateRangePreset };
 
     // KPI Summary Cards
     const summaryCards: ReportSummaryCard[] = [
@@ -1687,8 +1611,6 @@ export function OrganizerAnalyticsPage() {
       <AnalyticsExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
-        events={eventData}
-        activeEventFilter={eventFilter}
         onExport={handleExportReport}
       />
     </div>

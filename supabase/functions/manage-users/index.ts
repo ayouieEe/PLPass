@@ -39,15 +39,16 @@ function compactNamePart(value: unknown) {
     .toLowerCase();
 }
 
-function generatedAccountEmail(lastName: unknown, firstName: unknown, middleName: unknown) {
+function generatedAccountEmail(lastName: unknown, firstName: unknown, _middleName: unknown, nameExtension: unknown) {
   const surname = compactNamePart(lastName);
-  const givenNames = `${compactNamePart(firstName)}${compactNamePart(middleName)}`;
-  if (!surname || !givenNames) throw new Error("First name and last name are required to generate the account email.");
-  return `${surname}_${givenNames}@plpasig.edu.ph`;
+  const extension = compactNamePart(nameExtension);
+  const givenName = compactNamePart(firstName);
+  if (!surname || !givenName) throw new Error("First name and last name are required to generate the account email.");
+  return `${surname}${extension}_${givenName}@plpasig.edu.ph`;
 }
 
 function resolveAccountEmail(account: Record<string, unknown>) {
-  return generatedAccountEmail(account.lastName, account.firstName, account.middleName);
+  return generatedAccountEmail(account.lastName, account.firstName, account.middleName, account.nameExtension);
 }
 
 function normalizeStudentNumber(value: unknown) {
@@ -268,8 +269,9 @@ Deno.serve(async (request) => {
     let success = 0;
     const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
     for (const [index, organizer] of organizers.entries()) {
-      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer ?? {};
-      const email = resolveAccountEmail({ firstName, middleName, lastName });
+      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName } = organizer ?? {};
+      const position = "Organizer";
+      const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       try {
         if (!firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
@@ -297,8 +299,9 @@ Deno.serve(async (request) => {
     if (!isUniversityAdmin && !isDepartmentAdmin) return json({ error: "This action is not available for your role." }, 403);
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
-      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName, position } = organizer;
-      const email = resolveAccountEmail({ firstName, middleName, lastName });
+      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName } = organizer;
+      const position = "Organizer";
+      const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     if (!firstName || !lastName || !organizationName || !position) {
       return json({ error: "Please complete all required organizer information." }, 400);

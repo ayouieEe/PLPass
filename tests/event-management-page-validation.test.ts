@@ -34,7 +34,7 @@ describe("event page validation helpers", () => {
     expect(simulatedRepositories).toContain("studentIdentityMatchesPayload(input.credentialCode");
   });
   it("calculates live attendance rate against all event participants", () => {
-    expect(eventManagementPage).toContain("function countRows(rows: AttendanceRow[], participantCount: number)");
+    expect(eventManagementPage).toContain("function countRows(rows: AttendanceRow[], participantCount: number, inferMissingRegisteredAsAbsent = false)");
     expect(eventManagementPage).toContain("summarizeUniqueAttendance");
     expect(eventManagementPage).toContain("participantCount");
     expect(eventManagementPage).toContain("const activeParticipantCount = activeParticipantIdentities?.length ?? 0");
@@ -58,6 +58,7 @@ describe("event page validation helpers", () => {
 
   it("converts Manila wall time independently of the computer timezone", () => {
     expect(manilaDateTimeToIso("2026-09-20", "09:30")).toBe("2026-09-20T01:30:00.000Z");
+    expect(manilaDateTimeToIso("2026-09-20", "02:00")).toBe("2026-09-19T18:00:00.000Z");
     expect(() => manilaDateTimeToIso("2026-02-30", "09:30")).toThrow(/invalid/i);
     expect(() => manilaDateTimeToIso("2026-09-20", "24:00")).toThrow(/invalid/i);
   });
@@ -235,6 +236,11 @@ describe("event page validation helpers", () => {
     expect(attendanceStartMigration).toContain("v_event.event_status in ('completed', 'cancelled')");
   });
 
+  it("does not infer absent students while an attendance session is still live", () => {
+    expect(eventManagementPage).toContain("const activeCounts = countRows(activeRows, activeParticipantCount, false);");
+    expect(eventManagementPage).toContain("const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeParticipantCount);");
+  });
+
   it("starts and ends prepared attendance locally while offline", () => {
     expect(eventManagementPage).toContain("if (isOfflineMode)");
     expect(eventManagementPage).toContain("api.getPreparedEvent(eventId, ownerId)");
@@ -264,5 +270,18 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain('offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable"');
     expect(eventManagementPage).toContain("offlineLivePackage.attendance");
     expect(eventManagementPage).toContain("offline-walkin-");
+  });
+
+  it("reconciles a stale desktop capture phase before local Time Out scans", () => {
+    expect(eventManagementPage).toContain("getPreparedEventBySession(activeScannerSessionId, session.userId)");
+    expect(eventManagementPage).toContain("const reconcilePhase = async () =>");
+    expect(eventManagementPage).toContain('attendancePhase === "time_out" && localPhase === "time_in"');
+    expect(eventManagementPage).toContain("await api.advanceAttendanceCapturePhase(sessionId, session.userId)");
+    expect(eventManagementPage).toContain("capturePhase:effectivePhase");
+    expect(eventManagementPage).toContain("recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId");
+    const legacyAttendancePage = readFileSync("src/features/organizer/pages/EventAttendancePage.tsx", "utf8");
+    expect(legacyAttendancePage).toContain("async function reconcileOfflineCapturePhase");
+    expect(legacyAttendancePage).toContain("const phase=await reconcileOfflineCapturePhase()");
+    expect(legacyAttendancePage).toContain("capturePhase:phase");
   });
 });
