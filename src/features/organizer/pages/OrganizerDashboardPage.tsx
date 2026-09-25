@@ -83,7 +83,7 @@ export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?
   const studentsQuery = useStudents({ pageSize: 1 }, context);
   const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
   const totalEventCount = eventsQuery.data?.total ?? events.length;
-  const automaticForecasts = useAutomaticForecasts(events, context ?? { actorUserId: "", actorRole: "organizer" }, session?.role === "organizer");
+  const automaticForecasts = useAutomaticForecasts(events, context ?? { actorUserId: "", actorRole: "organizer" }, !!session);
   const analyticsQuery = useOrganizerDashboardAnalytics(events.map(({ id, code, startsAt }) => ({ id, code, startsAt })));
   const today = useMemo(() => new Date(), []);
   const activeEvents = useMemo(() => events.filter((event) => event.status !== "rejected" && event.status !== "cancelled" && event.status !== "completed"), [events]);
