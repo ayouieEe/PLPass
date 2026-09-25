@@ -475,7 +475,7 @@ export function OrganizerAnalyticsPage() {
       (eventsQuery.data?.items ?? [])
         .filter((event) => {
           if (isDepartmentAdmin) {
-            return event.departmentId === (session as any)?.departmentId;
+            return event.departmentId === (session as { departmentId?: string })?.departmentId;
           }
           return true;
         })
@@ -740,9 +740,10 @@ export function OrganizerAnalyticsPage() {
           case 'time_of_day_bucket': return { name: "Time of Day", detail: "The time block when the event takes place.", insight: "Early morning or late afternoon events typically face lower turnout rates." };
           case 'venue': return { name: "Event Venue", detail: "The location of the event.", insight: "Distant or difficult-to-access venues can significantly reduce participant turnout." };
           case 'target_group_size_tier': return { name: "Target Audience Size", detail: "The size classification of the target audience.", insight: "Larger target groups often suffer from the bystander effect, reducing individual attendance rates." };
-          default: 
+          default: {
             const defaultName = featureId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
             return { name: defaultName, detail: "Relative feature importance from the model evaluation dataset; not a causal effect.", insight: "This is a model-level association, not a guarantee that changing this factor will change attendance." };
+          }
         }
       };
 

@@ -37,13 +37,6 @@ type LateReasonOption = {
   code: string;
   label: string;
 };
-const emojiRatings = [
-  { value: 1, emoji: "😞", label: "Needs improvement" },
-  { value: 2, emoji: "🙁", label: "Below expectations" },
-  { value: 3, emoji: "😐", label: "Okay" },
-  { value: 4, emoji: "🙂", label: "Good" },
-  { value: 5, emoji: "🤩", label: "Excellent" }
-];
 
 function FeedbackModal({
   open,
@@ -596,7 +589,7 @@ export function StudentEventDetailsPage() {
         canSubmit={allObjectivesRated && comment.trim().length > 0 && !feedbackQuery.submitMutation.isPending}
         step={feedbackStep}
         onBack={() => setFeedbackStep((current) => Math.max(0, current - 1))}
-        eventGoals={event.remarks}
+        eventGoals={event.description}
       />
       <LateReasonModal
         open={lateReasonModalOpen}

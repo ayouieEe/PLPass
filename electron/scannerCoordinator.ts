@@ -93,7 +93,7 @@ export class ScannerCoordinator {
       algorithm: "sha256", keySize: 2048, days: 1,
       ca: { key: root.privateKey, cert: root.certificate },
       extensions: [{ name: "basicConstraints", cA: false }, { name: "keyUsage", digitalSignature: true, keyEncipherment: true }, { name: "extKeyUsage", serverAuth: true }, { name: "subjectAltName", altNames: localIps.map((ip) => ({ type: 7, ip })) }]
-    } as any);
+    } as selfsigned.GenerateOptions);
     this.certificate = root.certificate;
     this.server = createServer({ key: pems.private, cert: `${pems.cert}\n${root.certificate}` }, (request, response) => void this.handle(request, response));
     this.setupServer = createHttpServer((request, response) => void this.handleSetup(request, response));
