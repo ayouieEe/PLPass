@@ -60,7 +60,7 @@ describe("paired attendance methods", () => {
   });
 
   it("restores server walk-ins and checkout methods after the live page restarts", () => {
-    expect(eventManagement).toContain("useAttendanceSummaries(activeEvent?.id ? [activeEvent.id] : [], !isOfflineMode)");
+    expect(eventManagement).toContain("useAttendanceSummaries(activeEvent?.id ? [activeEvent.id] : [], !isLocalAuthoritativeSession)");
     expect(eventManagement).toContain("const persistedRows = summary.rows");
     expect(eventManagement).toContain("checkoutAttendanceMethod: row.checkoutAttendanceMethod");
     expect(eventManagement).toContain("studentId: row.studentId");
