@@ -11,6 +11,7 @@ import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
 const eventDetailsPage = readFileSync("src/features/organizer/pages/EventDetailsPage.tsx", "utf8");
+const offlineEventHook = readFileSync("src/features/offline/useOfflineEvent.ts", "utf8");
 const appRouter = readFileSync("src/app/router/AppRouter.tsx", "utf8");
 const activeSessionOverlay = readFileSync("src/features/attendance/ActiveSessionOverlay.tsx", "utf8");
 const routes = readFileSync("src/lib/constants/routes.ts", "utf8");
@@ -67,7 +68,7 @@ describe("event page validation helpers", () => {
     expect(repositories).toContain("input.date !== dateKey(new Date())");
     expect(repositories).toContain("manilaDateTimeToIso(input.date, input.startTime)");
     expect(eventManagementPage).toContain("Reschedule to today");
-    expect(eventManagementPage).toContain("startEvent.date !== dateKey(new Date())");
+    expect(eventManagementPage).toContain("startEvent.date !== getManilaCalendarDate()");
     expect(eventDetailsPage).toContain("dateKey(event.startsAt) !== dateKey(new Date())");
     expect(eventDetailsPage).toContain("Reschedule event to today to start attendance.");
     expect(attendanceStartMigration).not.toContain("scheduled Manila date");
@@ -249,27 +250,94 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("if (desktopApi() && !isOfflineMode)");
     expect(eventManagementPage).toContain("await endOfflineEvent(");
     expect(eventDetailsPage).toContain("startOfflineEvent(event.id, localSession.id, ownerId)");
+    expect(eventDetailsPage).toContain("rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id)");
+    expect(eventManagementPage).toContain("readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)");
     expect(eventManagementPage).not.toContain("writeAttendancePhase(window.sessionStorage, startedSession.id");
   });
 
   it("keeps offline live sessions local and blocks background preparation", () => {
     expect(eventManagementPage).toContain("const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined)");
-    expect(eventManagementPage).toContain('offlineLive.status.packageStatus !== "READY"');
+    expect(eventManagementPage).toContain("const isLocalAuthoritativeSession = Boolean(");
+    expect(eventManagementPage).toContain("hasLocallyResumableSession");
+    expect(eventManagementPage).toContain("isOfflineMode || !offlineLocalSession?.offlineStartReconciledAt");
+    expect(eventManagementPage).toContain("`getPreparedEventBySession` is owner-scoped and returns only READY");
+    expect(eventManagementPage).toContain("if (!offlineLocalSession || !offlineLivePackage || !hasLocallyResumableSession) return undefined;");
     expect(eventManagementPage).toContain('["START_PENDING", "STARTED"].includes(offlineLocalSession.offlineLifecycle ?? "")');
     expect(eventManagementPage).toContain('createdByUserId: "offline-cache"');
     expect(eventManagementPage).toContain("?? offlineLiveSession");
     expect(eventManagementPage).toContain("?? offlineLiveEvent");
     expect(eventManagementPage).toContain("useEvents({ pageSize: 100 }, context, !isOfflineMode)");
     expect(eventManagementPage).toContain("useAttendanceSessions({ pageSize: 200 }, context, !isOfflineMode)");
-    expect(eventManagementPage).toContain("if (eventsQuery.isError && !hasOfflineLiveWorkspace)");
+    expect(eventManagementPage).toContain("if (!isOfflineMode && eventsQuery.isError && !hasOfflineLiveWorkspace)");
     expect(eventManagementPage).toContain("isOfflineMode || !navigator.onLine || !(await confirmSupabaseConnectivity())");
-    expect(eventManagementPage).toContain("!canManageOwnedEvents || isOfflineMode || !navigator.onLine");
-    expect(eventManagementPage).toContain("prepareOfflinePackage(event, { silent: true })");
+    expect(eventManagementPage).not.toContain("autoPreparedOfflineEventIdsRef");
+    expect(eventManagementPage).toContain('if (!options.silent) toast.success(`${event.code} is ready for offline use.`);');
     expect(eventManagementPage).toContain("offlineLivePackage.participants.map");
     expect(eventManagementPage).toContain("const offlineParticipantNames = useMemo");
     expect(eventManagementPage).toContain('offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable"');
     expect(eventManagementPage).toContain("offlineLivePackage.attendance");
     expect(eventManagementPage).toContain("offline-walkin-");
+  });
+
+  it("waits for the requested local package before rejecting a newly started offline session", () => {
+    expect(offlineEventHook).toContain("const requestKey=");
+    expect(offlineEventHook).toContain("const isLoading=Boolean((eventId||sessionId)&&resolvedRequestKey!==requestKey)");
+    expect(offlineEventHook).toContain("const lookupVersion=useRef(0);");
+    expect(offlineEventHook).toContain("const isCurrent=()=>lookupVersion.current===version;");
+    expect(offlineEventHook).toContain("const [lookupError,setLookupError]=useState<string|undefined>();");
+    expect(offlineEventHook).toContain("setResolvedRequestKey(requestKey)");
+    expect(eventManagementPage).toContain("if (offlineLive.isLoading) return;");
+    expect(eventManagementPage).toContain("if (isOfflineMode) {");
+    expect(eventManagementPage).toContain("setHandledSessionRouteId(sessionIdFromQuery);");
+    expect(eventManagementPage).toContain("!offlineLive.isLoading && !hasOfflineLiveWorkspace");
+  });
+
+  it("retains a locally started session as the live-route fallback during reconnect", () => {
+    expect(eventManagementPage).toContain("Keep a locally started");
+    expect(eventManagementPage).toContain("`getPreparedEventBySession` is owner-scoped and returns only READY");
+    expect(eventManagementPage).toContain("isLocalAuthoritativeSession");
+    expect(eventManagementPage).toContain("const [localStartPackage, setLocalStartPackage] = useState<PreparedEventPackage | null>(null);");
+    expect(eventManagementPage).toContain("const localStartFallbackMatchesRoute = Boolean(");
+    expect(eventManagementPage).toContain("readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)");
+    expect(eventManagementPage).toContain("?? routeStartHandoff;");
+    expect(eventManagementPage).toContain("if (locallyStartedPackage) setLocalStartPackage(locallyStartedPackage);");
+    expect(eventManagementPage).toContain("setLocalStartPackage(endedPackage);");
+  });
+
+  it("returns a ready-but-unstarted package to the existing Events flow during a network transition", () => {
+    expect(eventManagementPage).toContain("const hasLocallyReadyUnstartedSession = Boolean(");
+    expect(eventManagementPage).toContain('offlineLocalSession.offlineLifecycle === "NOT_STARTED"');
+    expect(eventManagementPage).toContain("if (hasLocallyReadyUnstartedSession) {");
+    expect(eventManagementPage).toContain("Network changes can make the server-side session read disappear");
+    expect(eventManagementPage).toContain("!hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession");
+  });
+
+  it("reuses the existing Events grid and Start Attendance flow for prepared offline packages", () => {
+    expect(eventManagementPage).toContain("listOfflineEvents(session.userId)");
+    expect(eventManagementPage).toContain("eventRecordFromOfflinePackage");
+    expect(eventManagementPage).toContain("if (isOfflineMode) return offlinePreparedPackages.map(eventRecordFromOfflinePackage);");
+    expect(eventManagementPage).toContain("if (!isOfflineMode && eventsQuery.isError && !hasOfflineLiveWorkspace)");
+    expect(eventManagementPage).toContain("openStartSession(event);");
+    expect(eventManagementPage).not.toContain("OfflinePreparedEventsPanel");
+  });
+
+  it("keeps every local-authoritative attendance action on the downloaded package during reconnect", () => {
+    expect(eventManagementPage).toContain("const attendanceLookupStudents = isLocalAuthoritativeSession ? localStudents");
+    expect(eventManagementPage).toContain("if (isLocalAuthoritativeSession) {");
+    expect(eventManagementPage).toContain("await endOfflineEvent(");
+    expect(eventManagementPage).toContain("await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? \"\", session?.userId ?? \"\");");
+    expect(eventManagementPage).toContain('identificationMethod: "manual"');
+    expect(eventManagementPage).toContain("recordOfflineAttendance({");
+    expect(eventManagementPage).toContain("remarks: manualEntryReason.trim()");
+  });
+
+  it("returns QR submission to Supabase after a local start is reconciled", () => {
+    expect(eventManagementPage).toContain("const { session, isOfflineMode, reconciliationState } = useDevelopmentSession();");
+    expect(eventManagementPage).toContain("reconciliationJustCompleted");
+    expect(eventManagementPage).toContain("void refreshOfflineLive()");
+    expect(eventManagementPage).toContain("if (desktopApi() && isLocalAuthoritativeSession)");
+    expect(eventManagementPage).toContain("const result = await credentialScanMutation.mutateAsync");
+    expect(eventManagementPage).toContain("isLocalAuthoritativeSession || isOfflineMode || networkFailure");
   });
 
   it("reconciles a stale desktop capture phase before local Time Out scans", () => {

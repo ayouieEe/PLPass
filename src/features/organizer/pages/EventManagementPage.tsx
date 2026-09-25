@@ -54,10 +54,11 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
+import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff, rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { resolveRecordedOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
-import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
+import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "@/features/offline/types";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
@@ -508,6 +509,30 @@ function eventRecordFromRepository(event: Event, objectives: string[] = []): Eve
   };
 }
 
+function preferredOfflineSession(pkg: PreparedEventPackage) {
+  return pkg.sessions.find((session) => ["START_PENDING", "STARTED", "NOT_STARTED"].includes(session.offlineLifecycle ?? ""))
+    ?? pkg.sessions[0];
+}
+
+function eventRecordFromOfflinePackage(pkg: PreparedEventPackage): EventRecord {
+  const localSession = preferredOfflineSession(pkg);
+  return {
+    id: pkg.event.id,
+    code: pkg.event.code,
+    name: pkg.event.title,
+    category: "Offline event",
+    venue: localSession?.venue ?? "Prepared offline event",
+    date: dateKey(pkg.event.startsAt),
+    startTime: formatDisplayTime(pkg.event.startsAt, "08:00 AM"),
+    endTime: formatDisplayTime(pkg.event.endsAt, "05:00 PM"),
+    predictedTurnout: "N/A",
+    objectives: [],
+    status: "today",
+    priorityLevel: "Flexible",
+    impactScore: null
+  };
+}
+
 function completedFromStore(event: OrganizerCompletedEvent): CompletedRecord {
   return {
     ...eventFromStore(event),
@@ -701,11 +726,17 @@ export function EventManagementPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [captureMode, setCaptureMode] = useState<AttendanceMethod | null>(null);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  // The successful offline-start IPC response is durable route authority for
+  // this mounted workspace. It closes the renderer/IPC timing gap while the
+  // session-specific package lookup catches up after a network transition.
+  const [localStartPackage, setLocalStartPackage] = useState<PreparedEventPackage | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
   const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
+  const [offlinePreparedPackages, setOfflinePreparedPackages] = useState<PreparedEventPackage[]>([]);
+  const [offlinePreparedPackagesLoading, setOfflinePreparedPackagesLoading] = useState(false);
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
   const [facialCameraOpen, setFacialCameraOpen] = useState(false);
@@ -732,14 +763,39 @@ export function EventManagementPage() {
   const hydratedSessionIdRef = useRef<string | null>(null);
   const hydratedAttendanceDraftSessionIdRef = useRef<string | null>(null);
   const finalizedAttendanceSessionIdsRef = useRef(new Set<string>());
-  const autoPreparedOfflineEventIdsRef = useRef(new Set<string>());
   const [attendanceDraftReadySessionId, setAttendanceDraftReadySessionId] = useState<string | null>(null);
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
   const promptedLifecycleEventIdsRef = useRef(new Set<string>());
 
-  const { session, isOfflineMode } = useDevelopmentSession();
+  const { session, isOfflineMode, reconciliationState } = useDevelopmentSession();
   const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined);
-  const offlineLivePackage = offlineLive.preparedEvent;
+  const routeStartHandoff = session?.userId && sessionIdFromQuery
+    ? readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)
+    : null;
+  const localStartFallbackMatchesRoute = Boolean(
+    localStartPackage
+    && sessionIdFromQuery
+    && localStartPackage.sessions.some((item) => item.id === sessionIdFromQuery && ["START_PENDING", "STARTED"].includes(item.offlineLifecycle ?? ""))
+  );
+  // Prefer a completed owner-scoped database lookup, but never discard the
+  // package returned by a successful local start just because a Wi-Fi change
+  // causes that follow-up lookup to lag or fail temporarily.
+  const offlineLivePackage = offlineLive.preparedEvent
+    ?? (localStartFallbackMatchesRoute ? localStartPackage : null)
+    ?? routeStartHandoff;
+  const refreshOfflineLive = offlineLive.refresh;
+  const previousReconciliationStateRef = useRef(reconciliationState);
+
+  // The provider deliberately restores the Online badge before lifecycle
+  // reconciliation completes. Once that reconciliation succeeds, reload this
+  // package so a formerly local start stops being treated as authoritative and
+  // normal QR submissions go straight to Supabase again.
+  useEffect(() => {
+    const reconciliationJustCompleted = previousReconciliationStateRef.current === "syncing"
+      && reconciliationState === "idle";
+    previousReconciliationStateRef.current = reconciliationState;
+    if (reconciliationJustCompleted && !isOfflineMode) void refreshOfflineLive();
+  }, [isOfflineMode, reconciliationState, refreshOfflineLive]);
   // The online student query is intentionally disabled while offline. Keep a
   // name lookup from the prepared package so live attendance never renders a
   // profile UUID as a student's name after a local scanner submission.
@@ -752,10 +808,37 @@ export function EventManagementPage() {
     () => offlineLivePackage?.sessions.find((item) => item.id === sessionIdFromQuery),
     [offlineLivePackage, sessionIdFromQuery]
   );
+  // Connectivity is presentation state. A locally started package remains the
+  // authority for this exact session until its start has been reconciled, even
+  // after the header has verified that the network is back.
+  const hasLocallyResumableSession = Boolean(
+    offlineLivePackage
+    && offlineLocalSession
+    && offlineLocalSession.eventId === offlineLivePackage.event.id
+    && ["START_PENDING", "STARTED"].includes(offlineLocalSession.offlineLifecycle ?? "")
+  );
+  // A READY package can legitimately be addressed by an old live-session URL
+  // while its session has not started yet. It belongs in the existing Events
+  // flow, not in the "offline session unavailable" error state.
+  const hasLocallyReadyUnstartedSession = Boolean(
+    offlineLivePackage
+    && offlineLocalSession
+    && offlineLocalSession.eventId === offlineLivePackage.event.id
+    && offlineLocalSession.offlineLifecycle === "NOT_STARTED"
+  );
+  const isLocalAuthoritativeSession = Boolean(
+    hasLocallyResumableSession
+    && (isOfflineMode || !offlineLocalSession?.offlineStartReconciledAt)
+  );
   const offlineLiveSession = useMemo(() => {
-    if (!isOfflineMode || offlineLive.status.packageStatus !== "READY" || !offlineLocalSession) return undefined;
-    if (!["START_PENDING", "STARTED"].includes(offlineLocalSession.offlineLifecycle ?? "")) return undefined;
-    if (!offlineLivePackage || offlineLocalSession.eventId !== offlineLivePackage.event.id) return undefined;
+    // A verified reconnect changes the header to Online before lifecycle
+    // reconciliation and server queries finish. Keep a locally started
+    // session valid as this route's fallback during that handoff; the server
+    // session supersedes it as soon as it becomes available.
+    // `getPreparedEventBySession` is owner-scoped and returns only READY
+    // packages. Do not wait for the separate status read as well: it can
+    // briefly still hold its prior value after the package has loaded.
+    if (!offlineLocalSession || !offlineLivePackage || !hasLocallyResumableSession) return undefined;
     return {
       id: offlineLocalSession.id,
       type: "event" as const,
@@ -771,7 +854,7 @@ export function EventManagementPage() {
       createdAt: offlineLivePackage.preparedAt,
       createdByUserId: "offline-cache"
     };
-  }, [isOfflineMode, offlineLive.status.packageStatus, offlineLivePackage, offlineLocalSession]);
+  }, [hasLocallyResumableSession, offlineLivePackage, offlineLocalSession]);
   const offlineLiveEvent = useMemo<EventRecord | undefined>(() => {
     if (!offlineLivePackage || !offlineLocalSession || !offlineLiveSession) return undefined;
     return {
@@ -805,6 +888,38 @@ export function EventManagementPage() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
+  useEffect(() => {
+    let current = true;
+    if (!isOfflineMode || session?.role !== "organizer" || !session.userId) {
+      setOfflinePreparedPackages([]);
+      setOfflinePreparedPackagesLoading(false);
+      return () => { current = false; };
+    }
+    const api = desktopApi();
+    if (!api) {
+      setOfflinePreparedPackages([]);
+      setOfflinePreparedPackagesLoading(false);
+      return () => { current = false; };
+    }
+    setOfflinePreparedPackagesLoading(true);
+    void (async () => {
+      const summaries = await listOfflineEvents(session.userId);
+      const packages = await Promise.all(summaries.map((summary) => api.getPreparedEvent(summary.event.id, session.userId)));
+      if (current) setOfflinePreparedPackages(packages.filter((pkg): pkg is PreparedEventPackage => pkg !== null));
+    })().catch(() => {
+      if (current) setOfflinePreparedPackages([]);
+    }).finally(() => {
+      if (current) setOfflinePreparedPackagesLoading(false);
+    });
+    return () => { current = false; };
+  }, [isOfflineMode, session?.role, session?.userId]);
+  const offlinePackageByEventId = useMemo(
+    () => new Map(offlinePreparedPackages.map((pkg) => [pkg.event.id, pkg])),
+    [offlinePreparedPackages]
+  );
+  useEffect(() => {
+    if (isOfflineMode) setActiveTab("today");
+  }, [isOfflineMode]);
   // A valid prepared package is the authoritative source for offline live
   // attendance. Do not start remote list queries while disconnected: their
   // expected failure used to win the render race and hide the local session.
@@ -842,7 +957,7 @@ export function EventManagementPage() {
     () => [...new Set([...participantStudentIdsByEventId.values()].flat())].sort(),
     [participantStudentIdsByEventId]
   );
-  const credentialStatusesQuery = useStudentCredentialStatuses(context, credentialStudentIds);
+  const credentialStatusesQuery = useStudentCredentialStatuses(context, credentialStudentIds, !isOfflineMode);
 
   useEffect(() => {
     if (!canManageOwnedEvents || attendanceSessionsQuery.isLoading || lifecycleNotificationsQuery.isLoading) return;
@@ -931,6 +1046,13 @@ export function EventManagementPage() {
 
   // Fetch objectives for all events from Supabase
   useEffect(() => {
+    if (isOfflineMode) {
+      setParticipantStudentIdsByEventId(new Map(offlinePreparedPackages.map((pkg) => [
+        pkg.event.id,
+        pkg.participants.filter((participant) => participant.isParticipant !== false).map((participant) => participant.studentId)
+      ])));
+      return;
+    }
     const eventIds = (eventsQuery.data?.items ?? [])
       .map((event) => event.id)
       .filter((eventId) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(eventId));
@@ -975,7 +1097,7 @@ export function EventManagementPage() {
     };
 
     void fetchAllObjectives();
-  }, [eventsQuery.data?.items]);
+  }, [eventsQuery.data?.items, isOfflineMode, offlinePreparedPackages]);
 
   // The live attendance card and QR matcher must use the active event's full
   // participant list, rather than a paginated student list or a background
@@ -1096,17 +1218,18 @@ export function EventManagementPage() {
   }, [eventsQuery.data?.items]);
 
   const repositoryEvents = useMemo<EventRecord[]>(() => {
+    if (isOfflineMode) return offlinePreparedPackages.map(eventRecordFromOfflinePackage);
     return (eventsQuery.data?.items ?? [])
       .filter((event) => event.status !== "completed" && event.status !== "cancelled")
       .map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? []));
-  }, [eventsQuery.data?.items, objectivesByEventId]);
+  }, [eventsQuery.data?.items, isOfflineMode, objectivesByEventId, offlinePreparedPackages]);
 
   const cancelledEvents = useMemo(
-    () => (eventsQuery.data?.items ?? [])
+    () => (isOfflineMode ? [] : eventsQuery.data?.items ?? [])
       .filter((event) => event.status === "cancelled")
       .map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? []))
       .filter((event) => matchesSearch(event, search) && matchesEventFilters(event, eventFilters)),
-    [eventFilters, eventsQuery.data?.items, objectivesByEventId, search]
+    [eventFilters, eventsQuery.data?.items, isOfflineMode, objectivesByEventId, search]
   );
 
   // Use only Supabase data (repositoryEvents), not UI store events
@@ -1163,9 +1286,33 @@ export function EventManagementPage() {
     // The local package is authoritative for a valid offline live session.
     // Wait for its read model before deciding that a direct route is invalid;
     // the remote queries are expected to fail while disconnected.
-    if (isOfflineMode && offlineLive.status.connectivity === "checking") return;
+    // Do not reject a freshly started offline event while its session-specific
+    // package read is still in flight. The hook's previous empty result may
+    // belong to the Events list rather than this new live-session route.
+    if (offlineLive.isLoading) return;
 
     if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
+      // Network changes can make the server-side session read disappear before
+      // the offline-mode transition is rendered. A locally READY, unstarted
+      // package is still valid; return it to the normal Events grid so the
+      // organizer can start it locally instead of treating it as missing.
+      if (hasLocallyReadyUnstartedSession) {
+        setActiveEvent(null);
+        setLiveSessionId(null);
+        setActiveRows([]);
+        setCaptureMode(null);
+        setFacialCameraOpen(false);
+        setHandledSessionRouteId(sessionIdFromQuery);
+        navigate(workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), { replace: true });
+        return;
+      }
+      // While disconnected, a failed or missing local lookup must remain on
+      // the session route for recovery instead of silently replacing it with
+      // the Events list. A later retry/reconnect can still resolve it.
+      if (isOfflineMode) {
+        setHandledSessionRouteId(sessionIdFromQuery);
+        return;
+      }
       if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
         // A session may have been ended or discarded in another organizer view.
         // Never leave its stale in-memory workspace open with live controls.
@@ -1194,7 +1341,7 @@ export function EventManagementPage() {
       setManualInput("");
       setQrInput("");
     }
-  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, isOfflineMode, offlineLive.status.connectivity, liveSessionId, navigate, offlineLiveEvent, offlineLiveSession, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, hasLocallyReadyUnstartedSession, isOfflineMode, offlineLive.isLoading, liveSessionId, navigate, offlineLiveEvent, offlineLiveSession, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
 
   // The renderer can unmount when an organizer visits another screen, but the
   // Electron scanner coordinator remains alive in the main process. Restore
@@ -1242,6 +1389,16 @@ export function EventManagementPage() {
 
     repositoryEvents.forEach((event) => {
       if (!event.id) return;
+      const localPackage = isOfflineMode ? offlinePackageByEventId.get(event.id) : undefined;
+      if (localPackage) {
+        const participants = localPackage.participants.filter((participant) => participant.isParticipant !== false);
+        readiness.set(event.id, {
+          participants: participants.length,
+          qrReady: participants.filter((participant) => Boolean(participant.qrIdentifier)).length,
+          facialReady: participants.filter((participant) => participant.faceEmbeddings.length > 0).length
+        });
+        return;
+      }
       const participantIds = participantStudentIdsByEventId.get(event.id) ?? [];
       const qrReady = participantIds.filter((studentId) => {
         const credential = credentialStatusByStudentId.get(studentId)?.qrCredential;
@@ -1252,7 +1409,7 @@ export function EventManagementPage() {
       readiness.set(event.id, { participants: participantIds.length, qrReady, facialReady });
     });
     return readiness;
-  }, [credentialStatusesQuery.data, participantStudentIdsByEventId, repositoryEvents]);
+  }, [credentialStatusesQuery.data, isOfflineMode, offlinePackageByEventId, participantStudentIdsByEventId, repositoryEvents]);
   const participantReadinessByEventId = useMemo(() => {
     const credentialStatusByStudentId = new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status]));
     const studentById = new Map((studentsQuery.data?.items ?? []).map((student) => [student.id, student]));
@@ -1261,6 +1418,19 @@ export function EventManagementPage() {
 
     repositoryEvents.forEach((event) => {
       if (!event.id) return;
+      const localPackage = isOfflineMode ? offlinePackageByEventId.get(event.id) : undefined;
+      if (localPackage) {
+        participantReadiness.set(event.id, localPackage.participants
+          .filter((participant) => participant.isParticipant !== false)
+          .map((participant) => ({
+            studentId: participant.studentId,
+            studentName: participant.displayName,
+            studentNumber: participant.studentNumber,
+            qrReady: Boolean(participant.qrIdentifier),
+            facialReady: participant.faceEmbeddings.length > 0
+          })));
+        return;
+      }
       const participants = (participantStudentIdsByEventId.get(event.id) ?? []).map((studentId) => {
         const credentialStatus = credentialStatusByStudentId.get(studentId);
         const qrCredential = credentialStatus?.qrCredential;
@@ -1279,7 +1449,7 @@ export function EventManagementPage() {
       participantReadiness.set(event.id, participants);
     });
     return participantReadiness;
-  }, [credentialStatusesQuery.data, participantStudentIdsByEventId, repositoryEvents, studentsQuery.data?.items]);
+  }, [credentialStatusesQuery.data, isOfflineMode, offlinePackageByEventId, participantStudentIdsByEventId, repositoryEvents, studentsQuery.data?.items]);
   const readinessIssuesByEventId = useMemo(
     () => new Map([...participantReadinessByEventId.entries()].map(([eventId, participants]) => [eventId, participants.filter((student) => !student.qrReady || !student.facialReady)])),
     [participantReadinessByEventId]
@@ -1306,8 +1476,9 @@ export function EventManagementPage() {
   // Both lists are sorted by priority (Business-Critical > Time-Sensitive > Flexible,
   // impact score as tiebreaker) so the most urgent events surface first.
   const todayEvents = useMemo(
-    () =>
-      sortByPriority(
+    () => {
+      if (isOfflineMode) return sortByPriority(storeEvents.filter((event) => matchesSearch(event, search)));
+      return sortByPriority(
         storeEvents.filter(
           (event) =>
             shouldDisplayInEventTab(event, "today", {
@@ -1319,13 +1490,15 @@ export function EventManagementPage() {
             }) &&
             matchesSearch(event, search)
         )
-      ),
-    [activeEvent, cancelledCodes, completedCodes, isReadOnlyMonitor, search, sessionsList, storeEvents]
+      );
+    },
+    [activeEvent, cancelledCodes, completedCodes, isOfflineMode, isReadOnlyMonitor, search, sessionsList, storeEvents]
   );
 
   const incomingEvents = useMemo(
-    () =>
-      sortByPriority(
+    () => {
+      if (isOfflineMode) return [];
+      return sortByPriority(
         storeEvents.filter(
           (event) =>
             shouldDisplayInEventTab(event, "incoming", {
@@ -1336,8 +1509,9 @@ export function EventManagementPage() {
             }) &&
             matchesSearch(event, search)
         )
-      ),
-    [activeEvent, cancelledCodes, completedCodes, search, sessionsList, storeEvents]
+      );
+    },
+    [activeEvent, cancelledCodes, completedCodes, isOfflineMode, search, sessionsList, storeEvents]
   );
 
   // Conflicts are computed across every non-cancelled, non-completed event
@@ -1451,7 +1625,7 @@ export function EventManagementPage() {
   // workspace. Hydrate its existing attendance before accepting new scans so
   // a reload never presents an empty table or treats a repeat scan as new.
   useEffect(() => {
-    if (!isOfflineMode || !activeEvent?.id || !activeScannerSessionId || !offlineLivePackage) return;
+    if (!isLocalAuthoritativeSession || !activeEvent?.id || !activeScannerSessionId || !offlineLivePackage) return;
     if (offlineLivePackage.event.id !== activeEvent.id) return;
     const participantById = new Map(offlineLivePackage.participants.map((participant) => [participant.studentId, participant]));
     const localRows: DraftAttendanceRow[] = offlineLivePackage.attendance
@@ -1477,7 +1651,7 @@ export function EventManagementPage() {
       const localIds = new Set(localRows.map((row) => row.studentId));
       return [...rows.filter((row) => !localIds.has(row.studentId)), ...localRows];
     });
-  }, [activeEvent?.code, activeEvent?.id, activeScannerSessionId, isOfflineMode, offlineLivePackage]);
+  }, [activeEvent?.code, activeEvent?.id, activeScannerSessionId, isLocalAuthoritativeSession, offlineLivePackage]);
 
   // Scanner phones write to the laptop's local database. Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
@@ -1550,8 +1724,8 @@ export function EventManagementPage() {
   // loaded event so switching between Today, Incoming, and Cancelled never
   // removes a venue or category from the available choices.
   const filterableEvents = useMemo(
-    () => (eventsQuery.data?.items ?? []).map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? [])),
-    [eventsQuery.data?.items, objectivesByEventId]
+    () => repositoryEvents,
+    [repositoryEvents]
   );
   const filterOptions = useMemo(
     () => ({
@@ -1583,7 +1757,7 @@ export function EventManagementPage() {
       const failuresKey=`plpass-offline-package-failures:${session.userId}:${getManilaCalendarDate()}`;
       const failures=JSON.parse(window.localStorage.getItem(failuresKey)??"{}") as Record<string,string>;
       const remainingFailures=Object.fromEntries(Object.entries(failures).filter(([key])=>key!==eventId));window.localStorage.setItem(failuresKey,JSON.stringify(remainingFailures));
-      toast.success(`${event.code} is ready for offline use.`);
+      if (!options.silent) toast.success(`${event.code} is ready for offline use.`);
     } catch (error) {
       const message=error instanceof Error ? error.message : "Preparation failed.";
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: message }));
@@ -1616,22 +1790,6 @@ export function EventManagementPage() {
       .catch(() => undefined);
     return () => { current = false; };
   }, [repositoryEvents,session?.userId]);
-
-  // Prepare only today's eligible events, once per event/day. This gives the
-  // organizer a ready offline package before starting while avoiding a request
-  // loop or a burst on every render.
-  useEffect(() => {
-    if (!desktopApi() || !session?.userId || !canManageOwnedEvents || isOfflineMode || !navigator.onLine) return;
-    const today = getManilaCalendarDate();
-    repositoryEvents
-      .filter((event): event is EventRecord & { id: string } => Boolean(event.id) && event.date === today && event.status !== "cancelled" && event.status !== "completed")
-      .forEach((event) => {
-        const current = offlinePreparationByEventId.get(event.id);
-        if (current?.packageStatus === "READY" || current?.preparing || autoPreparedOfflineEventIdsRef.current.has(event.id)) return;
-        autoPreparedOfflineEventIdsRef.current.add(event.id);
-        void prepareOfflinePackage(event, { silent: true }).catch(() => undefined);
-      });
-  }, [canManageOwnedEvents, isOfflineMode, offlinePreparationByEventId, prepareOfflinePackage, repositoryEvents, session?.userId]);
 
   // Daily package preparation is owned by the authenticated session provider;
   // opening this screen never starts an automatic RPC burst. Operators retain
@@ -1699,7 +1857,7 @@ export function EventManagementPage() {
 
   const eventToStart = startEvent;
   const eventId = eventToStart.id as string;
-  if (eventToStart.date !== dateKey(new Date()) || sessionForm.date !== dateKey(new Date())) {
+  if (eventToStart.date !== getManilaCalendarDate() || sessionForm.date !== getManilaCalendarDate()) {
     toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
     return;
   }
@@ -1722,6 +1880,7 @@ export function EventManagementPage() {
   }
   let startedSessionId = "";
   let startedAt = "";
+  let locallyStartedPackage: PreparedEventPackage | null = null;
   try {
     if (isOfflineMode) {
       const ownerId = session?.userId;
@@ -1738,6 +1897,8 @@ export function EventManagementPage() {
       if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
         throw new Error("The local attendance session did not enter its started state.");
       }
+      locallyStartedPackage = updatedPackage;
+      rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
       startedSessionId = updatedSession.id;
       startedAt = updatedSession.attendanceWindowStartAt ?? updatedSession.offlineStartedAt ?? new Date().toISOString();
     } else {
@@ -1778,6 +1939,7 @@ export function EventManagementPage() {
   setCaptureMode(defaultAttendanceMethod);
   setAttendancePhase("time_in");
   writeAttendancePhase(window.sessionStorage, startedSessionId, "time_in");
+  if (locallyStartedPackage) setLocalStartPackage(locallyStartedPackage);
   setLiveSessionId(startedSessionId);
   setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
   setStartEvent(null);
@@ -1816,13 +1978,15 @@ export function EventManagementPage() {
       ...(row.checkOutAt && canRecordTimeOut(row.checkInAt, row.checkOutAt) ? { timeOut: row.checkOutAt } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    if (isOfflineMode) {
-      await endOfflineEvent(
+    if (isLocalAuthoritativeSession) {
+      const endedPackage = await endOfflineEvent(
         activeEvent.id,
         sessionId,
         session?.userId ?? "",
         endSessionReason.trim() || "Organizer ended session"
       );
+      setLocalStartPackage(endedPackage);
+      clearOfflineLiveSessionHandoff(session?.userId ?? "", sessionId);
       toast.success("Session ended on this device. Attendance is saved locally and will sync after reconnecting.");
     } else {
       await endSessionMutation.mutateAsync({
@@ -1840,7 +2004,7 @@ export function EventManagementPage() {
       // The session has already been finalized remotely; a storage cleanup
       // failure must not make the organizer believe it is still open.
     }
-    if (!isOfflineMode) {
+    if (!isLocalAuthoritativeSession) {
       await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
     }
     setFinalizedSummary(
@@ -1857,7 +2021,7 @@ export function EventManagementPage() {
     setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
-    if (!isOfflineMode) {
+    if (!isLocalAuthoritativeSession) {
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Ended Live Session",
         targetType: "attendance_session",
@@ -1875,7 +2039,7 @@ export function EventManagementPage() {
       toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
     }
   }
-}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
+}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, isLocalAuthoritativeSession, liveSessionId, session?.userId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -1886,7 +2050,7 @@ export function EventManagementPage() {
         : null;
       const hasLocalSession = Boolean(localPackage?.sessions.some((item) => item.id === activeScannerSessionId));
       let serverPhase: AttendanceCapturePhase = "time_out";
-      if (hasLocalSession && (!navigator.onLine || !(await confirmSupabaseConnectivity()))) {
+      if (isLocalAuthoritativeSession) {
         await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
       } else {
         try {
@@ -2091,11 +2255,12 @@ export function EventManagementPage() {
       toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} at ${new Date(recordedAt).toLocaleTimeString()}`, { description: `${local.safeMessage} Saved on this device; not synced.` });
     };
     try {
-      if (desktopApi()) {
+      if (desktopApi() && isLocalAuthoritativeSession) {
         try {
-          // The prepared package is authoritative for desktop attendance. It
-          // also avoids relying on navigator.onLine, which can stay true while
-          // a laptop is connected to a phone hotspot without internet access.
+          // A locally started or offline session remains authoritative until
+          // its start has been reconciled. Do not let a brief reconnect send
+          // part of that session to the server while its local lifecycle is
+          // still unresolved.
           await recordQrLocally();
           return;
         } catch {
@@ -2181,7 +2346,9 @@ export function EventManagementPage() {
       toast.success(`${student?.fullName ?? student?.studentNumber ?? "Student"}: ${result.safeMessage}`);
       lastSuccessfulQrScanAtRef.current = Date.now();
     } catch (error) {
-      if (desktopApi()) {
+      const networkFailure = error instanceof TypeError
+        || (error instanceof Error && /(?:network|fetch|timeout|offline|connection)/i.test(error.message));
+      if (desktopApi() && (isLocalAuthoritativeSession || isOfflineMode || networkFailure)) {
         try {
           await recordQrLocally();
           return;
@@ -2297,7 +2464,11 @@ export function EventManagementPage() {
       return;
     }
 
-    const lookupResult = resolveManualAttendanceLookup(manualInput, studentsQuery.data?.items ?? []);
+    const localStudents = (offlineLivePackage?.participants ?? [])
+      .filter((participant) => participant.isParticipant !== false)
+      .map((participant) => ({ id: participant.studentId, studentNumber: participant.studentNumber, fullName: participant.displayName }));
+    const attendanceLookupStudents = isLocalAuthoritativeSession ? localStudents : (studentsQuery.data?.items ?? []);
+    const lookupResult = resolveManualAttendanceLookup(manualInput, attendanceLookupStudents);
     if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
       toast.warning("Please enter a valid student ID or name.");
       return;
@@ -2317,7 +2488,29 @@ export function EventManagementPage() {
       toast.warning("Time Out can be recorded at least one minute after Time In.");
       return;
     }
-    const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === resolvedStudentId);
+    const student = attendanceLookupStudents.find((candidate) => candidate.id === resolvedStudentId);
+    if (isLocalAuthoritativeSession) {
+      const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
+      const participant = offlineLivePackage?.participants.find((candidate) => candidate.studentId === resolvedStudentId);
+      if (!sessionId || !participant || (session?.userId && (await getOfflineSessionEndState(activeEvent.id, sessionId, session.userId)).isLocallyEnded)) {
+        toast.error("This offline event is unavailable for attendance capture.");
+        return;
+      }
+      const local = await recordOfflineAttendance({
+        eventId: activeEvent.id,
+        sessionId,
+        studentId: resolvedStudentId,
+        identificationMethod: "manual",
+        attendanceTimestamp: occurredAt,
+        attendanceStatus: resolvedStatus,
+        remarks: manualEntryReason.trim()
+      }, attendancePhase);
+      setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, participant)));
+      toast.success(local.action === "checked_out" ? "Student Time Out saved on this device." : local.action === "already_recorded" ? "Student attendance is already recorded." : "Student Time In saved on this device.");
+      setManualInput("");
+      setManualEntryReason("");
+      return;
+    }
     const result = await manualAttendanceMutation.mutateAsync({
       sessionId: liveSessionId ?? activeAttendanceSession?.id ?? "",
       studentId: resolvedStudentId,
@@ -2655,7 +2848,7 @@ export function EventManagementPage() {
     );
   }
 
-  if (eventsQuery.isLoading && !repositoryEvents.length && !offlineLiveSession) {
+  if (((!isOfflineMode && eventsQuery.isLoading) || (isOfflineMode && offlinePreparedPackagesLoading)) && !repositoryEvents.length && !offlineLiveSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
 
@@ -2665,7 +2858,7 @@ export function EventManagementPage() {
   }
 
   const isOpeningLiveSession = canManageOwnedEvents && Boolean(sessionIdFromQuery) && handledSessionRouteId !== sessionIdFromQuery && !(activeEvent && liveSessionId === sessionIdFromQuery);
-  const hasOfflineLiveWorkspace = Boolean(isOfflineMode && activeEvent && liveSessionId && offlineLiveSession?.id === liveSessionId);
+  const hasOfflineLiveWorkspace = Boolean(activeEvent && liveSessionId && offlineLiveSession?.id === liveSessionId);
 
   if (isOpeningLiveSession) {
     return (
@@ -2676,18 +2869,18 @@ export function EventManagementPage() {
     );
   }
 
-  if (eventsQuery.isError && isOfflineMode && sessionIdFromQuery && offlineLive.status.connectivity !== "checking" && !hasOfflineLiveWorkspace) {
+  if (isOfflineMode && sessionIdFromQuery && !offlineLive.isLoading && !hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
         <ErrorState
           title="Offline session unavailable"
-          message="This prepared session is missing, not ready, ended, or in conflict. Reconnect and prepare the event again before starting offline."
+          message={offlineLive.lookupError ?? "This prepared session is missing, not ready, ended, or in conflict. Reconnect and prepare the event again before starting offline."}
         />
       </div>
     );
   }
 
-  if (eventsQuery.isError && !hasOfflineLiveWorkspace) {
+  if (!isOfflineMode && eventsQuery.isError && !hasOfflineLiveWorkspace) {
     return (
       <div className="space-y-4 lg:space-y-5">
 
@@ -3069,6 +3262,21 @@ export function EventManagementPage() {
               emptyDescription={activeTab === "today" ? "Events scheduled for today will appear here when the date matches." : activeTab === "incoming" ? "Future published events will appear here." : "Cancelled events will be recorded here for reference."}
               onRowClick={(event) => {
                 if (!event.id) return;
+                if (isOfflineMode) {
+                  const localPackage = offlinePackageByEventId.get(event.id);
+                  const localSession = localPackage ? preferredOfflineSession(localPackage) : undefined;
+                  if (!localSession) return;
+                  if (["START_PENDING", "STARTED"].includes(localSession.offlineLifecycle ?? "")) {
+                    navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(localSession.id), APP_ROUTES.adminLiveSession(localSession.id)));
+                    return;
+                  }
+                  if (localSession.offlineLifecycle === "NOT_STARTED") {
+                    openStartSession(event);
+                    return;
+                  }
+                  toast.warning("This prepared event is awaiting reconciliation and cannot accept more attendance offline.");
+                  return;
+                }
                 const activeSession = isReadOnlyMonitor
                   ? sessionsList.find((session) => session.eventId === event.id && session.status === "active")
                   : undefined;
@@ -3224,13 +3432,13 @@ export function EventManagementPage() {
         <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
           <h2 className="text-xl font-semibold">Start Attendance</h2>
           <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
-          {startEvent.date !== dateKey(new Date()) ? (
+          {startEvent.date !== getManilaCalendarDate() ? (
             <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
               <p className="font-semibold">This event cannot be started today as currently scheduled.</p>
-              <p className="mt-1 text-sm">Events may only start on their scheduled Manila date. This event is scheduled for {startEvent.date}; reschedule it to {dateKey(new Date())} first, or cancel to leave it unchanged.</p>
+              <p className="mt-1 text-sm">Events may only start on their scheduled Manila date. This event is scheduled for {startEvent.date}; reschedule it to {getManilaCalendarDate()} first, or cancel to leave it unchanged.</p>
               <Button type="button" className="mt-4" onClick={() => {
                 setRescheduleForStartId(startEvent.id ?? null);
-                setEditEvent({ ...startEvent, date: dateKey(new Date()) });
+                setEditEvent({ ...startEvent, date: getManilaCalendarDate() });
                 setStartEvent(null);
               }}>
                 Reschedule to today

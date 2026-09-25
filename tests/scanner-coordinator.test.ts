@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { request } from "node:https";
 import { get } from "node:http";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { LocalAttendanceDatabase } from "../electron/localDatabase";
 import { MemoryScannerCertificateStore, ScannerCoordinator } from "../electron/scannerCoordinator";
@@ -25,6 +26,13 @@ function page(url: string) {
 }
 
 describe("scanner coordinator", () => {
+  it("uses the installed selfsigned certificate lifetime options", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "electron/scannerCoordinator.ts"), "utf8");
+    expect(source).toContain("days: 1");
+    expect(source).toContain("days: 365");
+    expect(source).not.toContain("notAfterDate");
+  });
+
   it("reuses one trusted root certificate across scanner sessions and replaces it on request", async () => {
     const store = new LocalAttendanceDatabase(new DatabaseSync(":memory:")); store.prepareEvent(eventPackage());
     const certificateStore = new MemoryScannerCertificateStore();

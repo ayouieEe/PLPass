@@ -20,6 +20,19 @@ describe("offline work banner state", () => {
     expect(provider).toContain("setReconciliationState(\"idle\");");
   });
 
+  it("returns to online mode after verified authentication before reconciling retained work", () => {
+    const verifiedSession = provider.indexOf("setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);");
+    const reconciles = provider.indexOf('const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");');
+    const onlineAfterVerification = provider.indexOf("setIsNetworkOnline(true);", verifiedSession);
+    const exitOfflineAfterVerification = provider.indexOf("setIsOfflineMode(false);", verifiedSession);
+
+    expect(verifiedSession).toBeGreaterThan(-1);
+    expect(onlineAfterVerification).toBeGreaterThan(verifiedSession);
+    expect(exitOfflineAfterVerification).toBeGreaterThan(onlineAfterVerification);
+    expect(exitOfflineAfterVerification).toBeLessThan(reconciles);
+    expect(provider).toContain("window.setInterval(() => void verifyReachability(), 3_000)");
+  });
+
   it("keeps the connection state as a compact header status", () => {
     expect(layout).toContain('connectionOffline ? "Offline" : "Online"');
     expect(layout).toContain('aria-label={connectionOffline ? "Offline" : "Online"}');

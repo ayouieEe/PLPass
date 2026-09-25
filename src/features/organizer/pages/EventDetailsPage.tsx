@@ -100,6 +100,7 @@ import type {
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
+import { rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
 type OrganizerScope = {
@@ -591,6 +592,10 @@ export function EventDetailsPage() {
         if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
           throw new Error("The local attendance session did not enter its started state.");
         }
+        // Preserve the successful local start across this route transition.
+        // The encrypted local package remains durable; this short-lived handoff
+        // only prevents a concurrent connectivity probe from racing its first read.
+        rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
         sessionId = updatedSession.id;
       } else {
         const created = await mutations.createEventSessionMutation.mutateAsync({

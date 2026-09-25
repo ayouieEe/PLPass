@@ -114,7 +114,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       }
     };
     void verifyReachability();
-    const timer = window.setInterval(() => void verifyReachability(), 5_000);
+    const timer = window.setInterval(() => void verifyReachability(), 3_000);
     return () => {
       disposed = true;
       window.clearInterval(timer);
@@ -314,6 +314,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
       await cacheDesktopOfflineSession(confirmed);
       setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);
+      // Connectivity and authentication are confirmed at this point. Keep any
+      // saved work for reconciliation, but do not present a recoverable sync
+      // issue as though this desktop has no network connection.
+      setIsNetworkOnline(true);
+      setIsOfflineMode(false);
       const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");
       const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry);
       const unresolved=await refreshOfflineWork();
@@ -323,7 +328,6 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         return false;
       }
       await queryClient.invalidateQueries();
-      setIsOfflineMode(false);
       setAuthError(undefined);
       setOfflineSyncError(undefined);
       setReconciliationState("idle");
