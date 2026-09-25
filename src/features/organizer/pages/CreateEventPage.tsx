@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertTriangle, CalendarCheck, Check, ChevronLeft, ChevronRight, ClipboardList, FileText, Link2, Paperclip, Plus, RotateCcw, Search, SlidersHorizontal, Users, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Check, ChevronLeft, ChevronRight, ClipboardList, FileText, Link2, Paperclip, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Users, X } from "lucide-react";
 import { type FieldPath, useFieldArray, useForm } from "react-hook-form";
 import { NavLink, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -142,6 +142,13 @@ const TARGET_GROUP_OPTIONS = [
 ];
 
 const MIN_OBJECTIVES = 3;
+const PRESET_OBJECTIVES = [
+  "How relevant was the event content to your studies?",
+  "How effectively did the speaker communicate the topics?",
+  "How would you rate the overall organization of the event?",
+  "How comfortable and conducive was the venue?",
+  "How likely are you to attend similar events in the future?"
+];
 function toEventTitle(value: string) {
   return value.trim().replace(/\s+/g, " ").toUpperCase();
 }
@@ -426,7 +433,7 @@ export function CreateEventPage() {
   const scope = useOrganizerScope();
   const navigate = useNavigate();
   const location = useLocation();
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [search, setSearch] = useState("");
   const [programId, setProgramId] = useState("");
   const [yearLevel, setYearLevel] = useState("");
@@ -895,7 +902,7 @@ export function CreateEventPage() {
   async function continueToParticipants() {
     const valid = await form.trigger([
       "code", "title", "category", "venue", "date", "startTime", "endTime",
-      "institutionalCategory", "participationStatus", "targetGroup", "collegeOffice", "objectives"
+      "institutionalCategory", "participationStatus", "targetGroup", "collegeOffice"
     ]);
     if (!valid) return;
     const invalidResource = pendingResources.find((resource) => resource.kind === "link"
@@ -913,12 +920,18 @@ export function CreateEventPage() {
     setCurrentStep(2);
   }
 
-  function continueToReview() {
+  function continueToFeedback() {
     if (selectedIds.length === 0) {
       setParticipantError("Select at least one participant.");
       return;
     }
     setCurrentStep(3);
+  }
+
+  async function continueToReview() {
+    const valid = await form.trigger(["objectives"]);
+    if (!valid) return;
+    setCurrentStep(4);
   }
   return (
     <OrganizerFrame>
@@ -929,12 +942,12 @@ export function CreateEventPage() {
       <form className="space-y-5 lg:space-y-6" onSubmit={form.handleSubmit(onSubmit)}>
         <nav aria-label="Create event steps" className="overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-r from-surface via-surface to-primary/[0.03] px-4 py-4 shadow-sm sm:px-7">
           <ol className="mx-auto flex max-w-4xl items-center">
-            {(["Event details", "Participants", "Review"] as const).map((label, index) => {
-              const step = (index + 1) as 1 | 2 | 3;
+            {(["Event details", "Participants", "Feedback setup", "Review"] as const).map((label, index) => {
+              const step = (index + 1) as 1 | 2 | 3 | 4;
               const active = currentStep === step;
               const complete = currentStep > step;
               return (
-                <li key={label} className={`flex min-w-0 flex-1 items-center ${index === 2 ? "flex-none" : ""}`}>
+                <li key={label} className={`flex min-w-0 flex-1 items-center ${index === 3 ? "flex-none" : ""}`}>
                   <div className="flex min-w-0 items-center gap-2.5">
                     <span
                       className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition-colors ${
@@ -953,7 +966,7 @@ export function CreateEventPage() {
                       <span className="mt-0.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Step {step}</span>
                     </span>
                   </div>
-                  {index < 2 ? (
+                  {index < 3 ? (
                     <span className="relative mx-3 h-1 min-w-3 flex-1 overflow-hidden rounded-full bg-muted sm:mx-5" aria-hidden="true">
                       <span className={`absolute inset-y-0 left-0 rounded-full bg-primary transition-all ${complete ? "w-full" : "w-0"}`} />
                     </span>
@@ -1053,7 +1066,6 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Content</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2"><TextAreaField control={form.control} name="description" label="Description" rows={3} /></div>
-                <div className="md:col-span-2"><TextAreaField control={form.control} name="remarks" label="Remarks" placeholder="Additional notes or special instructions for participants" rows={2} /></div>
               </div>
               <div className="rounded-xl border border-primary/15 bg-muted/20 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1099,51 +1111,6 @@ export function CreateEventPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border bg-background p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="font-semibold text-foreground">Objectives</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    At least {MIN_OBJECTIVES} objectives are required. Add more if needed.
-                  </p>
-                </div>
-                <Button type="button" variant="outline" size="sm" onClick={addObjective}>
-                  <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-                  Add Objective
-                </Button>
-              </div>
-              {form.formState.errors.objectives?.root ? (
-                <p role="alert" className="mt-2 text-sm text-danger">{form.formState.errors.objectives.root.message}</p>
-              ) : null}
-              <div className="mt-4 grid gap-3">
-                {objectiveFields.map((field, index) => (
-                  <div key={field.id} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-                    <div className="min-w-0">
-                      <TextField
-                        control={form.control}
-                        name={`objectives.${index}.value` as FieldPath<EventFormValues>}
-                        label={`Objective ${index + 1}`}
-                      />
-                    </div>
-                    {index >= MIN_OBJECTIVES ? (
-                      <div className="self-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setHasOrganizerInteracted(true);
-                            removeObjective(index);
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </section>
             <div className="flex justify-end border-t pt-5">
               <Button type="button" onClick={() => void continueToParticipants()}>Continue to participants</Button>
             </div>
@@ -1296,7 +1263,7 @@ export function CreateEventPage() {
           </div>
           <div className="flex items-center justify-between border-t pt-5">
             <Button type="button" variant="outline" onClick={() => setCurrentStep(1)}>Back</Button>
-            <Button type="button" onClick={continueToReview}>Continue to review</Button>
+            <Button type="button" onClick={continueToFeedback}>Continue to feedback setup</Button>
           </div>
         </section>
         <aside className="h-fit rounded-xl border bg-surface p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
@@ -1327,7 +1294,115 @@ export function CreateEventPage() {
         </aside>
         </section> : null}
 
-        {currentStep === 3 ? <>
+        {currentStep === 3 ? <section>
+          <div className="space-y-6 rounded-xl border bg-surface p-5 shadow-sm md:p-6">
+            <CreateEventSectionHeader
+              title="Feedback Setup"
+              description="Create the evaluation form students will complete after the event."
+            />
+            
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2 space-y-4">
+                <section className="rounded-lg border bg-background p-5">
+                  <h3 className="text-lg font-semibold text-foreground mb-1">Event Goals</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Describe what this event aims to achieve. This will be shown to students at the beginning of their evaluation.
+                  </p>
+                  <TextAreaField
+                    control={form.control}
+                    name="remarks"
+                    label="Actual Objectives"
+                    placeholder="e.g. This seminar will help understand the fundamentals of..."
+                    rows={3}
+                  />
+                </section>
+                <section className="rounded-lg border bg-background p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">Evaluation Objectives</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        At least {MIN_OBJECTIVES} objectives are required. These are rated on a 1-9 scale.
+                      </p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" onClick={addObjective}>
+                      <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+                      Add Custom
+                    </Button>
+                  </div>
+                  
+                  {form.formState.errors.objectives?.root ? (
+                    <p role="alert" className="mt-3 text-sm text-danger">{form.formState.errors.objectives.root.message}</p>
+                  ) : null}
+                  
+                  <div className="mt-5 grid gap-4">
+                    {objectiveFields.map((field, index) => (
+                      <div key={field.id} className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] items-start">
+                        <div className="min-w-0">
+                          <TextField
+                            control={form.control}
+                            name={`objectives.${index}.value` as FieldPath<EventFormValues>}
+                            label={`Objective ${index + 1}`}
+                            placeholder="e.g. How would you rate the speaker?"
+                          />
+                        </div>
+                        {index >= MIN_OBJECTIVES ? (
+                          <div className="mt-7">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => {
+                                setHasOrganizerInteracted(true);
+                                removeObjective(index);
+                              }}
+                              aria-label="Remove objective"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+              
+              <div className="lg:col-span-1">
+                <section className="rounded-lg border bg-background p-4 sticky top-4">
+                  <h3 className="font-semibold text-foreground flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Quick Add Templates
+                  </h3>
+                  <p className="mt-1 mb-4 text-sm text-muted-foreground">Click to add common questions to your form.</p>
+                  
+                  <div className="flex flex-col gap-2">
+                    {PRESET_OBJECTIVES.map((preset, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          setHasOrganizerInteracted(true);
+                          appendObjective({ value: preset });
+                        }}
+                        className="text-left text-sm p-3 rounded-lg border border-primary/10 bg-primary/5 hover:bg-primary/10 transition-colors text-foreground"
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t pt-5">
+              <Button type="button" variant="outline" onClick={() => setCurrentStep(2)}>Back</Button>
+              <Button type="button" onClick={() => void continueToReview()}>Continue to review</Button>
+            </div>
+          </div>
+        </section> : null}
+
+        {currentStep === 4 ? <>
         {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
         {scheduleConflicts.length > 0 ? (
           <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
@@ -1358,6 +1433,7 @@ export function CreateEventPage() {
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(1)}>Edit event details</Button>
               <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(2)}>Edit participants</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(3)}>Edit feedback</Button>
             </div>
           </div>
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
