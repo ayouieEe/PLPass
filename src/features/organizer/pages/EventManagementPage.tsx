@@ -1980,6 +1980,18 @@ export function EventManagementPage() {
     }
   }, [selectedEventForSession, selectedEvents]);
 
+  function openStartSession(event: EventRecord) {
+    setStartEvent(event);
+    setSessionForm({
+      venue: event.venue,
+      date: event.date,
+      startTime: toTimeInputValue(event.startTime),
+      endTime: toTimeInputValue(event.endTime),
+      method: defaultAttendanceMethod,
+      lateCutoffMinutes: 15
+    });
+  }
+
   async function cancelEvent(event: EventRecord) {
     if (!event.id || cancelReason.trim().length < 5) {
       toast.error("Provide a cancellation reason of at least 5 characters.");
@@ -2445,9 +2457,7 @@ export function EventManagementPage() {
       }
     };
     try {
-      if (desktopApi()) {
-        const preparedLocally = Boolean(session?.userId && await desktopApi()?.getPreparedEvent(eventId, session.userId));
-        if (isLocalAuthoritativeSession || preparedLocally) {
+      if (desktopApi() && isLocalAuthoritativeSession) {
           // The prepared desktop package is authoritative for live scans.
           // Do not hide a local walk-in checkout error behind the online
           // participant-only lookup.
@@ -2458,7 +2468,6 @@ export function EventManagementPage() {
           }
           return;
         }
-      }
       const client = getSupabaseBrowserClient();
       if (activeParticipantIdentities === null) {
         toast.warning("The event participant list is still loading. Please scan again in a moment.");
@@ -3123,60 +3132,6 @@ export function EventManagementPage() {
     } },
     { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
   ];
-
-  const completedColumns: Array<ColumnDef<CompletedRecord> | ColDef<CompletedRecord>> = [
-    { accessorKey: "code", header: "Event Code" },
-    { accessorKey: "name", header: "Event Name" },
-    { accessorKey: "venue", header: "Venue" },
-    { accessorKey: "date", header: "Date" },
-    { accessorKey: "present", header: "Present" },
-    { accessorKey: "late", header: "Late" },
-    { accessorKey: "absent", header: "Absent" },
-    { accessorKey: "attendanceRate", header: "Attendance Rate" },
-    {
-      id: "actions",
-      headerName: "Actions",
-      pinned: "right",
-      lockPosition: true,
-      lockPinned: true,
-      suppressMovable: true,
-      width: 120,
-      sortable: false,
-      filter: false,
-      cellRenderer: ({ data }: { data: CompletedRecord }) => (
-        <div className="flex justify-start">
-          <Button type="button" variant="outline" size="sm" onClick={() => setCompletedModal(data)}>
-            <Eye className="h-4 w-4" aria-hidden="true" />
-            View More
-          </Button>
-        </div>
-      )
-    } as ColDef<CompletedRecord>
-  ];
-
-  function TabButton({ tab, label, count }: { tab: EventTab; label: string; count: number }) {
-    return (
-      <Button
-        type="button"
-        variant={activeTab === tab ? "default" : "outline"}
-        className="h-auto min-h-14 justify-between rounded-lg px-3 py-2.5 text-left"
-        onClick={() => {
-          setActiveTab(tab);
-          setSelectedEventForSession(null);
-        }}
-      >
-        <span>
-          <span className="block text-sm font-semibold">{label}</span>
-          <span className="mt-0.5 block text-xs font-normal opacity-75">
-            {tab === "today" ? "Requires attention today" : tab === "incoming" ? "Future published schedule" : "Events cancelled by the organizer or system"}
-          </span>
-        </span>
-        <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold text-foreground">
-          {count}
-        </span>
-      </Button>
-    );
-  }
 
   if (((!isOfflineMode && eventsQuery.isLoading) || (isOfflineMode && offlinePreparedPackagesLoading)) && !repositoryEvents.length && !offlineLiveSession) {
     return (

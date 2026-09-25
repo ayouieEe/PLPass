@@ -15,8 +15,18 @@ function packageFor(lifecycle: "NOT_STARTED" | "START_PENDING" | "STARTED" = "ST
     cacheVersion: 1,
     organizerProfileId: organizerId,
     event: { id: "event-a", code: "EVT-A", title: "Event A", status: "scheduled", startsAt: "2026-09-26T00:00:00.000Z", endsAt: "2026-09-26T01:00:00.000Z" },
-    sessions: [{ id: sessionId, status: "ongoing", offlineLifecycle: lifecycle }],
+    sessions: [{
+      id: sessionId,
+      eventId: "event-a",
+      title: "Session A",
+      venue: "Campus",
+      status: "ongoing",
+      startsAt: "2026-09-26T00:00:00.000Z",
+      endsAt: "2026-09-26T01:00:00.000Z",
+      offlineLifecycle: lifecycle
+    }],
     participants: [],
+    attendance: [],
     preparedAt: "2026-09-26T00:00:00.000Z"
   };
 }
