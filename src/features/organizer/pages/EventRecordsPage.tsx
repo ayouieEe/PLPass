@@ -440,6 +440,13 @@ export function EventRecordsPage() {
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
+  const handleFromDateChange = (nextFromDate: string) => {
+    setFromDate(nextFromDate);
+    if (nextFromDate && toDate && toDate < nextFromDate) {
+      setToDate("");
+    }
+  };
+
   const { session } = useDevelopmentSession();
   const isDepartmentAdmin = session?.role === "department_admin";
   const context = useMemo(
@@ -733,11 +740,11 @@ export function EventRecordsPage() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-muted-foreground">From date</span>
-              <input id="event-record-from-date" type="date" className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+              <input id="event-record-from-date" type="date" className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={fromDate} onChange={(event) => handleFromDateChange(event.target.value)} />
             </label>
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-muted-foreground">To date</span>
-              <input id="event-record-to-date" type="date" className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={toDate} onChange={(event) => setToDate(event.target.value)} />
+              <input id="event-record-to-date" type="date" min={fromDate || undefined} className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={toDate} onChange={(event) => setToDate(event.target.value)} />
             </label>
             <label className="grid min-w-0 gap-1">
               <span className="text-xs font-medium text-muted-foreground">Venue</span>

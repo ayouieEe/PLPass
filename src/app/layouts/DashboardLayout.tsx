@@ -241,6 +241,23 @@ export function DashboardLayout({
             </div>
             <div className="flex min-w-0 shrink-0 items-center gap-2">
               {!offlineLocked ? topRightActions : null}
+              {role !== "student" ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  aria-label={connectionOffline ? "Offline" : "Online"}
+                  title={connectionOffline ? "Offline" : "Online"}
+                  className={cn(
+                    "inline-flex h-9 items-center gap-2 rounded-full border px-2.5 text-sm font-semibold sm:px-3",
+                    connectionOffline
+                      ? "border-amber-300/60 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-200"
+                      : "border-emerald-300/60 bg-emerald-50 text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-950/30 dark:text-emerald-200"
+                  )}
+                >
+                  {connectionOffline ? <CloudOff className="h-4 w-4" aria-hidden="true" /> : <Cloud className="h-4 w-4" aria-hidden="true" />}
+                  <span className="hidden sm:inline">{connectionOffline ? "Offline" : "Online"}</span>
+                </div>
+              ) : null}
               {!offlineLocked ? <Button
                 type="button"
                 variant="outline"
@@ -333,11 +350,6 @@ export function DashboardLayout({
           {filters ? <div className="border-t"><PageContainer className="py-3">{filters}</PageContainer></div> : null}
         </header>
 
-        {role !== "student" ? (
-          <div role="status" aria-live="polite" className={cn("flex items-center border-b px-6 py-2 text-sm", connectionOffline ? "border-amber-400/40 bg-amber-50 text-amber-900" : "border-emerald-400/40 bg-emerald-50 text-emerald-900")}>
-            <span className="inline-flex items-center gap-2 font-medium">{connectionOffline ? <CloudOff className="h-4 w-4" aria-hidden="true" /> : <Cloud className="h-4 w-4" aria-hidden="true" />}{connectionOffline ? "Offline" : "Online"}</span>
-          </div>
-        ) : null}
         <main id="main-content" tabIndex={-1} className="plpass-modern-scrollbar w-full min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-4 md:py-6 lg:py-8">
           <PageContainer className="grid gap-6">
             <div className={cn("grid gap-6", secondaryContent && "xl:grid-cols-[minmax(0,1fr)_320px]")}>

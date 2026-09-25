@@ -415,6 +415,15 @@ export function OrganizerAnalyticsPage() {
   const [latePage, setLatePage] = useState(0);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [selectedPdpFeature, setSelectedPdpFeature] = useState<string>("");
+  const handleStartDateChange = (nextStartDate: string) => {
+    setStartDate(nextStartDate);
+    if (nextStartDate && endDate && endDate < nextStartDate) {
+      setEndDate("");
+    }
+    setPredictionPage(0);
+    setAttendancePage(0);
+    setLatePage(0);
+  };
   const { session } = useDevelopmentSession();
   const isAdmin = session?.role === "admin";
   const isDepartmentAdmin = session?.role === "department_admin";
@@ -1006,7 +1015,7 @@ export function OrganizerAnalyticsPage() {
   ];
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="analytics-page space-y-6 pb-12">
       <PageHeader
         title="Analytics Insights"
         description={isAdmin ? "Review institution-wide attendance trends, turnout forecasts, and feedback sentiment." : isDepartmentAdmin ? "Review attendance trends, turnout forecasts, and feedback sentiment for your department’s events." : "Monitor attendance trends, turnout forecasts, and feedback sentiment across your events."}
@@ -1188,16 +1197,12 @@ export function OrganizerAnalyticsPage() {
                   aria-label="Start date filter"
                   className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                   value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    setPredictionPage(0);
-                    setAttendancePage(0);
-                    setLatePage(0);
-                  }}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
                 />
                 <span className="text-xs text-slate-400 font-medium">to</span>
                 <input
                   type="date"
+                  min={startDate || undefined}
                   aria-label="End date filter"
                   className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
                   value={endDate}

@@ -51,7 +51,7 @@ export function AdminResourcePage({ title, description, kind }: AdminResourcePag
 }
 
 export const AdminUsersPage = () => <AdminResourcePage kind="users" title="Users" description="Manage Student, Organizer, and Admin accounts." />;
-export const AdminEventsPage = () => <AdminResourcePage kind="events" title="Events" description="View and manage all events and approvals." />;
+export const AdminEventsPage = () => <AdminResourcePage kind="events" title="Events" description="View institution-wide events and operational status." />;
 export const AdminAttendancePage = () => <AdminResourcePage kind="records" title="Attendance Records" description="Review attendance sessions and records across all events." />;
 export const AdminAuditLogsPage = () => <AdminResourcePage kind="audit" title="Audit Logs" description="Review all system activity and administrative actions." />;
 export const AdminCatalogsPage = () => <AdminResourcePage kind="catalog" title="Academic Catalogs" description="Manage departments, programs, sections, semesters, and event categories." />;

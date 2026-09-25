@@ -792,10 +792,22 @@
     overflow: hidden;
     border-radius: 0.375rem;
     border-color: hsl(var(--border));
+    background-color: hsl(var(--surface)) !important;
+    color: hsl(var(--foreground)) !important;
     box-shadow: none;
   }
 
+  .ag-theme-plpass .ag-root,
+  .ag-theme-plpass .ag-body-viewport,
+  .ag-theme-plpass .ag-center-cols-viewport,
+  .ag-theme-plpass .ag-center-cols-container,
+  .ag-theme-plpass .ag-body-horizontal-scroll-viewport {
+    background-color: hsl(var(--surface)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
   .ag-theme-plpass .ag-header {
+    background-color: hsl(var(--surface-muted)) !important;
     border-bottom-color: hsl(var(--border));
   }
 
@@ -864,7 +876,7 @@
   }
 
   .ag-theme-plpass .ag-header-cell-label {
-    color: hsl(var(--foreground) / 0.82);
+    color: hsl(var(--foreground) / 0.82) !important;
     font-weight: 700;
   }
 
@@ -872,8 +884,95 @@
     display: flex;
     align-items: center;
     min-width: 0;
-    color: hsl(var(--foreground));
+    color: hsl(var(--foreground)) !important;
     font-size: 0.875rem;
+  }
+
+  .live-attendance-grid .ag-root-wrapper,
+  .live-attendance-grid .ag-root,
+  .live-attendance-grid .ag-body-viewport,
+  .live-attendance-grid .ag-center-cols-viewport,
+  .live-attendance-grid .ag-center-cols-container {
+    background-color: hsl(var(--surface)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  .live-attendance-grid .ag-header {
+    background-color: hsl(var(--surface-muted)) !important;
+  }
+
+  .live-attendance-grid .ag-header-cell-label,
+  .live-attendance-grid .ag-cell {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* Analytics contains legacy slate/white utility classes. Keep those
+     presentation-only classes readable when the application is dark. */
+  .dark .analytics-page [class~="bg-white"],
+  .dark .analytics-page [class~="bg-white/95"],
+  .dark .analytics-page [class~="bg-white/50"] {
+    background-color: hsl(var(--surface)) !important;
+  }
+
+  .dark .analytics-page [class~="bg-slate-50/80"],
+  .dark .analytics-page [class~="bg-slate-50/50"],
+  .dark .analytics-page [class~="bg-slate-100/70"],
+  .dark .analytics-page [class~="bg-slate-100"] {
+    background-color: hsl(var(--surface-muted)) !important;
+  }
+
+  .dark .analytics-page [class~="bg-blue-100"] {
+    background-color: hsl(var(--info-muted)) !important;
+  }
+
+  .dark .analytics-page [class~="border-slate-200/80"],
+  .dark .analytics-page [class~="border-slate-200"],
+  .dark .analytics-page [class~="border-slate-100"] {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  .dark .analytics-page [class~="text-slate-900"],
+  .dark .analytics-page [class~="text-slate-800"] {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  .dark .analytics-page [class~="text-slate-700"],
+  .dark .analytics-page [class~="text-slate-600"],
+  .dark .analytics-page [class~="text-slate-500"],
+  .dark .analytics-page [class~="text-slate-400"] {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  /* Shared legacy light utility compatibility for dialogs and report cards. */
+  .dark [class~="bg-white"][class*="border-slate"],
+  .dark [class~="bg-white"][class~="shadow-2xl"] {
+    background-color: hsl(var(--surface)) !important;
+  }
+
+  .dark [class~="bg-slate-50/50"],
+  .dark [class~="bg-slate-50/80"],
+  .dark [class~="bg-slate-100"],
+  .dark [class~="bg-slate-100/70"] {
+    background-color: hsl(var(--surface-muted)) !important;
+  }
+
+  .dark [class~="border-slate-200"],
+  .dark [class~="border-slate-200/60"],
+  .dark [class~="border-slate-200/80"],
+  .dark [class~="border-slate-100"] {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  .dark [class~="text-slate-900"],
+  .dark [class~="text-slate-800"] {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  .dark [class~="text-slate-700"],
+  .dark [class~="text-slate-600"],
+  .dark [class~="text-slate-500"],
+  .dark [class~="text-slate-400"] {
+    color: hsl(var(--muted-foreground)) !important;
   }
 
   .plpass-data-grid-shell {

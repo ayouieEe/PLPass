@@ -265,7 +265,7 @@ describe("shared user pages", () => {
     setRoute("/notifications");
     render(<App />);
 
-    await screen.findByText("Report ready");
+    await screen.findByText("Correction request");
     await user.click(screen.getByRole("button", { name: /mark all as read/i }));
     await waitFor(() => expect(screen.getByText("0 unread")).toBeInTheDocument());
   });

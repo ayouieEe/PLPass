@@ -1,6 +1,7 @@
 const defaultDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
-  timeStyle: "short"
+  timeStyle: "short",
+  timeZone: "Asia/Manila"
 });
 
 export type DateInput = Date | string | number | null | undefined;

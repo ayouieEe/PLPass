@@ -342,7 +342,6 @@ export type UpdateSystemSettingsInput = Partial<
     | "notificationCredentialsEnabled"
     | "notificationCorrectionsEnabled"
     | "notificationRemindersEnabled"
-    | "eventApprovalRequired"
     | "participantInvitationMode"
     | "noStartReminderMinutes"
     | "autoCancelAfterMinutes"

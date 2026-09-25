@@ -13,6 +13,18 @@ export const notificationCategoryLabels: Record<NotificationCategory, string> = 
   system: "System"
 };
 
+const roleNotificationCodePrefixes: Record<UserRole, readonly string[]> = {
+  student: ["event.invited.", "event.rescheduled.", "event.cancelled.", "attendance.exception.", "correction.", "credential.", "reminder.", "account.status_changed", "security."],
+  organizer: ["correction.review_requested", "event.lifecycle.unstarted", "account.status_changed", "security."],
+  admin: ["event.started", "system.exception.", "system.settings.", "account.status_changed", "security."],
+  department_admin: ["event.started", "system.exception.", "system.settings.", "account.status_changed", "security."],
+  faculty: ["account.status_changed", "security."]
+};
+
+function matchesNotificationCode(code: string, allowedPrefix: string) {
+  return allowedPrefix.endsWith(".") ? code.startsWith(allowedPrefix) : code === allowedPrefix;
+}
+
 export function notificationCategory(notification: Notification): NotificationCategory {
   const code = notification.code ?? "";
   if (code.startsWith("credential.")) return "credentials";
@@ -27,11 +39,12 @@ export function notificationCategory(notification: Notification): NotificationCa
 
 export function categoriesForRole(role: UserRole): NotificationCategory[] {
   if (role === "student") return ["attendance", "events", "requests", "credentials", "security"];
-  if (role === "organizer") return ["events", "attendance", "requests", "reports", "security"];
-  if (role === "admin" || role === "department_admin") return ["security", "system", "requests", "events", "attendance"];
+  if (role === "organizer") return ["events", "requests", "security"];
+  if (role === "admin" || role === "department_admin") return ["security", "system", "events"];
   return ["security"];
 }
 
 export function isNotificationVisibleForRole(notification: Notification, role: UserRole) {
-  return categoriesForRole(role).includes(notificationCategory(notification));
+  const code = notification.code ?? "";
+  return roleNotificationCodePrefixes[role].some((prefix) => matchesNotificationCode(code, prefix));
 }
