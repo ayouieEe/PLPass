@@ -56,7 +56,8 @@ function FeedbackModal({
   onSubmit,
   canSubmit,
   step,
-  onBack
+  onBack,
+  eventGoals
 }: {
   open: boolean;
   onClose: () => void;
@@ -69,47 +70,104 @@ function FeedbackModal({
   canSubmit: boolean;
   step: number;
   onBack: () => void;
+  eventGoals?: string;
 }) {
   if (!open) return null;
 
-  const isReview = step >= objectives.length;
-  const objective = objectives[step];
+  const ITEMS_PER_PAGE = 3;
+  const totalPages = Math.ceil(objectives.length / ITEMS_PER_PAGE);
+  const isReview = step >= totalPages;
+  const currentObjectives = objectives.slice(step * ITEMS_PER_PAGE, (step + 1) * ITEMS_PER_PAGE);
 
   return (
-    <ModalShell
-      open={open}
-      title="Share your feedback"
-      description={isReview ? "Review your answers before submitting." : `Objective ${step + 1} of ${objectives.length}`}
-      size="sm"
-      onClose={onClose}
-    >
-        <div className="space-y-5">
-          {!isReview && objective ? (
-            <div className="rounded-xl border bg-background p-4 sm:p-5">
-              <p className="text-base font-semibold leading-snug">{objective.text}</p>
-              <div className="mt-5 grid grid-cols-2 gap-2 min-[420px]:grid-cols-5" aria-label="Choose a rating">
-                {emojiRatings.map((choice) => (
-                  <button key={choice.value} type="button" onClick={() => onRate(objective.id, choice.value)} aria-label={`${choice.value}: ${choice.label}`} className={`min-h-20 rounded-xl border p-2 text-center transition hover:border-primary ${ratings[objective.id] === choice.value ? "border-primary bg-primary/10" : "bg-surface"}`}>
-                    <span className="block text-2xl">{choice.emoji}</span><span className="mt-1 block break-words text-[10px] leading-tight text-muted-foreground">{choice.label}</span>
-                  </button>
+      <ModalShell
+        open={open}
+        title="Share your feedback"
+        description={isReview ? "Review your answers before submitting." : `Page ${step + 1} of ${totalPages}`}
+        size="md"
+        onClose={onClose}
+      >
+        <div className="space-y-6">
+          {step === 0 && eventGoals && !isReview && (
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-5">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-primary">Event Goals</h3>
+              <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{eventGoals}</p>
+            </div>
+          )}
+          {!isReview ? (
+            <div className="space-y-6">
+              {currentObjectives.map((objective) => (
+                <div key={objective.id} className="rounded-xl border bg-background p-4 sm:p-5">
+                  <p className="text-base font-semibold leading-snug">{objective.text}</p>
+                  
+                  <div className="mt-5">
+                    <div className="flex justify-between gap-1">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((val) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => onRate(objective.id, val)}
+                          aria-label={`Rate ${val} out of 9`}
+                          className={`flex h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0 items-center justify-center rounded-lg border text-sm sm:text-base font-semibold transition hover:border-primary hover:bg-primary/10 ${
+                            ratings[objective.id] === val
+                              ? "border-primary bg-primary text-primary-foreground shadow-md ring-2 ring-primary/20 ring-offset-1"
+                              : "bg-surface text-foreground"
+                          }`}
+                        >
+                          {val}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex justify-between px-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      <span>Needs Improvement</span>
+                      <span>Excellent</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border bg-background p-4 text-sm">
+              <p className="font-semibold">Your ratings</p>
+              <div className="mt-4 space-y-3">
+                {objectives.map((item, index) => (
+                  <div key={item.id} className="flex items-start justify-between gap-4 border-b pb-3 last:border-0 last:pb-0">
+                    <p className="text-muted-foreground"><span className="font-medium text-foreground">{index + 1}.</span> {item.text}</p>
+                    <span className="flex-shrink-0 rounded-full bg-primary/10 px-2.5 py-0.5 font-semibold text-primary">{ratings[item.id] || 0}/9</span>
+                  </div>
                 ))}
               </div>
             </div>
-          ) : (
-            <div className="rounded-xl border bg-background p-4 text-sm"><p className="font-semibold">Your ratings</p><div className="mt-3 space-y-2">{objectives.map((item, index) => <p key={item.id}>{index + 1}. {item.text} <span className="font-medium">— {ratings[item.id]}/5</span></p>)}</div></div>
           )}
           {isReview && <div>
             <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Additional comments (optional)
+              Overall Sentiment (Required for analysis)
             </label>
             <textarea
               value={comment}
               onChange={(entry) => onCommentChange(entry.target.value)}
-              className="plpass-field min-h-24 w-full rounded-xl border p-3 text-sm outline-none transition focus:border-primary"
-              placeholder="What stood out about this event?"
+              className="plpass-field min-h-24 w-full rounded-xl border p-3 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+              placeholder="What stood out about this event? How did you feel about it?"
             />
           </div>}
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between"><Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>{isReview ? <Button onClick={onSubmit} disabled={!canSubmit}><MessageSquareText className="mr-2 h-4 w-4" />Submit Feedback</Button> : <p className="text-xs text-muted-foreground sm:self-center">Choose a rating to continue</p>}</div>
+          <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>
+            {isReview ? (
+              <Button onClick={onSubmit} disabled={!canSubmit} className="w-full sm:w-auto">
+                <MessageSquareText className="mr-2 h-4 w-4" />
+                Submit Feedback
+              </Button>
+            ) : (
+              <Button 
+                type="button" 
+                onClick={() => onRate("next_step", 0)} 
+                className="w-full sm:w-auto"
+                disabled={!currentObjectives.every(obj => ratings[obj.id])}
+              >
+                Continue
+              </Button>
+            )}
+          </div>
         </div>
     </ModalShell>
   );
@@ -525,13 +583,20 @@ export function StudentEventDetailsPage() {
         onClose={() => setFeedbackModalOpen(false)}
         objectives={taskObjectives}
         ratings={ratings}
-        onRate={(objectiveId, value) => { setRatings((current) => ({ ...current, [objectiveId]: value })); setFeedbackStep((current) => Math.min(current + 1, taskObjectives.length)); }}
+        onRate={(objectiveId, value) => { 
+          if (objectiveId === "next_step") {
+            setFeedbackStep((current) => Math.min(current + 1, Math.ceil(taskObjectives.length / 3)));
+          } else {
+            setRatings((current) => ({ ...current, [objectiveId]: value })); 
+          }
+        }}
         comment={comment}
         onCommentChange={setComment}
         onSubmit={submitFeedback}
-        canSubmit={allObjectivesRated && !feedbackQuery.submitMutation.isPending}
+        canSubmit={allObjectivesRated && comment.trim().length > 0 && !feedbackQuery.submitMutation.isPending}
         step={feedbackStep}
         onBack={() => setFeedbackStep((current) => Math.max(0, current - 1))}
+        eventGoals={event.remarks}
       />
       <LateReasonModal
         open={lateReasonModalOpen}
