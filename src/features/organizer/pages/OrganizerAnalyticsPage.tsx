@@ -472,19 +472,26 @@ export function OrganizerAnalyticsPage() {
 
   const eventData = useMemo(
     () =>
-      (eventsQuery.data?.items ?? []).map((event) => ({
-        id: event.id,
-        organizerId: event.organizerId,
-        code: event.code,
-        title: event.title,
-        category: event.category,
-        venue: event.venue,
-        date: dateKey(event.startsAt),
-        startsAt: event.startsAt,
-        time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-        predictedTurnout: event.predictedTurnout
-      })),
-    [eventsQuery.data?.items]
+      (eventsQuery.data?.items ?? [])
+        .filter((event) => {
+          if (isDepartmentAdmin) {
+            return event.departmentId === (session as { departmentId?: string })?.departmentId;
+          }
+          return true;
+        })
+        .map((event) => ({
+          id: event.id,
+          organizerId: event.organizerId,
+          code: event.code,
+          title: event.title,
+          category: event.category,
+          venue: event.venue,
+          date: dateKey(event.startsAt),
+          startsAt: event.startsAt,
+          time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+          predictedTurnout: event.predictedTurnout
+        })),
+    [eventsQuery.data?.items, isDepartmentAdmin, session]
   );
 
   const filteredEventData = useMemo(() => {
@@ -499,9 +506,11 @@ export function OrganizerAnalyticsPage() {
 
   const sessionSummaryData = useMemo(
     () => {
-      const eventById = new Map((eventsQuery.data?.items ?? []).map((event) => [event.id, event]));
-      return (sessionsQuery.data?.items ?? []).filter((session) => session.type === "event" && session.status === "completed" && session.eventId).map((session) => {
-        const event = eventById.get(session.eventId ?? "");
+      const eventById = new Map(eventData.map((event) => [event.id, event]));
+      return (sessionsQuery.data?.items ?? [])
+        .filter((session) => session.type === "event" && session.status === "completed" && session.eventId && eventById.has(session.eventId))
+        .map((session) => {
+          const event = eventById.get(session.eventId ?? "");
         const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
         const walkInRows = (organizerAttendanceSummariesQuery.data?.[session.eventId ?? ""]?.rows ?? [])
           .filter((row) => row.sessionId === session.id && row.verificationLabel === "Unverified walk-in");
@@ -512,7 +521,7 @@ export function OrganizerAnalyticsPage() {
         return { eventCode: event?.code ?? session.title, eventId: session.eventId, date: dateKey(session.startsAt), present: summary.present, late: summary.late, absent: summary.absent, totalRegistered: summary.population, attendanceRate: summary.attendanceRate };
       });
     },
-    [attendanceRecordsQuery.data?.items, eventsQuery.data?.items, organizerAttendanceSummariesQuery.data, sessionsQuery.data?.items]
+    [attendanceRecordsQuery.data?.items, eventData, organizerAttendanceSummariesQuery.data, sessionsQuery.data?.items]
   );
 
   const filteredSessionSummaryData = useMemo(() => {
@@ -689,11 +698,10 @@ export function OrganizerAnalyticsPage() {
   }, [filteredLateReasons]);
 
   const activePdpFeature = useMemo(() => {
-    if (isDepartmentAdmin) return "";
     const features = insightsData?.partial_dependence ? Object.keys(insightsData.partial_dependence) : [];
     if (features.length === 0) return "";
     return selectedPdpFeature && features.includes(selectedPdpFeature) ? selectedPdpFeature : features[0];
-  }, [insightsData, selectedPdpFeature, isDepartmentAdmin]);
+  }, [insightsData, selectedPdpFeature]);
 
   const pdpData = useMemo(() => {
     const pd = insightsData?.partial_dependence;
@@ -708,43 +716,45 @@ export function OrganizerAnalyticsPage() {
   }, [insightsData, activePdpFeature]);
 
   const predictionFactors = useMemo(() => {
-    if (isDepartmentAdmin || !insightsData?.feature_importance?.length) return [];
+    if (!insightsData?.feature_importance?.length) return [];
     const positiveImportance = insightsData.feature_importance.filter((factor) => factor.importance_mean > 0).slice(0, 5);
     if (positiveImportance.length > 0) {
       const maxImp = Math.max(...positiveImportance.map(f => f.importance_mean));
       
       const getFeatureExplanation = (featureId: string) => {
         switch (featureId) {
-          case 'rolling_participation_rate': return { detail: "Measures a student's recent historical attendance.", insight: "High historical attendance often reliably predicts future attendance." };
-          case 'tardiness_frequency': return { detail: "How often a student has been late to past events.", insight: "Frequent past tardiness strongly correlates with overall lower on-time turnout." };
-          case 'participation_trend_slope': return { detail: "Indicates whether a student's attendance is improving or declining over time.", insight: "A negative slope acts as an early warning for potential absences." };
-          case 'consecutive_missed_events': return { detail: "The number of events missed in a row.", insight: "Students missing multiple events sequentially have a high risk of being absent again." };
-          case 'has_rolling_rate':
-          case 'has_tardiness_history':
-          case 'has_trend': return { detail: "Indicates whether sufficient historical data exists for this student.", insight: "Newer students with no history are generally harder to predict accurately." };
-          case 'was_ever_late': return { detail: "Whether the student has ever been recorded as late.", insight: "Any history of lateness slightly increases the chance of future tardiness or absences." };
-          case 'duration_hours': return { detail: "The scheduled length of the event.", insight: "Longer events typically see lower turnout or higher late arrival rates." };
-          case 'lead_time_days': return { detail: "How far in advance the event was announced.", insight: "Extremely short or very long lead times often reduce the likelihood of attendance." };
-          case 'predominant_late_reason': return { detail: "The most frequent excuse given by the student for arriving late.", insight: "Recurring specific reasons (like transportation) can highlight systemic barriers to attendance." };
-          case 'event_category': return { detail: "The type or category of the event.", insight: "Certain categories naturally draw higher voluntary attendance than others." };
-          case 'mandatory_voluntary': return { detail: "Whether the event is required.", insight: "Mandatory events obviously drive attendance, but voluntary events rely heavily on interest." };
-          case 'day_of_week': return { detail: "The day the event is held.", insight: "Mid-week events often see more consistent turnout compared to Mondays or Fridays." };
-          case 'time_of_day_bucket': return { detail: "The time block when the event takes place.", insight: "Early morning or late afternoon events typically face lower turnout rates." };
-          case 'venue': return { detail: "The location of the event.", insight: "Distant or difficult-to-access venues can significantly reduce participant turnout." };
-          case 'target_group_size_tier': return { detail: "The size classification of the target audience.", insight: "Larger target groups often suffer from the bystander effect, reducing individual attendance rates." };
-          default: return { detail: "Relative feature importance from the model evaluation dataset; not a causal effect.", insight: "This is a model-level association, not a guarantee that changing this factor will change attendance." };
+          case 'rolling_participation_rate': return { name: "Recent Attendance Rate", detail: "Measures a student's recent historical attendance.", insight: "High historical attendance often reliably predicts future attendance." };
+          case 'tardiness_frequency': return { name: "History of Being Late", detail: "How often a student has been late to past events.", insight: "Frequent past tardiness strongly correlates with overall lower on-time turnout." };
+          case 'participation_trend_slope': return { name: "Attendance Trend", detail: "Indicates whether a student's attendance is improving or declining over time.", insight: "A negative slope acts as an early warning for potential absences." };
+          case 'consecutive_missed_events': return { name: "Consecutive Absences", detail: "The number of events missed in a row.", insight: "Students missing multiple events sequentially have a high risk of being absent again." };
+          case 'has_rolling_rate': return { name: "Has Attendance History", detail: "Indicates whether sufficient historical data exists for this student.", insight: "Newer students with no history are generally harder to predict accurately." };
+          case 'has_tardiness_history': return { name: "Has Lateness History", detail: "Indicates whether sufficient historical data exists for this student.", insight: "Newer students with no history are generally harder to predict accurately." };
+          case 'has_trend': return { name: "Has Trend History", detail: "Indicates whether sufficient historical data exists for this student.", insight: "Newer students with no history are generally harder to predict accurately." };
+          case 'was_ever_late': return { name: "Past Lateness Record", detail: "Whether the student has ever been recorded as late.", insight: "Any history of lateness slightly increases the chance of future tardiness or absences." };
+          case 'duration_hours': return { name: "Event Duration", detail: "The scheduled length of the event.", insight: "Longer events typically see lower turnout or higher late arrival rates." };
+          case 'lead_time_days': return { name: "Days Announced in Advance", detail: "How far in advance the event was announced.", insight: "Extremely short or very long lead times often reduce the likelihood of attendance." };
+          case 'predominant_late_reason': return { name: "Common Reason for Being Late", detail: "The most frequent excuse given by the student for arriving late.", insight: "Recurring specific reasons (like transportation) can highlight systemic barriers to attendance." };
+          case 'event_category': return { name: "Event Category", detail: "The type or category of the event.", insight: "Certain categories naturally draw higher voluntary attendance than others." };
+          case 'mandatory_voluntary': return { name: "Required vs Voluntary", detail: "Whether the event is required.", insight: "Mandatory events obviously drive attendance, but voluntary events rely heavily on interest." };
+          case 'day_of_week': return { name: "Day of the Week", detail: "The day the event is held.", insight: "Mid-week events often see more consistent turnout compared to Mondays or Fridays." };
+          case 'time_of_day_bucket': return { name: "Time of Day", detail: "The time block when the event takes place.", insight: "Early morning or late afternoon events typically face lower turnout rates." };
+          case 'venue': return { name: "Event Venue", detail: "The location of the event.", insight: "Distant or difficult-to-access venues can significantly reduce participant turnout." };
+          case 'target_group_size_tier': return { name: "Target Audience Size", detail: "The size classification of the target audience.", insight: "Larger target groups often suffer from the bystander effect, reducing individual attendance rates." };
+          default: {
+            const defaultName = featureId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+            return { name: defaultName, detail: "Relative feature importance from the model evaluation dataset; not a causal effect.", insight: "This is a model-level association, not a guarantee that changing this factor will change attendance." };
+          }
         }
       };
 
       return positiveImportance.map(f => {
-        const formattedName = f.feature.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         const actionableFeatures = ['time', 'category', 'venue', 'duration', 'day'];
         const isActionable = actionableFeatures.some(key => f.feature.toLowerCase().includes(key));
         const explanation = getFeatureExplanation(f.feature);
         
         return {
           id: f.feature,
-          name: formattedName,
+          name: explanation.name,
           strength: Math.round((f.importance_mean / maxImp) * 100),
           detail: explanation.detail,
           type: isActionable ? "actionable" : "inherent",
@@ -753,7 +763,7 @@ export function OrganizerAnalyticsPage() {
       });
     }
     return [];
-  }, [insightsData, isDepartmentAdmin]);
+  }, [insightsData]);
 
   async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; format: "xlsx" | "pdf" }) {
     const selectedEvent = eventFilter === "all" ? undefined : eventLookup.get(eventFilter);
@@ -980,6 +990,23 @@ export function OrganizerAnalyticsPage() {
     })).sort((a, b) => b.score - a.score);
   }, [filteredEventData, objectivesQuery.data?.items]);
 
+  const overallAverageRating = useMemo(() => {
+    const sourceObjectives = objectivesQuery.data?.items ?? [];
+    const validEventIds = new Set(filteredEventData.map((e) => e.id));
+    const filteredObjectives = sourceObjectives.filter((obj) => validEventIds.has(obj.eventId));
+    
+    let totalScore = 0;
+    let count = 0;
+    filteredObjectives.forEach((obj) => {
+      if (obj.averageRating != null && obj.averageRating > 0) {
+        totalScore += obj.averageRating;
+        count++;
+      }
+    });
+    
+    return count > 0 ? (totalScore / count).toFixed(1) : null;
+  }, [filteredEventData, objectivesQuery.data?.items]);
+
   const studentComments = useMemo(() => {
     const sourceFeedback = feedbackQuery.data?.items ?? [];
     const validEventIds = new Set(filteredEventData.map((e) => e.id));
@@ -1098,11 +1125,9 @@ export function OrganizerAnalyticsPage() {
       <details className="rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm text-slate-600 shadow-xs">
         <summary className="cursor-pointer font-semibold text-slate-800">Where these analytics come from</summary>
         <div className="mt-3 space-y-2 text-xs leading-relaxed">
-          <p><strong>Scope:</strong> event, session, attendance, student, summary, and feedback records are read through Supabase repositories and row-level security{isDepartmentAdmin ? "; Department Admin events are limited to the assigned department" : ""}.</p>
-          <p><strong>Attendance:</strong> calculated from recorded attendance rows attached to completed event sessions. Late-arrival categories use recorded late reasons; with no late records, the chart is empty rather than filled with sample counts.</p>
-          <p><strong>Sentiment:</strong> read from saved event-summary snapshots generated from submitted event feedback.</p>
-          <p><strong>Turnout estimate:</strong> {isDepartmentAdmin ? "Department Admins see only a saved event estimate. Live inference is disabled because the current prediction API uses institution-wide student history." : <>the selected event and its registered participant IDs are sent to the PLPass prediction API. The inference model is trained separately from live department data; the checked-in training pipeline references demonstration/sample workbooks under <code>ml/data</code>. Treat the result as experimental, not observed attendance.</>}</p>
-          {isDepartmentAdmin ? <p><strong>Model explanation:</strong> global model-level feature explanations are intentionally omitted because they are not department-specific.</p> : null}
+          <p><strong>Attendance:</strong> These numbers come directly from real check-ins at past events.</p>
+          <p><strong>Sentiment:</strong> This tells you how people felt, based on the feedback they left after an event.</p>
+          <p><strong>Turnout Estimate:</strong> {isDepartmentAdmin ? "We show a saved estimate of how many people might attend. Live predictions are turned off for specific departments." : "We look at past trends to guess how many people might attend. Remember, this is just a helpful estimate and not a guarantee!"}</p>
         </div>
       </details>
 
@@ -1256,7 +1281,7 @@ export function OrganizerAnalyticsPage() {
               </div>
 
               <div className="space-y-3">
-                {isDepartmentAdmin ? <div className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">Department-level factor attribution is not available. Global model explanations are intentionally omitted so they are not mistaken for findings from this department.</div> : predictionFactors.length === 0 ? <div className="rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">No model feature-importance data is available.</div> : predictionFactors.map((factor) => {
+                {predictionFactors.length === 0 ? <div className="rounded-xl border border-border bg-background p-4 text-sm text-muted-foreground">No model feature-importance data is available.</div> : predictionFactors.map((factor) => {
                   const isActive = activePdpFeature === factor.id;
                   const isActionable = factor.type === "actionable";
                   return (
@@ -1479,22 +1504,47 @@ export function OrganizerAnalyticsPage() {
       {activeTab === "sentiment" && (
         <section className="space-y-4 pt-2">
           <div className="grid gap-6 xl:grid-cols-2">
-            <ChartPanel title="Objective Performance" description="Average rating score and response volume per goal." empty={objectivePerformance.length === 0} emptyMessage="No objective rating data submitted for the selected filters.">
-              <div className="h-full max-h-full space-y-3 overflow-y-auto pr-2">
-                {objectivePerformance.map((objective) => (
-                  <div key={objective.label} className="rounded-lg border bg-background p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs font-semibold text-foreground">{objective.label}</p>
-                      <span className="text-xs font-bold text-primary">{objective.score.toFixed(1)}/5</span>
+            {eventFilter !== "all" ? (
+              <ChartPanel title="Objective Performance" description="Average rating score and response volume per goal." empty={objectivePerformance.length === 0} emptyMessage="No objective rating data submitted for the selected filters.">
+                <div className="h-full max-h-full space-y-3 overflow-y-auto pr-2">
+                  {objectivePerformance.map((objective) => (
+                    <div key={objective.label} className="rounded-lg border bg-background p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-foreground">{objective.label}</p>
+                        <span className="text-xs font-bold text-primary">{objective.score.toFixed(1)}/9</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${(objective.score / 9) * 100}%` }} />
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">{objective.responses} responses</p>
                     </div>
-                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${(objective.score / 5) * 100}%` }} />
+                  ))}
+                </div>
+              </ChartPanel>
+            ) : (
+              <ChartPanel title="Overall Average Rating" description="The average objective rating across all events." empty={!overallAverageRating} emptyMessage="No objective rating data submitted.">
+                <div className="flex h-full flex-col items-center justify-center p-6 text-center">
+                  <div className="relative flex items-center justify-center">
+                    <svg className="h-40 w-40 -rotate-90 transform text-primary" viewBox="0 0 36 36">
+                      <path
+                        className="fill-none stroke-muted stroke-[3]"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                      <path
+                        className="fill-none stroke-primary stroke-[3]"
+                        strokeDasharray={`${overallAverageRating ? (Number(overallAverageRating) / 9) * 100 : 0}, 100`}
+                        strokeLinecap="round"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                    </svg>
+                    <div className="absolute flex flex-col items-center justify-center">
+                      <span className="text-4xl font-black text-slate-800">{overallAverageRating}</span>
+                      <span className="text-sm font-semibold text-slate-500 mt-1">out of 9</span>
                     </div>
-                    <p className="mt-1 text-[11px] text-muted-foreground">{objective.responses} responses</p>
                   </div>
-                ))}
-              </div>
-            </ChartPanel>
+                </div>
+              </ChartPanel>
+            )}
 
             <ChartPanel title="Feedback Sentiment" description="Positive, neutral, and negative sentiment distribution." empty={!sentimentOverview.some((entry) => entry.value > 0)} emptyMessage="No student sentiment feedback submitted for the selected filters.">
               <ResponsiveContainer width="100%" height="100%">

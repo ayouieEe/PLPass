@@ -90,10 +90,10 @@ export class ScannerCoordinator {
     const localIps = privateAddresses();
     const root = await this.getOrCreateRoot();
     const pems = await selfsigned.generate([{ name: "commonName", value: "PLPass offline scanner" }], {
-      algorithm: "sha256", keySize: 2048, notAfterDate: new Date(Date.now() + 24 * 60 * 60_000),
+      algorithm: "sha256", keySize: 2048, days: 1,
       ca: { key: root.privateKey, cert: root.certificate },
       extensions: [{ name: "basicConstraints", cA: false }, { name: "keyUsage", digitalSignature: true, keyEncipherment: true }, { name: "extKeyUsage", serverAuth: true }, { name: "subjectAltName", altNames: localIps.map((ip) => ({ type: 7, ip })) }]
-    });
+    } as selfsigned.GenerateOptions);
     this.certificate = root.certificate;
     this.server = createServer({ key: pems.private, cert: `${pems.cert}\n${root.certificate}` }, (request, response) => void this.handle(request, response));
     this.setupServer = createHttpServer((request, response) => void this.handleSetup(request, response));
@@ -135,7 +135,7 @@ export class ScannerCoordinator {
     if (stored) await this.certificateStore.clear();
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString();
     const pems = await selfsigned.generate([{ name: "commonName", value: "PLPass Scanner Root" }], {
-      algorithm: "sha256", keySize: 2048, notAfterDate: new Date(expiresAt),
+      algorithm: "sha256", keySize: 2048, days: 365,
       extensions: [{ name: "basicConstraints", cA: true, pathLenConstraint: 0, critical: true }, { name: "keyUsage", digitalSignature: true, keyCertSign: true, cRLSign: true, critical: true }]
     });
     const root = { certificate: pems.cert, privateKey: pems.private, fingerprint: pems.fingerprint, expiresAt };
