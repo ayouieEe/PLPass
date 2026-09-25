@@ -37,6 +37,7 @@ test.describe("high-risk visual regression", () => {
     await page.goto("/organizer/events");
     await expect(page.getByRole("heading", { name: "Events", exact: true }).first()).toBeVisible();
     await expect(page.getByText("CCS Orientation").first()).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "organizer navigation" }).getByRole("link", { name: "Dashboard" })).toBeVisible();
     await expectStableScreenshot(page, "organizer-events-desktop.png");
   });
 
