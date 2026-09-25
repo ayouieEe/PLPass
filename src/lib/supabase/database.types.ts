@@ -2101,6 +2101,7 @@ export type Database = {
           created_at: string
           event_id: string
           event_session_id: string
+          checkout_identification_method: string | null
           id: string
           identification_method: string
           local_scan_uuid: string
@@ -2115,6 +2116,7 @@ export type Database = {
           created_at?: string
           event_id: string
           event_session_id: string
+          checkout_identification_method?: string | null
           id?: string
           identification_method: string
           local_scan_uuid: string
@@ -2129,6 +2131,7 @@ export type Database = {
           created_at?: string
           event_id?: string
           event_session_id?: string
+          checkout_identification_method?: string | null
           id?: string
           identification_method?: string
           local_scan_uuid?: string
@@ -3372,6 +3375,47 @@ export type Database = {
           p_time_out?: string
         }
         Returns: Json
+      }
+      sync_offline_walkin_attendance_v2: {
+        Args: {
+          p_checkout_identification_method?: string
+          p_event_id: string
+          p_identification_method: string
+          p_local_scan_uuid: string
+          p_session_id: string
+          p_student_number: string
+          p_time_in: string
+          p_time_out?: string
+        }
+        Returns: Json
+      }
+      record_unverified_walkin_checkout: {
+        Args: {
+          p_checkout_identification_method: string
+          p_time_out: string
+          p_walkin_id: string
+        }
+        Returns: {
+          checkout_identification_method: string | null
+          created_at: string
+          event_id: string
+          event_session_id: string
+          id: string
+          identification_method: string
+          local_scan_uuid: string
+          recorded_at: string
+          recorded_by: string
+          student_number: string
+          time_in: string
+          time_out: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "unverified_walkin_attendance"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       update_organizer_event_metadata: {
         Args: {

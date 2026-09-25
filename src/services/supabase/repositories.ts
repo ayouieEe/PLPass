@@ -1448,9 +1448,11 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       if (!existingTimeOut && existing.time_in) {
         const profile = await currentProfile();
         
-        // Update the record with check-out time and verification method
+        // Preserve the original check-in method and store the method that
+        // actually performed this check-out separately.
         const updatedRow = await updateRow("attendance_records", String(existing.id ?? ""), {
           time_out: occurredAt,
+          checkout_verification_method: input.method,
           updated_at: new Date().toISOString(),
           recorded_by: String(profile.id ?? "")
         });

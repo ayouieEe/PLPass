@@ -38,7 +38,10 @@ export type OrganizerAttendanceRow = {
   localScanUuid?: string;
   studentName: string;
   eventCode: string;
+  /** The verified method that recorded Time In. Never replace it at Time Out. */
   attendanceMethod: AttendanceMethod;
+  /** Set only when Time Out used a different (or explicitly recorded) method. */
+  checkoutAttendanceMethod?: AttendanceMethod;
   checkInTime: string;
   checkOutTime?: string;
   timeIn?: string;
@@ -47,6 +50,12 @@ export type OrganizerAttendanceRow = {
   lateReason?: LateReason;
   verificationLabel?: "Verified" | "Unverified walk-in";
 };
+
+export function formatAttendanceMethod(row: Pick<OrganizerAttendanceRow, "attendanceMethod" | "checkoutAttendanceMethod">): string {
+  return row.checkoutAttendanceMethod && row.checkoutAttendanceMethod !== row.attendanceMethod
+    ? `${row.attendanceMethod} / ${row.checkoutAttendanceMethod}`
+    : row.attendanceMethod;
+}
 
 export type OrganizerCompletedEvent = OrganizerEvent & {
   present: number;

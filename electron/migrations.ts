@@ -127,6 +127,12 @@ export const localMigrations = [
     // The event-participant cache replaced the old global directory. Drop the
     // obsolete table after all older rows have been cleared.
     sql: `DROP TABLE IF EXISTS cached_student_directory;`
+  },
+  {
+    version: 10,
+    // Keep the Time Out method alongside the original walk-in check-in
+    // method, matching pending_attendance.
+    sql: `ALTER TABLE pending_walkin_scans ADD COLUMN checkout_identification_method TEXT CHECK(checkout_identification_method IN ('qr','manual'));`
   }
 ] as const;
 

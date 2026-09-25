@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import type { ColumnDef, RowData } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
 import { createPortal } from "react-dom";
 import { BarChart3, CalendarCheck, CheckCircle2, Download, FileDown, FileSpreadsheet, FileText, Filter, Search, UserCheck, UserX, X } from "lucide-react";
@@ -20,7 +19,7 @@ import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedback
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
-import type { OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
+import { formatAttendanceMethod, type OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -31,7 +30,9 @@ import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 // cellClassName when rendering header/body cells for this to take effect —
 // if it doesn't yet, add that pass-through there once.
 declare module "@tanstack/react-table" {
-  interface ColumnMeta<TData, TValue> {
+  // TValue is part of TanStack's declaration-merging contract.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
     headerClassName?: string;
     cellClassName?: string;
     agGrid?: Partial<ColDef<TData>>;
@@ -629,7 +630,7 @@ export function EventRecordsPage() {
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
         "Check-out Time": row.checkOutTime ?? "Not checked out",
-        "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+        "Attendance Method": row.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row),
         "Late Arrival Reason": row.lateReason ?? "-"
       })) : []
     }));
@@ -654,7 +655,7 @@ export function EventRecordsPage() {
       "Attendance Status": row.attendanceStatus,
       "Check-in Time": row.checkInTime,
       "Check-out Time": row.checkOutTime ?? "Not checked out",
-       "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+       "Attendance Method": row.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row),
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
     exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
@@ -889,34 +890,6 @@ function ReportExportRow({
   );
 }
 
-function EventDetails({ event }: { event: EventRecord }) {
-  return (
-    <div>
-      <p className="text-sm font-semibold text-primary">Event Details</p>
-      <h2 className="mt-1 text-2xl font-semibold">
-        {event.code} - {event.name}
-      </h2>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <SummaryTile label="Category" value={event.category} />
-        <SummaryTile label="Venue" value={event.venue} />
-        <SummaryTile label="Date" value={event.date} />
-        <SummaryTile label="Schedule" value={`${event.startTime} - ${event.endTime}`} />
-        <SummaryTile label="Status" value="Upcoming" />
-      </div>
-      <section className="mt-5 rounded-lg border bg-background p-4">
-        <h3 className="font-semibold">Objectives</h3>
-        <div className="mt-3 space-y-2">
-          {event.objectives.map((objective, index) => (
-            <p key={objectiveKey(objective, index)} className="text-sm text-muted-foreground">
-              {index + 1}. {objectiveText(objective)}
-            </p>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 export function CompletedEventModal({
   record,
   rows,
@@ -954,7 +927,7 @@ export function CompletedEventModal({
     {
       id: "attendanceMethod",
       header: "Attendance Method",
-      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : row.original.attendanceMethod
+      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
     },
     // Only relevant for late rows — placed last since it's blank most of the time
     {

@@ -39,6 +39,7 @@ type AttendanceSummaryRow = {
   local_attendance_uuid?: string | null;
   attendance_status: string | null;
   verification_method: string | null;
+  checkout_verification_method?: string | null;
   time_in: string | null;
   time_out: string | null;
   recorded_at: string | null;
@@ -93,6 +94,7 @@ type UnverifiedWalkInRow = {
   event_session_id: string;
   student_number: string;
   identification_method: string;
+  checkout_identification_method?: string | null;
   time_in: string;
   time_out: string | null;
 };
@@ -215,7 +217,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -224,7 +226,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
 
   const { data: unverifiedWalkIns, error: unverifiedWalkInsError } = await client
     .from("unverified_walkin_attendance" as never)
-    .select("id, event_id, event_session_id, student_number, identification_method, time_in, time_out")
+    .select("id, local_scan_uuid, event_id, event_session_id, student_number, identification_method, checkout_identification_method, time_in, time_out")
     .in("event_id", remoteEventIds);
   if (unverifiedWalkInsError) throw unverifiedWalkInsError;
 
@@ -301,6 +303,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       studentName: student?.name ?? (row ? studentDisplayName(row) : `Student ${participant.student_id.slice(0, 8)}`),
       eventCode: eventId,
       attendanceMethod: method,
+      ...(row?.checkout_verification_method ? { checkoutAttendanceMethod: mapVerificationMethod(row.checkout_verification_method) } : {}),
       checkInTime: row?.time_in ? formatDisplayTime(row.time_in) : "-",
       checkOutTime: row?.time_out ? formatDisplayTime(row.time_out) : undefined,
       ...(row?.time_in ? { timeIn: row.time_in } : {}),
@@ -338,6 +341,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       studentName: `Unverified walk-in · ${walkIn.student_number}`,
       eventCode: eventId,
       attendanceMethod: mapVerificationMethod(walkIn.identification_method),
+      ...(walkIn.checkout_identification_method ? { checkoutAttendanceMethod: mapVerificationMethod(walkIn.checkout_identification_method) } : {}),
       checkInTime: formatDisplayTime(walkIn.time_in),
       checkOutTime: walkIn.time_out ? formatDisplayTime(walkIn.time_out) : undefined,
       timeIn: walkIn.time_in,
@@ -365,13 +369,13 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   return summaries;
 }
 
-export function useAttendanceSummaries(eventIds: string[]) {
+export function useAttendanceSummaries(eventIds: string[], enabled = true) {
   const remoteEventIds = postgresUuidValues(eventIds);
   const key = [...remoteEventIds].sort().join(",");
   return useQuery({
     queryKey: ["event-attendance-summaries", key],
     queryFn: () => fetchAttendanceForEvents(remoteEventIds),
-    enabled: remoteEventIds.length > 0
+    enabled: enabled && remoteEventIds.length > 0
   });
 }
 

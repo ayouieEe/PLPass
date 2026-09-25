@@ -352,10 +352,16 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
       const waitMs=Math.max(0,lastRpcAt+syncInterRecordDelayMs-Date.now());
       if(waitMs>0) await new Promise((resolve)=>window.setTimeout(resolve,waitMs));
       lastRpcAt=Date.now();
-      const {data,error}=await getSupabaseBrowserClient().rpc("sync_offline_walkin_attendance",{
+      // The generated Supabase types describe the currently deployed RPCs.
+      // This versioned function is declared in the pending migration below.
+      const walkInSyncClient = getSupabaseBrowserClient() as unknown as {
+        rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+      };
+      const {data,error}=await walkInSyncClient.rpc("sync_offline_walkin_attendance_v2",{
         p_local_scan_uuid:scan.localScanUuid,p_event_id:scan.eventId,p_session_id:scan.sessionId,
         p_student_number:scan.studentNumber,p_identification_method:scan.identificationMethod,
-        p_time_in:scan.timeIn,...(scan.timeOut?{p_time_out:scan.timeOut}:{})
+        p_time_in:scan.timeIn,...(scan.timeOut?{p_time_out:scan.timeOut}:{}),
+        ...(scan.checkoutIdentificationMethod?{p_checkout_identification_method:scan.checkoutIdentificationMethod}:{})
       });
       if(error) throw error;
       const payload=data as {disposition?:"confirmed_registered"|"discarded_permanent_conflict";reasonCode?:string;attendance?:{id?:string;local_attendance_uuid?:string|null;attendance_status?:string;time_in?:string|null;time_out?:string|null};student?:{id?:string;studentNumber?:string;displayName?:string};unverifiedWalkIn?:{localScanUuid?:string}}|null;

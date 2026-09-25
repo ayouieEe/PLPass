@@ -93,6 +93,8 @@ export type PendingWalkInScan = {
   eventId: string;
   sessionId: string;
   identificationMethod: "qr" | "manual";
+  /** The method used for Time Out; the check-in method remains above. */
+  checkoutIdentificationMethod?: "qr" | "manual";
   studentNumber: string;
   timeIn: string;
   timeOut?: string;
@@ -186,7 +188,7 @@ export interface PLPassDesktopApi {
   getAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
   advanceAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
   queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): Promise<PendingWalkInScan>;
-  listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string): Promise<PendingWalkInScan[]>;
+  listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string, activeSessionId?: string): Promise<PendingWalkInScan[]>;
   beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
   confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
   discardWalkInSync(localScanUuid: string, organizerProfileId: string): Promise<void>;
