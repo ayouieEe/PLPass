@@ -469,7 +469,6 @@ export type SystemSettings = {
   notificationCredentialsEnabled: boolean;
   notificationCorrectionsEnabled: boolean;
   notificationRemindersEnabled: boolean;
-  eventApprovalRequired: boolean;
   participantInvitationMode: "email" | "in_app" | "both";
   noStartReminderMinutes: number;
   autoCancelAfterMinutes: number;
@@ -484,7 +483,7 @@ export type SystemSettings = {
 
 export type InstitutionSettings = Pick<SystemSettings, "institutionName" | "currentSchoolYear" | "currentSemesterId">;
 export type AcademicStructureSettings = InstitutionSettings;
-export type EventSettings = Pick<SystemSettings, "eventApprovalRequired" | "participantInvitationMode" | "defaultSessionDurationMinutes">;
+export type EventSettings = Pick<SystemSettings, "participantInvitationMode" | "defaultSessionDurationMinutes">;
 export type EventLifecycleSettings = Pick<SystemSettings, "noStartReminderMinutes" | "autoCancelAfterMinutes" | "requireCancellationReason">;
 export type AttendanceSettings = Pick<SystemSettings, "attendanceLateCutoffMinutes" | "defaultSessionDurationMinutes" | "minimumTimeOutIntervalMinutes" | "allowAttendanceAfterScheduledEnd" | "automaticAbsentMarking">;
 export type VerificationSettings = Pick<SystemSettings, "readerPolicy" | "credentialStatusPolicy" | "allowedVerificationMethods">;

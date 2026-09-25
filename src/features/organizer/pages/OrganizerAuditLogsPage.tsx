@@ -43,6 +43,12 @@ export function OrganizerAuditLogsPage() {
   const [datePreset, setDatePreset] = useState<AuditLogFilters["datePreset"]>("all");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
+  const handleCustomStartDateChange = (nextStartDate: string) => {
+    setCustomStartDate(nextStartDate);
+    if (nextStartDate && customEndDate && customEndDate < nextStartDate) {
+      setCustomEndDate("");
+    }
+  };
   const [actorRole, setActorRole] = useState("all");
   const [actionCategory, setActionCategory] = useState<AuditLogFilters["actionCategory"]>("all");
 
@@ -436,13 +442,14 @@ export function OrganizerAuditLogsPage() {
                   type="date"
                   className="h-8 rounded-md border bg-background px-2 text-xs outline-none focus:border-primary"
                   value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
                 />
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">To:</span>
                 <input
                   type="date"
+                  min={customStartDate || undefined}
                   className="h-8 rounded-md border bg-background px-2 text-xs outline-none focus:border-primary"
                   value={customEndDate}
                   onChange={(e) => setCustomEndDate(e.target.value)}

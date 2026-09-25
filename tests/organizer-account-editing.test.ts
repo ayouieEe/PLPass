@@ -10,7 +10,7 @@ describe("organizer account editing", () => {
   it("opens the same organizer editor from every directory row", () => {
     expect(page).not.toContain('headerName: "Actions"');
     expect(page).toContain("function EditOrganizerModal");
-    expect(page).toContain("Employee IDs stay fixed, like student numbers.");
+    expect(page).toContain('value={organizer.employeeNumber}');
     expect(page).toContain("onRowClick={(row) => onEdit(row.id)}");
   });
 
@@ -26,8 +26,7 @@ describe("organizer account editing", () => {
 
   it("shows generated organizer IDs instead of accepting manual IDs", () => {
     expect(page).toContain('value={generatedEmployeeId}');
-    expect(page).toContain("Assigned automatically when the account is created.");
-    expect(page).toContain("Employee IDs are generated automatically during import.");
+    expect(page).toContain('employeeNumber: ""');
     expect(userManager).toContain('return json({ success: true, employeeNumber });');
   });
 
@@ -41,7 +40,7 @@ describe("organizer account editing", () => {
     expect(page).toContain('const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\\nJuan,,Dela Cruz,,Student Affairs\\n";');
     expect(page).not.toContain('Name Extension,College/Department,Position\\nJuan,,Dela Cruz,,Student Affairs,Events Coordinator');
     expect(page).toContain('position: "Organizer" }');
-    expect(page).toContain('onClose();\n    setTimeout(() => URL.revokeObjectURL(url), 0);');
+    expect(page).toMatch(/onClose\(\);\s+setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 0\);/u);
   });
 
   it("renders organizer statuses with the shared account-status badge", () => {
@@ -67,5 +66,10 @@ describe("organizer account editing", () => {
     expect(repository).not.toContain('action: "delete-department-admin"');
     expect(userManager).not.toContain('action === "delete-department-admin"');
     expect(userManager).toContain('.in("role", ["admin", "department_admin"])');
+  });
+
+  it("keeps department-admin organizer edits within the assigned department", () => {
+    expect(page).toContain('departments = fixedDepartmentId ? departments.filter((department) => department.id === fixedDepartmentId) : departments;');
+    expect(page).toContain('setForm((current) => ({ ...current, departmentId: fixedDepartmentId }));');
   });
 });

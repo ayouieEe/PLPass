@@ -20,8 +20,11 @@ describe("offline work banner state", () => {
     expect(provider).toContain("setReconciliationState(\"idle\");");
   });
 
-  it("keeps the global banner limited to the connection state", () => {
+  it("keeps the connection state as a compact header status", () => {
     expect(layout).toContain('connectionOffline ? "Offline" : "Online"');
+    expect(layout).toContain('aria-label={connectionOffline ? "Offline" : "Online"}');
+    expect(layout).toContain('"inline-flex h-9 items-center gap-2 rounded-full border');
+    expect(layout).not.toContain('className={cn("flex items-center border-b px-6 py-2 text-sm"');
     expect(layout).not.toContain("Review saved work");
     expect(layout).not.toContain("Retry synchronization");
     expect(layout).not.toContain("listPendingWalkInScans(undefined, session.userId)");

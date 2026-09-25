@@ -2096,6 +2096,73 @@ export type Database = {
           },
         ]
       }
+      unverified_walkin_attendance: {
+        Row: {
+          created_at: string
+          event_id: string
+          event_session_id: string
+          id: string
+          identification_method: string
+          local_scan_uuid: string
+          recorded_at: string
+          recorded_by: string
+          student_number: string
+          time_in: string
+          time_out: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          event_session_id: string
+          id?: string
+          identification_method: string
+          local_scan_uuid: string
+          recorded_at?: string
+          recorded_by: string
+          student_number: string
+          time_in: string
+          time_out?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          event_session_id?: string
+          id?: string
+          identification_method?: string
+          local_scan_uuid?: string
+          recorded_at?: string
+          recorded_by?: string
+          student_number?: string
+          time_in?: string
+          time_out?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unverified_walkin_attendance_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unverified_walkin_attendance_event_session_id_fkey"
+            columns: ["event_session_id"]
+            isOneToOne: false
+            referencedRelation: "event_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unverified_walkin_attendance_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       verification_attempts: {
         Row: {
           accepted: boolean

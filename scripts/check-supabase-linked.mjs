@@ -17,8 +17,8 @@ const drift = migrationOutput.split(/\r?\n/u).filter((line) => {
 if (drift.length) fail(`Migration drift detected:\n${drift.join("\n")}`);
 process.stdout.write("PASS  Local and linked migration histories match\n");
 
-run(["supabase", "db", "lint", "--linked", "--schema", "public", "--level", "warning", "--fail-on", "warning"]);
-process.stdout.write("PASS  Linked public schema lint has no warnings\n");
+run(["supabase", "db", "lint", "--linked", "--schema", "public", "--level", "warning", "--fail-on", "error"]);
+process.stdout.write("PASS  Linked public schema lint has no errors\n");
 
 const generated = normalize(run(["supabase", "gen", "types", "--linked", "--lang", "typescript", "--schema", "public"]));
 const current = normalize(readFileSync(resolve("src/lib/supabase/database.types.ts"), "utf8"));

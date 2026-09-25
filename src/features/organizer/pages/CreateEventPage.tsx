@@ -199,10 +199,8 @@ const eventFormSchemaWithObjectives = eventBaseSchema
       });
     }
 
-    const eventDate = new Date(`${value.date}T00:00:00`);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (Number.isNaN(eventDate.getTime()) || eventDate < today) {
+    const today = dateKey(new Date());
+    if (!today || !value.date || value.date < today) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["date"],
@@ -986,7 +984,7 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} required />
-                <DatePickerField control={form.control} name="date" label="Date" min={new Date().toISOString().split('T')[0]} required />
+                <DatePickerField control={form.control} name="date" label="Date" min={dateKey(new Date())} required />
                 <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
                   <TimePickerField control={form.control} name="startTime" label="Start Time" required />
                   <TimePickerField control={form.control} name="endTime" label="End Time" required />

@@ -55,7 +55,7 @@ function notificationHasUserAction(notification: Notification, role?: string) {
     const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
     return code.includes("feedback") || code.includes("late");
   }
-  return true;
+  return role === "organizer" && (notification.code === "correction.review_requested" || notification.code === "event.lifecycle.unstarted");
 }
 
 function notificationActions(notification: Notification, role?: string): NotificationAction[] {
@@ -72,9 +72,6 @@ function notificationActions(notification: Notification, role?: string): Notific
       { label: "Cancel event", to: `${actionUrl}${separator}lifecycleAction=cancel`, variant: "destructive" }
     ];
   }
-
-  if (actionUrl) return [{ label: "Open action", to: actionUrl }];
-
   if (role === "organizer" && notification.type === "correction") return [{ label: "Review correction", to: APP_ROUTES.organizerCorrections }];
   return [];
 }
