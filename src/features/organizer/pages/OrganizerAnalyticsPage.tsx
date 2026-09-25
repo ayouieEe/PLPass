@@ -489,7 +489,8 @@ export function OrganizerAnalyticsPage() {
           date: dateKey(event.startsAt),
           startsAt: event.startsAt,
           time: `${new Date(event.startsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} - ${new Date(event.endsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-          predictedTurnout: event.predictedTurnout
+          predictedTurnout: event.predictedTurnout,
+          status: event.status
         })),
     [eventsQuery.data?.items, isDepartmentAdmin, session]
   );
@@ -554,13 +555,15 @@ export function OrganizerAnalyticsPage() {
   }, [trendData, attendancePage]);
 
   const predictionOverviewData = useMemo(() => {
-    return filteredEventData.map((event) => ({
-      label: event.code,
-      title: event.title,
-      date: event.date,
-      predictedAttend: event.predictedTurnout,
-      predictedMiss: event.predictedTurnout == null ? null : 100 - event.predictedTurnout
-    }));
+    return filteredEventData
+      .filter((event) => event.status !== "rejected" && event.status !== "cancelled" && event.status !== "completed")
+      .map((event) => ({
+        label: event.code,
+        title: event.title,
+        date: event.date,
+        predictedAttend: event.predictedTurnout,
+        predictedMiss: event.predictedTurnout == null ? null : 100 - event.predictedTurnout
+      }));
   }, [filteredEventData]);
 
   const totalPredictionPages = Math.ceil(predictionOverviewData.length / 10);
