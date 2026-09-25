@@ -1,9 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Activity, AlertTriangle, ArrowLeft, Camera, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Camera, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,7 +21,7 @@ import { useHeader } from "@/app/providers/HeaderContext";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useEventObjectives, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayTime, formatLocalTime, manilaDateTimeToIso } from "@/lib/utils/date";
 import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -33,7 +32,6 @@ import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import type { Event } from "@/types/domain";
 import {
-  hasValidEventSchedule,
   eventScheduleLabel,
   isTodayEvent,
   resolveManualAttendanceLookup,
@@ -44,10 +42,8 @@ import {
   type ManualAttendanceStatus
 } from "@/features/organizer/utils/eventManagement";
 import {
-  endOrganizerSession,
   loadOrganizerUiState,
-  saveOrganizerUiState,
-  startOrganizerSession,
+  formatAttendanceMethod,
   type OrganizerCompletedEvent,
   type OrganizerAttendanceRow,
   type OrganizerEvent
@@ -55,7 +51,7 @@ import {
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
-import { resolveRecordedOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
+import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventParticipant } from "@/features/offline/types";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
@@ -96,6 +92,29 @@ const scannerIdleSubmissionDelayMs = 1_000;
 const duplicateQrSuppressionMs = 5_000;
 const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
 
+function attendanceMethodFromVerification(method?: string | null): AttendanceMethod {
+  if (method === "facial") return "Facial Recognition";
+  if (method === "manual") return "Manual";
+  return "QR Code";
+}
+
+function verificationMethodFromAttendance(method: AttendanceMethod): "qr" | "facial" | "manual" {
+  if (method === "Facial Recognition") return "facial";
+  if (method === "Manual") return "manual";
+  return "qr";
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isRemoteUnverifiedWalkIn(row: DraftAttendanceRow): boolean {
+  return row.studentId.startsWith("walkin:") && uuidPattern.test(row.id);
+}
+
+function matchesUnverifiedWalkInNumber(row: DraftAttendanceRow, studentNumber: string): boolean {
+  if (!isRemoteUnverifiedWalkIn(row)) return false;
+  return row.studentName.match(/(\d{2}-\d{5})\s*$/)?.[1] === studentNumber;
+}
+
 function isEditableScanTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && (
     target.isContentEditable || target.matches("input, textarea, select")
@@ -112,6 +131,15 @@ type AttendanceRow = OrganizerAttendanceRow & {
 type DraftAttendanceRow = AttendanceRow & {
   checkInAt: string;
   checkOutAt?: string;
+};
+
+type RemoteUnverifiedWalkIn = {
+  id: string;
+  studentNumber: string;
+  timeIn: string;
+  timeOut?: string | null;
+  attendanceMethod: AttendanceMethod;
+  checkoutAttendanceMethod?: AttendanceMethod;
 };
 
 type StoredLiveAttendanceDraft = {
@@ -341,11 +369,6 @@ function lateBreakdown(rows: AttendanceRow[]) {
   }));
 }
 
-function commonLateReason(rows: AttendanceRow[]) {
-  const [top] = lateBreakdown(rows).sort((a, b) => b.count - a.count);
-  return top?.count ? top.reason : "None";
-}
-
 function matchesEventFilters(event: EventRecord, filters: EventFilters) {
   return (
     (!filters.dateFrom || event.date >= filters.dateFrom) &&
@@ -358,6 +381,16 @@ function matchesEventFilters(event: EventRecord, filters: EventFilters) {
 
 function canRecordTimeOut(timeIn: string, attemptedTimeOut: string) {
   return new Date(attemptedTimeOut).getTime() - new Date(timeIn).getTime() >= minimumTimeOutIntervalMs;
+}
+
+function alreadyRecordedAttendanceLabel(timeOut?: string | null) {
+  return timeOut ? "Already Time In and Time Out" : "Already Time In";
+}
+
+function alreadyRecordedAttendanceDescription(timeOut?: string | null) {
+  return timeOut
+    ? "This record already has saved Time In and Time Out. Its original timestamps were kept."
+    : "This record already has a saved Time In. Its original timestamp was kept.";
 }
 
 function summarizeFinalizedSession(rows: Array<{ studentId?: string; attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
@@ -397,7 +430,8 @@ function localAttendanceRow(
     studentId: participant.studentId,
     studentName: participant.displayName,
     eventCode,
-    attendanceMethod: result.record.identificationMethod === "facial" ? "Facial Recognition" : result.record.identificationMethod === "manual" ? "Manual" : "QR Code",
+    attendanceMethod: attendanceMethodFromVerification(result.record.identificationMethod),
+    ...(result.record.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(result.record.checkoutIdentificationMethod) } : {}),
     checkInAt: result.record.timeIn,
     checkInTime: formatLocalTime(result.record.timeIn),
     ...(result.record.timeOut ? { checkOutAt: result.record.timeOut, checkOutTime: formatLocalTime(result.record.timeOut) } : {}),
@@ -411,6 +445,31 @@ function upsertAttendanceRow(rows: DraftAttendanceRow[], next: DraftAttendanceRo
   const nextIdentity = attendanceRowIdentity(next);
   const existing = rows.find((row) => attendanceRowIdentity(row) === nextIdentity);
   if (!existing) return [...rows, next];
+  // A checkout response must never relabel or re-time the existing check-in.
+  // This also protects the immediate live table while the authoritative
+  // attendance query is refetching in the background.
+  const preservesExistingCheckIn = Boolean(existing.checkInAt && next.checkInAt === existing.checkInAt);
+  // A pending-query refresh can start just before a QR checkout is stored. In
+  // that case the refresh carries the old "no checkout" row and must not erase
+  // the checkout which the scanner has just placed in the live table.
+  const preservesExistingCheckOut = preservesExistingCheckIn
+    && Boolean(existing.checkOutAt)
+    && !next.checkOutAt;
+  const mergedNext: DraftAttendanceRow = preservesExistingCheckIn
+    ? {
+      ...next,
+      attendanceMethod: existing.attendanceMethod,
+      checkInAt: existing.checkInAt,
+      checkInTime: existing.checkInTime,
+      ...(preservesExistingCheckOut
+        ? {
+          checkOutAt: existing.checkOutAt,
+          checkOutTime: existing.checkOutTime
+        }
+        : {}),
+      checkoutAttendanceMethod: next.checkoutAttendanceMethod ?? existing.checkoutAttendanceMethod
+    }
+    : next;
   let keptExisting = false;
   return rows
     .filter((row) => {
@@ -419,26 +478,13 @@ function upsertAttendanceRow(rows: DraftAttendanceRow[], next: DraftAttendanceRo
       keptExisting = true;
       return true;
     })
-    .map((row) => attendanceRowIdentity(row) === nextIdentity ? { ...row, ...next, id: row.id } : row);
+    .map((row) => attendanceRowIdentity(row) === nextIdentity ? { ...row, ...mergedNext, id: row.id } : row);
 }
 
 function attendanceRowIdentity(row: DraftAttendanceRow) {
   if (!row.studentId.startsWith("walkin:")) return row.studentId;
   const studentNumber = row.studentName.match(/(?:·|:)\s*(\d{2}-\d{5})\s*$/)?.[1]?.toUpperCase();
   return studentNumber ? `walkin-number:${studentNumber}` : row.studentId;
-}
-
-function getEventLifecycleStatus(event: EventRecord, activeEventCode: string | undefined, completedCodes: Set<string>, cancelledCodes: string[]) {
-  if (activeEventCode === event.code) {
-    return "Active";
-  }
-  if (completedCodes.has(event.code)) {
-    return "Completed";
-  }
-  if (cancelledCodes.includes(event.code)) {
-    return "Cancelled";
-  }
-  return "Upcoming";
 }
 
 function ModalFrame({ children, onClose, width = "max-w-3xl" }: { children: ReactNode; onClose: () => void; width?: string }) {
@@ -677,7 +723,7 @@ export function EventManagementPage() {
   );
   const [activeTab, setActiveTab] = useState<EventTab>(tabFromQuery);
   const { setHeaderOverride } = useHeader();
-  const [uiState, setUiState] = useState(() => loadOrganizerUiState());
+  const [uiState] = useState(() => loadOrganizerUiState());
   const [search, setSearch] = useState("");
   const [eventFilters, setEventFilters] = useState<EventFilters>({ dateFrom: "", dateTo: "", venue: "", category: "", priority: "all" });
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
@@ -693,7 +739,7 @@ export function EventManagementPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [finalizedSummary, setFinalizedSummary] = useState<FinalizedSessionSummary | null>(null);
   const [summaryEvent, setSummaryEvent] = useState<Pick<EventRecord, "id" | "code" | "name"> | null>(null);
-  const [completedExtras, setCompletedExtras] = useState<CompletedRecord[]>([]);
+  const [completedExtras] = useState<CompletedRecord[]>([]);
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [selectedEventForSession, setSelectedEventForSession] = useState<EventRecord | null>(null);
   const [readinessEvent, setReadinessEvent] = useState<EventRecord | null>(null);
@@ -713,6 +759,7 @@ export function EventManagementPage() {
   const [facialStatus, setFacialStatus] = useState("");
   const [manualInput, setManualInput] = useState("");
   const [manualEntryReason, setManualEntryReason] = useState("");
+  const manualInputRef = useRef<HTMLInputElement>(null);
   const [sessionForm, setSessionForm] = useState({
     venue: "",
     date: "",
@@ -828,7 +875,110 @@ export function EventManagementPage() {
     activeScannerSessionId ? context : undefined,
     !isOfflineMode
   );
+  const liveAttendanceSummaryQuery = useAttendanceSummaries(activeEvent?.id ? [activeEvent.id] : [], !isOfflineMode);
   const { refetch: refetchAttendanceRecords } = attendanceRecordsQuery;
+  const findRemoteUnverifiedWalkIn = useCallback(async (studentNumber: string): Promise<RemoteUnverifiedWalkIn | undefined> => {
+    const matchingVisibleRows = activeRows.filter((row) => matchesUnverifiedWalkInNumber(row, studentNumber));
+    if (matchingVisibleRows.length > 1) {
+      throw new Error("Multiple walk-in records match this student number. Resolve the duplicate before recording attendance.");
+    }
+    const visibleRow = matchingVisibleRows[0];
+    if (visibleRow) {
+      return {
+        id: visibleRow.studentId.slice("walkin:".length),
+        studentNumber,
+        timeIn: visibleRow.checkInAt,
+        timeOut: visibleRow.checkOutAt,
+        attendanceMethod: visibleRow.attendanceMethod,
+        checkoutAttendanceMethod: visibleRow.checkoutAttendanceMethod,
+      };
+    }
+
+    // A walk-in may already have synchronized and therefore no longer be in
+    // the desktop queue or the browser draft. Check the owned live session
+    // before accepting another Time In or routing Time Out to the local queue.
+    if (!activeEvent?.id || !activeScannerSessionId) return undefined;
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client
+      .from("unverified_walkin_attendance" as never)
+      .select("id, student_number, identification_method, checkout_identification_method, time_in, time_out")
+      .eq("event_id", activeEvent.id)
+      .eq("event_session_id", activeScannerSessionId)
+      .eq("student_number", studentNumber)
+      .limit(2);
+    if (error) {
+      // An unavailable server must not prevent an offline package from using
+      // its local duplicate protection and queued Time Out path.
+      if (!navigator.onLine || /fetch|network|offline|timeout|connection/i.test(error.message ?? "")) return undefined;
+      throw new Error(error.message);
+    }
+    const matches = (data ?? []) as Array<{
+      id: string;
+      student_number: string;
+      identification_method: string | null;
+      checkout_identification_method?: string | null;
+      time_in: string;
+      time_out?: string | null;
+    }>;
+    if (matches.length > 1) {
+      throw new Error("Multiple walk-in records match this student number. Resolve the duplicate before recording attendance.");
+    }
+    const walkIn = matches[0];
+    return walkIn ? {
+      id: walkIn.id,
+      studentNumber: walkIn.student_number,
+      timeIn: walkIn.time_in,
+      timeOut: walkIn.time_out,
+      attendanceMethod: attendanceMethodFromVerification(walkIn.identification_method),
+      ...(walkIn.checkout_identification_method
+        ? { checkoutAttendanceMethod: attendanceMethodFromVerification(walkIn.checkout_identification_method) }
+        : {}),
+    } : undefined;
+  }, [activeEvent?.id, activeRows, activeScannerSessionId]);
+  const recordRemoteUnverifiedWalkInTimeOut = useCallback(async (
+    walkIn: RemoteUnverifiedWalkIn,
+    method: Extract<AttendanceMethod, "QR Code" | "Manual">,
+    occurredAt: string
+  ) => {
+    if (!uuidPattern.test(walkIn.id)) {
+      throw new Error("This walk-in cannot be checked out from the server.");
+    }
+    if (walkIn.timeOut) {
+      throw new Error(`Unverified walk-in ${walkIn.studentNumber} already has a Time In and Time Out.`);
+    }
+    if (!canRecordTimeOut(walkIn.timeIn, occurredAt)) {
+      throw new Error("Time Out can be recorded at least one minute after Time In.");
+    }
+    const client = getSupabaseBrowserClient() as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
+    };
+    const { error } = await client.rpc("record_unverified_walkin_checkout", {
+      p_walkin_id: walkIn.id,
+      p_checkout_identification_method: verificationMethodFromAttendance(method),
+      p_time_out: occurredAt
+    });
+    if (error) throw error;
+    setActiveRows((rows) => upsertAttendanceRow(rows, {
+      id: walkIn.id,
+      studentId: `walkin:${walkIn.id}`,
+      studentName: `Unverified walk-in · ${walkIn.studentNumber}`,
+      eventCode: activeEvent?.code ?? "",
+      attendanceMethod: walkIn.attendanceMethod,
+      checkInAt: walkIn.timeIn,
+      checkInTime: formatLocalTime(walkIn.timeIn),
+      checkOutAt: occurredAt,
+      checkOutTime: formatLocalTime(occurredAt),
+      checkoutAttendanceMethod: method,
+      attendanceStatus: resolveRecordedOrganizerAttendanceStatus({
+        timeIn: walkIn.timeIn,
+        timeOut: occurredAt,
+        attendanceSessionStatus: activeAttendanceSession?.status,
+        lateCutoffAt: activeAttendanceSession?.lateCutoffAt,
+      }),
+      isFinalized: false,
+    }));
+    await refetchAttendanceRecords();
+  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent?.code, refetchAttendanceRecords]);
   const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
   const { credentialScanMutation, manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
@@ -877,7 +1027,8 @@ export function EventManagementPage() {
           studentId: record.studentId,
           studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
           eventCode: activeEvent?.code ?? "",
-          attendanceMethod: record.verificationMethod === "facial" ? "Facial Recognition" : record.verificationMethod === "manual" ? "Manual" : "QR Code",
+          attendanceMethod: attendanceMethodFromVerification(record.verificationMethod),
+          ...(record.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutVerificationMethod) } : {}),
           checkInTime: formatLocalTime(record.timeIn ?? record.recordedAt),
           ...(record.checkedOutAt ? { checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
           attendanceStatus: record.status === "late" ? "late" : record.status === "absent" ? "absent" : "present",
@@ -892,12 +1043,6 @@ export function EventManagementPage() {
     const timer = window.setInterval(() => { void refetchAttendanceRecords(); }, 15_000);
     return () => window.clearInterval(timer);
   }, [isReadOnlyMonitor, refetchAttendanceRecords, resolvedLiveSessionId]);
-  const studentNameById = useMemo(() => {
-  const map = new Map<string, string>();
-  (studentsQuery.data?.items ?? []).forEach((s) => map.set(s.id, s.fullName ?? s.studentNumber));
-  return map;
-}, [studentsQuery.data?.items]);
-
   useEffect(() => {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
@@ -1409,6 +1554,33 @@ export function EventManagementPage() {
     }
   }, [activeEvent?.id, activeRows, activeScannerSessionId, attendanceDraftReadySessionId, canManageOwnedEvents]);
 
+  // The browser draft is only a convenience layer. On restart, restore the
+  // authoritative server summary as well: it includes unverified walk-ins and
+  // the separately stored checkout method for registered participants.
+  useEffect(() => {
+    if (!activeEvent?.id || !resolvedLiveSessionId) return;
+    const summary = liveAttendanceSummaryQuery.data?.[activeEvent.id];
+    if (!summary) return;
+    const persistedRows = summary.rows
+      .filter((row) => row.sessionId === resolvedLiveSessionId && Boolean(row.timeIn))
+      .map((row): DraftAttendanceRow => ({
+        id: row.id,
+        studentId: row.studentId,
+        studentName: row.studentName,
+        eventCode: activeEvent.code,
+        attendanceMethod: row.attendanceMethod,
+        ...(row.checkoutAttendanceMethod ? { checkoutAttendanceMethod: row.checkoutAttendanceMethod } : {}),
+        checkInAt: row.timeIn ?? "",
+        checkInTime: row.checkInTime,
+        ...(row.timeOut ? { checkOutAt: row.timeOut, checkOutTime: row.checkOutTime ?? formatLocalTime(row.timeOut) } : {}),
+        attendanceStatus: row.attendanceStatus,
+        isFinalized: false,
+        ...(row.lateReason ? { lateReason: row.lateReason } : {}),
+      }));
+    if (!persistedRows.length) return;
+    setActiveRows((rows) => persistedRows.reduce(upsertAttendanceRow, rows));
+  }, [activeEvent?.code, activeEvent?.id, liveAttendanceSummaryQuery.data, resolvedLiveSessionId]);
+
   // A record may have been created before the organizer reopened this live
   // screen, or have just synchronized from the local desktop database. Restore
   // those server records into the same table instead of showing an empty grid
@@ -1419,22 +1591,16 @@ export function EventManagementPage() {
     if (!serverRecords.length) return;
 
     setActiveRows((rows) => {
-      const restoredStudentIds = new Set(serverRecords.map((record) => record.studentId));
-      const otherRows = rows.filter((row) => !restoredStudentIds.has(row.studentId));
       const restoredRows: DraftAttendanceRow[] = serverRecords.map((record) => {
         const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
-        const method: AttendanceMethod = record.verificationMethod === "facial"
-          ? "Facial Recognition"
-          : record.verificationMethod === "manual"
-            ? "Manual"
-            : "QR Code";
-        const checkInAt = record.timeIn ?? record.recordedAt;
+        const method = attendanceMethodFromVerification(record.verificationMethod);
         return {
           id: `server-${record.id}`,
           studentId: record.studentId,
           studentName: student?.fullName ?? student?.studentNumber ?? record.studentId,
           eventCode: activeEvent.code,
           attendanceMethod: method,
+          ...(record.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutVerificationMethod) } : {}),
           checkInAt: record.timeIn ?? "",
           checkInTime: record.timeIn ? formatLocalTime(record.timeIn) : "Not recorded",
           ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
@@ -1443,7 +1609,7 @@ export function EventManagementPage() {
           ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
         };
       });
-      return [...otherRows, ...restoredRows];
+      return restoredRows.reduce(upsertAttendanceRow, rows);
     });
   }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
@@ -1464,6 +1630,8 @@ export function EventManagementPage() {
           studentId: record.studentId,
           studentName: participant?.displayName || participant?.studentNumber || "Student details unavailable",
           eventCode: activeEvent.code,
+          // Prepared packages carry existing timestamps but not historical
+          // verification methods. Fresh local records below retain both.
           attendanceMethod: "QR Code",
           checkInAt: record.timeIn ?? "",
           checkInTime: formatLocalTime(record.timeIn ?? ""),
@@ -1473,10 +1641,7 @@ export function EventManagementPage() {
         };
       });
     if (!localRows.length) return;
-    setActiveRows((rows) => {
-      const localIds = new Set(localRows.map((row) => row.studentId));
-      return [...rows.filter((row) => !localIds.has(row.studentId)), ...localRows];
-    });
+    setActiveRows((rows) => localRows.reduce(upsertAttendanceRow, rows));
   }, [activeEvent?.code, activeEvent?.id, activeScannerSessionId, isOfflineMode, offlineLivePackage]);
 
   // Scanner phones write to the laptop's local database. Keep the live list
@@ -1493,14 +1658,11 @@ export function EventManagementPage() {
     const refreshPhoneAttendance = async () => {
       try {
         const ownerId=session?.userId??"";
-        const [pending,walkIns] = await Promise.all([api.listPending(activeEvent.id,ownerId),api.listPendingWalkInScans(activeEvent.id,ownerId)]);
+        const [pending,walkIns] = await Promise.all([api.listPending(activeEvent.id,ownerId),api.listPendingWalkInScans(activeEvent.id,ownerId,activeScannerSessionId)]);
         if (!current) return;
         const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
         if (records.length || walkIns.length) {
           setActiveRows((rows) => {
-            const localStudentIds = new Set(records.map((record) => record.studentId));
-            const walkInRowIds=new Set(walkIns.filter((scan)=>scan.sessionId===activeScannerSessionId).map((scan)=>`offline-walkin-${scan.localScanUuid}`));
-            const otherRows = rows.filter((row) => !localStudentIds.has(row.studentId)&&!walkInRowIds.has(row.id));
             const phoneRows: DraftAttendanceRow[] = records.map((record): DraftAttendanceRow => {
             const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
             return {
@@ -1508,20 +1670,26 @@ export function EventManagementPage() {
               studentId: record.studentId,
               studentName: offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable",
               eventCode: activeEvent.code,
-              attendanceMethod: (record.identificationMethod === "facial" ? "Facial Recognition" : record.identificationMethod === "manual" ? "Manual" : "QR Code") as AttendanceMethod,
+              attendanceMethod: attendanceMethodFromVerification(record.identificationMethod),
+              ...(record.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutIdentificationMethod) } : {}),
               checkInAt: record.timeIn,
               checkInTime: formatLocalTime(record.timeIn),
               ...(record.timeOut ? { checkOutAt: record.timeOut, checkOutTime: formatLocalTime(record.timeOut) } : {}),
               attendanceStatus: record.attendanceStatus,
               ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
             };
-            }).concat(walkIns.filter((scan)=>scan.sessionId===activeScannerSessionId).map((scan): DraftAttendanceRow => ({
+            // The desktop API already scopes these to the active session, or
+            // one unambiguous active walk-in after a renderer restore.
+            }).concat(walkIns.map((scan): DraftAttendanceRow => ({
               id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Unverified walk-in · ${scan.studentNumber}`,
-              eventCode:activeEvent.code,attendanceMethod:scan.identificationMethod==="manual"?"Manual":"QR Code",
+              eventCode:activeEvent.code,attendanceMethod:attendanceMethodFromVerification(scan.identificationMethod),
+              ...(scan.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(scan.checkoutIdentificationMethod) } : {}),
               checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
               attendanceStatus:resolveRecordedOrganizerAttendanceStatus({timeIn:scan.timeIn,timeOut:scan.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt}),isFinalized:false
             })));
-            return phoneRows.reduce(upsertAttendanceRow, otherRows);
+            // Merge rather than replace. A request that began before the QR
+            // checkout committed can return an older row with no Time Out.
+            return phoneRows.reduce(upsertAttendanceRow, rows);
           });
         }
         // A scanner-status event is already a targeted signal. Refresh only the
@@ -1651,18 +1819,6 @@ export function EventManagementPage() {
       setSelectedEventForSession(null);
     }
   }, [selectedEventForSession, selectedEvents]);
-
-  function openStartSession(event: EventRecord) {
-    setStartEvent(event);
-    setSessionForm({
-      venue: event.venue,
-      date: event.date,
-      startTime: toTimeInputValue(event.startTime),
-      endTime: toTimeInputValue(event.endTime),
-      method: defaultAttendanceMethod,
-      lateCutoffMinutes: 15
-    });
-  }
 
   async function cancelEvent(event: EventRecord) {
     if (!event.id || cancelReason.trim().length < 5) {
@@ -1806,14 +1962,10 @@ export function EventManagementPage() {
     const attendanceRecords: FinalizeAttendanceRecordInput[] = activeRows.map((row) => ({
       studentId: row.studentId,
       status: row.attendanceStatus === "late" ? "late" : "present",
-      verificationMethod:
-        row.attendanceMethod === "QR Code"
-          ? "qr"
-          : row.attendanceMethod === "Facial Recognition"
-            ? "facial"
-            : "manual",
+      verificationMethod: verificationMethodFromAttendance(row.attendanceMethod),
       timeIn: row.checkInAt,
       ...(row.checkOutAt && canRecordTimeOut(row.checkInAt, row.checkOutAt) ? { timeOut: row.checkOutAt } : {}),
+      ...(row.checkOutAt && row.checkoutAttendanceMethod ? { checkoutVerificationMethod: verificationMethodFromAttendance(row.checkoutAttendanceMethod) } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
     if (isOfflineMode) {
@@ -1978,7 +2130,7 @@ export function EventManagementPage() {
           if (action === "checked_out") {
             if (!existing) return current;
             return current.map((row) => row.studentId === bestMatch.candidate.student_id
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), attendanceMethod: "Facial Recognition" }
+              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), checkoutAttendanceMethod: "Facial Recognition" }
               : row);
           }
           if (existing) {
@@ -2067,43 +2219,78 @@ export function EventManagementPage() {
         }
         return effectivePhase;
       };
+      effectivePhase = await reconcilePhase();
       if (!student) {
         const studentNumber=extractStudentNumber(scanCode);
-        if(!studentNumber||!window.confirm(`Student ${studentNumber||"ID"} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
+        if(!studentNumber) throw new Error("This QR does not contain a valid student number for a walk-in checkout.");
+        const remoteWalkIn = await findRemoteUnverifiedWalkIn(studentNumber);
+        if (remoteWalkIn && effectivePhase === "time_in") {
+          toast.warning(`Unverified walk-in ${studentNumber}: ${alreadyRecordedAttendanceLabel(remoteWalkIn.timeOut)}`, {
+            description: alreadyRecordedAttendanceDescription(remoteWalkIn.timeOut)
+          });
+          return;
+        }
+        if (remoteWalkIn && effectivePhase === "time_out") {
+          await recordRemoteUnverifiedWalkInTimeOut(remoteWalkIn, "QR Code", recordedAt);
+          toast.success(`Unverified walk-in ${studentNumber}: Time Out saved`, {
+            description: "The original Time In and QR Time Out were recorded."
+          });
+          return;
+        }
+        // A Time Out must not ask to create a second walk-in. The local
+        // database verifies the original Time In before accepting it.
+        if(effectivePhase === "time_in" && !window.confirm(`Student ${studentNumber} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
-        effectivePhase = await reconcilePhase();
         const queued=await api?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:effectivePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
         const walkInStatus=resolveRecordedOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
-        setActiveRows((current)=>upsertAttendanceRow(current,{id:`walkin-${queued.localScanUuid}`,studentId:`walkin:${queued.localScanUuid}`,studentName:`Unverified walk-in · ${queued.studentNumber}`,eventCode:activeEvent.code,attendanceMethod:"QR Code",checkInAt:queued.timeIn,checkInTime:formatLocalTime(queued.timeIn),...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),attendanceStatus:walkInStatus,isFinalized:false}));
+        setActiveRows((current)=>upsertAttendanceRow(current,{
+          id:`walkin-${queued.localScanUuid}`,
+          studentId:`walkin:${queued.localScanUuid}`,
+          studentName:`Unverified walk-in · ${queued.studentNumber}`,
+          eventCode:activeEvent.code,
+          attendanceMethod:attendanceMethodFromVerification(queued.identificationMethod),
+          ...(queued.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(queued.checkoutIdentificationMethod) } : {}),
+          checkInAt:queued.timeIn,
+          checkInTime:formatLocalTime(queued.timeIn),
+          ...(queued.timeOut?{checkOutAt:queued.timeOut,checkOutTime:formatLocalTime(queued.timeOut)}:{}),
+          attendanceStatus:walkInStatus,
+          isFinalized:false
+        }));
         lastSuccessfulQrScanAtRef.current=Date.now();
         if (queued.action === "already_recorded") {
-          toast.warning(`Unverified walk-in ${queued.studentNumber}: Already Time In`, { description: "This walk-in was already recorded for the current attendance step." });
+          toast.warning(`Unverified walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
+            description: alreadyRecordedAttendanceDescription(queued.timeOut)
+          });
         } else {
           toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${effectivePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
         }
         return;
       }
-      effectivePhase = await reconcilePhase();
       const local = await recordOfflineAttendance({ eventId, sessionId, studentId: student.studentId, identificationMethod: "qr", attendanceTimestamp: recordedAt },effectivePhase);
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, student)));
       lastSuccessfulQrScanAtRef.current = Date.now();
-      toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : local.action === "already_recorded" ? "already recorded" : "Time In"} at ${new Date(recordedAt).toLocaleTimeString()}`, { description: `${local.safeMessage} Saved on this device; not synced.` });
+      if (local.action === "already_recorded") {
+        toast.warning(`${student.displayName}: ${alreadyRecordedAttendanceLabel(local.record.timeOut)}`, {
+          description: alreadyRecordedAttendanceDescription(local.record.timeOut)
+        });
+      } else {
+        toast.success(`${student.displayName}: ${local.action === "checked_out" ? "Time Out" : "Time In"} at ${new Date(recordedAt).toLocaleTimeString()}`, { description: `${local.safeMessage} Saved on this device; not synced.` });
+      }
     };
     try {
       if (desktopApi()) {
-        try {
-          // The prepared package is authoritative for desktop attendance. It
-          // also avoids relying on navigator.onLine, which can stay true while
-          // a laptop is connected to a phone hotspot without internet access.
-          await recordQrLocally();
-          return;
-        } catch {
-          if(session?.userId&&sessionId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) {
-            toast.error("This event was ended on this device. No additional attendance was recorded.");
-            return;
+        const preparedLocally = Boolean(session?.userId && await desktopApi()?.getPreparedEvent(eventId, session.userId));
+        if (preparedLocally) {
+          // The prepared desktop package is authoritative for live scans.
+          // Do not hide a local walk-in checkout error behind the online
+          // participant-only lookup.
+          try {
+            await recordQrLocally();
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "The QR attendance could not be saved locally.");
           }
-          // The package may be absent or stale; continue with central lookup.
+          return;
         }
       }
       const client = getSupabaseBrowserClient();
@@ -2140,16 +2327,16 @@ export function EventManagementPage() {
       }
 
       const existing = activeRows.find((row) => row.studentId === studentId);
+      if (existing?.checkOutAt) {
+        toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
+        return;
+      }
       if (attendancePhase === "time_in" && existing?.checkInAt) {
         toast.warning(`${existing.studentName} already has a Time In.`);
         return;
       }
       if (attendancePhase === "time_out" && !existing?.checkInAt) {
         toast.warning("No Time In is recorded for this student.");
-        return;
-      }
-      if (existing?.checkOutAt) {
-        toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
         return;
       }
       if (!sessionId) throw new Error("The active attendance session could not be found.");
@@ -2163,12 +2350,14 @@ export function EventManagementPage() {
       if (!record) throw new Error("The attendance scan was accepted, but its saved record could not be confirmed.");
       const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === studentId);
       setActiveRows((current) => {
+        const currentRow = current.find((row) => row.studentId === studentId);
         const next: DraftAttendanceRow = {
           id: record.id,
           studentId,
           studentName: student?.fullName ?? student?.studentNumber ?? studentId,
           eventCode: activeEvent.code,
-          attendanceMethod: "QR Code",
+          attendanceMethod: attendancePhase === "time_out" && currentRow ? currentRow.attendanceMethod : attendanceMethodFromVerification(record.verificationMethod),
+          ...(attendancePhase === "time_out" ? { checkoutAttendanceMethod: "QR Code" as const } : record.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutVerificationMethod) } : {}),
           checkInAt: record.timeIn ?? "",
           checkInTime: record.timeIn ? formatLocalTime(record.timeIn) : "Not recorded",
           ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
@@ -2287,6 +2476,13 @@ export function EventManagementPage() {
     };
   }, [activeEvent]);
 
+  function activateManualCapture() {
+    setCaptureMode("Manual");
+    // Focusing after the mode change keeps the manual form usable in the
+    // desktop shell during both Time In and Time Out.
+    window.requestAnimationFrame(() => manualInputRef.current?.focus());
+  }
+
   async function submitManualAttendance() {
     if (!manualInput || !activeEvent?.id) {
       toast.warning("Please select a student.");
@@ -2297,6 +2493,134 @@ export function EventManagementPage() {
       return;
     }
 
+    const eventId = activeEvent.id;
+    const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
+    const recordedAt = new Date().toISOString();
+    const recordManualLocally = async () => {
+      const api = desktopApi();
+      const organizerProfileId = session?.userId;
+      if (!api || !sessionId || !organizerProfileId) {
+        throw new Error("The active desktop attendance session could not be found.");
+      }
+      if ((await getOfflineSessionEndState(eventId, sessionId, organizerProfileId)).isLocallyEnded) {
+        throw new Error("This event was ended on this device. Attendance capture is locked until synchronization is confirmed.");
+      }
+
+      let effectivePhase = attendancePhase;
+      const localPhase = await api.getAttendanceCapturePhase(sessionId, organizerProfileId);
+      if (attendancePhase === "time_out" && localPhase === "time_in") {
+        effectivePhase = await api.advanceAttendanceCapturePhase(sessionId, organizerProfileId);
+      } else {
+        effectivePhase = localPhase;
+      }
+      if (effectivePhase !== attendancePhase) {
+        setAttendancePhase(effectivePhase);
+        writeAttendancePhase(window.sessionStorage, sessionId, effectivePhase);
+      }
+
+      const participant = await identifyOfflineStudent(eventId, "manual", manualInput);
+      if (participant) {
+        const local = await recordOfflineAttendance({
+          eventId,
+          sessionId,
+          studentId: participant.studentId,
+          identificationMethod: "manual",
+          attendanceTimestamp: recordedAt,
+          remarks: manualEntryReason.trim(),
+        }, effectivePhase);
+        setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, participant)));
+        if (local.action === "already_recorded") {
+          toast.warning(`${participant.displayName}: ${alreadyRecordedAttendanceLabel(local.record.timeOut)}`, {
+            description: alreadyRecordedAttendanceDescription(local.record.timeOut),
+          });
+        } else {
+          toast.success(
+            `${participant.displayName}: ${local.action === "checked_out" ? "Time Out" : "Time In"} at ${new Date(recordedAt).toLocaleTimeString()}`,
+            { description: `${local.safeMessage} Saved on this device; not synced.` },
+          );
+        }
+        return;
+      }
+
+      const studentNumber = extractStudentNumber(manualInput);
+      if (!studentNumber) {
+        throw new Error("Enter an enrolled student name or a valid walk-in student number.");
+      }
+      const remoteWalkIn = await findRemoteUnverifiedWalkIn(studentNumber);
+      if (remoteWalkIn && effectivePhase === "time_in") {
+        toast.warning(`Unverified walk-in ${studentNumber}: ${alreadyRecordedAttendanceLabel(remoteWalkIn.timeOut)}`, {
+          description: alreadyRecordedAttendanceDescription(remoteWalkIn.timeOut),
+        });
+        return;
+      }
+      if (remoteWalkIn && effectivePhase === "time_out") {
+        await recordRemoteUnverifiedWalkInTimeOut(remoteWalkIn, "Manual", recordedAt);
+        toast.success(`Unverified walk-in ${studentNumber}: Time Out saved`, {
+          description: "The original Time In and Manual Time Out were recorded.",
+        });
+        return;
+      }
+      const queued = await api.queueWalkInScan({
+        eventId,
+        sessionId,
+        studentNumber,
+        identificationMethod: "manual",
+        capturePhase: effectivePhase,
+        attendanceTimestamp: recordedAt,
+        organizerProfileId,
+      });
+      const walkInStatus = resolveRecordedOrganizerAttendanceStatus({
+        timeIn: queued.timeIn,
+        timeOut: queued.timeOut,
+        attendanceSessionStatus: activeAttendanceSession?.status,
+        lateCutoffAt: activeAttendanceSession?.lateCutoffAt,
+      });
+      setActiveRows((current) => upsertAttendanceRow(current, {
+        id: `walkin-${queued.localScanUuid}`,
+        studentId: `walkin:${queued.localScanUuid}`,
+        studentName: `Unverified walk-in · ${queued.studentNumber}`,
+        eventCode: activeEvent.code,
+        attendanceMethod: attendanceMethodFromVerification(queued.identificationMethod),
+        ...(queued.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(queued.checkoutIdentificationMethod) } : {}),
+        checkInAt: queued.timeIn,
+        checkInTime: formatLocalTime(queued.timeIn),
+        ...(queued.timeOut ? { checkOutAt: queued.timeOut, checkOutTime: formatLocalTime(queued.timeOut) } : {}),
+        attendanceStatus: walkInStatus,
+        isFinalized: false,
+      }));
+      if (queued.action === "already_recorded") {
+        toast.warning(`Unverified walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
+          description: alreadyRecordedAttendanceDescription(queued.timeOut),
+        });
+      } else {
+        toast.success(
+          `Unverified walk-in ${queued.studentNumber}: ${effectivePhase === "time_in" ? "Time In" : "Time Out"} saved locally`,
+          { description: "Awaiting verification and synchronization." },
+        );
+      }
+    };
+
+    if (desktopApi()) {
+      const api = desktopApi();
+      const organizerProfileId = session?.userId;
+      const preparedLocally = Boolean(
+        api
+          && organizerProfileId
+          && await api.getPreparedEvent(activeEvent.id, organizerProfileId),
+      );
+      if (preparedLocally) {
+        try {
+          await recordManualLocally();
+          setManualInput("");
+          setManualEntryReason("");
+          return;
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : "The manual attendance entry could not be saved locally.");
+          return;
+        }
+      }
+    }
+
     const lookupResult = resolveManualAttendanceLookup(manualInput, studentsQuery.data?.items ?? []);
     if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
       toast.warning("Please enter a valid student ID or name.");
@@ -2305,10 +2629,11 @@ export function EventManagementPage() {
 
     const resolvedStudentId = lookupResult.matchedStudentId;
     const existingAttendanceRow = activeRows.find((row) => row.studentId === resolvedStudentId);
+    if (existingAttendanceRow?.checkOutAt) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In and Time Out.`); return; }
     if (attendancePhase === "time_in" && existingAttendanceRow?.checkInAt) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In.`); return; }
     if (attendancePhase === "time_out" && !existingAttendanceRow?.checkInAt) { toast.warning("No Time In is recorded for this student."); return; }
     const isCheckout = attendancePhase === "time_out";
-    const occurredAt = new Date().toISOString();
+    const occurredAt = recordedAt;
     const resolvedStatus: ManualAttendanceStatus = isCheckout
       ? existingAttendanceRow?.attendanceStatus === "late" ? "late" : "present"
       : activeAttendanceSession?.lateCutoffAt && new Date(occurredAt) > new Date(activeAttendanceSession.lateCutoffAt) ? "late" : "present";
@@ -2328,19 +2653,23 @@ export function EventManagementPage() {
     });
     const saved = result.attendanceRecord;
     if (!saved) throw new Error("The attendance record could not be confirmed.");
-    setActiveRows((current) => upsertAttendanceRow(current, {
+    setActiveRows((current) => {
+      const currentRow = current.find((row) => row.studentId === resolvedStudentId);
+      return upsertAttendanceRow(current, {
       id: saved.id,
       studentId: resolvedStudentId,
       studentName: student?.fullName ?? student?.studentNumber ?? resolvedStudentId,
       eventCode: activeEvent.code,
-      attendanceMethod: "Manual",
-      checkInAt: saved.timeIn ?? "",
-      checkInTime: saved.timeIn ? formatLocalTime(saved.timeIn) : "Not recorded",
+      attendanceMethod: isCheckout && currentRow ? currentRow.attendanceMethod : attendanceMethodFromVerification(saved.verificationMethod),
+      ...(isCheckout ? { checkoutAttendanceMethod: "Manual" as const } : saved.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(saved.checkoutVerificationMethod) } : {}),
+      checkInAt: isCheckout && currentRow ? currentRow.checkInAt : saved.timeIn ?? "",
+      checkInTime: isCheckout && currentRow ? currentRow.checkInTime : saved.timeIn ? formatLocalTime(saved.timeIn) : "Not recorded",
       ...(saved.checkedOutAt ? { checkOutAt: saved.checkedOutAt, checkOutTime: formatLocalTime(saved.checkedOutAt) } : {}),
       attendanceStatus: saved.status,
       isFinalized: Boolean(saved.finalizedAt),
       ...(saved.lateReasonCategory ? { lateReason: saved.lateReasonCategory as LateReason } : {})
-    }));
+      });
+    });
     toast.success(
       isCheckout
         ? "Student Time Out recorded. Required feedback must still be completed for a final result."
@@ -2390,7 +2719,7 @@ export function EventManagementPage() {
       "Attendance Status": row.attendanceStatus,
       "Time In": row.checkInTime,
       "Time Out": row.checkOutTime ?? "No Time Out",
-      "Attendance Method": row.attendanceStatus === "absent" ? "-" : row.attendanceMethod,
+      "Attendance Method": row.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row),
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
     exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
@@ -2592,7 +2921,7 @@ export function EventManagementPage() {
     {
       id: "attendanceMethod",
       header: "Attendance Method",
-      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : row.original.attendanceMethod
+      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
     },
     { id: "status", header: "Attendance Status", cell: ({ row }) => {
       const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
@@ -2600,60 +2929,6 @@ export function EventManagementPage() {
     } },
     { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
   ];
-
-  const completedColumns: Array<ColumnDef<CompletedRecord> | ColDef<CompletedRecord>> = [
-    { accessorKey: "code", header: "Event Code" },
-    { accessorKey: "name", header: "Event Name" },
-    { accessorKey: "venue", header: "Venue" },
-    { accessorKey: "date", header: "Date" },
-    { accessorKey: "present", header: "Present" },
-    { accessorKey: "late", header: "Late" },
-    { accessorKey: "absent", header: "Absent" },
-    { accessorKey: "attendanceRate", header: "Attendance Rate" },
-    {
-      id: "actions",
-      headerName: "Actions",
-      pinned: "right",
-      lockPosition: true,
-      lockPinned: true,
-      suppressMovable: true,
-      width: 120,
-      sortable: false,
-      filter: false,
-      cellRenderer: ({ data }: { data: CompletedRecord }) => (
-        <div className="flex justify-start">
-          <Button type="button" variant="outline" size="sm" onClick={() => setCompletedModal(data)}>
-            <Eye className="h-4 w-4" aria-hidden="true" />
-            View More
-          </Button>
-        </div>
-      )
-    } as ColDef<CompletedRecord>
-  ];
-
-  function TabButton({ tab, label, count }: { tab: EventTab; label: string; count: number }) {
-    return (
-      <Button
-        type="button"
-        variant={activeTab === tab ? "default" : "outline"}
-        className="h-auto min-h-14 justify-between rounded-lg px-3 py-2.5 text-left"
-        onClick={() => {
-          setActiveTab(tab);
-          setSelectedEventForSession(null);
-        }}
-      >
-        <span>
-          <span className="block text-sm font-semibold">{label}</span>
-          <span className="mt-0.5 block text-xs font-normal opacity-75">
-            {tab === "today" ? "Requires attention today" : tab === "incoming" ? "Future published schedule" : "Events cancelled by the organizer or system"}
-          </span>
-        </span>
-        <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-semibold text-foreground">
-          {count}
-        </span>
-      </Button>
-    );
-  }
 
   if (eventsQuery.isLoading && !repositoryEvents.length && !offlineLiveSession) {
     return (
@@ -2839,7 +3114,7 @@ export function EventManagementPage() {
                   type="button"
                   variant={captureMode === "Manual" ? "default" : "outline"}
                   className="gap-2 rounded-lg shadow-none"
-                  onClick={() => setCaptureMode("Manual")}
+                  onClick={activateManualCapture}
                   aria-pressed={captureMode === "Manual"}
                 >
                   <Square className="h-4 w-4" aria-hidden="true" />
@@ -2906,24 +3181,34 @@ export function EventManagementPage() {
                       <div className="border-b border-border pb-4">
                         <div>
                           <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Record Time In or Time Out. Final status is determined by the session cutoff after required feedback is completed.</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Record Time In or Time Out. A valid student number outside this event's roster is saved as an unverified walk-in for review. Final status is determined by the session cutoff after required feedback is completed.</p>
                         </div>
 
                       </div>
 
-                      <div className="grid gap-3">
+                      <form
+                        className="grid gap-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void submitManualAttendance();
+                        }}
+                        onKeyDown={(event) => {
+                          // Some desktop shells do not emit the form submit event
+                          // consistently from the second field. Handle Enter at the
+                          // form boundary so both manual fields have identical
+                          // behavior, while preserving validation in the submit path.
+                          if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+                          event.preventDefault();
+                          void submitManualAttendance();
+                        }}
+                      >
                         <label className="space-y-2 text-sm font-medium">
                           Find student
                           <input
+                            ref={manualInputRef}
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                void submitManualAttendance();
-                              }
-                            }}
-                            placeholder="Enter student ID or name"
+                            placeholder="Enter student ID, name, or walk-in student number"
                             className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
                           />
                         </label>
@@ -2936,17 +3221,13 @@ export function EventManagementPage() {
                             className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
                           />
                         </label>
-                      </div>
 
-                      <div className="flex justify-end">
-                        <Button
-                          type="button"
-                          className="h-11 rounded-lg px-6"
-                          onClick={() => void submitManualAttendance()}
-                        >
-                          Record Attendance
-                        </Button>
-                      </div>
+                        <div className="flex justify-end">
+                          <Button type="submit" className="h-11 rounded-lg px-6">
+                            Record Attendance
+                          </Button>
+                        </div>
+                      </form>
                     </div>
                   ) : (
                     <div className="text-center">
@@ -3403,103 +3684,10 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EventDetails({ event, status, conflicts = [], onStart, onCancel, onEdit, onViewConflict }: { event: EventRecord; status: string; conflicts?: EventRecord[]; onStart?: (event: EventRecord) => void; onCancel?: () => void; onEdit?: (event: EventRecord) => void; onViewConflict?: (event: EventRecord) => void }) {
-  const location = useLocation();
-  const workspaceRoute = (organizerRoute: string, adminRoute: string) => getWorkspaceRoute(location.pathname, organizerRoute, adminRoute);
-  return (
-    <div>
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-primary">Event Details</p>
-          {event.id ? (
-            <a href={workspaceRoute(`/organizer/events/${event.id}`, `/admin/events/${event.id}`)} className="text-sm font-medium text-primary hover:text-primary-hover hover:underline">
-            View Full Details →
-            </a>
-          ) : null}
-        </div>
-      <div className="mt-1 flex flex-wrap items-center gap-2">
-        <h2 className="text-2xl font-semibold">{event.code} - {event.name}</h2>
-        <StatusBadge label={event.priorityLevel} tone={priorityTone(event.priorityLevel)} />
-      </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <SummaryTile label="Category" value={event.category} />
-        <SummaryTile label="Venue" value={event.venue} />
-        <SummaryTile label="Date" value={event.date} />
-        <SummaryTile label="Schedule" value={`${event.startTime} - ${event.endTime}`} />
-        <SummaryTile label="Status" value={status} />
-        <SummaryTile label="Predicted Turnout" value={event.predictedTurnout} />
-        <SummaryTile label="Priority Tier" value={event.priorityTier ?? event.priorityLevel} />
-        <SummaryTile label="Priority Score" value={event.priorityScore == null ? "Not set" : `${event.priorityScore}/9`} />
-      </div>
-      {conflicts.length > 0 ? (
-        <section className="mt-5 rounded-lg border border-danger/30 bg-danger/5 p-4">
-          <div className="flex items-center gap-2 text-danger">
-            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            <h3 className="font-semibold">Schedule Conflict Detected</h3>
-          </div>
-          <p className="mt-2 text-sm text-muted-foreground">
-            This event overlaps at the same venue and time with:
-          </p>
-
-          <ul className="mt-2 space-y-1">
-            {conflicts.map((conflict) => (
-              <li key={conflict.code} className="flex items-center justify-between rounded-md border bg-background p-2 text-sm">
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{conflict.code} - {conflict.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{conflict.venue} · {conflict.date} · {conflict.startTime} - {conflict.endTime}</p>
-                </div>
-                <div className="ml-3 flex shrink-0 items-center gap-2">
-                  <StatusBadge label={conflict.priorityLevel} tone={priorityTone(conflict.priorityLevel)} />
-                  {onViewConflict ? <Button type="button" variant="outline" size="sm" onClick={() => onViewConflict(conflict)}>View event</Button> : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Higher-priority and higher-impact events are ranked first in the event list to help decide which one keeps the slot.
-          </p>
-        </section>
-      ) : null}
-      {event.description ? (
-        <section className="mt-5 rounded-lg border bg-background p-4">
-          <h3 className="font-semibold">Description</h3>
-          <p className="mt-2 text-sm text-muted-foreground">{event.description}</p>
-        </section>
-      ) : null}
-      <section className="mt-5 rounded-lg border bg-background p-4">
-        <h3 className="font-semibold">Objectives</h3>
-        <div className="mt-3 space-y-2">
-          {event.objectives.map((objective, index) => <p key={objective} className="text-sm text-muted-foreground">{index + 1}. {objective}</p>)}
-        </div>
-      </section>
-      <div className="mt-6 border-t pt-4">
-        <div className="flex justify-end gap-2">
-          {onStart ? (
-            <Button type="button" size="sm" onClick={() => onStart(event)}>
-              <Play className="h-4 w-4" aria-hidden="true" />
-              Start attendance
-            </Button>
-          ) : null}
-          {onEdit ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => onEdit(event)}>
-              Reschedule Event
-            </Button>
-          ) : null}
-          {onCancel ? (
-            <Button type="button" variant="destructive" size="sm" onClick={() => onCancel?.()}>
-              <XCircle className="h-4 w-4" aria-hidden="true" />
-              Cancel Event
-            </Button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function CompletedEventModal({ record, rows, onClose, onExportReport, onExportAttendanceReport }: { record: CompletedRecord; rows: AttendanceRow[]; onClose: () => void; onExportReport?: (label: string) => void; onExportAttendanceReport?: (label: string, rows: AttendanceRow[]) => void }) {
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     { accessorKey: "studentName", header: "Student Name" },
-    { accessorKey: "attendanceMethod", header: "Attendance Method" },
+    { id: "attendanceMethod", header: "Attendance Method", cell: ({ row }) => formatAttendanceMethod(row.original) },
     { accessorKey: "checkInTime", header: "Time In" },
     {
       id: "checkOutTime",

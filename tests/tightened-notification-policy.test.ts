@@ -13,7 +13,7 @@ describe("tightened admin and organizer notification delivery", () => {
     expect(migration).toContain("p.role = 'admin'");
     expect(migration).toContain("p.role = 'department_admin' and p.department_id = v_event.department_id");
     expect(migration).toContain("v_event_department_id is distinct from v_department_id");
-    expect(migration).toContain("student\n-- cancellation notices");
+    expect(migration).toMatch(/student\s*\r?\n\s*-- cancellation notices/);
     expect(migration).not.toContain("drop trigger if exists notify_event_workflow_after_update");
     expect(migration).toContain("avoid reading OLD during INSERT triggers");
     expect(migration).toContain("create trigger notify_admin_event_started_after_update");

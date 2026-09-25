@@ -219,6 +219,7 @@ export type FinalizeAttendanceRecordInput = {
   verificationMethod: Extract<VerificationMethod, "qr" | "facial" | "manual">;
   timeIn: string;
   timeOut?: string;
+  checkoutVerificationMethod?: Extract<VerificationMethod, "qr" | "facial" | "manual">;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
   remarks?: string;
 };

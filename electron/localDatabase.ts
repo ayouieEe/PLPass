@@ -11,6 +11,22 @@ function sqlRun(statement: SqlStatement, ...args: unknown[]) { return (statement
 
 function value(row: SqlRow | undefined, key: string) { const item=row?.[key]; return item == null ? undefined : String(item); }
 function manilaDate(value: string | Date) { const parts=new Intl.DateTimeFormat("en-US", { timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit" }).formatToParts(new Date(value)); const part=(name:string)=>parts.find((item)=>item.type===name)?.value??""; return `${part("year")}-${part("month")}-${part("day")}`; }
+function rebaseLateCutoffToActualStart(startedAt: string, scheduledStart: string, scheduledLateCutoff?: string) {
+  const actualStartMs = new Date(startedAt).getTime();
+  const scheduledStartMs = new Date(scheduledStart).getTime();
+  const scheduledCutoffMs = scheduledLateCutoff ? new Date(scheduledLateCutoff).getTime() : Number.NaN;
+  if (!Number.isFinite(actualStartMs)) throw new Error("A valid offline session start time is required.");
+
+  // A prepared session stores its cutoff relative to its scheduled start.
+  // Preserve that configured duration, but always apply it from the moment
+  // attendance actually begins. Fall back to the product default only for a
+  // malformed legacy package.
+  const configuredMinutes = Number.isFinite(scheduledStartMs) && Number.isFinite(scheduledCutoffMs)
+    ? Math.round((scheduledCutoffMs - scheduledStartMs) / 60_000)
+    : 15;
+  const lateCutoffMinutes = Math.max(0, Math.min(240, configuredMinutes));
+  return new Date(actualStartMs + lateCutoffMinutes * 60_000).toISOString();
+}
 function hasColumn(db: DatabaseSync, table: string, column: string) {
   return (db.prepare(`PRAGMA table_info(${table})`).all() as SqlRow[]).some((row) => row.name === column);
 }
@@ -200,9 +216,18 @@ export class LocalAttendanceDatabase {
     if(!["scheduled","ongoing"].includes(String(event.event_status))) throw new Error("This event is not available to start offline.");
     const session=this.db.prepare("SELECT * FROM cached_sessions WHERE session_id=? AND event_id=?").get(sessionId,eventId) as SqlRow|undefined;
     if(!session || !["scheduled","ongoing"].includes(String(session.session_status)) || ["END_PENDING","ENDED","CONFLICT"].includes(String(session.offline_lifecycle))) throw new Error("The prepared attendance session is not available.");
+    // Starting again after a lost renderer response must not move the actual
+    // start or recalculate its already-anchored cutoff.
+    if (value(session, "offline_started_at")) {
+      const existing = this.getPreparedEvent(eventId);
+      if (!existing) throw new Error("The saved event package disappeared while starting offline.");
+      return existing;
+    }
+    const lateCutoffAt = rebaseLateCutoffToActualStart(startedAt, String(session.starts_at), value(session, "late_cutoff_at"));
     this.transaction(()=>this.db.prepare(`UPDATE cached_sessions SET session_status='ongoing',attendance_window_start_at=?,attendance_window_end_at=NULL,
+      late_cutoff_at=?,
       offline_lifecycle=CASE WHEN offline_lifecycle IN ('START_PENDING','STARTED','END_PENDING','ENDED') THEN offline_lifecycle ELSE 'START_PENDING' END,
-      offline_started_at=COALESCE(offline_started_at,?) WHERE session_id=?`).run(startedAt,startedAt,sessionId));
+      offline_started_at=COALESCE(offline_started_at,?) WHERE session_id=?`).run(startedAt,lateCutoffAt,startedAt,sessionId));
     const updated=this.getPreparedEvent(eventId);
     if(!updated) throw new Error("The saved event package disappeared while starting offline.");
     return updated;
@@ -357,7 +382,27 @@ export class LocalAttendanceDatabase {
     if(String(session.capture_phase??"time_in")!==input.capturePhase) throw new Error("This event has advanced to a different attendance step.");
     const normalized=input.studentNumber.trim().toUpperCase();
     const hash=createHash("sha256").update(normalized).digest("hex");
-    const existing=this.db.prepare("SELECT * FROM pending_walkin_scans WHERE session_id=? AND student_number_hash=?").get(input.sessionId,hash) as SqlRow|undefined;
+    const sessionWalkIn=this.db.prepare("SELECT * FROM pending_walkin_scans WHERE session_id=? AND student_number_hash=?").get(input.sessionId,hash) as SqlRow|undefined;
+    // Refreshing a prepared package replaces cached_sessions. A walk-in whose
+    // Time In already synchronized remains locally queued for Time Out, but
+    // its former session row may no longer be present. Recover exactly one
+    // unfinished owned-event row and bind it to the verified active session.
+    // This makes a repeated Time In idempotent and preserves the original
+    // timestamp for a later Time Out, without selecting between duplicates.
+    const unfinishedEventWalkIns = !sessionWalkIn
+      ? this.db.prepare(`SELECT w.* FROM pending_walkin_scans w
+          JOIN prepared_events e ON e.event_id=w.event_id
+          WHERE w.event_id=? AND w.student_number_hash=? AND w.time_out IS NULL
+            AND e.organizer_profile_id=?
+          ORDER BY w.created_at DESC`).all(input.eventId,hash,input.organizerProfileId) as SqlRow[]
+      : [];
+    if (unfinishedEventWalkIns.length > 1) throw new Error("Multiple unfinished walk-in Time In records match this student. Resolve the duplicate before recording attendance.");
+    let existing=sessionWalkIn ?? unfinishedEventWalkIns[0];
+    if (existing && !sessionWalkIn && String(existing.session_id) !== input.sessionId) {
+      const existingUuid=String(existing.local_scan_uuid);
+      this.db.prepare("UPDATE pending_walkin_scans SET session_id=?,updated_at=? WHERE local_scan_uuid=?").run(input.sessionId,input.attendanceTimestamp,existingUuid);
+      existing=this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(existingUuid) as SqlRow;
+    }
     if(input.capturePhase==="time_in") {
       // Scanner retries are common when a phone or USB reader repeats the
       // same payload after a successful response. Return the saved row so the
@@ -370,11 +415,28 @@ export class LocalAttendanceDatabase {
     if(!existing) throw new Error("This walk-in has no Time In. Record Time In before Time Out.");
     if(existing.time_out) return this.mapWalkIn(existing, "already_recorded");
     if(new Date(input.attendanceTimestamp).getTime()<new Date(String(existing.time_in)).getTime()+60_000) throw new Error("Time Out can be recorded at least one minute after Time In.");
-    sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET time_out=?,sync_status='PENDING_SYNC',next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),input.attendanceTimestamp,input.attendanceTimestamp,existing.local_scan_uuid);
+    sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET time_out=?,checkout_identification_method=?,sync_status='PENDING_SYNC',next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),input.attendanceTimestamp,input.identificationMethod,input.attendanceTimestamp,existing.local_scan_uuid);
     return this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(existing.local_scan_uuid as string) as SqlRow, "checked_out");
   }
-  private mapWalkIn(row:SqlRow, action:PendingWalkInScan["action"] = "checked_in"):PendingWalkInScan{return{action,localScanUuid:String(row.local_scan_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),identificationMethod:String(row.identification_method) as "qr"|"manual",studentNumber:this.reveal(String(row.student_number))??"",timeIn:String(row.time_in),timeOut:value(row,"time_out"),syncStatus:String(row.sync_status) as PendingWalkInScan["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};}
-  listPendingWalkInScans(eventId:string|undefined,organizerProfileId:string){const rows=(eventId?this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? ORDER BY p.created_at").all(organizerProfileId,eventId):this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? ORDER BY p.created_at").all(organizerProfileId)) as SqlRow[];return rows.map((row)=>this.mapWalkIn(row));}
+  private mapWalkIn(row:SqlRow, action:PendingWalkInScan["action"] = "checked_in"):PendingWalkInScan{return{action,localScanUuid:String(row.local_scan_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),identificationMethod:String(row.identification_method) as "qr"|"manual",checkoutIdentificationMethod:value(row,"checkout_identification_method") as PendingWalkInScan["checkoutIdentificationMethod"],studentNumber:this.reveal(String(row.student_number))??"",timeIn:String(row.time_in),timeOut:value(row,"time_out"),syncStatus:String(row.sync_status) as PendingWalkInScan["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};}
+  listPendingWalkInScans(eventId:string|undefined,organizerProfileId:string,activeSessionId?:string){
+    const rows=(eventId?this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? ORDER BY p.created_at").all(organizerProfileId,eventId):this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? ORDER BY p.created_at").all(organizerProfileId)) as SqlRow[];
+    if(!activeSessionId||!eventId) return rows.map((row)=>this.mapWalkIn(row));
+    const direct=rows.filter((row)=>String(row.session_id)===activeSessionId);
+    if(direct.length) return direct.map((row)=>this.mapWalkIn(row));
+    // A newly restored renderer can briefly use a successor session id while
+    // the walk-in row retains the active local session that recorded Time In.
+    // Return that row only when it is the sole active candidate for this event;
+    // never revive a prior or ambiguous session into the live table.
+    const activeCandidates=this.db.prepare(`SELECT w.* FROM pending_walkin_scans w
+      JOIN prepared_events e ON e.event_id=w.event_id
+      JOIN cached_sessions s ON s.session_id=w.session_id
+      WHERE e.organizer_profile_id=? AND w.event_id=?
+        AND s.event_id=? AND s.session_status='ongoing'
+        AND s.offline_lifecycle IN ('START_PENDING','STARTED')
+      ORDER BY w.created_at`).all(organizerProfileId,eventId,eventId) as SqlRow[];
+    return activeCandidates.length===1?[this.mapWalkIn(activeCandidates[0])]:[];
+  }
   beginWalkInSync(limit:number,organizerProfileId:string,forceRetry=false){const due=forceRetry?"":" AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=datetime('now'))";const eligible=forceRetry?"'PENDING_SYNC','RETRY','CONFLICT'":"'PENDING_SYNC','RETRY'";const rows=this.db.prepare(`SELECT p.local_scan_uuid FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id JOIN cached_sessions s ON s.session_id=p.session_id WHERE e.organizer_profile_id=? AND p.sync_status IN (${eligible}) AND (s.offline_lifecycle IN ('STARTED','ENDED') OR (s.offline_lifecycle='END_PENDING' AND s.offline_start_reconciled_at IS NOT NULL))${due} ORDER BY p.created_at LIMIT ?`).all(organizerProfileId,Math.max(1,Math.min(limit,50))) as SqlRow[];const now=new Date().toISOString();const update=this.db.prepare(`UPDATE pending_walkin_scans SET sync_status='SYNCING',sync_attempts=sync_attempts+1,updated_at=? WHERE local_scan_uuid=? AND sync_status IN (${eligible})`);this.transaction(()=>rows.forEach((row)=>update.run(now,row.local_scan_uuid as string)));return rows.map((row)=>this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(row.local_scan_uuid as string) as SqlRow));}
   confirmWalkInSync(uuid:string,student?:{id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}){const local=this.db.prepare("SELECT event_id,session_id FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;if(!local)return;this.transaction(()=>{if(student){const eventId=String(local.event_id);const sessionId=String(local.session_id);sqlRun(this.db.prepare("INSERT OR IGNORE INTO cached_participants(event_id,student_id,student_number,display_name,participant_status,qr_identifier,face_embeddings_json) VALUES(?,?,?,?, 'invited',NULL,?)"),eventId,student.id,this.protect(student.studentNumber),this.protect(student.displayName),this.protect("[]"));sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),sessionId,student.id,student.attendanceStatus,student.timeIn,student.timeOut??null);}sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET sync_status='CONFIRMED',last_sync_error=NULL,next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),new Date().toISOString(),uuid);});}
   discardWalkInSync(uuid:string,organizerProfileId:string){const deleted=this.db.prepare(`DELETE FROM pending_walkin_scans WHERE local_scan_uuid=? AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(uuid,organizerProfileId).changes;if(deleted!==1) throw new Error("The saved walk-in no longer belongs to this organizer or was already removed.");}

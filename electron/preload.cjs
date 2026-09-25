@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   getAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:capturePhase", sessionId, ownerId),
   advanceAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:advancePhase", sessionId, ownerId),
   queueWalkInScan: (input) => ipcRenderer.invoke("offline:queueWalkin", input),
-  listPendingWalkInScans: (eventId, ownerId) => ipcRenderer.invoke("offline:listWalkins", eventId, ownerId),
+  listPendingWalkInScans: (eventId, ownerId, activeSessionId) => ipcRenderer.invoke("offline:listWalkins", eventId, ownerId, activeSessionId),
   beginWalkInSync: (limit, ownerId, forceRetry) => ipcRenderer.invoke("offline:beginWalkinSync", limit, ownerId, forceRetry),
   confirmWalkInSync: (id, student) => ipcRenderer.invoke("offline:confirmWalkinSync", id, student),
   discardWalkInSync: (id, ownerId) => ipcRenderer.invoke("offline:discardWalkinSync", id, ownerId),
