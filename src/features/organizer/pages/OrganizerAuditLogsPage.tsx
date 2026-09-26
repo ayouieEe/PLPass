@@ -21,7 +21,7 @@ import {
   useOrganizerProfiles,
   useAdminProfiles
 } from "@/hooks/useRepositoryQueries";
-import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { AuditLog } from "@/types/domain";
@@ -251,7 +251,7 @@ export function OrganizerAuditLogsPage() {
         const actor = getActorInfo(log.actorUserId);
         const target = getAuditTargetInfo(log, lookups);
         return {
-          "Date & Time": `${formatDisplayDate(log.timestamp)} ${formatDisplayTime(log.timestamp)}`,
+          "Date & Time": `${dateKey(log.timestamp)} ${formatDisplayTime(log.timestamp)}`,
           "Action": formatAuditAction(log.action),
           "Action Code": log.action,
           "User": actor.name,
@@ -272,7 +272,7 @@ export function OrganizerAuditLogsPage() {
       header: "Date & Time",
       accessorFn: (row) => row.timestamp,
       cell: ({ row }) => {
-        const date = formatDisplayDate(row.original.timestamp);
+        const date = dateKey(row.original.timestamp);
         const time = formatDisplayTime(row.original.timestamp);
         return (
           <div className="flex flex-col justify-center h-full gap-0.5">

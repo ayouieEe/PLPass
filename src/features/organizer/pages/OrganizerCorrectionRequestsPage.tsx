@@ -15,7 +15,6 @@ import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, use
 import { queryClient } from "@/app/providers/queryClient";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getErrorMessage } from "@/lib/utils/errors";
-import { formatDisplayDate } from "@/lib/utils/date";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
@@ -459,7 +458,7 @@ export function OrganizerCorrectionRequestsPage() {
           eventCode: event?.code ?? "Unknown event",
           eventName: event?.title ?? "Event details unavailable",
           requestType: "Correction" as RequestType,
-          dateSubmitted: formatDisplayDate(req.requestedAt, "-"),
+          dateSubmitted: req.requestedAt.slice(0, 10),
           status: req.status as RequestStatus,
           recordedAttendanceStatus: (recordedStatus === "present" || recordedStatus === "late" || recordedStatus === "absent" ? recordedStatus : "absent") as "present" | "late" | "absent",
           requestedStatus: req.requestedStatus as "present" | "late" | "absent",

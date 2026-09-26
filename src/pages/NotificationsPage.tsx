@@ -244,7 +244,7 @@ export function NotificationsPage() {
                       {selectedNotification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
                     </div>
                   </div>
-                  <button type="button" onClick={() => setSelectedNotification(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label="Close notification details">
+                  <button type="button" onClick={() => setSelectedNotification(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label="Close">
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>

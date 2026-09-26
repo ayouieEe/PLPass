@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
@@ -218,7 +218,7 @@ function completedFromRepositoryEvent(event: {
     venue: event.venue,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
-    date: formatDisplayDate(event.startsAt),
+    date: dateKey(event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",

@@ -1,5 +1,31 @@
 export type DateInput = Date | string | number | null | undefined;
 
+const MANILA_TIME_ZONE = "Asia/Manila";
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: MANILA_TIME_ZONE,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true
+});
+
+const displayDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: MANILA_TIME_ZONE,
+  month: "short",
+  day: "numeric",
+  year: "numeric"
+});
+
+const displayTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: MANILA_TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: true
+});
+
 export function toValidDate(value: DateInput) {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
@@ -26,17 +52,17 @@ export function toValidDate(value: DateInput) {
 
 export function formatDateTime(value: DateInput, fallback = "N/A") {
   const date = toValidDate(value);
-  return date ? `${formatDisplayDate(date)} ${formatDisplayTime(date)}` : fallback;
+  return date ? dateTimeFormatter.format(date) : fallback;
 }
 
 export function formatDisplayDate(value: DateInput, fallback = "Not scheduled") {
   const date = toValidDate(value);
-  return date ? dateKey(date) || fallback : fallback;
+  return date ? displayDateFormatter.format(date) : fallback;
 }
 
 export function formatDisplayTime(value: DateInput, fallback = "Not set") {
   const date = toValidDate(value);
-  return date ? new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila" }).format(date) : fallback;
+  return date ? displayTimeFormatter.format(date) : fallback;
 }
 
 /** Use the organizer computer's clock for timestamps captured during a live session. */

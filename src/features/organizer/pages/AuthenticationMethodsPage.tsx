@@ -15,7 +15,7 @@ import { useOrganizerProfiles, useStudentCredentialMutations, useStudentCredenti
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
-import { formatDateTime, formatDisplayDate } from "@/lib/utils/date";
+import { dateKey, formatDateTime, formatDisplayDate } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
 
 type FacialStatus = FacialCredentialDisplayStatus;
@@ -548,7 +548,7 @@ export function AuthenticationMethodsPage() {
       studentNumber: student.studentNumber,
       credentialId: credential?.id ?? "",
       status: getQrCredentialDisplayStatus(credential) === "Active" ? "Active" : "Deactivated",
-      dateGenerated: credential?.issuedAt ? formatDisplayDate(credential.issuedAt, "-") : "-",
+      dateGenerated: credential?.issuedAt ? dateKey(credential.issuedAt) : "-",
       lastUsed: credential?.lastSuccessfulCheckInAt ? formatDateTime(credential.lastSuccessfulCheckInAt, "-") : "-"
     };
   }), [credentialMap, rawStudents]);
@@ -559,9 +559,9 @@ export function AuthenticationMethodsPage() {
       studentId: student.id,
       studentName: student.formattedName || student.fullName || student.studentNumber,
       studentNumber: student.studentNumber,
-      enrollmentDate: profile?.enrolledAt ? formatDisplayDate(profile.enrolledAt, "-") : "-",
+      enrollmentDate: profile?.enrolledAt ? dateKey(profile.enrolledAt) : "-",
       status: getFacialCredentialDisplayStatus(profile),
-      lastScan: profile?.lastVerifiedAt ? formatDisplayDate(profile.lastVerifiedAt, "-") : "-"
+      lastScan: profile?.lastVerifiedAt ? dateKey(profile.lastVerifiedAt) : "-"
     };
   }), [credentialMap, rawStudents]);
 
