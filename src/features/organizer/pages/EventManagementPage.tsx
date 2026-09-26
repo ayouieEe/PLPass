@@ -53,7 +53,7 @@ import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
 import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff, rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
+import { summarizeFinalizedAttendance, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "@/features/offline/types";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
@@ -395,10 +395,13 @@ function alreadyRecordedAttendanceDescription(timeOut?: string | null) {
 }
 
 function summarizeFinalizedSession(rows: Array<{ studentId?: string; attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
-  const summary = summarizeUniqueAttendance(
-    rows.map((row, index) => ({ identity: row.studentId ?? `row:${index}`, attendanceStatus: row.attendanceStatus })),
-    participantCount,
-    true
+  const summary = summarizeFinalizedAttendance(
+    rows.map((row, index) => ({
+      identity: row.studentId ?? `row:${index}`,
+      attendanceStatus: row.attendanceStatus,
+      isUnverifiedWalkIn: row.studentId?.startsWith("walkin:")
+    })),
+    participantCount
   );
   const present = summary.present;
   const late = summary.late;
@@ -2176,6 +2179,7 @@ export function EventManagementPage() {
     setFinalizedSummary(
       summarizeFinalizedSession(
         activeRows.map((row) => ({
+          studentId: row.studentId,
           attendanceStatus: row.attendanceStatus,
           lateReason: row.lateReason,
           isFinalized: row.isFinalized,
@@ -3060,7 +3064,7 @@ export function EventManagementPage() {
     {
       id: "status",
       header: "Offline status",
-      minWidth: 180,
+      minWidth: 224,
       cell: ({ row }) => {
         const preparation = row.original.id ? offlinePreparationByEventId.get(row.original.id) : undefined;
         if (preparation?.packageStatus === "READY") return <StatusBadge label="Ready for Offline Use" tone="success" />;
@@ -3412,7 +3416,7 @@ export function EventManagementPage() {
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
                             placeholder="Enter student ID, name, or walk-in student number"
-                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                            className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring"
                           />
                         </label>
                         <label className="space-y-2 text-sm font-medium">
@@ -3421,7 +3425,7 @@ export function EventManagementPage() {
                             value={manualEntryReason}
                             onChange={(event) => setManualEntryReason(event.target.value)}
                             placeholder="Explain why manual capture is needed"
-                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
+                            className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring"
                           />
                         </label>
 

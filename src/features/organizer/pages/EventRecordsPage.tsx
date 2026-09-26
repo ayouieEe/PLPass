@@ -16,9 +16,10 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
+import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { formatAttendanceMethod, type OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
@@ -217,7 +218,7 @@ function completedFromRepositoryEvent(event: {
     venue: event.venue,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
-    date: formatDisplayDate(event.startsAt),
+    date: dateKey(event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
@@ -567,11 +568,11 @@ export function EventRecordsPage() {
 
 
   const venueOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.venue.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_VENUE_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.venue.trim()).filter(Boolean)])].sort(),
     [completedRows]
   );
   const categoryOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.category.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_CATEGORY_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.category.trim()).filter(Boolean)])].sort(),
     [completedRows]
   );
   const pastEvents = useMemo(

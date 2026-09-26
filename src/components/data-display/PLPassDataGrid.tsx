@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
   type ColDef,
@@ -6,6 +6,7 @@ import {
   type GridReadyEvent,
   type ICellRendererParams,
   type ModelUpdatedEvent,
+  type RowClassRules,
   type RowClickedEvent
 } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -99,6 +100,15 @@ function pageNumbers(currentPage: number, totalPages: number) {
   return Array.from({ length: 5 }, (_, index) => start + index);
 }
 
+function rowTransitionKey(row: object) {
+  const record = row as Record<string, unknown>;
+  for (const field of ["id", "eventId", "sessionId", "attendanceRecordId", "studentId", "userId", "requestId", "code"]) {
+    const value = record[field];
+    if (typeof value === "string" || typeof value === "number") return `${field}:${value}`;
+  }
+  return JSON.stringify(record);
+}
+
 export function PLPassDataGrid<TData extends object>({
   data,
   columns,
@@ -134,11 +144,44 @@ export function PLPassDataGrid<TData extends object>({
   const [displayedRowCount, setDisplayedRowCount] = useState(data.length);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(data.length ? Math.ceil(data.length / DEFAULT_PAGE_SIZE) : 0);
+  const [renderedData, setRenderedData] = useState(data);
+  const [leavingRowKeys, setLeavingRowKeys] = useState<Set<string>>(() => new Set());
+  const hasRenderedGridRef = useRef(false);
+  const renderedDataRef = useRef(data);
+  const exitAnimationTimeoutRef = useRef<number | null>(null);
   const hasRows = displayedRowCount > 0;
   const firstRow = hasRows ? currentPage * DEFAULT_PAGE_SIZE + 1 : 0;
   const lastRow = hasRows ? Math.min(displayedRowCount, (currentPage + 1) * DEFAULT_PAGE_SIZE) : 0;
   const visiblePageNumbers = pageNumbers(currentPage, totalPages);
   const shouldShowPagination = !hidePaginationWhenSinglePage || totalPages > 1;
+
+  useEffect(() => {
+    if (!hasRenderedGridRef.current) { hasRenderedGridRef.current = true; return; }
+    if (exitAnimationTimeoutRef.current !== null) window.clearTimeout(exitAnimationTimeoutRef.current);
+    const nextRowKeys = new Set(data.map(rowTransitionKey));
+    const removedRowKeys = new Set(renderedDataRef.current.filter((row) => !nextRowKeys.has(rowTransitionKey(row))).map(rowTransitionKey));
+    if (removedRowKeys.size === 0) {
+      renderedDataRef.current = data;
+      setRenderedData(data);
+      setLeavingRowKeys(new Set());
+      return;
+    }
+    setLeavingRowKeys(removedRowKeys);
+    exitAnimationTimeoutRef.current = window.setTimeout(() => {
+      renderedDataRef.current = data;
+      setRenderedData(data);
+      setLeavingRowKeys(new Set());
+      exitAnimationTimeoutRef.current = null;
+    }, 120);
+  }, [data]);
+
+  useEffect(() => () => { if (exitAnimationTimeoutRef.current !== null) window.clearTimeout(exitAnimationTimeoutRef.current); }, []);
+
+  const rowClassRules = useMemo<RowClassRules<TData>>(
+    () => ({ "plpass-data-grid-row-exit": ({ data: row }) => Boolean(row && leavingRowKeys.has(rowTransitionKey(row))) }),
+    [leavingRowKeys]
+  );
+  const getRowId = useCallback(({ data: row }: { data: TData }) => rowTransitionKey(row), []);
 
   const columnDefs = useMemo<ColDef<TData>[]>(() => {
     return columns.map((inputColumn, index) => {
@@ -330,8 +373,10 @@ export function PLPassDataGrid<TData extends object>({
       >
         <AgGridReact<TData>
           key={hasRows ? "plpass-grid-with-pagination" : "plpass-grid-without-pagination"}
-          rowData={data}
+          rowData={renderedData}
           columnDefs={columnDefs}
+          rowClassRules={rowClassRules}
+          getRowId={getRowId}
           defaultColDef={plpassDefaultColumnDef}
           domLayout={height ? "normal" : "autoHeight"}
           pagination={hasRows}
@@ -349,7 +394,7 @@ export function PLPassDataGrid<TData extends object>({
           suppressMovableColumns
           suppressColumnMoveAnimation
           ensureDomOrder
-          animateRows={false}
+          animateRows
           tooltipShowDelay={250}
           onGridReady={handleGridReady}
           onModelUpdated={handleModelUpdated}

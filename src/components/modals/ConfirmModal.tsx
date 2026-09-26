@@ -9,6 +9,7 @@ type ConfirmModalProps = {
   confirmLabel?: string;
   cancelLabel?: string;
   tone?: "default" | "danger";
+  hideCancel?: boolean;
   confirmDisabled?: boolean;
   cancelDisabled?: boolean;
   children?: ReactNode;
@@ -23,6 +24,7 @@ export function ConfirmModal({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   tone = "default",
+  hideCancel = false,
   confirmDisabled = false,
   cancelDisabled = false,
   children,
@@ -40,9 +42,11 @@ export function ConfirmModal({
       size="sm"
       footer={
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={cancelDisabled}>
-            {cancelLabel}
-          </Button>
+          {!hideCancel ? (
+            <Button type="button" variant="outline" onClick={onCancel} disabled={cancelDisabled}>
+              {cancelLabel}
+            </Button>
+          ) : null}
           <Button type="button" variant={tone === "danger" ? "destructive" : "default"} onClick={onConfirm} disabled={confirmDisabled}>
             {confirmLabel}
           </Button>

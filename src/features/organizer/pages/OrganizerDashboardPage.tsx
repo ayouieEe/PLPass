@@ -12,11 +12,12 @@ import { useEvents, useOrganizerProfiles, useStudents } from "@/hooks/useReposit
 import { useOrganizerDashboardAnalytics } from "@/features/organizer/hooks/useOrganizerDashboardAnalytics";
 import { useAutomaticForecasts } from "@/features/organizer/hooks/useAutomaticForecasts";
 import { buildPredictionOverview } from "@/features/organizer/utils/predictionOverview";
+import { formatDisplayDate } from "@/lib/utils/date";
 import { repositories } from "@/services/repositories";
 import type { Event } from "@/types/domain";
 
 function formatDate(iso: string) {
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
+  return formatDisplayDate(iso);
 }
 
 function formatTimeRange(startsAt: string, endsAt: string) {
@@ -30,7 +31,7 @@ function isSameDay(iso: string, reference: Date) {
 }
 
 function DashboardMetricCard({ title, value, detail, icon: Icon, tone = "default", compact = false, to }: { title: string; value: string; detail: string; icon: LucideIcon; tone?: "default" | "warning" | "success"; compact?: boolean; to?: string }) {
-  const toneClass = tone === "warning" ? "border-amber-200 bg-amber-50 text-amber-700" : tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-primary/15 bg-primary/5 text-primary";
+  const toneClass = tone === "warning" ? "border-warning/30 bg-warning-muted text-warning" : tone === "success" ? "border-success/30 bg-success-muted text-success" : "border-primary/15 bg-primary/5 text-primary";
   const card = (
     <article className={`flex h-full flex-col rounded-lg border bg-surface shadow-sm transition-shadow hover:shadow-md ${compact ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
@@ -149,7 +150,7 @@ export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?
         <DashboardMetricCard title={isDepartmentWorkspace ? "Department Events" : "Total Events"} value={totalEventCount.toLocaleString()} detail={isDepartmentWorkspace ? "All events in your department, including completed records." : "All events in your available scope, including completed records."} icon={CalendarCheck} to={routes.records} />
         {isAdminWorkspace ? <DashboardMetricCard title="System Health" value={systemHealthStatus} detail={systemHealthDetail} icon={ShieldCheck} tone={unhealthyChecks || systemHealthQuery.isError ? "warning" : "success"} to={APP_ROUTES.adminSystemHealth} /> : <DashboardMetricCard title={isDepartmentWorkspace ? "Department Organizers" : "Registered Organizers"} value={(organizerProfilesQuery.data?.total ?? 0).toLocaleString()} detail={isDepartmentWorkspace ? "Organizer accounts assigned to your department." : "Organizer accounts registered in your available scope."} icon={Users} to={isDepartmentWorkspace ? `${routes.users}?tab=organizers` : undefined} />}
         <DashboardMetricCard title={isAdminWorkspace ? "Registered Organizers" : isDepartmentWorkspace ? "Department Students" : "Registered Students"} value={(isAdminWorkspace || isDepartmentWorkspace ? (isAdminWorkspace ? organizerProfilesQuery.data?.total ?? 0 : studentsQuery.data?.total ?? 0) : studentsQuery.data?.total ?? 0).toLocaleString()} detail={isAdminWorkspace ? "Organizer accounts registered in the system." : isDepartmentWorkspace ? "Students assigned to your department." : "Total students enrolled in the system."} icon={Users} to={isDepartmentWorkspace ? routes.users : isAdminWorkspace ? `${routes.users}?tab=organizers` : undefined} />
-        <DashboardMetricCard title={isAdminWorkspace ? "Registered Students" : isDepartmentWorkspace ? "Attendance Rate" : "Next Event Turnout"} value={isAdminWorkspace ? (studentsQuery.data?.total ?? 0).toLocaleString() : isDepartmentWorkspace ? `${averageRate}%` : (nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A")} detail={isAdminWorkspace ? "Total students enrolled in the system." : isDepartmentWorkspace ? "Average across completed department sessions." : (nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled.")} icon={isAdminWorkspace || isDepartmentWorkspace ? Users : TrendingUp} tone="success" to={isAdminWorkspace ? routes.users : routes.analytics} />
+        <DashboardMetricCard title={isAdminWorkspace ? "Registered Students" : isDepartmentWorkspace ? "Attendance Rate" : "Next Event Turnout"} value={isAdminWorkspace ? (studentsQuery.data?.total ?? 0).toLocaleString() : isDepartmentWorkspace ? `${averageRate}%` : (nextEvent?.predictedTurnout != null ? `${nextEvent.predictedTurnout}%` : "N/A")} detail={isAdminWorkspace ? "Total students enrolled in the system." : isDepartmentWorkspace ? "Average across completed department sessions." : (nextEvent ? `${nextEvent.code}: ${nextEvent.title}` : "No upcoming event scheduled.")} icon={isAdminWorkspace || isDepartmentWorkspace ? Users : TrendingUp} tone={isAdminWorkspace || isDepartmentWorkspace ? "success" : "default"} to={isAdminWorkspace ? routes.users : routes.analytics} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">

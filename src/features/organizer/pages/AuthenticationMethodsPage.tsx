@@ -2,9 +2,10 @@
 import { type ReactNode, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { AlertCircle, Camera, CheckCircle2, ChevronDown, Download, FileSpreadsheet, FileText, Filter, QrCode, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
+import { AlertCircle, Camera, CheckCircle2, ChevronDown, Download, Filter, QrCode, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -14,7 +15,7 @@ import { useOrganizerProfiles, useStudentCredentialMutations, useStudentCredenti
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
 import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
-import { formatDateTime } from "@/lib/utils/date";
+import { dateKey, formatDateTime, formatDisplayDate } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
 
 type FacialStatus = FacialCredentialDisplayStatus;
@@ -52,7 +53,7 @@ function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
       <div className="mt-3 space-y-1 text-center">
         <p className="font-semibold text-foreground">{student?.studentName}</p>
         <p>QR status: {student?.status || "Active"}</p>
-        <p>Issued: {student?.dateGenerated || new Date().toISOString().slice(0, 10)}</p>
+        <p>Issued: {student?.dateGenerated || formatDisplayDate(new Date())}</p>
       </div>
     </div>
   );
@@ -61,9 +62,9 @@ function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
 function CredentialMetric({ label, value, icon, accent = "default" }: { label: string; value: number; icon: ReactNode; accent?: "default" | "success" | "warning" | "danger" }) {
   const accentClass = {
     default: "bg-primary/10 text-primary",
-    success: "bg-emerald-50 text-emerald-700",
-    warning: "bg-amber-50 text-amber-700",
-    danger: "bg-rose-50 text-rose-700"
+    success: "bg-success-muted text-success",
+    warning: "bg-warning-muted text-warning",
+    danger: "bg-danger-muted text-danger"
   }[accent];
 
   return (
@@ -426,44 +427,11 @@ function ReportExportModal({
           {/* Step 2: File Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable PDF report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable PDF report" />
             </div>
           </div>
         </div>
@@ -561,6 +529,7 @@ export function AuthenticationMethodsPage() {
     description: string;
     confirmLabel: string;
     cancelLabel?: string;
+    hideCancel?: boolean;
     tone?: "default" | "danger";
     studentName?: string;
     studentId?: string;
@@ -579,7 +548,7 @@ export function AuthenticationMethodsPage() {
       studentNumber: student.studentNumber,
       credentialId: credential?.id ?? "",
       status: getQrCredentialDisplayStatus(credential) === "Active" ? "Active" : "Deactivated",
-      dateGenerated: credential?.issuedAt?.slice(0, 10) ?? "-",
+      dateGenerated: credential?.issuedAt ? dateKey(credential.issuedAt) : "-",
       lastUsed: credential?.lastSuccessfulCheckInAt ? formatDateTime(credential.lastSuccessfulCheckInAt, "-") : "-"
     };
   }), [credentialMap, rawStudents]);
@@ -590,9 +559,9 @@ export function AuthenticationMethodsPage() {
       studentId: student.id,
       studentName: student.formattedName || student.fullName || student.studentNumber,
       studentNumber: student.studentNumber,
-      enrollmentDate: profile?.enrolledAt?.slice(0, 10) ?? "-",
+      enrollmentDate: profile?.enrolledAt ? dateKey(profile.enrolledAt) : "-",
       status: getFacialCredentialDisplayStatus(profile),
-      lastScan: profile?.lastVerifiedAt?.slice(0, 10) ?? "-"
+      lastScan: profile?.lastVerifiedAt ? dateKey(profile.lastVerifiedAt) : "-"
     };
   }), [credentialMap, rawStudents]);
 
@@ -692,6 +661,7 @@ export function AuthenticationMethodsPage() {
       description: `Review the current QR credential for ${student.studentName}.`,
       confirmLabel: canManage ? (isActive ? "Deactivate" : "Reactivate") : "Close",
       cancelLabel: canManage ? "Cancel" : "Close",
+      hideCancel: !canManage,
       tone: canManage && isActive ? "danger" : "default",
       studentName: student.studentName,
       studentId: student.studentId
@@ -704,6 +674,7 @@ export function AuthenticationMethodsPage() {
       title: "Facial enrollment details",
       description: `Review the current facial enrollment for ${student.studentName}.`,
       confirmLabel: "Close",
+      hideCancel: true,
       studentName: student.studentName,
       studentId: student.studentId
     });
@@ -746,6 +717,10 @@ export function AuthenticationMethodsPage() {
 
   async function confirmModalAction() {
     if (!activeModal) return;
+    if (activeModal.hideCancel) {
+      setActiveModal(null);
+      return;
+    }
     try {
     const isRevocation = /Disable|Deactivate/.test(activeModal.title);
     if ((isRevocation && !canRevokeCredentials) || (!isRevocation && /Enable|Activate|Regenerate|Reissue/.test(activeModal.title) && !canResetCredentials)) {
@@ -999,6 +974,7 @@ export function AuthenticationMethodsPage() {
         confirmLabel={activeModal?.confirmLabel}
         cancelLabel={activeModal?.cancelLabel}
         tone={activeModal?.tone}
+        hideCancel={activeModal?.hideCancel}
         onConfirm={confirmModalAction}
         onCancel={() => setActiveModal(null)}
       >
@@ -1041,7 +1017,7 @@ export function AuthenticationMethodsPage() {
               </div>
               <div className="mt-3 space-y-1 text-center">
                 <p className="font-semibold text-foreground">{activeModal.studentName}</p>
-                <p>Last verified: {selectedStudentFacialInfo?.lastScan && selectedStudentFacialInfo.lastScan !== "-" ? selectedStudentFacialInfo.lastScan : new Date().toISOString().slice(0, 10)}</p>
+                <p>Last verified: {selectedStudentFacialInfo?.lastScan && selectedStudentFacialInfo.lastScan !== "-" ? selectedStudentFacialInfo.lastScan : formatDisplayDate(new Date())}</p>
                 <p>Status: {selectedStudentFacialInfo?.status || "Deactivated"}</p>
               </div>
             </div>

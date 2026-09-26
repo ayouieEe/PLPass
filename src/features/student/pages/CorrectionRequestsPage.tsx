@@ -27,7 +27,7 @@ import { SubmitButton } from "@/components/forms/SubmitButton";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ModalShell } from "@/components/modals/ModalShell";
-import { formatDisplayDate } from "@/lib/utils/date";
+import { dateKey, formatDisplayDate } from "@/lib/utils/date";
 import { getErrorMessage } from "@/lib/utils/errors";
 import {
   correctionRequestTypeLabels,
@@ -227,7 +227,7 @@ export function CorrectionRequestsPage() {
 
   const correctionHistoryRows: CorrectionHistoryRow[] = correctionsQuery.isError ? [] : (correctionsQuery.data?.items ?? []).filter((request) => request.studentId === scope.student?.id).map((request) => ({
     id: request.id,
-    submittedDate: formatDisplayDate(request.requestedAt, "N/A"),
+    submittedDate: dateKey(request.requestedAt) || "N/A",
     subjectOrEventId: request.eventId ?? "Session Record",
     type: "Correction",
     status: request.status,
