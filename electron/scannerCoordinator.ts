@@ -138,7 +138,7 @@ export class ScannerCoordinator {
     if (stored) await this.certificateStore.clear();
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60_000).toISOString();
     const pems = await selfsigned.generate([{ name: "commonName", value: "PLPass Scanner Root" }], {
-      algorithm: "sha256", keySize: 2048, days: 365,
+      algorithm: "sha256", keySize: 2048, notAfterDate: new Date(expiresAt),
       extensions: [{ name: "basicConstraints", cA: true, pathLenConstraint: 0, critical: true }, { name: "keyUsage", digitalSignature: true, keyCertSign: true, cRLSign: true, critical: true }]
     });
     const root = { certificate: pems.cert, privateKey: pems.private, fingerprint: pems.fingerprint, expiresAt };

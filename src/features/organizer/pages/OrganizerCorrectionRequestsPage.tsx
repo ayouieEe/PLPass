@@ -2,9 +2,10 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { AlertCircle, Check, CheckCircle2, Download, FileSpreadsheet, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Download, FileText, Filter, Search, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -14,6 +15,7 @@ import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, use
 import { queryClient } from "@/app/providers/queryClient";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { formatDisplayDate } from "@/lib/utils/date";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import {
@@ -266,44 +268,11 @@ function ReportExportModal({
           {/* Step 2: File Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable PDF report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable PDF report" />
             </div>
           </div>
         </div>
@@ -490,7 +459,7 @@ export function OrganizerCorrectionRequestsPage() {
           eventCode: event?.code ?? "Unknown event",
           eventName: event?.title ?? "Event details unavailable",
           requestType: "Correction" as RequestType,
-          dateSubmitted: req.requestedAt.slice(0, 10),
+          dateSubmitted: formatDisplayDate(req.requestedAt, "-"),
           status: req.status as RequestStatus,
           recordedAttendanceStatus: (recordedStatus === "present" || recordedStatus === "late" || recordedStatus === "absent" ? recordedStatus : "absent") as "present" | "late" | "absent",
           requestedStatus: req.requestedStatus as "present" | "late" | "absent",

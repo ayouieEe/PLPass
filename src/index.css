@@ -20,8 +20,18 @@
     scrollbar-gutter: stable;
   }
 
-  .account-edit-form h3:not(:first-child) {
-    margin-top: 0.75rem;
+  .account-edit-form > h3 {
+    grid-column: 1 / -1;
+    margin: 0.25rem 0 0 !important;
+    border: 1px solid hsl(var(--border));
+    border-left: 3px solid hsl(var(--primary));
+    border-radius: 0.75rem;
+    background: hsl(var(--surface-muted));
+    padding: 0.75rem 0.9rem;
+  }
+
+  .account-edit-form > h3:first-child {
+    margin-top: 0 !important;
   }
 
   .account-edit-actions {
@@ -49,6 +59,17 @@
 
   .account-edit-student-form input,
   .account-edit-student-form select {
+    color: hsl(var(--foreground));
+  }
+
+  .student-account-modal input:not([type="file"]),
+  .student-account-modal select {
+    border-color: hsl(var(--input));
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  .student-account-modal label {
     color: hsl(var(--foreground));
   }
 
@@ -233,6 +254,19 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
+  /* UI headings are titles, so present multi-word titles consistently. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-transform: capitalize;
+  }
+
+  /* Preserve intentional casing for headings that render user-provided text. */
+  [data-title-case="preserve"] {
+    text-transform: none;
+  }
+
   html {
     scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
     scrollbar-width: thin;
@@ -395,6 +429,18 @@
   .plpass-field {
     @apply border-input bg-surface text-foreground placeholder:text-muted-foreground disabled:bg-disabled focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
   }
+
+  .plpass-report-format-option {
+    @apply relative flex min-h-20 items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left text-foreground shadow-sm outline-none;
+    transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out;
+  }
+  .plpass-report-format-option:hover { @apply border-primary/50 bg-primary/5; transform: translateY(-1px); }
+  .plpass-report-format-option:focus-visible { @apply border-primary ring-2 ring-ring; }
+  .plpass-report-format-option:active { transform: scale(0.985); }
+  .plpass-report-format-option[data-selected="true"] { @apply border-primary bg-primary/10 shadow-md ring-2 ring-primary/30; animation: plpass-report-format-selected 180ms ease-out; }
+  .plpass-report-format-option-icon { @apply shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors duration-150; }
+  .plpass-report-format-option[data-selected="true"] .plpass-report-format-option-icon { @apply bg-primary/15 text-primary; }
+  .plpass-report-format-option-badge { @apply absolute right-2 top-2 inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground; }
 
   .plpass-select,
   select.plpass-field {
@@ -982,6 +1028,17 @@
 
   .plpass-data-grid-shell:not(.plpass-data-grid-shell-flat) {
     box-shadow: 0 1px 2px hsl(var(--foreground) / 0.06), 0 10px 28px hsl(var(--foreground) / 0.035);
+  }
+
+  @keyframes plpass-report-format-selected { 0% { transform: scale(0.975); } 100% { transform: scale(1); } }
+  @keyframes plpass-data-grid-row-exit { from { opacity: 1; } to { opacity: 0; } }
+  .ag-theme-plpass .ag-row.plpass-data-grid-row-exit { pointer-events: none; animation: plpass-data-grid-row-exit 120ms ease-out both; }
+  .plpass-data-grid-shell .ag-row-animation .ag-row,
+  .plpass-data-grid-shell .ag-row-animation .ag-row.ag-after-created { transition: transform 120ms ease-out, top 120ms ease-out, height 120ms ease-out, opacity 100ms ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .ag-theme-plpass .ag-row.plpass-data-grid-row-exit { animation: none; }
+    .plpass-data-grid-shell .ag-row-animation .ag-row,
+    .plpass-data-grid-shell .ag-row-animation .ag-row.ag-after-created { transition: none; }
   }
 
   .plpass-data-grid-shell .ag-body-vertical-scroll-viewport::-webkit-scrollbar,

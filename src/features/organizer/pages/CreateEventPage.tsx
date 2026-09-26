@@ -53,6 +53,7 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { repositories } from "@/services/repositories";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { EVENT_CATEGORY_OPTIONS as CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS as VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
 import {
   formatResourceFileSize,
@@ -95,29 +96,6 @@ type EventWithCount = Event & { participantCount: number };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
 const timeFormatter = new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit" });
-
-const VENUE_OPTIONS = [
-  { label: "Function Hall", value: "Function Hall" },
-  { label: "Banquet Hall", value: "Banquet Hall" },
-  { label: "Auditorium", value: "Auditorium" },
-  { label: "Gymnasium", value: "Gymnasium" },
-  { label: "AVR 1", value: "AVR 1" },
-  { label: "AVR 2", value: "AVR 2" },
-  { label: "AVR 4", value: "AVR 4" }
-];
-
-const CATEGORY_OPTIONS = [
-  { label: "Assembly", value: "Assembly" },
-  { label: "Seminar", value: "Seminar" },
-  { label: "Workshop", value: "Workshop" },
-  { label: "Orientation", value: "Orientation" },
-  { label: "Training", value: "Training" },
-  { label: "Athletic Event", value: "Athletic Event" },
-  { label: "Ceremony", value: "Ceremony" },
-  { label: "Rehearsal/Practice", value: "Rehearsal/Practice" },
-  { label: "Cultural Program", value: "Cultural Program" },
-  { label: "Election Activity", value: "Election Activity" }
-];
 
 const COLLEGE_OFFICE_OPTIONS = [
   { label: "College of Education", value: "College of Education" },
@@ -1430,11 +1408,14 @@ export function CreateEventPage() {
               <h2 className="text-lg font-semibold text-foreground">Review and publish</h2>
               <p className="mt-1 text-sm text-muted-foreground">Confirm the event details before invitations are sent.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(1)}>Edit event details</Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(2)}>Edit participants</Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setCurrentStep(3)}>Edit feedback</Button>
-            </div>
+            <details className="relative">
+              <summary className="flex h-8 cursor-pointer list-none items-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground marker:content-none hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">Edit event</summary>
+              <div className="absolute right-0 z-20 mt-2 grid min-w-48 gap-1 rounded-lg border border-border bg-popover p-1.5 shadow-lg">
+                <button type="button" className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => setCurrentStep(1)}>Edit event details</button>
+                <button type="button" className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => setCurrentStep(2)}>Edit participants</button>
+                <button type="button" className="rounded-md px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => setCurrentStep(3)}>Edit feedback</button>
+              </div>
+            </details>
           </div>
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Event</dt><dd className="mt-2 font-semibold text-foreground">{reviewValues.title || "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.code}</dd></div>

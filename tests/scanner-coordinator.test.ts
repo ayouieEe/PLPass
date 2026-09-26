@@ -26,11 +26,11 @@ function page(url: string) {
 }
 
 describe("scanner coordinator", () => {
-  it("uses the installed selfsigned certificate lifetime options", () => {
+  it("uses supported selfsigned certificate lifetime options", () => {
     const source = readFileSync(path.resolve(process.cwd(), "electron/scannerCoordinator.ts"), "utf8");
     expect(source).toContain("days: 1");
-    expect(source).toContain("days: 365");
-    expect(source).not.toContain("notAfterDate");
+    expect(source).toContain("notAfterDate: new Date(expiresAt)");
+    expect(source).not.toContain("keySize: 2048, days: 365");
   });
 
   it("reuses one trusted root certificate across scanner sessions and replaces it on request", async () => {

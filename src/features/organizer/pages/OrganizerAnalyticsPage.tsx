@@ -15,8 +15,6 @@ import {
   ClipboardList,
   Clock3,
   Download,
-  FileSpreadsheet,
-  FileText,
   Filter,
   LayoutDashboard,
   MessageSquareQuote,
@@ -35,6 +33,7 @@ import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -329,44 +328,11 @@ function AnalyticsExportModal({
           {/* Step 2: Download Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 font-medium">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable formatted report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable formatted report" />
             </div>
           </div>
         </div>
@@ -1081,7 +1047,7 @@ export function OrganizerAnalyticsPage() {
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Overall Attendance</p>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+            <div className="rounded-lg bg-info-muted p-2 text-info">
               <TrendingUp className="h-4 w-4" />
             </div>
           </div>
@@ -1092,8 +1058,8 @@ export function OrganizerAnalyticsPage() {
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Turnout Forecast</p>
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              {isPredicting ? <span className="animate-spin h-4 w-4 block rounded-full border-2 border-emerald-600 border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
+            <div className="rounded-lg bg-success-muted p-2 text-success">
+              {isPredicting ? <span className="block h-4 w-4 animate-spin rounded-full border-2 border-success border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
             </div>
           </div>
           <p className="mt-2 text-2xl font-bold text-slate-900">{isPredicting ? "…" : selectedPrediction == null ? "N/A" : `${selectedPrediction}%`}</p>
@@ -1103,7 +1069,7 @@ export function OrganizerAnalyticsPage() {
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Positive Sentiment</p>
-            <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+            <div className="rounded-lg bg-warning-muted p-2 text-warning">
               <MessageSquareQuote className="h-4 w-4" />
             </div>
           </div>
@@ -1114,7 +1080,7 @@ export function OrganizerAnalyticsPage() {
         <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Top Late Cause</p>
-            <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+            <div className="rounded-lg bg-secondary p-2 text-accent">
               <Clock3 className="h-4 w-4" />
             </div>
           </div>
@@ -1290,17 +1256,17 @@ export function OrganizerAnalyticsPage() {
                   return (
                     <div 
                       key={factor.id} 
-                      className={`overflow-hidden rounded-xl border transition-all duration-300 ${isActive ? 'bg-primary/5 border-primary/30 shadow-sm' : 'bg-surface hover:border-primary/20 hover:bg-slate-50'}`}
+                      className={`overflow-hidden rounded-xl border transition-colors duration-200 ${isActive ? "border-primary/30 bg-primary/5 shadow-sm" : "border-border bg-surface hover:border-primary/40 hover:bg-surface-muted"}`}
                     >
                       <button 
                         type="button"
                         onClick={() => setSelectedPdpFeature(factor.id)}
-                        className="flex w-full items-center justify-between p-4 text-left"
+                        className="flex w-full items-center justify-between p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       >
                         <div className="flex-1 pr-4">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 className="text-sm font-bold text-foreground">{factor.name}</h4>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${isActionable ? 'bg-blue-100 text-blue-700 border-blue-200 border' : 'bg-slate-100 text-slate-600 border-slate-200 border'}`}>
+                            <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${isActionable ? "border-info/30 bg-info-muted text-info" : "border-border bg-secondary text-secondary-foreground"}`}>
                               {isActionable ? 'Actionable Control' : 'Audience Insight'}
                             </span>
                           </div>
@@ -1313,16 +1279,16 @@ export function OrganizerAnalyticsPage() {
                               <div className="h-full rounded-full bg-primary" style={{ width: `${factor.strength}%` }} />
                             </div>
                           </div>
-                          {isActive ? <ChevronUp className="h-5 w-5 text-primary" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+                          {isActive ? <ChevronUp className="h-5 w-5 text-primary" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
                         </div>
                       </button>
 
                       {/* Expandable PDP Section */}
                       {isActive && pdpData && (
-                        <div className="border-t border-primary/10 bg-white/50 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                          <div className="mb-4 rounded-lg bg-blue-50/80 border border-blue-100 p-3">
-                            <h5 className="text-[10px] font-bold uppercase tracking-wider text-blue-800 mb-1">Model note</h5>
-                            <p className="text-xs font-medium text-blue-900 leading-relaxed">{factor.insight}</p>
+                        <div className="animate-in border-t border-primary/10 bg-surface-muted p-4 fade-in slide-in-from-top-2 duration-300">
+                          <div className="mb-4 rounded-lg border border-info/30 bg-info-muted p-3">
+                            <h5 className="mb-1 text-[10px] font-bold uppercase tracking-wider text-info">Model note</h5>
+                            <p className="text-xs font-medium leading-relaxed text-foreground">{factor.insight}</p>
                           </div>
                           
                           <div className="h-48 w-full mt-2">

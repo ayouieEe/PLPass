@@ -15,6 +15,10 @@ export type UniqueAttendanceSummary = {
   attendanceRate: number;
 };
 
+export type FinalizedAttendanceSummaryRow = AttendanceSummaryIdentityRow & {
+  isUnverifiedWalkIn?: boolean;
+};
+
 /**
  * Merge the two server read sources without allowing a walk-in to disappear
  * or render twice after it is verified. The raw source rows remain untouched.
@@ -64,6 +68,42 @@ export function summarizeUniqueAttendance(
     late,
     absent,
     population: denominator,
+    attendanceRate
+  };
+}
+
+/**
+ * A walk-in is additional attendance, not a replacement for a registered
+ * participant who did not arrive. Keep those populations separate until the
+ * final totals are combined so live-session and event-record summaries agree.
+ */
+export function summarizeFinalizedAttendance(
+  rows: FinalizedAttendanceSummaryRow[],
+  registeredCount: number
+): UniqueAttendanceSummary {
+  const registered = summarizeUniqueAttendance(
+    rows.filter((row) => !row.isUnverifiedWalkIn),
+    registeredCount,
+    true
+  );
+  const walkIns = summarizeUniqueAttendance(
+    rows.filter((row) => row.isUnverifiedWalkIn),
+    0
+  );
+  const present = registered.present + walkIns.present;
+  const late = registered.late + walkIns.late;
+  const absent = registered.absent + walkIns.absent;
+  const population = registered.population + walkIns.population;
+  const attendanceRate = population === 0
+    ? 0
+    : Math.min(100, Math.round(((present + late) / population) * 1000) / 10);
+
+  return {
+    rows: [...registered.rows, ...walkIns.rows],
+    present,
+    late,
+    absent,
+    population,
     attendanceRate
   };
 }

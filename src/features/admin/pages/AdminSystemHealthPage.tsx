@@ -10,10 +10,10 @@ import { toast } from "sonner";
 import { formatDateTime } from "@/lib/utils/date";
 
 const statusStyles = {
-  healthy: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  degraded: "border-amber-200 bg-amber-50 text-amber-800",
-  failed: "border-red-200 bg-red-50 text-red-800",
-  not_configured: "border-slate-200 bg-slate-50 text-slate-700"
+  healthy: "border-success/30 bg-success-muted text-success",
+  degraded: "border-warning/30 bg-warning-muted text-warning",
+  failed: "border-danger/30 bg-danger-muted text-danger",
+  not_configured: "border-border bg-muted text-muted-foreground"
 } as const;
 
 const ITEMS_PER_PAGE = 3;

@@ -19,6 +19,7 @@ import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedback
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
+import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { formatAttendanceMethod, type OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
@@ -567,11 +568,11 @@ export function EventRecordsPage() {
 
 
   const venueOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.venue.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_VENUE_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.venue.trim()).filter(Boolean)])].sort(),
     [completedRows]
   );
   const categoryOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.category.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_CATEGORY_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.category.trim()).filter(Boolean)])].sort(),
     [completedRows]
   );
   const pastEvents = useMemo(

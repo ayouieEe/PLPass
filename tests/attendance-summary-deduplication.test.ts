@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOrganizerAttendanceRows, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
+import { mergeOrganizerAttendanceRows, summarizeFinalizedAttendance, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 
 describe("organizer attendance summary identity counting", () => {
   it("prefers the verified attendance row when the same durable scan exists in both sources", () => {
@@ -39,5 +39,13 @@ describe("organizer attendance summary identity counting", () => {
 
     expect(active).toMatchObject({ present: 1, late: 0, absent: 0, population: 2 });
     expect(completed).toMatchObject({ present: 1, late: 0, absent: 1, population: 2, attendanceRate: 50 });
+  });
+
+  it("counts an unverified walk-in in addition to absent registered participants", () => {
+    const summary = summarizeFinalizedAttendance([
+      { identity: "walkin:scan-1", attendanceStatus: "present", isUnverifiedWalkIn: true }
+    ], 3);
+
+    expect(summary).toMatchObject({ present: 1, late: 0, absent: 3, population: 4, attendanceRate: 25 });
   });
 });

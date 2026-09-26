@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw, RefreshCw } from "lucide-react";
+import { Download, FileText, Filter, Search, Calendar, User as UserIcon, Tag, RotateCcw, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { ModalShell } from "@/components/modals/ModalShell";
@@ -35,6 +37,28 @@ import {
 const AUDIT_ACTOR_ROLE_OPTIONS = ["admin", "department_admin", "organizer", "student"];
 const DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS = ["department_admin", "organizer", "student"];
 
+function AuditLogsExportModal({ isOpen, recordCount, onClose, onExport }: { isOpen: boolean; recordCount: number; onClose: () => void; onExport: (format: "xlsx" | "pdf") => Promise<void> }) {
+  const [format, setFormat] = useState<"xlsx" | "pdf">("xlsx");
+  const [isExporting, setIsExporting] = useState(false);
+  if (!isOpen) return null;
+  async function handleExport() {
+    if (!recordCount) { toast.warning("No audit logs match the current filters."); return; }
+    setIsExporting(true);
+    try { await onExport(format); onClose(); } catch { toast.error("Unable to export audit logs. Please try again."); } finally { setIsExporting(false); }
+  }
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+      <section className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="audit-logs-export-modal-title" onClick={(event) => event.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-border bg-surface-muted/50 px-6 py-4">
+          <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-xs"><Download className="h-5 w-5" aria-hidden="true" /></span><div><h2 id="audit-logs-export-modal-title" className="text-base font-bold">Export Report</h2><p className="text-xs font-medium text-muted-foreground">Export uses the current page filters.</p></div></div>
+          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close export modal"><X className="h-4 w-4" aria-hidden="true" /></button>
+        </header>
+        <div className="space-y-5 p-6"><div><span className="mb-2.5 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">1. Report Content</span><div className="rounded-xl border border-primary bg-primary/5 p-4 ring-2 ring-primary/20"><div className="flex items-center gap-3"><span className="rounded-lg bg-primary/10 p-2 text-primary"><FileText className="h-4 w-4" aria-hidden="true" /></span><div><p className="text-sm font-bold">Audit Log Report</p><p className="mt-1 text-[11px] leading-snug text-muted-foreground">{recordCount} filtered {recordCount === 1 ? "record" : "records"}, including action, user, and affected entity.</p></div></div></div></div><div><span className="mb-2.5 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">2. Download Format</span><div className="grid grid-cols-2 gap-3"><ReportFormatOption format="xlsx" selectedFormat={format} onSelect={setFormat} description="Excel workbook format" /><ReportFormatOption format="pdf" selectedFormat={format} onSelect={setFormat} description="Printable formatted report" /></div></div></div>
+        <footer className="flex justify-end gap-3 border-t border-border bg-surface-muted/50 px-6 py-4"><Button type="button" variant="outline" onClick={onClose} disabled={isExporting}>Cancel</Button><Button type="button" onClick={() => void handleExport()} disabled={!recordCount || isExporting}><Download className="h-4 w-4" aria-hidden="true" />{isExporting ? "Exporting…" : `Export ${format.toUpperCase()}`}</Button></footer>
+      </section>
+    </div>, document.body);
+}
+
 export function OrganizerAuditLogsPage() {
   const { session } = useDevelopmentSession();
 
@@ -51,6 +75,7 @@ export function OrganizerAuditLogsPage() {
   };
   const [actorRole, setActorRole] = useState("all");
   const [actionCategory, setActionCategory] = useState<AuditLogFilters["actionCategory"]>("all");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Selected Log for Details Modal
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
@@ -331,16 +356,12 @@ export function OrganizerAuditLogsPage() {
               </span>
               {canExportAudit ? <Button
                 type="button"
-                onClick={() => void exportAuditLogs("xlsx")}
+                onClick={() => setIsExportModalOpen(true)}
                 disabled={!filteredLogs.length}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                XLSX
-              </Button> : null}
-              {canExportAudit ? <Button type="button" onClick={() => void exportAuditLogs("pdf")} disabled={!filteredLogs.length} variant="outline" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50">
-                <Download className="h-3.5 w-3.5" aria-hidden="true" />
-                PDF
+                Export
               </Button> : null}
             <Button
               type="button"
@@ -481,6 +502,8 @@ export function OrganizerAuditLogsPage() {
           />
         )}
       </section>
+
+      <AuditLogsExportModal isOpen={isExportModalOpen} recordCount={filteredLogs.length} onClose={() => setIsExportModalOpen(false)} onExport={exportAuditLogs} />
 
       {/* View Details Modal */}
       {selectedLog ? (
