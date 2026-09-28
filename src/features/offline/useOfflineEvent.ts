@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopApi, confirmSupabaseConnectivity, prepareEventForOffline, synchronizePendingAttendance } from "./offlineService";
 import type { OfflineStatus, PreparedEventPackage } from "./types";
-import { automaticSyncDelayMs } from "./autoSyncPolicy";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 
 const unavailable: OfflineStatus={runtimeAvailable:false,connectivity:"checking",packageStatus:"NOT_PREPARED",pendingCount:0,retryCount:0,conflictCount:0,syncingCount:0};
@@ -55,6 +54,8 @@ export function useOfflineEvent(eventId?:string,sessionId?:string){
   const sync=useCallback(async(forceRetry=false)=>{setBusy(true);try{await synchronizePendingAttendance(20,forceRetry,false,session?.userId);await refresh();}finally{setBusy(false);}},[refresh,session?.userId]);
   const prepare=useCallback(async()=>{if(!eventId||!session?.userId)return;setBusy(true);try{setStatus((s)=>({...s,packageStatus:"PREPARING"}));await prepareEventForOffline(eventId,session.userId);await refresh();}finally{setBusy(false);}},[eventId,refresh,session?.userId]);
   useEffect(()=>{void refresh();},[refresh]);
-  useEffect(()=>{if(isOfflineMode||!navigator.onLine||!desktopApi())return;const delay=automaticSyncDelayMs(status);if(delay===null)return;const timer=window.setTimeout(()=>void sync(),delay);return()=>window.clearTimeout(timer);},[isOfflineMode,status,sync]);
+  // Synchronization scheduling is global and owner-scoped in
+  // DevelopmentSessionProvider.  Keeping a second event-page timer caused
+  // duplicate uploads after navigation and ignored saved work on other pages.
   return {status,preparedEvent,busy,isLoading,lookupError,prepare,sync,refresh};
 }

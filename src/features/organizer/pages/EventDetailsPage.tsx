@@ -1344,7 +1344,7 @@ export function EventDetailsPage() {
               />
             </div>
           ) : null}
-          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} total={attendanceSummary?.totalRegistered ?? participants.length} /> : null}
+          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} total={attendanceSummary?.attendancePopulation ?? participants.length} walkIns={attendanceSummary?.walkIns} /> : null}
         </div>
       </section>
 

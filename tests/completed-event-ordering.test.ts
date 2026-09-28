@@ -21,4 +21,13 @@ describe("completed event history ordering", () => {
 
     expect(sortCompletedEventsNewestFirst(events).map((event) => event.code)).toEqual(["NEWER", "OLDER"]);
   });
+
+  it("uses actual completion time when events share the same scheduled finish", () => {
+    const events = [
+      { code: "EARLIER", endsAt: "2026-09-28T10:00:00Z", completedAt: "2026-09-28T10:05:00Z" },
+      { code: "LATEST", endsAt: "2026-09-28T10:00:00Z", completedAt: "2026-09-28T10:20:00Z" }
+    ];
+
+    expect(sortCompletedEventsNewestFirst(events).map((event) => event.code)).toEqual(["LATEST", "EARLIER"]);
+  });
 });

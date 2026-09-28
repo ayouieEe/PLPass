@@ -32,6 +32,20 @@ const scannerClientId = (() => {
 function show(html: string) { root.innerHTML = html; }
 function safe(text: string) { return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character); }
 function phaseLabel() { return capturePhase === "time_out" ? "Time Out" : "Time In"; }
+function confirmWalkIn(studentNumber: string, studentName?: string, verifiedStudent?: boolean): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dialog = document.createElement("div");
+    dialog.className = "walkin-dialog-backdrop";
+    const identity = studentName ? safe(studentName) : `Student ${safe(studentNumber)}`;
+    const source = verifiedStudent ? "is not on this event's participant list." : "is not in the downloaded roster.";
+    dialog.innerHTML = `<section class="walkin-dialog" role="dialog" aria-modal="true" aria-labelledby="walkin-title"><p class="walkin-eyebrow">Walk-in review</p><h2 id="walkin-title">Uninvited student</h2><div class="walkin-warning"><strong>Review before admitting</strong><span>${identity} ${source}</span></div><dl><dt>Student</dt><dd>${identity}</dd><dt>Student number</dt><dd>${safe(studentNumber)}</dd></dl><p class="walkin-help">Allowing entry records attendance as a Walk-in. Rejecting records nothing.</p><div class="walkin-actions"><button type="button" data-walkin="reject" class="walkin-reject">Reject</button><button type="button" data-walkin="allow" class="walkin-allow">Allow as Walk-in</button></div></section>`;
+    const settle = (allowed: boolean) => { dialog.remove(); resolve(allowed); };
+    dialog.querySelector('[data-walkin="reject"]')?.addEventListener("click", () => settle(false));
+    dialog.querySelector('[data-walkin="allow"]')?.addEventListener("click", () => settle(true));
+    root.append(dialog);
+    (dialog.querySelector('[data-walkin="allow"]') as HTMLButtonElement | null)?.focus();
+  });
+}
 function renderPhase() { const label = document.querySelector<HTMLElement>("#phase"); if (label) label.textContent = `Recording ${phaseLabel()}`; const result = document.querySelector<HTMLParagraphElement>("#result"); if (result && controls && !busy) { result.className = "scan-status"; result.textContent = `Camera is ready. Scan a student QR to record ${phaseLabel()}.`; } }
 function renderPreviewMirror() {
   const video = document.querySelector<HTMLVideoElement>("#camera");
@@ -69,7 +83,7 @@ async function startScan() {
       try {
         const response = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${stationToken}` }, body: JSON.stringify({ credentialCode: credential, scanAttemptId: crypto.randomUUID() }) });
         const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; recordedAt?: string; requiresWalkInConfirmation?: boolean; verifiedStudent?: boolean; error?: string };
-        if(body.requiresWalkInConfirmation&&body.studentNumber&&window.confirm(body.verifiedStudent?`${body.studentName??body.studentNumber} is not on this event's participant list. Save this verified student as a walk-in for today's attendance?`:`Student ${body.studentNumber} is not in the cached student directory. Save this scan as an unverified walk-in for later verification?`)){
+        if(body.requiresWalkInConfirmation&&body.studentNumber&&await confirmWalkIn(body.studentNumber,body.studentName,body.verifiedStudent)){
           const walkInResponse=await fetch("/api/walk-in",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${stationToken}`},body:JSON.stringify({studentNumber:body.studentNumber})});
           const walkIn=await walkInResponse.json() as {accepted?:boolean;message?:string;error?:string;studentNumber?:string;recordedAt?:string};
           result.className=walkIn.accepted?"scan-status success":"scan-status error";

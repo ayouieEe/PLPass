@@ -45,8 +45,8 @@ const password = "PLPass-Local-Integration-2026!";
 const users = [
   { id: ids.organizerUser, email: "organizer.integration@plpass.local", role: "organizer", first: "Olivia", last: "Organizer", employeeId: "LOCAL-ORG-01" },
   { id: ids.organizerTwoUser, email: "organizer.two.integration@plpass.local", role: "organizer", first: "Oscar", last: "Organizer", employeeId: "LOCAL-ORG-02" },
-  { id: ids.studentUser, email: "student.integration@plpass.local", role: "student", first: "Sofia", last: "Student", studentId: "LOCAL-STU-01" },
-  { id: ids.studentTwoUser, email: "student.two.integration@plpass.local", role: "student", first: "Samuel", last: "Student", studentId: "LOCAL-STU-02" }
+  { id: ids.studentUser, email: "student.integration@plpass.local", role: "student", first: "Sofia", last: "Student", studentId: "23-00001" },
+  { id: ids.studentTwoUser, email: "student.two.integration@plpass.local", role: "student", first: "Samuel", last: "Student", studentId: "23-00002" }
 ];
 
 function check(result, label) {
@@ -284,6 +284,49 @@ async function run() {
   assert.equal(endedLiveSession.session_status, "completed");
   const reconciledAbsent = check(await admin.from("attendance_records").select("attendance_status").eq("event_session_id", liveSession.id).eq("student_id", ids.studentTwo).single(), "read reconciled absence");
   assert.equal(reconciledAbsent.attendance_status, "absent", "missing participants must be marked absent when the session ends");
+
+  const walkInEvent = check(await organizer.from("events").insert({
+    event_code: "LOCAL-INTEGRATION-WALKIN",
+    organizer_id: ids.organizer,
+    department_id: ids.department,
+    category_id: ids.category,
+    title: "Walk-in Reconciliation Lifecycle",
+    venue: "Local Walk-in Room",
+    starts_at: liveStart,
+    ends_at: liveEnd,
+    event_status: "scheduled",
+    approval_status: "approved",
+    visibility: "assigned"
+  }).select().single(), "organizer creates walk-in integration event");
+  check(await organizer.from("event_participants").insert({ event_id: walkInEvent.id, student_id: ids.student, participant_status: "confirmed" }), "assign only invited walk-in-event participant");
+  const walkInSession = check(await organizer.rpc("start_event_attendance_session", {
+    p_event_id: walkInEvent.id, p_venue: "Local Walk-in Room", p_scheduled_start: liveStart, p_scheduled_end: liveEnd, p_mode: "f2f", p_late_cutoff_minutes: 15
+  }), "start walk-in integration session");
+  const approvedWalkIn = check(await organizer.rpc("record_approved_event_walkin", {
+    p_local_scan_uuid: "70000000-0000-4000-8000-000000000001",
+    p_event_id: walkInEvent.id,
+    p_session_id: walkInSession.id,
+    p_student_number: users[3].studentId,
+    p_identification_method: "manual",
+    p_time_in: new Date().toISOString(),
+    p_time_out: null,
+    p_checkout_identification_method: null
+  }), "reconcile active enrolled offline walk-in");
+  assert.equal(approvedWalkIn.disposition, "confirmed_walk_in", "uninvited enrolled student must become a walk-in");
+  assert.equal(approvedWalkIn.attendance.attendance_origin, "walk_in", "walk-in attendance must retain its durable origin");
+  assert.equal(check(await organizer.from("event_participants").select("participant_status").eq("event_id", walkInEvent.id).eq("student_id", ids.studentTwo).single(), "read accepted walk-in participant").participant_status, "walk_in");
+  const invalidWalkIn = check(await organizer.rpc("record_approved_event_walkin", {
+    p_local_scan_uuid: "70000000-0000-4000-8000-000000000002",
+    p_event_id: walkInEvent.id,
+    p_session_id: walkInSession.id,
+    p_student_number: "23-99999",
+    p_identification_method: "manual",
+    p_time_in: new Date().toISOString(),
+    p_time_out: null,
+    p_checkout_identification_method: null
+  }), "reject missing offline walk-in");
+  assert.equal(invalidWalkIn.disposition, "discarded_permanent_conflict", "unknown student must never create attendance");
+  assert.equal(invalidWalkIn.reasonCode, "student_not_found");
 
   check(await organizer.from("event_sessions").insert({
     id: ids.eventSession,

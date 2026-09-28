@@ -389,11 +389,11 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
   });
 }
 
-export function useAttendanceSession(sessionId: string | undefined, context?: RepositoryContext) {
+export function useAttendanceSession(sessionId: string | undefined, context?: RepositoryContext, enabled = true) {
   return useQuery({
     queryKey: ["attendanceSession", sessionId, context],
     queryFn: () => repositories.attendanceSessions.getAttendanceSessionById(sessionId ?? "", context),
-    enabled: Boolean(sessionId && context),
+    enabled: Boolean(sessionId && context) && enabled,
     retry: false,
     staleTime: 15_000,
     refetchOnWindowFocus: false
@@ -406,6 +406,7 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
     await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
+    await queryClient.invalidateQueries({ queryKey: ["event-attendance-summaries"] });
     await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
     await queryClient.invalidateQueries({ queryKey: ["organizer-dashboard-live-sessions"] });
     await queryClient.invalidateQueries({ queryKey: ["organizer-dashboard-analytics"] });

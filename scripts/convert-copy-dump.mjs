@@ -1,5 +1,3 @@
-/* global console, process */
-
 import { readFileSync, writeFileSync } from "node:fs";
 
 const [source, destination] = process.argv.slice(2);

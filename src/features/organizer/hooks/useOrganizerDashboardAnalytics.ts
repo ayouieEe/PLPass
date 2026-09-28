@@ -62,12 +62,6 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
     .order("recorded_at", { ascending: true });
   if (recordsError) throw recordsError;
 
-  const { data: walkIns, error: walkInsError } = await client
-    .from("unverified_walkin_attendance" as never)
-    .select("id, event_id, event_session_id, time_in, time_out")
-    .in("event_id", eventIds);
-  if (walkInsError) throw walkInsError;
-
   const trendByEvent = new Map<string, { eventId: string; label: string; date: string; present: number; late: number; absent: number; attendanceRate: number }>();
   const identityRowsByEvent = new Map<string, Array<{ identity: string; attendanceStatus: "present" | "late" | "absent" }>>();
   const lateByReason = new Map(analytics.lateReasons.map((item) => [item.label, item]));
@@ -93,21 +87,6 @@ async function fetchDashboardAnalytics(events: DashboardEvent[]): Promise<Dashbo
     else row.present += 1;
     trendByEvent.set(event.id, row);
   });
-  for (const walkIn of (walkIns ?? []) as unknown as Array<{ id: string; event_id: string; event_session_id: string; time_in: string; time_out: string | null }>) {
-    const event = eventById.get(walkIn.event_id);
-    if (!event) continue;
-    const session = (sessions ?? []).find((item) => item.id === walkIn.event_session_id) as { session_status?: string; late_cutoff_at?: string | null } | undefined;
-    const status = session?.session_status === "completed" && !walkIn.time_out
-      ? "absent" as const
-      : session?.late_cutoff_at && new Date(walkIn.time_in).getTime() > new Date(session.late_cutoff_at).getTime()
-        ? "late" as const
-        : "present" as const;
-    const row = trendByEvent.get(event.id) ?? { eventId: event.id, label: event.code, date: dateKey(event.startsAt), present: 0, late: 0, absent: 0, attendanceRate: 0 };
-    const identityRows = identityRowsByEvent.get(event.id) ?? [];
-    identityRows.push({ identity: `walkin:${walkIn.id}`, attendanceStatus: status });
-    identityRowsByEvent.set(event.id, identityRows);
-    trendByEvent.set(event.id, row);
-  }
   analytics.attendanceTrend = Array.from(trendByEvent.values())
     .map(({ eventId, ...row }) => {
       const summary = summarizeUniqueAttendance(identityRowsByEvent.get(eventId) ?? [], 0);

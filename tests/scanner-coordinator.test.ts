@@ -100,6 +100,32 @@ describe("scanner coordinator", () => {
     }finally{await coordinator.stop();}
   });
 
+  it("records a known student's phone QR Time Out only after the organizer opens Time Out", async () => {
+    const store = new LocalAttendanceDatabase(new DatabaseSync(":memory:"));
+    const checkedInAt = new Date(Date.now() - 61_000).toISOString();
+    store.prepareEvent(eventPackage([{ sessionId: "session-1", studentId: "student-1", attendanceStatus: "present", timeIn: checkedInAt }]), "organizer-a");
+    const coordinator = new ScannerCoordinator(store, path.resolve(process.cwd(), "dist"), () => {});
+    try {
+      const active = await coordinator.start("event-1", "session-1");
+      const join = new URL(active.joinUrl ?? "");
+      const base = active.addresses[0];
+      const station = await post(`${base}/api/join`, { joinToken: join.searchParams.get("join"), scannerId: "timeout-phone" });
+      const stationToken = String(station.body.stationToken);
+
+      const beforeTimeOut = await post(`${base}/api/scan`, { credentialCode: "2026-001", scanAttemptId: "before-timeout" }, stationToken);
+      expect(beforeTimeOut.body.action).toBe("already_recorded");
+
+      store.advanceAttendanceCapturePhase("session-1", "organizer-a");
+      coordinator.setCapturePhase("time_out");
+      const checkout = await post(`${base}/api/scan`, { credentialCode: "2026-001", scanAttemptId: "phone-timeout" }, stationToken);
+      expect(checkout.body.accepted).toBe(true);
+      expect(checkout.body.action).toBe("checked_out");
+      expect(store.listPending()).toEqual([expect.objectContaining({ timeIn: checkedInAt, timeOut: expect.any(String), checkoutIdentificationMethod: "qr" })]);
+    } finally {
+      await coordinator.stop();
+    }
+  });
+
   it("reuses one station when the same phone rejoins and acknowledges a cached check-in", async () => {
     const store = new LocalAttendanceDatabase(new DatabaseSync(":memory:"));
     const now = new Date().toISOString();

@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createHash, randomUUID } from "node:crypto";
 import { localMigrations } from "./migrations.js";
 import type { AttendanceCapturePhase, CleanupResult, LocalAttendanceInput, LocalAttendanceResult, OfflineIntegrityReport, OfflinePreparedEventSummary, OfflineStatus, PendingAttendanceRecord, PendingWalkInScan, PreparedEventPackage, PreparedEventParticipant } from "../src/features/offline/types.js";
-import { studentIdentityMatchesPayload } from "../src/lib/credentials/qrCredential.js";
+import { extractQrCredentialId, extractStudentNumber, studentIdentityMatchesPayload } from "../src/lib/credentials/qrCredential.js";
 
 type SqlRow = Record<string, unknown>;
 export type OfflineDataCipher = { encrypt(value: string): string; decrypt(value: string): string };
@@ -10,6 +10,16 @@ type SqlStatement = ReturnType<DatabaseSync["prepare"]>;
 function sqlRun(statement: SqlStatement, ...args: unknown[]) { return (statement as unknown as { run(...params: unknown[]): unknown }).run(...args); }
 
 function value(row: SqlRow | undefined, key: string) { const item=row?.[key]; return item == null ? undefined : String(item); }
+// Retry timing is persisted with each queue row.  Do not let a renderer-local
+// counter turn a temporary outage into a record that can only be retried by
+// hand. Full jitter spreads reconnect attempts while the minimum avoids a
+// tight loop on a failing network.
+export const offlineRetryBaseMs = 5_000;
+export const offlineRetryMaxMs = 5 * 60_000;
+export function offlineRetryDelayMs(attempts: number, random = Math.random): number {
+  const cap = Math.min(offlineRetryMaxMs, offlineRetryBaseMs * 2 ** Math.max(0, attempts - 1));
+  return Math.max(1_000, Math.floor(Math.max(0, Math.min(1, random())) * cap));
+}
 function manilaDate(value: string | Date) { const parts=new Intl.DateTimeFormat("en-US", { timeZone:"Asia/Manila",year:"numeric",month:"2-digit",day:"2-digit" }).formatToParts(new Date(value)); const part=(name:string)=>parts.find((item)=>item.type===name)?.value??""; return `${part("year")}-${part("month")}-${part("day")}`; }
 function rebaseLateCutoffToActualStart(startedAt: string, scheduledStart: string, scheduledLateCutoff?: string) {
   const actualStartMs = new Date(startedAt).getTime();
@@ -129,8 +139,19 @@ export class LocalAttendanceDatabase {
     if (!pkg.event.id || !pkg.sessions.length || !pkg.participants.length || pkg.participants.some((p) => !p.studentId || !p.studentNumber)) {
       throw new Error("Event package is incomplete and was not marked ready.");
     }
-    const localWork = Number((this.db.prepare(`SELECT COUNT(*) count FROM pending_attendance p LEFT JOIN cached_sessions s ON s.session_id=p.session_id
-      WHERE (p.event_id=? AND p.sync_status<>'CONFIRMED') OR (s.event_id=? AND s.offline_lifecycle IN ('START_PENDING','END_PENDING','CONFLICT'))`).get(pkg.event.id,pkg.event.id) as SqlRow).count);
+    // A downloaded package is a snapshot, never permission to overwrite
+    // locally authoritative event state.  In particular, a package refresh
+    // previously deleted `cached_sessions`, taking an offline Time Out phase
+    // (and occasionally an unresolved walk-in) back to its server snapshot.
+    // Count each kind of saved work independently: the old LEFT JOIN began at
+    // pending attendance, so an active session with no pending row was missed.
+    const localWork = Number((this.db.prepare(`SELECT
+      (SELECT COUNT(*) FROM pending_attendance WHERE event_id=? AND sync_status<>'CONFIRMED') +
+      (SELECT COUNT(*) FROM pending_walkin_scans WHERE event_id=? AND sync_status<>'CONFIRMED') +
+      (SELECT COUNT(*) FROM cached_sessions WHERE event_id=? AND (
+        offline_lifecycle IN ('START_PENDING','END_PENDING','CONFLICT') OR capture_phase='time_out'
+      ))
+      AS count`).get(pkg.event.id, pkg.event.id, pkg.event.id) as SqlRow).count);
     if (localWork) throw new Error("This package has offline work awaiting reconciliation and cannot be refreshed yet.");
     const priorOwner=value(this.db.prepare("SELECT organizer_profile_id FROM prepared_events WHERE event_id=?").get(pkg.event.id) as SqlRow|undefined,"organizer_profile_id");
     if(priorOwner && priorOwner!==organizerProfileId) throw new Error("This saved event package belongs to another organizer on this desktop.");
@@ -179,6 +200,18 @@ export class LocalAttendanceDatabase {
       WHERE e.organizer_profile_id=? AND w.sync_status<>'CONFIRMED') unresolved`).get(organizerProfileId,organizerProfileId,organizerProfileId) as SqlRow;
     return Boolean(row.unresolved);
   }
+  nextSyncAttemptAt(organizerProfileId: string): string | undefined {
+    const next = this.db.prepare(`SELECT MIN(next_attempt_at) next_attempt_at FROM (
+      SELECT COALESCE(p.next_attempt_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) next_attempt_at FROM pending_attendance p
+        JOIN prepared_events e ON e.event_id=p.event_id
+        WHERE e.organizer_profile_id=? AND p.sync_status IN ('PENDING_SYNC','RETRY')
+      UNION ALL
+      SELECT COALESCE(p.next_attempt_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')) next_attempt_at FROM pending_walkin_scans p
+        JOIN prepared_events e ON e.event_id=p.event_id
+        WHERE e.organizer_profile_id=? AND p.sync_status IN ('PENDING_SYNC','RETRY')
+    )`).get(organizerProfileId, organizerProfileId) as SqlRow | undefined;
+    return value(next, "next_attempt_at");
+  }
   checkIntegrity():OfflineIntegrityReport {
     const readIntegrityDetails=()=>this.db.prepare("PRAGMA integrity_check").all() as SqlRow[];
     let results=readIntegrityDetails();
@@ -215,7 +248,7 @@ export class LocalAttendanceDatabase {
     if(!event || String(event.prepared_manila_date)!==today || manilaDate(String(event.starts_at))!==today) throw new Error("Only an event package prepared today for today's Manila schedule can be started offline.");
     if(!["scheduled","ongoing"].includes(String(event.event_status))) throw new Error("This event is not available to start offline.");
     const session=this.db.prepare("SELECT * FROM cached_sessions WHERE session_id=? AND event_id=?").get(sessionId,eventId) as SqlRow|undefined;
-    if(!session || !["scheduled","ongoing"].includes(String(session.session_status)) || ["END_PENDING","ENDED","CONFLICT"].includes(String(session.offline_lifecycle))) throw new Error("The prepared attendance session is not available.");
+    if(!session || ["END_PENDING","ENDED","CONFLICT"].includes(String(session.offline_lifecycle))) throw new Error("The prepared attendance session is not available.");
     // Starting again after a lost renderer response must not move the actual
     // start or recalculate its already-anchored cutoff.
     if (value(session, "offline_started_at")) {
@@ -223,6 +256,10 @@ export class LocalAttendanceDatabase {
       if (!existing) throw new Error("The saved event package disappeared while starting offline.");
       return existing;
     }
+    // A fresh local start may only begin from a locally scheduled session.
+    // An "ongoing" cache without local start evidence is stale remote state,
+    // not permission to create a second offline session.
+    if(String(session.session_status)!=="scheduled") throw new Error("This prepared session is already active or no longer available to start offline.");
     const lateCutoffAt = rebaseLateCutoffToActualStart(startedAt, String(session.starts_at), value(session, "late_cutoff_at"));
     this.transaction(()=>this.db.prepare(`UPDATE cached_sessions SET session_status='ongoing',attendance_window_start_at=?,attendance_window_end_at=NULL,
       late_cutoff_at=?,
@@ -238,10 +275,27 @@ export class LocalAttendanceDatabase {
     const session=this.db.prepare("SELECT offline_lifecycle,offline_started_at,starts_at FROM cached_sessions WHERE session_id=? AND event_id=?").get(sessionId,eventId) as SqlRow|undefined;
     if(!event || !session || !["START_PENDING","STARTED"].includes(String(session.offline_lifecycle))) throw new Error("This event has not been started on this device.");
     const localStart=value(session,"offline_started_at") ?? String(session.starts_at);
-    if(new Date(endedAt).getTime()<new Date(localStart).getTime()) throw new Error("The local end time cannot be earlier than the start time.");
+    const requestedEndAt=new Date(endedAt).getTime();
+    const localStartAt=new Date(localStart).getTime();
+    if(!Number.isFinite(requestedEndAt) || !Number.isFinite(localStartAt)) throw new Error("The device clock returned an invalid session time.");
+    // A laptop clock can jump backwards while it is offline (for example when
+    // Windows corrects time after a reconnect). Ending must remain possible,
+    // but a session must never end before its saved start or attendance.
+    // Clamp the session boundary only; individual capture timestamps remain
+    // untouched and therefore retain their original audit trail.
+    const latestAttendance=this.db.prepare(`SELECT max(recorded_at) recorded_at FROM (
+      SELECT time_out AS recorded_at FROM pending_attendance WHERE session_id=?
+      UNION ALL SELECT time_in AS recorded_at FROM pending_attendance WHERE session_id=?
+      UNION ALL SELECT time_out AS recorded_at FROM cached_attendance_state WHERE session_id=?
+      UNION ALL SELECT time_in AS recorded_at FROM cached_attendance_state WHERE session_id=?
+      UNION ALL SELECT time_out AS recorded_at FROM pending_walkin_scans WHERE session_id=?
+      UNION ALL SELECT time_in AS recorded_at FROM pending_walkin_scans WHERE session_id=?
+    ) WHERE recorded_at IS NOT NULL`).get(sessionId,sessionId,sessionId,sessionId,sessionId,sessionId) as SqlRow|undefined;
+    const latestAttendanceAt=new Date(String(latestAttendance?.recorded_at??localStart)).getTime();
+    const effectiveEndAt=new Date(Math.max(requestedEndAt,localStartAt,Number.isFinite(latestAttendanceAt)?latestAttendanceAt:localStartAt)).toISOString();
     this.transaction(()=>this.db.prepare(`UPDATE cached_sessions SET session_status='completed',attendance_window_end_at=?,offline_ended_at=COALESCE(offline_ended_at,?),
       offline_started_at=COALESCE(offline_started_at,?),offline_end_reason=COALESCE(offline_end_reason,?),
-      offline_lifecycle='END_PENDING' WHERE session_id=?`).run(endedAt,endedAt,localStart,reason?.slice(0,240)??null,sessionId));
+      offline_lifecycle='END_PENDING' WHERE session_id=?`).run(effectiveEndAt,effectiveEndAt,localStart,reason?.slice(0,240)??null,sessionId));
     const updated=this.getPreparedEvent(eventId);
     if(!updated) throw new Error("The saved event package disappeared while ending offline.");
     return updated;
@@ -254,8 +308,20 @@ export class LocalAttendanceDatabase {
 
   getStatus(eventId: string): OfflineStatus {
     const event = this.db.prepare("SELECT preparation_status, prepared_at, last_successful_sync_at FROM prepared_events WHERE event_id=?").get(eventId) as SqlRow | undefined;
-    const counts = this.db.prepare(`SELECT COUNT(*) total, SUM(sync_status='RETRY') retries, SUM(sync_status='CONFLICT') conflicts, SUM(sync_status='SYNCING') syncing FROM pending_attendance WHERE event_id=?`).get(eventId) as SqlRow;
-    const next = this.db.prepare("SELECT MIN(next_attempt_at) next_attempt_at FROM pending_attendance WHERE event_id=? AND sync_status='RETRY' AND next_attempt_at IS NOT NULL").get(eventId) as SqlRow | undefined;
+    // Walk-ins are queued in their own table, but they are first-class
+    // attendance work. The status panel and durable wake must report both
+    // queues, otherwise an offline Walk-in can look synchronized when it is
+    // still waiting for reconciliation.
+    const counts = this.db.prepare(`SELECT COUNT(*) total, SUM(sync_status='RETRY') retries, SUM(sync_status='CONFLICT') conflicts, SUM(sync_status='SYNCING') syncing FROM (
+      SELECT sync_status FROM pending_attendance WHERE event_id=?
+      UNION ALL
+      SELECT sync_status FROM pending_walkin_scans WHERE event_id=?
+    )`).get(eventId, eventId) as SqlRow;
+    const next = this.db.prepare(`SELECT MIN(next_attempt_at) next_attempt_at FROM (
+      SELECT next_attempt_at FROM pending_attendance WHERE event_id=? AND sync_status IN ('PENDING_SYNC','RETRY')
+      UNION ALL
+      SELECT next_attempt_at FROM pending_walkin_scans WHERE event_id=? AND sync_status IN ('PENDING_SYNC','RETRY')
+    ) WHERE next_attempt_at IS NOT NULL`).get(eventId, eventId) as SqlRow | undefined;
     const session = this.db.prepare("SELECT offline_lifecycle,offline_started_at,offline_ended_at FROM cached_sessions WHERE event_id=? ORDER BY CASE WHEN offline_lifecycle IN ('START_PENDING','STARTED','END_PENDING','ENDED','CONFLICT') THEN 0 ELSE 1 END,starts_at LIMIT 1").get(eventId) as SqlRow | undefined;
     const lifecycle = value(session, "offline_lifecycle") as OfflineStatus["offlineLifecycle"];
     return { runtimeAvailable: true, connectivity: "checking", packageStatus: (value(event ?? {}, "preparation_status") as OfflineStatus["packageStatus"]) ?? "NOT_PREPARED", preparedAt: value(event ?? {}, "prepared_at"), pendingCount: Number(counts.total ?? 0), retryCount: Number(counts.retries ?? 0), conflictCount: Number(counts.conflicts ?? 0), syncingCount: Number(counts.syncing ?? 0), nextAttemptAt: value(next ?? {}, "next_attempt_at"), lastSuccessfulSyncAt: value(event ?? {}, "last_successful_sync_at"), offlineLifecycle: lifecycle, localStartedAt: value(session, "offline_started_at"), localEndedAt: value(session, "offline_ended_at"), inputLocked: ["END_PENDING","ENDED","CONFLICT"].includes(String(lifecycle)) };
@@ -285,7 +351,16 @@ export class LocalAttendanceDatabase {
   identifyQr(eventId: string, qr: string) {
     const qrValue = qr.trim();
     const rows = this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[];
-    const participant=this.participant(rows.find((row) => studentIdentityMatchesPayload(qrValue, this.reveal(String(row.student_number ?? "")) ?? "", this.reveal(String(row.display_name ?? "")) ?? "")));
+    const scannedCredentialId = extractQrCredentialId(qrValue).toLowerCase();
+    const participant=this.participant(rows.find((row) => {
+      const item = this.participant(row);
+      if (!item) return false;
+      // The prepared roster contains the active credential ID. Match it
+      // before interpreting the QR text so both PLPASS-QR:<credential-id>
+      // and school-ID payloads resolve to the roster student offline.
+      if (item.qrIdentifier && scannedCredentialId === item.qrIdentifier.trim().toLowerCase()) return true;
+      return studentIdentityMatchesPayload(qrValue, item.studentNumber, item.displayName);
+    }));
     if(participant) return {...participant,isParticipant:true};
     return null;
   }
@@ -293,12 +368,12 @@ export class LocalAttendanceDatabase {
     const row = this.db.prepare("SELECT time_in, time_out FROM cached_attendance_state WHERE session_id=? AND student_id=?").get(sessionId, studentId) as SqlRow | undefined;
     return row ? { timeIn: value(row, "time_in"), timeOut: value(row, "time_out") } : null;
   }
-  identifyManual(eventId: string, input: string) { const normalized=input.trim().toLowerCase(); const rows=this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]; const participant=this.participant(rows.find((row)=>{const item=this.participant(row);return item && (item.studentNumber.toLowerCase()===normalized||item.displayName.toLowerCase()===normalized);})); return participant ? {...participant,isParticipant:true} : null; }
+  identifyManual(eventId: string, input: string) { const normalized=input.trim().toLowerCase(); const normalizedStudentNumber=extractStudentNumber(input); const rows=this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]; const participant=this.participant(rows.find((row)=>{const item=this.participant(row);return item && ((normalizedStudentNumber!==""&&extractStudentNumber(item.studentNumber)===normalizedStudentNumber)||item.studentNumber.toLowerCase()===normalized||item.displayName.toLowerCase()===normalized);})); return participant ? {...participant,isParticipant:true} : null; }
   listFaceCandidates(eventId: string) { return (this.db.prepare("SELECT * FROM cached_participants WHERE event_id=? AND participant_status<>'removed'").all(eventId) as SqlRow[]).map((row) => this.participant(row)).filter((p):p is PreparedEventParticipant=>Boolean(p?.faceEmbeddings.length)); }
 
-  // Phone scanner stations are intentionally check-in only.  A continuously
-  // visible QR must never turn a successful Time In into a Time Out simply
-  // because the camera reads it again.
+  // Phone scanner stations follow the organizer's one-way capture phase.
+  // Repeated camera reads cannot turn a successful Time In into a Time Out
+  // until the organizer explicitly opens Time Out.
   getAttendanceCapturePhase(sessionId: string, organizerProfileId: string): AttendanceCapturePhase {
     const row = this.db.prepare("SELECT s.capture_phase FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id WHERE s.session_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'").get(sessionId, organizerProfileId) as SqlRow | undefined;
     if (!row) throw new Error("This attendance session is not available to this organizer on this device.");
@@ -420,7 +495,7 @@ export class LocalAttendanceDatabase {
   }
   private mapWalkIn(row:SqlRow, action:PendingWalkInScan["action"] = "checked_in"):PendingWalkInScan{return{action,localScanUuid:String(row.local_scan_uuid),eventId:String(row.event_id),sessionId:String(row.session_id),identificationMethod:String(row.identification_method) as "qr"|"manual",checkoutIdentificationMethod:value(row,"checkout_identification_method") as PendingWalkInScan["checkoutIdentificationMethod"],studentNumber:this.reveal(String(row.student_number))??"",timeIn:String(row.time_in),timeOut:value(row,"time_out"),syncStatus:String(row.sync_status) as PendingWalkInScan["syncStatus"],syncAttempts:Number(row.sync_attempts),lastSyncError:value(row,"last_sync_error"),nextAttemptAt:value(row,"next_attempt_at"),createdAt:String(row.created_at),updatedAt:String(row.updated_at)};}
   listPendingWalkInScans(eventId:string|undefined,organizerProfileId:string,activeSessionId?:string){
-    const rows=(eventId?this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? ORDER BY p.created_at").all(organizerProfileId,eventId):this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? ORDER BY p.created_at").all(organizerProfileId)) as SqlRow[];
+    const rows=(eventId?this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.event_id=? AND p.sync_status<>'CONFIRMED' ORDER BY p.created_at").all(organizerProfileId,eventId):this.db.prepare("SELECT p.* FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.sync_status<>'CONFIRMED' ORDER BY p.created_at").all(organizerProfileId)) as SqlRow[];
     if(!activeSessionId||!eventId) return rows.map((row)=>this.mapWalkIn(row));
     const direct=rows.filter((row)=>String(row.session_id)===activeSessionId);
     if(direct.length) return direct.map((row)=>this.mapWalkIn(row));
@@ -438,12 +513,12 @@ export class LocalAttendanceDatabase {
     return activeCandidates.length===1?[this.mapWalkIn(activeCandidates[0])]:[];
   }
   beginWalkInSync(limit:number,organizerProfileId:string,forceRetry=false){const due=forceRetry?"":" AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=datetime('now'))";const eligible=forceRetry?"'PENDING_SYNC','RETRY','CONFLICT'":"'PENDING_SYNC','RETRY'";const rows=this.db.prepare(`SELECT p.local_scan_uuid FROM pending_walkin_scans p JOIN prepared_events e ON e.event_id=p.event_id JOIN cached_sessions s ON s.session_id=p.session_id WHERE e.organizer_profile_id=? AND p.sync_status IN (${eligible}) AND (s.offline_lifecycle IN ('STARTED','ENDED') OR (s.offline_lifecycle='END_PENDING' AND s.offline_start_reconciled_at IS NOT NULL))${due} ORDER BY p.created_at LIMIT ?`).all(organizerProfileId,Math.max(1,Math.min(limit,50))) as SqlRow[];const now=new Date().toISOString();const update=this.db.prepare(`UPDATE pending_walkin_scans SET sync_status='SYNCING',sync_attempts=sync_attempts+1,updated_at=? WHERE local_scan_uuid=? AND sync_status IN (${eligible})`);this.transaction(()=>rows.forEach((row)=>update.run(now,row.local_scan_uuid as string)));return rows.map((row)=>this.mapWalkIn(this.db.prepare("SELECT * FROM pending_walkin_scans WHERE local_scan_uuid=?").get(row.local_scan_uuid as string) as SqlRow));}
-  confirmWalkInSync(uuid:string,student?:{id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}){const local=this.db.prepare("SELECT event_id,session_id FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;if(!local)return;this.transaction(()=>{if(student){const eventId=String(local.event_id);const sessionId=String(local.session_id);sqlRun(this.db.prepare("INSERT OR IGNORE INTO cached_participants(event_id,student_id,student_number,display_name,participant_status,qr_identifier,face_embeddings_json) VALUES(?,?,?,?, 'invited',NULL,?)"),eventId,student.id,this.protect(student.studentNumber),this.protect(student.displayName),this.protect("[]"));sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),sessionId,student.id,student.attendanceStatus,student.timeIn,student.timeOut??null);}sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET sync_status='CONFIRMED',last_sync_error=NULL,next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),new Date().toISOString(),uuid);});}
+  confirmWalkInSync(uuid:string,student?:{id:string;studentNumber:string;displayName:string;participantStatus?:"invited"|"walk_in";attendanceStatus:string;timeIn:string;timeOut?:string}){const local=this.db.prepare("SELECT event_id,session_id FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;if(!local)return;this.transaction(()=>{if(student){const eventId=String(local.event_id);const sessionId=String(local.session_id);sqlRun(this.db.prepare("INSERT OR IGNORE INTO cached_participants(event_id,student_id,student_number,display_name,participant_status,qr_identifier,face_embeddings_json) VALUES(?,?,?,?,?,NULL,?)"),eventId,student.id,this.protect(student.studentNumber),this.protect(student.displayName),student.participantStatus??"walk_in",this.protect("[]"));sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),sessionId,student.id,student.attendanceStatus,student.timeIn,student.timeOut??null);}sqlRun(this.db.prepare("UPDATE pending_walkin_scans SET sync_status='CONFIRMED',last_sync_error=NULL,next_attempt_at=NULL,updated_at=? WHERE local_scan_uuid=?"),new Date().toISOString(),uuid);});}
   discardWalkInSync(uuid:string,organizerProfileId:string){const deleted=this.db.prepare(`DELETE FROM pending_walkin_scans WHERE local_scan_uuid=? AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(uuid,organizerProfileId).changes;if(deleted!==1) throw new Error("The saved walk-in no longer belongs to this organizer or was already removed.");}
-  failWalkInSync(uuid:string,status:"RETRY"|"CONFLICT",safeError:string){const row=this.db.prepare("SELECT sync_attempts FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;const attempts=Number(row?.sync_attempts??0);const next=status==="CONFLICT"?null:attempts>=4?"9999-12-31T23:59:59.999Z":new Date(Date.now()+Math.min(300,2**attempts)*1000).toISOString();this.db.prepare("UPDATE pending_walkin_scans SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_scan_uuid=?").run(status,`${safeError.slice(0,240)}${attempts>=4?" Automatic retry limit reached; queued for manual retry.":""}`,next,new Date().toISOString(),uuid);}
+  failWalkInSync(uuid:string,status:"RETRY"|"CONFLICT",safeError:string){const row=this.db.prepare("SELECT sync_attempts FROM pending_walkin_scans WHERE local_scan_uuid=?").get(uuid) as SqlRow|undefined;const attempts=Number(row?.sync_attempts??0);const next=status==="CONFLICT"?null:new Date(Date.now()+offlineRetryDelayMs(attempts)).toISOString();this.db.prepare("UPDATE pending_walkin_scans SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_scan_uuid=?").run(status,safeError.slice(0,240),next,new Date().toISOString(),uuid);}
   beginSync(limit: number, forceRetry = false,organizerProfileId="test-organizer") { const due = forceRetry ? "" : " AND (p.next_attempt_at IS NULL OR p.next_attempt_at <= datetime('now'))"; const rows = this.db.prepare(`SELECT p.local_attendance_uuid FROM pending_attendance p JOIN cached_sessions s ON s.session_id=p.session_id JOIN prepared_events e ON e.event_id=p.event_id WHERE e.organizer_profile_id=? AND p.sync_status IN ('PENDING_SYNC','RETRY') AND (s.offline_lifecycle IN ('STARTED','ENDED') OR (s.offline_lifecycle='END_PENDING' AND s.offline_start_reconciled_at IS NOT NULL))${due} ORDER BY p.created_at LIMIT ?`).all(organizerProfileId,Math.max(1, Math.min(limit, 50))) as SqlRow[]; const now=new Date().toISOString(); const update=this.db.prepare("UPDATE pending_attendance SET sync_status='SYNCING',sync_attempts=sync_attempts+1,last_sync_attempt_at=?,updated_at=? WHERE local_attendance_uuid=? AND sync_status IN ('PENDING_SYNC','RETRY')"); this.transaction(()=>rows.forEach(r=>update.run(now,now,r.local_attendance_uuid as string))); return rows.map(r=>this.mapPending(this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=? AND sync_status='SYNCING'").get(r.local_attendance_uuid as string) as SqlRow)).filter(Boolean); }
    confirmSync(uuid: string, serverId: string, serverStatus?:string, serverTimeOut?:string|null) { const row=this.db.prepare("SELECT * FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; if(!row) return; const now=new Date().toISOString();this.transaction(()=>{sqlRun(this.db.prepare("INSERT INTO cached_attendance_state(session_id,student_id,attendance_status,time_in,time_out) VALUES(?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET attendance_status=excluded.attendance_status,time_in=excluded.time_in,time_out=excluded.time_out"),row.session_id,row.student_id,serverStatus??row.attendance_status,row.time_in,serverTimeOut===undefined?(row.time_out??null):serverTimeOut);sqlRun(this.db.prepare("UPDATE pending_attendance SET sync_status='CONFIRMED',server_attendance_id=?,server_confirmed_at=?,updated_at=? WHERE local_attendance_uuid=?"),serverId,now,now,uuid);sqlRun(this.db.prepare("DELETE FROM pending_attendance WHERE local_attendance_uuid=? AND sync_status='CONFIRMED'"),uuid);sqlRun(this.db.prepare("UPDATE prepared_events SET last_successful_sync_at=? WHERE event_id=?"),now,row.event_id as string);}); }
-  failSync(uuid:string,status:"RETRY"|"CONFLICT",error:string){ const now=new Date(); const row=this.db.prepare("SELECT sync_attempts FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; const attempts=Number(row?.sync_attempts ?? 0); const exhausted=status === "RETRY" && attempts >= 4; const delaySeconds=Math.min(8,2 ** Math.max(0, attempts - 1)); const next=status === "CONFLICT" ? null : exhausted ? "9999-12-31T23:59:59.999Z" : new Date(now.getTime()+delaySeconds*1000).toISOString(); this.db.prepare("UPDATE pending_attendance SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_attendance_uuid=?").run(status,`${error.slice(0,260)}${exhausted?" Automatic retry limit reached; queued for manual retry.":""}`,next,now.toISOString(),uuid); }
+  failSync(uuid:string,status:"RETRY"|"CONFLICT",error:string){ const now=new Date(); const row=this.db.prepare("SELECT sync_attempts FROM pending_attendance WHERE local_attendance_uuid=?").get(uuid) as SqlRow|undefined; const attempts=Number(row?.sync_attempts ?? 0); const next=status === "CONFLICT" ? null : new Date(now.getTime()+offlineRetryDelayMs(attempts)).toISOString(); this.db.prepare("UPDATE pending_attendance SET sync_status=?,last_sync_error=?,next_attempt_at=?,updated_at=? WHERE local_attendance_uuid=?").run(status,error.slice(0,260),next,now.toISOString(),uuid); }
   recoverInterruptedSync(organizerProfileId?:string){const now=new Date().toISOString();if(!organizerProfileId){const attendance=this.db.prepare("UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING'").run(now).changes;this.db.prepare("UPDATE pending_walkin_scans SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING'").run(now);return attendance;}const attendance=this.db.prepare(`UPDATE pending_attendance SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING' AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(now,organizerProfileId).changes;this.db.prepare(`UPDATE pending_walkin_scans SET sync_status='RETRY',next_attempt_at=NULL,last_sync_error='Synchronization was interrupted and will be retried.',updated_at=? WHERE sync_status='SYNCING' AND event_id IN (SELECT event_id FROM prepared_events WHERE organizer_profile_id=?)`).run(now,organizerProfileId);return attendance; }
   cleanupEvent(eventId:string,serverVerified:boolean,eventCompleted:boolean):CleanupResult { const unresolved=Number((this.db.prepare("SELECT (SELECT COUNT(*) FROM pending_attendance WHERE event_id=? AND sync_status<>'CONFIRMED')+(SELECT COUNT(*) FROM pending_walkin_scans WHERE event_id=? AND sync_status<>'CONFIRMED') count").get(eventId,eventId) as SqlRow).count); if(!eventCompleted) return {cleaned:false,message:"Cleanup blocked - the event is not completed."}; if(unresolved) return {cleaned:false,message:`Cleanup blocked - ${unresolved} record${unresolved===1?"":"s"} still require synchronization.`}; if(!serverVerified) return {cleaned:false,message:"Cleanup blocked - Supabase verification is required."}; this.db.prepare("DELETE FROM prepared_events WHERE event_id=?").run(eventId); this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)"); return {cleaned:true,message:"Cleanup completed. Temporary event and biometric cache data were removed."}; }
 }

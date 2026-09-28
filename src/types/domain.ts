@@ -322,6 +322,7 @@ export type AttendanceRecord = {
   lateReason?: string;
   finalizedAt?: ISODateString;
   lateReasonSubmittedAt?: ISODateString;
+  attendanceOrigin?: "invited" | "walk_in";
 };
 
 export type AttendanceAttempt = {

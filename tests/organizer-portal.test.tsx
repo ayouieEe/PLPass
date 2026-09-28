@@ -460,7 +460,7 @@ describe("organizer UI flows", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "System Health" })).toBeInTheDocument();
-    expect(screen.getByText("Supabase connectivity")).toBeInTheDocument();
+    expect(await screen.findByText("Supabase connectivity")).toBeInTheDocument();
     expect(screen.getByText("Dean Summary report generation failed.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Finish event" })).not.toBeInTheDocument();
@@ -545,7 +545,7 @@ describe("organizer UI flows", () => {
   it("shows export report actions inside the completed event modal", async () => {
     render(
       <CompletedEventModal
-        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] }}
+        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00", endTime: "12:00", predictedTurnout: "82%", objectives: ["Objective 1"], present: 10, late: 2, absent: 1, totalRegistered: 13, walkIns: 0, attendancePopulation: 13, attendanceRate: "92%", sentiment: { positive: 80, neutral: 10, negative: 10 }, feedbackComments: [] }}
         rows={[]}
         onClose={() => {}}
       />

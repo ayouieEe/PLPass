@@ -123,6 +123,7 @@ export type Database = {
       }
       attendance_records: {
         Row: {
+          attendance_origin: string
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
@@ -146,6 +147,7 @@ export type Database = {
           verification_method: string
         }
         Insert: {
+          attendance_origin?: string
           attendance_status: string
           checkout_verification_method?: string | null
           created_at?: string
@@ -169,6 +171,7 @@ export type Database = {
           verification_method: string
         }
         Update: {
+          attendance_origin?: string
           attendance_status?: string
           checkout_verification_method?: string | null
           created_at?: string
@@ -540,10 +543,10 @@ export type Database = {
           created_at: string
           delivery_status: string
           error_message: string | null
-          event_code: string
+          event_code: string | null
           event_id: string
           event_revision: string
-          event_title: string
+          event_title: string | null
           html_body: string | null
           id: string
           last_attempt_at: string | null
@@ -563,10 +566,10 @@ export type Database = {
           created_at?: string
           delivery_status?: string
           error_message?: string | null
-          event_code: string
+          event_code?: string | null
           event_id: string
           event_revision: string
-          event_title: string
+          event_title?: string | null
           html_body?: string | null
           id?: string
           last_attempt_at?: string | null
@@ -586,10 +589,10 @@ export type Database = {
           created_at?: string
           delivery_status?: string
           error_message?: string | null
-          event_code?: string
+          event_code?: string | null
           event_id?: string
           event_revision?: string
-          event_title?: string
+          event_title?: string | null
           html_body?: string | null
           id?: string
           last_attempt_at?: string | null
@@ -1850,6 +1853,33 @@ export type Database = {
           },
         ]
       }
+      rooms: {
+        Row: {
+          building: string | null
+          capacity: number | null
+          created_at: string
+          id: string
+          room_code: string
+          updated_at: string
+        }
+        Insert: {
+          building?: string | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          room_code: string
+          updated_at?: string
+        }
+        Update: {
+          building?: string | null
+          capacity?: number | null
+          created_at?: string
+          id?: string
+          room_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sections: {
         Row: {
           academic_year: string
@@ -2090,76 +2120,6 @@ export type Database = {
           {
             foreignKeyName: "system_settings_updated_by_fkey"
             columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      unverified_walkin_attendance: {
-        Row: {
-          created_at: string
-          event_id: string
-          event_session_id: string
-          checkout_identification_method: string | null
-          id: string
-          identification_method: string
-          local_scan_uuid: string
-          recorded_at: string
-          recorded_by: string
-          student_number: string
-          time_in: string
-          time_out: string | null
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          event_id: string
-          event_session_id: string
-          checkout_identification_method?: string | null
-          id?: string
-          identification_method: string
-          local_scan_uuid: string
-          recorded_at?: string
-          recorded_by: string
-          student_number: string
-          time_in: string
-          time_out?: string | null
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          event_id?: string
-          event_session_id?: string
-          checkout_identification_method?: string | null
-          id?: string
-          identification_method?: string
-          local_scan_uuid?: string
-          recorded_at?: string
-          recorded_by?: string
-          student_number?: string
-          time_in?: string
-          time_out?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "unverified_walkin_attendance_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unverified_walkin_attendance_event_session_id_fkey"
-            columns: ["event_session_id"]
-            isOneToOne: false
-            referencedRelation: "event_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unverified_walkin_attendance_recorded_by_fkey"
-            columns: ["recorded_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2868,19 +2828,6 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      get_conflicting_events: {
-        Args: never
-        Returns: {
-          conflicts_with: string[]
-          ends_at: string
-          event_code: string
-          event_id: string
-          impact_score: number
-          priority_level: string
-          starts_at: string
-          title: string
-        }[]
-      }
       get_event_attendance_capture_phase: {
         Args: { p_session_id: string }
         Returns: string
@@ -2907,13 +2854,6 @@ export type Database = {
         }[]
       }
       get_student_dashboard_summary: { Args: never; Returns: Json }
-      identify_event_participant_by_face: {
-        Args: { p_event_session_id: string; p_live_descriptor: Json }
-        Returns: {
-          similarity: number
-          student_id: string
-        }[]
-      }
       issue_qr_credential: {
         Args: { p_expires_at?: string; p_student_id: string }
         Returns: {
@@ -2975,6 +2915,19 @@ export type Database = {
         Args: { p_actual_start: string; p_session_id: string }
         Returns: undefined
       }
+      record_approved_event_walkin: {
+        Args: {
+          p_checkout_identification_method?: string
+          p_event_id: string
+          p_identification_method: string
+          p_local_scan_uuid: string
+          p_session_id: string
+          p_student_number: string
+          p_time_in: string
+          p_time_out?: string
+        }
+        Returns: Json
+      }
       record_live_facial_attendance: {
         Args: {
           p_action: string
@@ -2996,6 +2949,7 @@ export type Database = {
           p_student_id: string
         }
         Returns: {
+          attendance_origin: string
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
@@ -3209,6 +3163,7 @@ export type Database = {
           p_late_reason_option_id: string
         }
         Returns: {
+          attendance_origin: string
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
@@ -3256,6 +3211,7 @@ export type Database = {
               p_late_reason_category: string
             }
             Returns: {
+              attendance_origin: string
               attendance_status: string
               checkout_verification_method: string | null
               created_at: string
@@ -3292,6 +3248,7 @@ export type Database = {
               p_late_reason_option_id: string
             }
             Returns: {
+              attendance_origin: string
               attendance_status: string
               checkout_verification_method: string | null
               created_at: string
@@ -3335,6 +3292,7 @@ export type Database = {
           p_time_out?: string
         }
         Returns: {
+          attendance_origin: string
           attendance_status: string
           checkout_verification_method: string | null
           created_at: string
@@ -3364,118 +3322,118 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      sync_offline_walkin_attendance: {
-        Args: {
-          p_event_id: string
-          p_identification_method: string
-          p_local_scan_uuid: string
-          p_session_id: string
-          p_student_number: string
-          p_time_in: string
-          p_time_out?: string
-        }
-        Returns: Json
-      }
-      sync_offline_walkin_attendance_v2: {
-        Args: {
-          p_checkout_identification_method?: string
-          p_event_id: string
-          p_identification_method: string
-          p_local_scan_uuid: string
-          p_session_id: string
-          p_student_number: string
-          p_time_in: string
-          p_time_out?: string
-        }
-        Returns: Json
-      }
-      record_unverified_walkin_checkout: {
-        Args: {
-          p_checkout_identification_method: string
-          p_time_out: string
-          p_walkin_id: string
-        }
-        Returns: {
-          checkout_identification_method: string | null
-          created_at: string
-          event_id: string
-          event_session_id: string
-          id: string
-          identification_method: string
-          local_scan_uuid: string
-          recorded_at: string
-          recorded_by: string
-          student_number: string
-          time_in: string
-          time_out: string | null
-          updated_at: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "unverified_walkin_attendance"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
-      update_organizer_event_metadata: {
-        Args: {
-          p_college_office?: string
-          p_event_id: string
-          p_fixed_priority?: boolean
-          p_institutional_category?: string
-          p_number_of_pax?: number
-          p_participation_status?: string
-          p_priority_score?: number
-          p_priority_tier?: string
-          p_requested_by?: string
-          p_target_group?: string
-          p_urgency_points?: number
-        }
-        Returns: {
-          approval_reason: string | null
-          approval_status: string
-          cancellation_reason: string | null
-          cancelled_at: string | null
-          cancelled_by: string | null
-          category_id: string
-          college_office: string | null
-          created_at: string
-          department_id: string | null
-          description: string | null
-          ends_at: string
-          event_code: string
-          event_status: string
-          fixed_priority: boolean
-          id: string
-          impact_score: number | null
-          institutional_category: string | null
-          last_rescheduled_at: string | null
-          number_of_pax: number | null
-          organizer_id: string
-          participation_status: string | null
-          predicted_turnout_percent: number | null
-          priority_level: string
-          priority_score: number
-          priority_tier: string
-          published_at: string | null
-          published_by: string | null
-          requested_by: string | null
-          reschedule_count: number | null
-          starts_at: string
-          target_group: string | null
-          title: string
-          updated_at: string
-          urgency_points: number
-          venue: string
-          visibility: string
-        }
-        SetofOptions: {
-          from: "*"
-          to: "events"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
+      update_organizer_event_metadata:
+        | {
+            Args: {
+              p_college_office?: string
+              p_event_id: string
+              p_number_of_pax?: number
+              p_requested_by?: string
+            }
+            Returns: {
+              approval_reason: string | null
+              approval_status: string
+              cancellation_reason: string | null
+              cancelled_at: string | null
+              cancelled_by: string | null
+              category_id: string
+              college_office: string | null
+              created_at: string
+              department_id: string | null
+              description: string | null
+              ends_at: string
+              event_code: string
+              event_status: string
+              fixed_priority: boolean
+              id: string
+              impact_score: number | null
+              institutional_category: string | null
+              last_rescheduled_at: string | null
+              number_of_pax: number | null
+              organizer_id: string
+              participation_status: string | null
+              predicted_turnout_percent: number | null
+              priority_level: string
+              priority_score: number
+              priority_tier: string
+              published_at: string | null
+              published_by: string | null
+              requested_by: string | null
+              reschedule_count: number | null
+              starts_at: string
+              target_group: string | null
+              title: string
+              updated_at: string
+              urgency_points: number
+              venue: string
+              visibility: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "events"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              p_college_office?: string
+              p_event_id: string
+              p_fixed_priority?: boolean
+              p_institutional_category?: string
+              p_number_of_pax?: number
+              p_participation_status?: string
+              p_priority_score?: number
+              p_priority_tier?: string
+              p_requested_by?: string
+              p_target_group?: string
+              p_urgency_points?: number
+            }
+            Returns: {
+              approval_reason: string | null
+              approval_status: string
+              cancellation_reason: string | null
+              cancelled_at: string | null
+              cancelled_by: string | null
+              category_id: string
+              college_office: string | null
+              created_at: string
+              department_id: string | null
+              description: string | null
+              ends_at: string
+              event_code: string
+              event_status: string
+              fixed_priority: boolean
+              id: string
+              impact_score: number | null
+              institutional_category: string | null
+              last_rescheduled_at: string | null
+              number_of_pax: number | null
+              organizer_id: string
+              participation_status: string | null
+              predicted_turnout_percent: number | null
+              priority_level: string
+              priority_score: number
+              priority_tier: string
+              published_at: string | null
+              published_by: string | null
+              requested_by: string | null
+              reschedule_count: number | null
+              starts_at: string
+              target_group: string | null
+              title: string
+              updated_at: string
+              urgency_points: number
+              venue: string
+              visibility: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "events"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
     }
     Enums: {
       [_ in never]: never

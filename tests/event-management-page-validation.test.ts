@@ -38,8 +38,8 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("function countRows(rows: AttendanceRow[], participantCount: number, inferMissingRegisteredAsAbsent = false)");
     expect(eventManagementPage).toContain("summarizeUniqueAttendance");
     expect(eventManagementPage).toContain("participantCount");
-    expect(eventManagementPage).toContain("const activeParticipantCount = activeParticipantIdentities?.length ?? 0");
-    expect(eventManagementPage).toContain("totalParticipants: participantCount");
+    expect(eventManagementPage).toContain('const activeRegisteredParticipantCount = activeParticipantIdentities?.filter((participant) => participant.participantStatus !== "walk_in").length ?? 0');
+    expect(eventManagementPage).toContain("registeredParticipants: registeredCount");
   });
   it("retains live attendance scans across reloads until the session is ended", () => {
     expect(eventManagementPage).toContain('const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:"');
@@ -47,6 +47,12 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("window.sessionStorage.setItem(liveAttendanceDraftStorageKey(activeScannerSessionId)");
     expect(eventManagementPage).toContain("window.sessionStorage.removeItem(liveAttendanceDraftStorageKey(sessionId))");
   });
+  it("uses the central phase after reconnect while preserving local Time Out evidence", () => {
+    expect(eventManagementPage).toContain("if (isOfflineMode) {");
+    expect(eventManagementPage).toContain("phase = await getServerAttendanceCapturePhase(activeScannerSessionId)");
+    expect(eventManagementPage).toContain("activeRows.some((record) => Boolean(record.checkOutAt))");
+  });
+
   it("rejects incomplete event schedules", () => {
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "", endTime: "04:00" })).toBe(false);
     expect(hasValidEventSchedule({ date: "2026-09-14", startTime: "02:00", endTime: "04:00" })).toBe(true);
@@ -239,7 +245,16 @@ describe("event page validation helpers", () => {
 
   it("does not infer absent students while an attendance session is still live", () => {
     expect(eventManagementPage).toContain("const activeCounts = countRows(activeRows, activeParticipantCount, false);");
-    expect(eventManagementPage).toContain("const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeParticipantCount);");
+    expect(eventManagementPage).toContain("const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeRegisteredParticipantCount, activeWalkInCount);");
+  });
+
+  it("uses the streamlined Event Summary layout after a live event ends", () => {
+    expect(eventManagementPage).toContain(">Event Summary</h2>");
+    expect(eventManagementPage).toContain('sm:col-span-2"><SummaryTile label="Attendance Rate"');
+    expect(eventManagementPage).toContain('label="Total Participants"');
+    expect(eventManagementPage).toContain('sessionSummary.walkIns > 0 ? <SummaryTile label="Walk-ins"');
+    expect(eventManagementPage).not.toContain("Most Common Late Arrival Reason");
+    expect(eventManagementPage).not.toContain("mostCommonLateReason");
   });
 
   it("starts and ends prepared attendance locally while offline", () => {
@@ -286,7 +301,7 @@ describe("event page validation helpers", () => {
     expect(offlineEventHook).toContain("const isCurrent=()=>lookupVersion.current===version;");
     expect(offlineEventHook).toContain("const [lookupError,setLookupError]=useState<string|undefined>();");
     expect(offlineEventHook).toContain("setResolvedRequestKey(requestKey)");
-    expect(eventManagementPage).toContain("if (offlineLive.isLoading) return;");
+    expect(eventManagementPage).toContain('|| reconciliationState === "syncing"');
     expect(eventManagementPage).toContain("if (isOfflineMode) {");
     expect(eventManagementPage).toContain("setHandledSessionRouteId(sessionIdFromQuery);");
     expect(eventManagementPage).toContain("!offlineLive.isLoading && !hasOfflineLiveWorkspace");
@@ -299,26 +314,89 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("const [localStartPackage, setLocalStartPackage] = useState<PreparedEventPackage | null>(null);");
     expect(eventManagementPage).toContain("const localStartFallbackMatchesRoute = Boolean(");
     expect(eventManagementPage).toContain("readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)");
-    expect(eventManagementPage).toContain("?? routeStartHandoff;");
+    expect(eventManagementPage).toContain("const preparedPackageAlreadyStarted = Boolean(");
+    expect(eventManagementPage).toContain("const routeStartFallbackMatchesRoute = Boolean(");
+    expect(eventManagementPage).toContain("!preparedPackageAlreadyStarted && localStartFallbackMatchesRoute");
     expect(eventManagementPage).toContain("if (locallyStartedPackage) setLocalStartPackage(locallyStartedPackage);");
     expect(eventManagementPage).toContain("setLocalStartPackage(endedPackage);");
+    expect(eventManagementPage).toContain("setActiveEvent(null);");
+    expect(eventManagementPage).toContain("Event records will be available after this offline session synchronizes.");
   });
 
-  it("returns a ready-but-unstarted package to the existing Events flow during a network transition", () => {
+  it("does not redirect a locally started live route while its reconnect is reconciling", () => {
+    expect(eventManagementPage).toContain('|| reconciliationState === "syncing"');
+    expect(eventManagementPage).toContain("server query can legitimately still report the event as scheduled here");
+  });
+
+  it("retains an already-open live route during a partial reconnect snapshot", () => {
+    expect(eventManagementPage).toContain("isExistingLiveRouteAwaitingServerSnapshot");
+    expect(eventManagementPage).toContain("const routedAttendanceSessionQuery = useAttendanceSession(");
+    expect(eventManagementPage).toContain("routedAttendanceSessionQuery.data");
+    expect(eventManagementPage).toContain("routedAttendanceSessionQuery.isFetching");
+    expect(eventManagementPage).toContain("!serverReportsTerminalSession");
+    expect(eventManagementPage).toContain("activeEvent?.id === serverRequestedSession.eventId ? activeEvent");
+  });
+
+  it("never treats a missing cached session-list row as proof that a live route ended", () => {
+    expect(eventManagementPage).toContain("Only the exact-session query");
+    expect(eventManagementPage).toContain("if (serverReportsTerminalSession && !attendanceSessionsQuery.isFetching && !eventsQuery.isFetching)");
+  });
+
+  it("keeps provisional offline Walk-ins visibly unverified until reconciliation finishes", () => {
+    expect(eventManagementPage).toContain('id:`offline-walkin-${scan.localScanUuid}`');
+    expect(eventManagementPage).toContain('studentName:`Walk-in · ${queued.studentNumber}`');
+    expect(eventManagementPage).not.toMatch(/id:`offline-walkin-\$\{scan\.localScanUuid\}`[\s\S]{0,400}?verificationLabel:"Walk-in"/);
+    expect(eventManagementPage).not.toMatch(/studentName:`Walk-in · \$\{queued\.studentNumber\}`[\s\S]{0,300}?verificationLabel:"Walk-in"/);
+  });
+
+  it("uses the real name and a badge only after an online Walk-in is confirmed", () => {
+    expect(eventManagementPage).toContain('studentName: result.student?.displayName ?? knownStudent?.fullName ?? studentNumber');
+    expect(eventManagementPage).toContain('studentName: walkInStudent.fullName ?? walkInNumber');
+    expect(eventManagementPage).toContain('verificationLabel: "Walk-in"');
+  });
+
+  it("never redirects a live route from a stale ready-but-unstarted package", () => {
     expect(eventManagementPage).toContain("const hasLocallyReadyUnstartedSession = Boolean(");
     expect(eventManagementPage).toContain('offlineLocalSession.offlineLifecycle === "NOT_STARTED"');
-    expect(eventManagementPage).toContain("if (hasLocallyReadyUnstartedSession) {");
-    expect(eventManagementPage).toContain("Network changes can make the server-side session read disappear");
+    expect(eventManagementPage).not.toContain("if (hasLocallyReadyUnstartedSession) {");
+    expect(eventManagementPage).toContain("Only the exact-session query");
     expect(eventManagementPage).toContain("!hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession");
   });
 
   it("reuses the existing Events grid and Start Attendance flow for prepared offline packages", () => {
     expect(eventManagementPage).toContain("listOfflineEvents(session.userId)");
     expect(eventManagementPage).toContain("eventRecordFromOfflinePackage");
-    expect(eventManagementPage).toContain("if (isOfflineMode) return offlinePreparedPackages.map(eventRecordFromOfflinePackage);");
+    expect(eventManagementPage).toContain("pkg.event.status !== \"completed\"");
+    expect(eventManagementPage).toContain("Only a same-day scheduled package can be started.");
+    expect(eventManagementPage).toContain("canManageOwnedEvents && !isOfflineMode");
     expect(eventManagementPage).toContain("if (!isOfflineMode && eventsQuery.isError && !hasOfflineLiveWorkspace)");
     expect(eventManagementPage).toContain("openStartSession(event);");
     expect(eventManagementPage).not.toContain("OfflinePreparedEventsPanel");
+  });
+
+  it("uses the same scheduled-only eligibility check as the local offline-start guard", () => {
+    expect(eventManagementPage).toContain('item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"');
+    expect(eventManagementPage).toContain("The prepared local session could not be started. No server session was changed.");
+    expect(eventManagementPage).toContain("getErrorMessage(error) || fallback");
+  });
+
+  it("does not wait for a remote Walk-in lookup before queuing offline manual attendance", () => {
+    const localCapture = eventManagementPage.slice(
+      eventManagementPage.indexOf("const recordManualLocally = async () =>"),
+      eventManagementPage.indexOf("// A prepared package is used for local-authoritative/offline attendance")
+    );
+    expect(localCapture).toContain("SQLite queue already deduplicates");
+    expect(localCapture).not.toContain("await findRemoteWalkIn(studentNumber)");
+    expect(localCapture).toContain("await api.queueWalkInScan({");
+  });
+
+  it("paces every attendance capture for one second to prevent burst reconciliation", () => {
+    expect(eventManagementPage).toContain("const attendanceCaptureCooldownUntilRef = useRef(0);");
+    expect(eventManagementPage).toContain("attendanceCaptureCooldownUntilRef.current = now + 1_000;");
+    expect(eventManagementPage).toContain("if (facialVerifying || !beginAttendanceCapture()) return;");
+    expect(eventManagementPage).toContain("if (!beginAttendanceCapture()) return;");
+    expect(eventManagementPage).toContain("Please wait one second before recording the next student.");
+    expect(eventManagementPage).toContain('disabled={isCaptureCoolingDown}');
   });
 
   it("keeps every local-authoritative attendance action on the downloaded package during reconnect", () => {
@@ -329,6 +407,56 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain('identificationMethod: "manual"');
     expect(eventManagementPage).toContain("recordOfflineAttendance({");
     expect(eventManagementPage).toContain("remarks: manualEntryReason.trim()");
+  });
+
+  it("uses the server capture-phase RPC when the session is online even if a downloaded package remains", () => {
+    expect(eventManagementPage).toContain("if (isOfflineMode) {");
+    expect(eventManagementPage).toContain("serverPhase = await advanceServerAttendanceCapturePhase(activeScannerSessionId ?? \"\");");
+    expect(eventManagementPage).not.toContain("serverPhase = await advanceServerAttendanceCapturePhase(activeScannerSessionId ?? \"\");\n          if (hasLocalSession)");
+  });
+
+  it("restores the persisted server Time Out phase in browser workspaces without an Electron bridge", () => {
+    expect(eventManagementPage).toContain("Browser sessions must not fall back to");
+    expect(eventManagementPage).toContain("if (!api || !activeEvent?.id || !session?.userId) {");
+    expect(eventManagementPage).toContain("void getServerAttendanceCapturePhase(activeScannerSessionId)");
+  });
+
+  it("rechecks the server capture phase before online manual attendance", () => {
+    expect(eventManagementPage).toContain("A capture-phase switch is persisted centrally.");
+    expect(eventManagementPage).toContain("effectiveAttendancePhase = await getServerAttendanceCapturePhase(sessionId);");
+    expect(eventManagementPage).toContain("Could not verify whether this session is recording Time In or Time Out.");
+    expect(eventManagementPage).toContain('const isCheckout = effectiveAttendancePhase === "time_out";');
+  });
+
+  it("checks out an accepted Walk-in before asking for another admission", () => {
+    expect(eventManagementPage).toContain("Participant identities may still be the pre-admission snapshot after a");
+    expect(eventManagementPage).toContain('if (effectiveAttendancePhase === "time_out" && existingWalkIn) {');
+    expect(eventManagementPage).toContain('toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);');
+  });
+
+  it("rechecks the server capture phase before online QR attendance", () => {
+    expect(eventManagementPage).toContain("QR scans can arrive immediately after the organizer opens Time Out.");
+    expect(eventManagementPage).toContain("const effectiveOnlinePhase = await getServerAttendanceCapturePhase(sessionId);");
+    expect(eventManagementPage).toContain('if (effectiveOnlinePhase === "time_out") {');
+    expect(eventManagementPage).toContain('toast.warning("No Walk-in Time In is recorded for this student.");');
+  });
+
+  it("retains the durable Walk-in origin when hydrating the live attendee list", () => {
+    expect(eventManagementPage).toContain('verificationLabel: record.attendanceOrigin === "walk_in" ? "Walk-in" : "Verified"');
+    expect(eventManagementPage).toContain('<StatusBadge label="Walk-in" tone="warning" />');
+  });
+
+  it("renders each live attendee with a surname-first name and student number", () => {
+    expect(eventManagementPage).toContain("function formatAttendanceListName(fullName: string)");
+    expect(eventManagementPage).toContain("function provisionalWalkInStudentNumber(studentName: string)");
+    expect(eventManagementPage).toContain("const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);");
+    expect(eventManagementPage).toContain("font-mono text-sm text-muted-foreground");
+    expect(eventManagementPage).toContain("row.original.verificationLabel === \"Walk-in\"");
+  });
+
+  it("opens attendance readiness for the clicked grid row without bubbling into a recycled row", () => {
+    expect(eventManagementPage).toContain("event.stopPropagation();");
+    expect(eventManagementPage).toContain("setReadinessEvent({ ...row.original });");
   });
 
   it("returns QR submission to Supabase after a local start is reconciled", () => {
