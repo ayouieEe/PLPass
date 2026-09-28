@@ -85,8 +85,9 @@ function errorCode(error: unknown) { return error && typeof error === "object" &
 function errorText(error: unknown) { return error && typeof error === "object" && "message" in error ? String(error.message) : String(error ?? ""); }
 function safeSyncError(error: unknown) {
   const code = errorCode(error);
+  const centralConflict = /central attendance record conflicts|central record differs/i.test(errorText(error));
   if (code === "55006") return "Synchronization was rate limited; the local record was retained for a later retry.";
-  if (code === "40001" && /central attendance record conflicts|central record differs/i.test(errorText(error))) return "The central record differs from the offline record.";
+  if (centralConflict) return "The central record differs from the offline record.";
   if (["42501", "22023", "23503", "23514"].includes(code)) return "The offline record needs manual review before synchronization can continue.";
   return "Synchronization was temporarily unavailable; the local record was retained for retry.";
 }
@@ -97,9 +98,17 @@ function safeWalkInSyncError(error: unknown) {
 function syncFailureStatus(error: unknown): "RETRY" | "CONFLICT" {
   const code = errorCode(error);
   const text = errorText(error);
+  if (/central attendance record conflicts|central record differs/i.test(text)) return "CONFLICT";
   const transientSerialization = code === "40001" && /could not serialize|serialization failure|deadlock|lock timeout/i.test(text);
   const permanentRequest = ["42501", "22023", "23503", "23514"].includes(code);
   return permanentRequest || code === "23505" || (code === "40001" && !transientSerialization) ? "CONFLICT" : "RETRY";
+}
+
+function sameTimestamp(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) return left === right;
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) ? leftMs === rightMs : left === right;
 }
 
 type ServerSessionState = { id: string; eventId: string; status: string; actualEnd?: string | null };
@@ -126,6 +135,17 @@ async function isServerSessionCompleted(eventId: string, sessionId: string): Pro
 let activeSync: Promise<{confirmed:number;failed:number;discarded:number}> | null = null;
 let activeLifecycleSync: Promise<{completed:boolean;message:string}> | null = null;
 const syncInterRecordDelayMs = 125;
+const offlineSyncRpcDeadlineMs = 30_000;
+
+function withOfflineSyncDeadline<T>(operation: PromiseLike<T>, timeoutMs = offlineSyncRpcDeadlineMs): Promise<T> {
+  let timer: number | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error("Offline synchronization request timed out.")), timeoutMs);
+  });
+  return Promise.race([Promise.resolve(operation), deadline]).finally(() => {
+    if (timer !== undefined) window.clearTimeout(timer);
+  });
+}
 
 export async function reconcileOfflineEventLifecycle(organizerProfileId:string,connectionAlreadyConfirmed=false,forceRetry=false):Promise<{completed:boolean;message:string}> {
   if(activeLifecycleSync) return activeLifecycleSync;
@@ -299,9 +319,24 @@ async function synchronizePendingAttendanceOnce(batchSize: number, forceRetry: b
       if (waitMs > 0) await new Promise((resolve) => window.setTimeout(resolve, waitMs));
       lastRpcAt = Date.now();
       const client=getSupabaseBrowserClient();
-      const {data,error}=await client.rpc("sync_offline_event_attendance",{p_local_attendance_uuid:record.localAttendanceUuid,p_session_id:record.sessionId,p_student_id:record.studentId,p_identification_method:record.identificationMethod,p_attendance_status:record.attendanceStatus,p_time_in:record.timeIn,...(record.timeOut?{p_time_out:record.timeOut}:{}),...(record.checkoutIdentificationMethod?{p_checkout_identification_method:record.checkoutIdentificationMethod}:{}),...(record.remarks?{p_remarks:record.remarks}:{}),...(record.lateReason?{p_late_reason:record.lateReason}:{})});
+      const {data,error}=await withOfflineSyncDeadline(client.rpc("sync_offline_event_attendance",{p_local_attendance_uuid:record.localAttendanceUuid,p_session_id:record.sessionId,p_student_id:record.studentId,p_identification_method:record.identificationMethod,p_attendance_status:record.attendanceStatus,p_time_in:record.timeIn,...(record.timeOut?{p_time_out:record.timeOut}:{}),...(record.checkoutIdentificationMethod?{p_checkout_identification_method:record.checkoutIdentificationMethod}:{}),...(record.remarks?{p_remarks:record.remarks}:{}),...(record.lateReason?{p_late_reason:record.lateReason}:{})}));
       if(error) throw error;
       if (!data) {
+        // NULL is used both for temporary throttling and for a safely persisted
+        // central/offline time conflict. Resolve that ambiguity without changing
+        // either record: the central row is authoritative and the local row is
+        // retained as CONFLICT for organizer review.
+        const {data:central,error:centralError}=await client.from("attendance_records")
+          .select("id, event_session_id, student_id, time_in")
+          .eq("event_session_id",record.sessionId)
+          .eq("student_id",record.studentId)
+          .maybeSingle();
+        if (centralError) throw centralError;
+        if (central?.id && central.time_in && !sameTimestamp(central.time_in,record.timeIn)) {
+          await api.failSync(record.localAttendanceUuid,"CONFLICT","The central record differs from the offline record.");
+          failed += 1;
+          continue;
+        }
         const rateLimited = { code: "55006", message: "Offline synchronization was rate limited." };
         await api.failSync(record.localAttendanceUuid, "RETRY", safeSyncError(rateLimited));
         failed += 1;

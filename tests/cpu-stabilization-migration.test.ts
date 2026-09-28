@@ -28,6 +28,30 @@ describe("CPU stabilization migrations", () => {
     expect(migration).not.toContain("55006");
   });
 
+  it("does not write the offline-sync limiter for rejected or invalid requests", () => {
+    const migration = readMigration("20260928172609_make_offline_sync_throttle_write_sparing.sql");
+    const validation = migration.indexOf("if p_local_attendance_uuid is null");
+    const limiterWrite = migration.indexOf("insert into private.offline_sync_rate_limits");
+
+    expect(validation).toBeGreaterThan(-1);
+    expect(limiterWrite).toBeGreaterThan(validation);
+    expect(migration).toContain("on conflict (actor_id) do update");
+    expect(migration).toContain("where private.offline_sync_rate_limits.last_request_at");
+    expect(migration).toContain("returning last_request_at into v_rate_limit_recorded;");
+    expect(migration).toContain("if not found then\n    return null;");
+    expect(migration).not.toContain("select last_request_at into v_last_request_at");
+  });
+
+  it("persists attendance conflicts without aborting the limiter transaction", () => {
+    const migration = readMigration("20260928221343_persist_offline_attendance_conflicts_without_errors.sql");
+    expect(migration).toContain("private.offline_attendance_sync_conflicts");
+    expect(migration).toContain("enable row level security");
+    expect(migration).toContain("revoke all on private.offline_attendance_sync_conflicts from public, anon, authenticated");
+    expect(migration).toContain("'central_session_student_time_in_mismatch'");
+    expect(migration).toMatch(/if exists \([\s\S]*?offline_attendance_sync_conflicts[\s\S]*?\) then\s+return null;/);
+    expect(migration).not.toContain("raise exception 'The central attendance record conflicts");
+  });
+
   it("caches auth identity evaluation without weakening policy roles", () => {
     const migration = readMigration("20260919115423_optimize_hot_path_rls_policies.sql");
     expect(migration).toContain("p.id = (select auth.uid())");

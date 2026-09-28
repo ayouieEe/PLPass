@@ -427,15 +427,15 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         }
       } finally { running=false; }
     };
-    // A real offline-to-online transition is an explicit retry opportunity.
-    // Do not wait for an old per-row backoff deadline: the server may now be
-    // reachable and a permanently invalid provisional walk-in must be
-    // reconciled (and removed with its notification) immediately.
-    const onOnline=()=>void attemptSync(true);
+    // A connectivity notification is not a user request to override the
+    // durable per-record backoff.  Repeated browser/network notifications can
+    // otherwise submit the same rejected record in a tight loop.  The Electron
+    // wake alarm will retry it when SQLite says it is due.
+    const onOnline=()=>void attemptSync(false);
     // Do not rely on the browser's online event alone: it can fire before
     // Supabase is reachable. The authenticated reachability probe above emits
     // this event once the connection is genuinely usable.
-    const onVerifiedConnectivity=()=>void attemptSync(true);
+    const onVerifiedConnectivity=()=>void attemptSync(false);
     const removeSyncDue=window.plpassDesktop.onOfflineSyncDue((organizerProfileId)=>{
       if(organizerProfileId===session.userId) void attemptSync(false);
     });
@@ -444,9 +444,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const removeVisibility=onPageVisibilityChange((visible)=>{
       if(visible) void attemptSync(false);
     });
-    // Startup is also a genuine recovery boundary. A row retained during a
-    // closed app must not remain invisible until an old retry deadline passes.
-    void attemptSync(true);
+    // Startup restores the scheduler but respects a record's persisted
+    // backoff; only an explicit UI retry may pass forceRetry=true.
+    void attemptSync(false);
     return ()=>{disposed=true;window.removeEventListener("online",onOnline);window.removeEventListener("plpass:connectivity-verified",onVerifiedConnectivity);removeVisibility();removeSyncDue();void window.plpassDesktop?.scheduleSyncWake(session.userId).catch(()=>undefined);};
   }, [isNetworkOnline,isOfflineMode,reconnectOnline,refreshOfflineWork,session]);
 
