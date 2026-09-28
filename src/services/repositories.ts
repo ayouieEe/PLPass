@@ -5,7 +5,7 @@ import type { RepositoryRegistry } from "@/services/contracts";
 export const repositories: RepositoryRegistry = new Proxy({} as RepositoryRegistry, {
   get(_target, prop: keyof RepositoryRegistry) {
     const registry =
-      import.meta.env.VITE_DATA_SOURCE === "mock"
+      import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test"
         ? simulatedRepositoryRegistry
         : supabaseRepositoryRegistry;
     return registry[prop];

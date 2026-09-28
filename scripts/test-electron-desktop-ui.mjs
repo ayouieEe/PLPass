@@ -39,7 +39,11 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   console.log("Desktop UI smoke: verifying organizer workspace.");
-  await page.waitForURL("**/organizer/dashboard", { timeout: 5_000 });
+  try {
+    await page.waitForURL("**/organizer/dashboard", { timeout: 5_000 });
+  } catch (error) {
+    throw new Error(`Mock sign-in did not reach the organizer dashboard. Current URL: ${page.url()}; renderer text: ${await page.locator("body").innerText().catch(() => "<unavailable>")}; ${error instanceof Error ? error.message : String(error)}`);
+  }
   assert.match(page.url(), /\/organizer\/dashboard$/u, `Expected organizer dashboard after mock sign-in; got ${page.url()}`);
   await page.waitForTimeout(1_000);
   const workspaceText = await page.locator("body").innerText();
