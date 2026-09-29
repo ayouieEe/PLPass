@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Activity, AlertTriangle, ArrowLeft, Camera, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Camera, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,12 +21,12 @@ import { useHeader } from "@/app/providers/HeaderContext";
 import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAttendanceRecords, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
+import { useEvents, useAttendanceRecords, useAttendanceSession, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayTime, formatLocalTime, manilaDateTimeToIso } from "@/lib/utils/date";
-import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { hasCapability } from "@/lib/auth/permissions";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
+import { getErrorMessage } from "@/lib/utils/errors";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -50,8 +50,9 @@ import {
 } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
-import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
-import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff, rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
+import { useWalkInWarning } from "@/features/attendance/walkInWarning";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "@/features/offline/types";
@@ -87,11 +88,61 @@ type EventOfflinePreparation = {
   preparing?: boolean;
   error?: string;
 };
+type OfflineSyncPresentation = {
+  package: PreparedEventPackage;
+  status: OfflineStatus;
+  lifecycle: "END_PENDING" | "CONFLICT" | "ENDED";
+};
+
+const offlineCompletionLifecycleOrder: Record<OfflineSyncPresentation["lifecycle"], number> = {
+  CONFLICT: 0,
+  END_PENDING: 1,
+  ENDED: 2
+};
+
+function getOfflineCompletionLifecycle(pkg: PreparedEventPackage): OfflineSyncPresentation["lifecycle"] | null {
+  const candidates = pkg.sessions
+    .map((session) => session.offlineLifecycle)
+    .filter((lifecycle): lifecycle is OfflineSyncPresentation["lifecycle"] => (
+      lifecycle === "END_PENDING" || lifecycle === "CONFLICT" || lifecycle === "ENDED"
+    ));
+  if (!candidates.length) return null;
+  return candidates.sort((left, right) => offlineCompletionLifecycleOrder[left] - offlineCompletionLifecycleOrder[right])[0] ?? null;
+}
+
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
 const scannerIdleSubmissionDelayMs = 1_000;
 const duplicateQrSuppressionMs = 5_000;
 const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
+const offlineDirectorySnapshotStoragePrefix = "plpass:offline-event-directory:";
+
+function offlineDirectorySnapshotKey(organizerProfileId: string) {
+  return `${offlineDirectorySnapshotStoragePrefix}${organizerProfileId}`;
+}
+
+function readOfflineDirectorySnapshot(organizerProfileId: string, today: string): string[] | null {
+  try {
+    const saved = window.localStorage.getItem(offlineDirectorySnapshotKey(organizerProfileId));
+    if (!saved) return null;
+    const snapshot = JSON.parse(saved) as { manilaDate?: unknown; eventIds?: unknown };
+    if (snapshot.manilaDate !== today || !Array.isArray(snapshot.eventIds)) return null;
+    return snapshot.eventIds.filter((eventId): eventId is string => typeof eventId === "string");
+  } catch {
+    return null;
+  }
+}
+
+function saveOfflineDirectorySnapshot(organizerProfileId: string, today: string, eventIds: string[]) {
+  try {
+    window.localStorage.setItem(
+      offlineDirectorySnapshotKey(organizerProfileId),
+      JSON.stringify({ manilaDate: today, eventIds: [...new Set(eventIds)] })
+    );
+  } catch {
+    // Storage failure must not block online browsing or local attendance.
+  }
+}
 
 function attendanceMethodFromVerification(method?: string | null): AttendanceMethod {
   if (method === "facial") return "Facial Recognition";
@@ -106,15 +157,6 @@ function verificationMethodFromAttendance(method: AttendanceMethod): "qr" | "fac
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isRemoteUnverifiedWalkIn(row: DraftAttendanceRow): boolean {
-  return row.studentId.startsWith("walkin:") && uuidPattern.test(row.id);
-}
-
-function matchesUnverifiedWalkInNumber(row: DraftAttendanceRow, studentNumber: string): boolean {
-  if (!isRemoteUnverifiedWalkIn(row)) return false;
-  return row.studentName.match(/(\d{2}-\d{5})\s*$/)?.[1] === studentNumber;
-}
 
 function isEditableScanTarget(target: EventTarget | null) {
   return target instanceof HTMLElement && (
@@ -134,8 +176,9 @@ type DraftAttendanceRow = AttendanceRow & {
   checkOutAt?: string;
 };
 
-type RemoteUnverifiedWalkIn = {
+type RemoteWalkIn = {
   id: string;
+  studentId?: string;
   studentNumber: string;
   timeIn: string;
   timeOut?: string | null;
@@ -177,19 +220,67 @@ function readLiveAttendanceDraft(sessionId: string, eventId: string): DraftAtten
   }
 }
 
+function localWalkInScanId(row: Pick<DraftAttendanceRow, "id" | "studentId" | "localScanUuid">) {
+  if (row.localScanUuid) return row.localScanUuid;
+  if (row.studentId.startsWith("walkin:")) return row.studentId.slice("walkin:".length);
+  if (row.id.startsWith("walkin-")) return row.id.slice("walkin-".length);
+  if (row.id.startsWith("offline-walkin-")) return row.id.slice("offline-walkin-".length);
+  return undefined;
+}
+
+function formatAttendanceListName(fullName: string) {
+  const normalized = fullName.trim();
+  if (!normalized || normalized.includes(",") || normalized.startsWith("Walk-in")) return normalized;
+
+  const nameParts = normalized.split(/\s+/);
+  if (nameParts.length < 2) return normalized;
+
+  const suffixes = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
+  const trailingSuffix = suffixes.has(nameParts[nameParts.length - 1].toLocaleLowerCase())
+    ? nameParts.pop()
+    : undefined;
+  const familyName = nameParts.pop();
+  return familyName
+    ? `${familyName}${trailingSuffix ? ` ${trailingSuffix}` : ""}, ${nameParts.join(" ")}`
+    : normalized;
+}
+
+function provisionalWalkInStudentNumber(studentName: string) {
+  const match = /^Walk-in\s*·\s*(.+)$/i.exec(studentName.trim());
+  return match?.[1]?.trim();
+}
+
+function removeTemporaryWalkInFromDraft(sessionId: string, eventId: string, localScanUuid: string) {
+  try {
+    const key = liveAttendanceDraftStorageKey(sessionId);
+    const rawDraft = window.sessionStorage.getItem(key);
+    if (!rawDraft) return;
+    const draft = JSON.parse(rawDraft) as Partial<StoredLiveAttendanceDraft>;
+    if (draft.eventId !== eventId || !Array.isArray(draft.rows)) return;
+    const rows = draft.rows.filter(isDraftAttendanceRow);
+    const retainedRows = rows.filter((row) => localWalkInScanId(row) !== localScanUuid);
+    if (retainedRows.length === rows.length) return;
+    window.sessionStorage.setItem(key, JSON.stringify({ eventId, rows: retainedRows } satisfies StoredLiveAttendanceDraft));
+  } catch {
+    // State cleanup below still removes the projection for this open session.
+  }
+}
+
 type ActiveParticipantIdentity = {
   studentId: string;
   studentNumber: string;
   fullName: string;
+  participantStatus: "invited" | "confirmed" | "walk_in";
 };
 
 type FinalizedSessionSummary = {
-  totalParticipants: number;
+  registeredParticipants: number;
+  walkIns: number;
+  attendancePopulation: number;
   present: number;
   late: number;
   absent: number;
   attendanceRate: number;
-  mostCommonLateReason: string;
 };
 
 type CompletedRecord = EventRecord & {
@@ -394,30 +485,29 @@ function alreadyRecordedAttendanceDescription(timeOut?: string | null) {
     : "This record already has a saved Time In. Its original timestamp was kept.";
 }
 
-function summarizeFinalizedSession(rows: Array<{ studentId?: string; attendanceStatus: AttendanceStatus; lateReason?: string; isFinalized?: boolean; checkOutAt?: string }>, participantCount: number): FinalizedSessionSummary {
+function summarizeFinalizedSession(rows: Array<{ studentId?: string; attendanceStatus: AttendanceStatus; isFinalized?: boolean; checkOutAt?: string }>, registeredCount: number, walkInCount: number): FinalizedSessionSummary {
+  const finalizedRows = rows.map((row, index) => ({
+    identity: row.studentId ?? `row:${index}`,
+    // Match the saved-summary rule: a completed Time In with no Time Out is
+    // absent, even though the organizer was allowed to close the session.
+    attendanceStatus: !row.checkOutAt ? "absent" as const : row.attendanceStatus
+  }));
   const summary = summarizeUniqueAttendance(
-    rows.map((row, index) => ({ identity: row.studentId ?? `row:${index}`, attendanceStatus: row.attendanceStatus })),
-    participantCount,
+    finalizedRows,
+    registeredCount + walkInCount,
     true
   );
   const present = summary.present;
   const late = summary.late;
   const absent = summary.absent;
-  const submittedReasons = rows.filter((row) => row.attendanceStatus === "late" && Boolean(row.lateReason));
-  const reasonCounts = new Map<string, number>();
-  submittedReasons.forEach((row) => {
-    const reason = row.lateReason;
-    if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
-  });
-  const [topReason, topCount = 0] = [...reasonCounts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
-
   return {
-    totalParticipants: participantCount,
+    registeredParticipants: registeredCount,
+    walkIns: walkInCount,
+    attendancePopulation: summary.population,
     present,
     late,
     absent,
-    attendanceRate: summary.attendanceRate,
-    mostCommonLateReason: topCount ? topReason : late ? "Awaiting student submission" : "None"
+    attendanceRate: summary.attendanceRate
   };
 }
 
@@ -754,13 +844,14 @@ export function EventManagementPage() {
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
   const [eventAttention, setEventAttention] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
-  const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
-  const [rescheduleForStartId, setRescheduleForStartId] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
   const leavingReadOnlyMonitorRef = useRef(false);
   const activeEventId = activeEvent?.id;
   const [activeParticipantIdentities, setActiveParticipantIdentities] = useState<ActiveParticipantIdentity[] | null>(null);
   const [activeRows, setActiveRows] = useState<DraftAttendanceRow[]>([]);
+  const [liveAttendanceSearch, setLiveAttendanceSearch] = useState("");
+  const finalizedLocalWalkInIdsRef = useRef(new Set<string>());
+  const walkInWarning = useWalkInWarning();
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [finalizedSummary, setFinalizedSummary] = useState<FinalizedSessionSummary | null>(null);
   const [summaryEvent, setSummaryEvent] = useState<Pick<EventRecord, "id" | "code" | "name"> | null>(null);
@@ -778,32 +869,33 @@ export function EventManagementPage() {
   const [localStartPackage, setLocalStartPackage] = useState<PreparedEventPackage | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const endingSessionRef = useRef(false);
   const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
   const [offlinePreparedPackages, setOfflinePreparedPackages] = useState<PreparedEventPackage[]>([]);
+  const [offlineSyncPresentations, setOfflineSyncPresentations] = useState<OfflineSyncPresentation[]>([]);
+  const [offlineCompletionOpen, setOfflineCompletionOpen] = useState(false);
   const [offlinePreparedPackagesLoading, setOfflinePreparedPackagesLoading] = useState(false);
+  const [offlinePackageRefreshToken, setOfflinePackageRefreshToken] = useState(0);
+  const [summaryAwaitingSync, setSummaryAwaitingSync] = useState(false);
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
+  const [isCaptureCoolingDown, setIsCaptureCoolingDown] = useState(false);
   const [facialCameraOpen, setFacialCameraOpen] = useState(false);
   const [facialVerifying, setFacialVerifying] = useState(false);
   const [facialStatus, setFacialStatus] = useState("");
   const [manualInput, setManualInput] = useState("");
   const [manualEntryReason, setManualEntryReason] = useState("");
   const manualInputRef = useRef<HTMLInputElement>(null);
-  const [sessionForm, setSessionForm] = useState({
-    venue: "",
-    date: "",
-    startTime: "",
-    endTime: "",
-    method: defaultAttendanceMethod,
-    lateCutoffMinutes: 15
-  });
   const qrScannerBufferRef = useRef("");
   const qrScannerFlushTimerRef = useRef<number | undefined>(undefined);
   const submitQrAttendanceRef = useRef<(code: string) => void>(() => undefined);
   const recentQrScansRef = useRef(new Map<string, number>());
   const qrSubmissionInFlightRef = useRef(false);
+  const attendanceCaptureCooldownUntilRef = useRef(0);
+  const attendanceCaptureCooldownTimerRef = useRef<number | undefined>(undefined);
   const lastSuccessfulQrScanAtRef = useRef(0);
   const facialVideoRef = useRef<HTMLVideoElement>(null);
   const facialStreamRef = useRef<MediaStream | null>(null);
@@ -814,22 +906,64 @@ export function EventManagementPage() {
   const [handledSessionRouteId, setHandledSessionRouteId] = useState<string | null>(null);
   const promptedLifecycleEventIdsRef = useRef(new Set<string>());
 
-  const { session, isOfflineMode, reconciliationState } = useDevelopmentSession();
+  // Give the local queue and React state a moment to settle before accepting
+  // another person. This prevents rapid scanner/manual bursts from competing
+  // with the previous write or triggering a reconciliation storm. The first
+  // capture is never delayed, and the gate is shared by every capture method.
+  const beginAttendanceCapture = () => {
+    const now = Date.now();
+    if (now < attendanceCaptureCooldownUntilRef.current) return false;
+
+    attendanceCaptureCooldownUntilRef.current = now + 1_000;
+    setIsCaptureCoolingDown(true);
+    if (attendanceCaptureCooldownTimerRef.current !== undefined) {
+      window.clearTimeout(attendanceCaptureCooldownTimerRef.current);
+    }
+    attendanceCaptureCooldownTimerRef.current = window.setTimeout(() => {
+      attendanceCaptureCooldownTimerRef.current = undefined;
+      setIsCaptureCoolingDown(false);
+    }, 1_000);
+    return true;
+  };
+
+  useEffect(() => () => {
+    if (attendanceCaptureCooldownTimerRef.current !== undefined) {
+      window.clearTimeout(attendanceCaptureCooldownTimerRef.current);
+    }
+  }, []);
+
+  const { session, isOfflineMode, reconciliationState, hasOfflineWork } = useDevelopmentSession();
   const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined);
   const routeStartHandoff = session?.userId && sessionIdFromQuery
     ? readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)
     : null;
+  const preparedPackageSession = offlineLive.preparedEvent?.sessions.find((item) => item.id === sessionIdFromQuery);
+  const preparedPackageAlreadyStarted = Boolean(
+    preparedPackageSession
+    && ["START_PENDING", "STARTED"].includes(preparedPackageSession.offlineLifecycle ?? "")
+  );
   const localStartFallbackMatchesRoute = Boolean(
     localStartPackage
     && sessionIdFromQuery
     && localStartPackage.sessions.some((item) => item.id === sessionIdFromQuery && ["START_PENDING", "STARTED"].includes(item.offlineLifecycle ?? ""))
   );
+  const routeStartFallbackMatchesRoute = Boolean(
+    routeStartHandoff
+    && sessionIdFromQuery
+    && routeStartHandoff.sessions.some((item) => item.id === sessionIdFromQuery && ["START_PENDING", "STARTED"].includes(item.offlineLifecycle ?? ""))
+  );
   // Prefer a completed owner-scoped database lookup, but never discard the
   // package returned by a successful local start just because a Wi-Fi change
-  // causes that follow-up lookup to lag or fail temporarily.
-  const offlineLivePackage = offlineLive.preparedEvent
-    ?? (localStartFallbackMatchesRoute ? localStartPackage : null)
-    ?? routeStartHandoff;
+  // causes an earlier NOT_STARTED lookup to resolve after that start.  A
+  // current started lookup remains authoritative; only a stale/unstarted one
+  // is superseded by the durable local-start result or route handoff.
+  const offlineLivePackage = !preparedPackageAlreadyStarted && localStartFallbackMatchesRoute
+    ? localStartPackage
+    : !preparedPackageAlreadyStarted && routeStartFallbackMatchesRoute
+      ? routeStartHandoff
+      : offlineLive.preparedEvent
+        ?? (localStartFallbackMatchesRoute ? localStartPackage : null)
+        ?? (routeStartFallbackMatchesRoute ? routeStartHandoff : null);
   const refreshOfflineLive = offlineLive.refresh;
   const previousReconciliationStateRef = useRef(reconciliationState);
 
@@ -841,8 +975,18 @@ export function EventManagementPage() {
     const reconciliationJustCompleted = previousReconciliationStateRef.current === "syncing"
       && reconciliationState === "idle";
     previousReconciliationStateRef.current = reconciliationState;
-    if (reconciliationJustCompleted && !isOfflineMode) void refreshOfflineLive();
+    if (reconciliationJustCompleted && !isOfflineMode) {
+      setSummaryAwaitingSync(false);
+      setOfflinePackageRefreshToken((value) => value + 1);
+      void refreshOfflineLive();
+    }
   }, [isOfflineMode, reconciliationState, refreshOfflineLive]);
+
+  // Offline completion details are local-only. Close the dialog immediately
+  // after reconnection so it can never expose online-only routes or actions.
+  useEffect(() => {
+    if (!isOfflineMode) setOfflineCompletionOpen(false);
+  }, [isOfflineMode]);
   // The online student query is intentionally disabled while offline. Keep a
   // name lookup from the prepared package so live attendance never renders a
   // profile UUID as a student's name after a local scanner submission.
@@ -873,10 +1017,33 @@ export function EventManagementPage() {
     && offlineLocalSession.eventId === offlineLivePackage.event.id
     && offlineLocalSession.offlineLifecycle === "NOT_STARTED"
   );
+  const hasLocallyEndedSession = Boolean(
+    offlineLocalSession
+    && ["END_PENDING", "ENDED", "CONFLICT"].includes(offlineLocalSession.offlineLifecycle ?? "")
+  );
   const isLocalAuthoritativeSession = Boolean(
     hasLocallyResumableSession
     && (isOfflineMode || !offlineLocalSession?.offlineStartReconciledAt)
   );
+
+  // Closing a local-end summary invalidates the live-session URL itself. Do
+  // not let an END_PENDING package fall through the active-session route
+  // guard, which would incorrectly label protected local completion data as
+  // an unavailable session. Clear both the path/query identity and transient
+  // live state, then show it only through the offline Events view.
+  useEffect(() => {
+    if (!isOfflineMode || !sessionIdFromQuery || !hasLocallyEndedSession) return;
+    setActiveEvent(null);
+    setLiveSessionId(null);
+    setActiveRows([]);
+    setCaptureMode(null);
+    setFacialCameraOpen(false);
+    setHandledSessionRouteId(sessionIdFromQuery);
+    navigate(
+      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
+      { replace: true }
+    );
+  }, [hasLocallyEndedSession, isOfflineMode, navigate, sessionIdFromQuery, workspaceRoute]);
   const offlineLiveSession = useMemo(() => {
     // A verified reconnect changes the header to Online before lifecycle
     // reconciliation and server queries finish. Keep a locally started
@@ -937,29 +1104,62 @@ export function EventManagementPage() {
   );
   useEffect(() => {
     let current = true;
-    if (!isOfflineMode || session?.role !== "organizer" || !session.userId) {
+    if ((!isOfflineMode && !hasOfflineWork) || session?.role !== "organizer" || !session.userId) {
       setOfflinePreparedPackages([]);
+      setOfflineSyncPresentations([]);
       setOfflinePreparedPackagesLoading(false);
       return () => { current = false; };
     }
     const api = desktopApi();
     if (!api) {
       setOfflinePreparedPackages([]);
+      setOfflineSyncPresentations([]);
       setOfflinePreparedPackagesLoading(false);
       return () => { current = false; };
     }
     setOfflinePreparedPackagesLoading(true);
     void (async () => {
       const summaries = await listOfflineEvents(session.userId);
-      const packages = await Promise.all(summaries.map((summary) => api.getPreparedEvent(summary.event.id, session.userId)));
-      if (current) setOfflinePreparedPackages(packages.filter((pkg): pkg is PreparedEventPackage => pkg !== null));
+      const packages = (await Promise.all(summaries.map((summary) => api.getPreparedEvent(summary.event.id, session.userId))))
+        .filter((pkg): pkg is PreparedEventPackage => pkg !== null && pkg.event.status !== "cancelled");
+      const presentations = await Promise.all(packages.map(async (pkg) => {
+        const lifecycle = getOfflineCompletionLifecycle(pkg);
+        if (!lifecycle) return null;
+        const status = await api.getStatus(pkg.event.id, session.userId);
+        return { package: pkg, status, lifecycle };
+      }));
+      if (current) {
+        // The Events directory is an operational picker, not an archive of
+        // every package ever saved on this device.  Old unfinished packages
+        // stay preserved in the saved-session review view, but they must not
+        // look like today's live events or reopen a stale attendance session.
+        const today = getManilaCalendarDate();
+        const preparedTodayEventIds = new Set(
+          summaries
+            .filter((summary) => getManilaCalendarDate(new Date(summary.preparedAt)) === today)
+            .map((summary) => summary.event.id)
+        );
+        // A same-day server directory captured while online is authoritative
+        // for this offline directory too. Stale prepared packages remain in
+        // saved-session review but cannot appear as live events after Wi-Fi
+        // drops. Cold offline use safely falls back to today's packages.
+        const verifiedOnlineEventIds = readOfflineDirectorySnapshot(session.userId, today);
+        const selectableEventIds = verifiedOnlineEventIds === null
+          ? preparedTodayEventIds
+          : new Set([...preparedTodayEventIds].filter((eventId) => verifiedOnlineEventIds.includes(eventId)));
+        setOfflinePreparedPackages(packages.filter((pkg) =>
+          selectableEventIds.has(pkg.event.id)
+          && pkg.sessions.some((item) => item.offlineLifecycle !== "ENDED" && item.status !== "completed")
+        ));
+        setOfflineSyncPresentations(presentations.filter((item): item is OfflineSyncPresentation => item !== null));
+      }
     })().catch(() => {
-      if (current) setOfflinePreparedPackages([]);
+      if (current) { setOfflinePreparedPackages([]); setOfflineSyncPresentations([]); }
     }).finally(() => {
       if (current) setOfflinePreparedPackagesLoading(false);
     });
     return () => { current = false; };
-  }, [isOfflineMode, session?.role, session?.userId]);
+  }, [hasOfflineWork, isOfflineMode, offlinePackageRefreshToken, reconciliationState, session?.role, session?.userId]);
   const offlinePackageByEventId = useMemo(
     () => new Map(offlinePreparedPackages.map((pkg) => [pkg.event.id, pkg])),
     [offlinePreparedPackages]
@@ -972,6 +1172,14 @@ export function EventManagementPage() {
   // expected failure used to win the render race and hide the local session.
   const eventsQuery = useEvents({ pageSize: 100 }, context, !isOfflineMode);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 200 }, context, !isOfflineMode);
+  // The list query is deliberately cached and can be temporarily empty while
+  // reconnecting. The session in the URL is the live workspace's identity, so
+  // resolve it independently before declaring that the workspace is gone.
+  const routedAttendanceSessionQuery = useAttendanceSession(
+    sessionIdFromQuery ?? undefined,
+    context,
+    !isOfflineMode && Boolean(sessionIdFromQuery),
+  );
   const lifecycleNotificationsQuery = useNotifications(
     { pageSize: 100, notificationCode: "event.lifecycle.unstarted" },
     isOfflineMode ? undefined : context
@@ -994,34 +1202,18 @@ export function EventManagementPage() {
   // reconciled, even if connectivity briefly returns.
   const liveAttendanceSummaryQuery = useAttendanceSummaries(activeEvent?.id ? [activeEvent.id] : [], !isLocalAuthoritativeSession);
   const { refetch: refetchAttendanceRecords } = attendanceRecordsQuery;
-  const findRemoteUnverifiedWalkIn = useCallback(async (studentNumber: string): Promise<RemoteUnverifiedWalkIn | undefined> => {
-    const matchingVisibleRows = activeRows.filter((row) => matchesUnverifiedWalkInNumber(row, studentNumber));
-    if (matchingVisibleRows.length > 1) {
-      throw new Error("Multiple walk-in records match this student number. Resolve the duplicate before recording attendance.");
-    }
-    const visibleRow = matchingVisibleRows[0];
-    if (visibleRow) {
-      return {
-        id: visibleRow.studentId.slice("walkin:".length),
-        studentNumber,
-        timeIn: visibleRow.checkInAt,
-        timeOut: visibleRow.checkOutAt,
-        attendanceMethod: visibleRow.attendanceMethod,
-        checkoutAttendanceMethod: visibleRow.checkoutAttendanceMethod,
-      };
-    }
-
+  const findRemoteWalkIn = useCallback(async (studentNumber: string): Promise<RemoteWalkIn | undefined> => {
     // A walk-in may already have synchronized and therefore no longer be in
     // the desktop queue or the browser draft. Check the owned live session
     // before accepting another Time In or routing Time Out to the local queue.
     if (!activeEvent?.id || !activeScannerSessionId) return undefined;
     const client = getSupabaseBrowserClient();
     const { data, error } = await client
-      .from("unverified_walkin_attendance" as never)
-      .select("id, student_number, identification_method, checkout_identification_method, time_in, time_out")
-      .eq("event_id", activeEvent.id)
+      .from("attendance_records")
+      .select("id, student_id, local_attendance_uuid, verification_method, checkout_verification_method, time_in, time_out, students!inner(student_id)")
       .eq("event_session_id", activeScannerSessionId)
-      .eq("student_number", studentNumber)
+      .eq("attendance_origin", "walk_in")
+      .eq("students.student_id", studentNumber)
       .limit(2);
     if (error) {
       // An unavailable server must not prevent an offline package from using
@@ -1031,8 +1223,9 @@ export function EventManagementPage() {
     }
     const matches = (data ?? []) as Array<{
       id: string;
-      student_number: string;
-      identification_method: string | null;
+      student_id: string;
+      local_attendance_uuid: string | null;
+      verification_method: string | null;
       checkout_identification_method?: string | null;
       time_in: string;
       time_out?: string | null;
@@ -1042,18 +1235,19 @@ export function EventManagementPage() {
     }
     const walkIn = matches[0];
     return walkIn ? {
-      id: walkIn.id,
-      studentNumber: walkIn.student_number,
+      id: walkIn.local_attendance_uuid ?? walkIn.id,
+      studentId: walkIn.student_id,
+      studentNumber,
       timeIn: walkIn.time_in,
       timeOut: walkIn.time_out,
-      attendanceMethod: attendanceMethodFromVerification(walkIn.identification_method),
+      attendanceMethod: attendanceMethodFromVerification(walkIn.verification_method),
       ...(walkIn.checkout_identification_method
         ? { checkoutAttendanceMethod: attendanceMethodFromVerification(walkIn.checkout_identification_method) }
         : {}),
     } : undefined;
-  }, [activeEvent?.id, activeRows, activeScannerSessionId]);
-  const recordRemoteUnverifiedWalkInTimeOut = useCallback(async (
-    walkIn: RemoteUnverifiedWalkIn,
+  }, [activeEvent?.id, activeScannerSessionId]);
+  const recordRemoteWalkInTimeOut = useCallback(async (
+    walkIn: RemoteWalkIn,
     method: Extract<AttendanceMethod, "QR Code" | "Manual">,
     occurredAt: string
   ) => {
@@ -1061,7 +1255,7 @@ export function EventManagementPage() {
       throw new Error("This walk-in cannot be checked out from the server.");
     }
     if (walkIn.timeOut) {
-      throw new Error(`Unverified walk-in ${walkIn.studentNumber} already has a Time In and Time Out.`);
+      throw new Error(`Walk-in ${walkIn.studentNumber} already has a Time In and Time Out.`);
     }
     if (!canRecordTimeOut(walkIn.timeIn, occurredAt)) {
       throw new Error("Time Out can be recorded at least one minute after Time In.");
@@ -1069,16 +1263,27 @@ export function EventManagementPage() {
     const client = getSupabaseBrowserClient() as unknown as {
       rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
     };
-    const { error } = await client.rpc("record_unverified_walkin_checkout", {
-      p_walkin_id: walkIn.id,
+    const { error } = await client.rpc("record_approved_event_walkin", {
+      p_local_scan_uuid: walkIn.id,
+      p_event_id: activeEvent?.id,
+      p_session_id: activeScannerSessionId,
+      p_student_number: walkIn.studentNumber,
+      p_identification_method: verificationMethodFromAttendance(walkIn.attendanceMethod),
+      p_time_in: walkIn.timeIn,
       p_checkout_identification_method: verificationMethodFromAttendance(method),
       p_time_out: occurredAt
     });
     if (error) throw error;
     setActiveRows((rows) => upsertAttendanceRow(rows, {
       id: walkIn.id,
-      studentId: `walkin:${walkIn.id}`,
-      studentName: `Unverified walk-in · ${walkIn.studentNumber}`,
+      studentId: walkIn.studentId ?? `walkin:${walkIn.id}`,
+      // This is already a centrally confirmed Walk-in. Keep the canonical
+      // name when the check-in row is in memory; the number is only a safe
+      // fallback while a restored page is still loading participant details.
+      studentName: rows.find((row) => row.studentId === walkIn.studentId)?.studentName
+        ?? activeParticipantIdentities?.find((participant) => participant.studentId === walkIn.studentId)?.fullName
+        ?? walkIn.studentNumber,
+      verificationLabel: "Walk-in",
       eventCode: activeEvent?.code ?? "",
       attendanceMethod: walkIn.attendanceMethod,
       checkInAt: walkIn.timeIn,
@@ -1095,8 +1300,8 @@ export function EventManagementPage() {
       isFinalized: false,
     }));
     await refetchAttendanceRecords();
-  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent?.code, refetchAttendanceRecords]);
-  const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
+  }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent?.code, activeEvent?.id, activeParticipantIdentities, activeScannerSessionId, refetchAttendanceRecords]);
+  const { createEventSessionMutation, endSessionSilentlyMutation } = useAttendanceSessionMutations(context);
   const { credentialScanMutation, manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
@@ -1258,7 +1463,8 @@ export function EventManagementPage() {
       setActiveParticipantIdentities(offlineLivePackage.participants.map((participant) => ({
         studentId: participant.studentId,
         studentNumber: participant.studentNumber,
-        fullName: participant.displayName
+        fullName: participant.displayName,
+        participantStatus: participant.participantStatus === "walk_in" ? "walk_in" : participant.participantStatus === "confirmed" ? "confirmed" : "invited"
       })));
       return;
     }
@@ -1284,7 +1490,7 @@ export function EventManagementPage() {
       }
       const { data: participantRows, error: participantError } = await client
         .from("event_participants")
-        .select("student_id")
+        .select("student_id, participant_status")
         .eq("event_id", activeEventId)
         .neq("participant_status", "removed");
       if (participantError) {
@@ -1309,12 +1515,15 @@ export function EventManagementPage() {
         return;
       }
 
-      const identities = (studentRows ?? []).map((student) => {
+      const participantStatusByStudentId = new Map((participantRows ?? []).map((participant) => [String(participant.student_id ?? ""), String(participant.participant_status ?? "invited")]));
+      const identities: ActiveParticipantIdentity[] = (studentRows ?? []).map((student) => {
         const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+        const participantStatus = participantStatusByStudentId.get(String(student.id));
         return {
           studentId: String(student.id),
           studentNumber: String(student.student_id ?? ""),
-          fullName: [profile?.first_name, profile?.middle_name, profile?.last_name, profile?.name_extension].filter(Boolean).join(" ")
+          fullName: [profile?.first_name, profile?.middle_name, profile?.last_name, profile?.name_extension].filter(Boolean).join(" "),
+          participantStatus: participantStatus === "walk_in" ? "walk_in" : participantStatus === "confirmed" ? "confirmed" : "invited"
         };
       });
       if (current) setActiveParticipantIdentities(identities);
@@ -1423,9 +1632,15 @@ export function EventManagementPage() {
       return;
     }
 
-    const serverRequestedSession = sessionsList.find((session) => session.id === sessionIdFromQuery);
+    const serverRequestedSession = routedAttendanceSessionQuery.data
+      ?? sessionsList.find((session) => session.id === sessionIdFromQuery);
+    // The event and session lists are independent queries. During reconnect,
+    // the session row can arrive first; retain the current route's event
+    // metadata rather than treating that short-lived partial snapshot as an
+    // invalid live session.
     const serverRequestedEvent = serverRequestedSession
       ? repositoryEvents.find((event) => event.id === serverRequestedSession.eventId)
+        ?? (activeEvent?.id === serverRequestedSession.eventId ? activeEvent : undefined)
       : undefined;
     const requestedSession = serverRequestedSession ?? offlineLiveSession;
     const requestedEvent = serverRequestedEvent ?? offlineLiveEvent;
@@ -1436,23 +1651,32 @@ export function EventManagementPage() {
     // Do not reject a freshly started offline event while its session-specific
     // package read is still in flight. The hook's previous empty result may
     // belong to the Events list rather than this new live-session route.
-    if (offlineLive.isLoading) return;
+    // Do not decide that the route is invalid while the verified reconnection
+    // is still reconciling the local START_PENDING action with Supabase.  The
+    // server query can legitimately still report the event as scheduled here.
+    if (
+      offlineLive.isLoading
+      || reconciliationState === "syncing"
+      || routedAttendanceSessionQuery.isLoading
+      || routedAttendanceSessionQuery.isFetching
+    ) return;
 
     if (!requestedSession || requestedSession.status !== "active" || !requestedEvent) {
-      // Network changes can make the server-side session read disappear before
-      // the offline-mode transition is rendered. A locally READY, unstarted
-      // package is still valid; return it to the normal Events grid so the
-      // organizer can start it locally instead of treating it as missing.
-      if (hasLocallyReadyUnstartedSession) {
-        setActiveEvent(null);
-        setLiveSessionId(null);
-        setActiveRows([]);
-        setCaptureMode(null);
-        setFacialCameraOpen(false);
-        setHandledSessionRouteId(sessionIdFromQuery);
-        navigate(workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), { replace: true });
-        return;
-      }
+      // Reconnect can invalidate the event and session queries independently.
+      // A burst of offline Walk-ins makes this especially visible: the event
+      // query may briefly contain the refreshed event while the session query
+      // still contains neither the old local session nor its server row. Do
+      // not tear down a workspace that is already open for this exact route
+      // merely because that intermediate snapshot is empty. A confirmed
+      // completed session is still present in `sessionsList` and follows the
+      // normal terminal-state branch below.
+      const serverReportsTerminalSession = routedAttendanceSessionQuery.data?.status === "completed"
+        || routedAttendanceSessionQuery.data?.status === "cancelled";
+      const isExistingLiveRouteAwaitingServerSnapshot = Boolean(
+        !isOfflineMode
+        && !serverReportsTerminalSession
+      );
+      if (isExistingLiveRouteAwaitingServerSnapshot) return;
       // While disconnected, a failed or missing local lookup must remain on
       // the session route for recovery instead of silently replacing it with
       // the Events list. A later retry/reconnect can still resolve it.
@@ -1460,7 +1684,12 @@ export function EventManagementPage() {
         setHandledSessionRouteId(sessionIdFromQuery);
         return;
       }
-      if (!attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
+      // A missing list row, timeout, or temporary authorization refresh is
+      // never proof that this one session ended. Only the exact-session query
+      // may close the route, and only after it explicitly reports a terminal
+      // status. This keeps a reconnect burst from kicking the organizer out
+      // of an active event.
+      if (serverReportsTerminalSession && !attendanceSessionsQuery.isFetching && !eventsQuery.isFetching) {
         // A session may have been ended or discarded in another organizer view.
         // Never leave its stale in-memory workspace open with live controls.
         if (activeEvent || liveSessionId) {
@@ -1488,18 +1717,20 @@ export function EventManagementPage() {
       setManualInput("");
       setQrInput("");
     }
-  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, hasLocallyReadyUnstartedSession, isOfflineMode, offlineLive.isLoading, liveSessionId, navigate, offlineLiveEvent, offlineLiveSession, repositoryEvents, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
+  }, [attendanceSessionsQuery.isFetching, eventsQuery.isFetching, hasLocallyReadyUnstartedSession, isOfflineMode, liveSessionId, offlineLive.isLoading, navigate, offlineLiveEvent, offlineLiveSession, reconciliationState, repositoryEvents, routedAttendanceSessionQuery.data, routedAttendanceSessionQuery.isFetching, routedAttendanceSessionQuery.isLoading, sessionIdFromQuery, sessionsList, activeEvent, workspaceRoute]);
 
   // The renderer can unmount when an organizer visits another screen, but the
   // Electron scanner coordinator remains alive in the main process. Restore
-  // its session-scoped phase when returning so the UI and phone scanners agree.
+  // the server phase for every live workspace; then also align the desktop
+  // scanner when one is available. Browser sessions must not fall back to
+  // Time In merely because they have no Electron bridge.
   useEffect(() => {
     const api = desktopApi();
-    if (!api || !activeEvent?.id || !activeScannerSessionId || !session?.userId) return;
+    if (!activeScannerSessionId) return;
     let current = true;
     const hasRecordedTimeOut = (attendanceRecordsQuery.data?.items ?? []).some(
       (record) => record.sessionId === activeScannerSessionId && Boolean(record.checkedOutAt)
-    );
+    ) || activeRows.some((record) => Boolean(record.checkOutAt));
     const browserPhase = readAttendancePhase(window.sessionStorage, activeScannerSessionId);
     const applyPhase = (phase: AttendanceCapturePhase) => {
       if (!current) return;
@@ -1508,17 +1739,37 @@ export function EventManagementPage() {
       setAttendancePhase(resolved);
     };
     if (hasRecordedTimeOut || browserPhase === "time_out") setAttendancePhase("time_out");
-    void api.getAttendanceCapturePhase(activeScannerSessionId,session.userId).then(async(phase)=>{
+    if (!api || !activeEvent?.id || !session?.userId) {
+      void getServerAttendanceCapturePhase(activeScannerSessionId)
+        .then(applyPhase)
+        .catch(() => applyPhase(browserPhase === "time_out" ? "time_out" : "time_in"));
+      return () => { current = false; };
+    }
+    const restore = async () => {
+      // While offline SQLite is the authority.  Once connectivity is restored
+      // the central phase is authoritative, but any durable local Time Out
+      // evidence is forward-only and must never be downgraded by a stale
+      // package refresh or a delayed server read.
+      let phase: AttendanceCapturePhase;
+      if (isOfflineMode) {
+        phase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
+      } else {
+        try {
+          phase = await getServerAttendanceCapturePhase(activeScannerSessionId);
+        } catch {
+          phase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
+        }
+      }
       applyPhase(phase);
-      const scanner=await api.getScannerStations();
-      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : phase;
-      if(current&&scanner.active&&scanner.eventId===activeEvent.id&&scanner.sessionId===activeScannerSessionId&&scanner.capturePhase!==resolved) await api.setScannerCapturePhase(resolved);
-    }).catch(async () => {
-      try { applyPhase(await getServerAttendanceCapturePhase(activeScannerSessionId)); }
-      catch { applyPhase("time_in"); }
-    });
+      const scanner = await api.getScannerStations();
+      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" || phase === "time_out" ? "time_out" : "time_in";
+      if (current && scanner.active && scanner.eventId === activeEvent.id && scanner.sessionId === activeScannerSessionId && scanner.capturePhase !== resolved) {
+        await api.setScannerCapturePhase(resolved);
+      }
+    };
+    void restore().catch(() => applyPhase(hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : "time_in"));
     return () => { current = false; };
-  }, [activeEvent?.id, activeScannerSessionId, attendanceRecordsQuery.data?.items, session?.userId]);
+  }, [activeEvent?.id, activeRows, activeScannerSessionId, attendanceRecordsQuery.data?.items, isOfflineMode, session?.userId]);
 
   // Keep the live workspace addressable as its own session view. This also
   // gives the floating session shortcut a reliable route to detect and hide.
@@ -1603,8 +1854,6 @@ export function EventManagementPage() {
   );
   const readinessModalSummary = readinessEvent?.id ? readinessByEventId.get(readinessEvent.id) : undefined;
   const readinessModalIssues = readinessEvent?.id ? readinessIssuesByEventId.get(readinessEvent.id) ?? [] : [];
-  const startEventReadiness = startEvent?.id ? readinessByEventId.get(startEvent.id) : undefined;
-  const startEventMissingQrCount = startEventReadiness ? startEventReadiness.participants - startEventReadiness.qrReady : 0;
   const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
 
   // Completed events = the repository summaries plus any sessions the
@@ -1642,6 +1891,21 @@ export function EventManagementPage() {
     [activeEvent, cancelledCodes, completedCodes, isOfflineMode, isReadOnlyMonitor, search, sessionsList, storeEvents]
   );
 
+  useEffect(() => {
+    // Do not overwrite the trusted directory with the query's initial empty
+    // state. Only a successful server result may decide which packages are
+    // selectable after the next offline transition.
+    if (isOfflineMode || !session?.userId || !eventsQuery.isSuccess) return;
+    // Persist exactly the server-backed Today directory the organizer is
+    // seeing. On a later offline transition, the active package list cannot
+    // grow beyond this verified set.
+    saveOfflineDirectorySnapshot(
+      session.userId,
+      getManilaCalendarDate(),
+      todayEvents.map((event) => event.id).filter((eventId): eventId is string => Boolean(eventId))
+    );
+  }, [eventsQuery.isSuccess, isOfflineMode, session?.userId, todayEvents]);
+
   const incomingEvents = useMemo(
     () => {
       if (isOfflineMode) return [];
@@ -1676,11 +1940,37 @@ export function EventManagementPage() {
     return map;
   }, [todayEvents, incomingEvents]);
 
-  const activeParticipantCount = activeParticipantIdentities?.length ?? 0;
+  const activeRegisteredParticipantCount = activeParticipantIdentities?.filter((participant) => participant.participantStatus !== "walk_in").length ?? 0;
+  const activeWalkInCount = activeParticipantIdentities?.filter((participant) => participant.participantStatus === "walk_in").length ?? 0;
+  const activeParticipantCount = activeRegisteredParticipantCount + activeWalkInCount;
+  const activeParticipantIdentityByStudentId = useMemo(
+    () => new Map((activeParticipantIdentities ?? []).map((participant) => [participant.studentId, participant])),
+    [activeParticipantIdentities]
+  );
   // While a session is live, students who have not checked in yet are still
   // pending, not absent. Missing participants become absent only in the
   // finalized session summary.
   const activeCounts = countRows(activeRows, activeParticipantCount, false);
+  const filteredActiveRows = useMemo(() => {
+    const query = liveAttendanceSearch.trim().toLocaleLowerCase();
+    const matchingRows = !query ? activeRows : activeRows.filter((row) => [
+      row.studentName,
+      row.studentId,
+      activeParticipantIdentityByStudentId.get(row.studentId)?.studentNumber,
+      row.verificationLabel
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase().includes(query)));
+
+    return [...matchingRows].sort((left, right) => {
+      const walkInOrder = Number(right.verificationLabel === "Walk-in") - Number(left.verificationLabel === "Walk-in");
+      if (walkInOrder !== 0) return walkInOrder;
+
+      const leftName = formatAttendanceListName(activeParticipantIdentityByStudentId.get(left.studentId)?.fullName ?? left.studentName);
+      const rightName = formatAttendanceListName(activeParticipantIdentityByStudentId.get(right.studentId)?.fullName ?? right.studentName);
+      return leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [activeParticipantIdentityByStudentId, activeRows, liveAttendanceSearch]);
   // A Time Out must be at least a minute after Time In. This is enforced at
   // capture time; the extra check is only a recovery safeguard for an old,
   // already-saved invalid value so End Session can still complete safely.
@@ -1695,7 +1985,7 @@ export function EventManagementPage() {
   const isEndingAfterScheduledTime = Boolean(
     activeAttendanceSession?.endsAt && new Date().getTime() > new Date(activeAttendanceSession.endsAt).getTime()
   );
-  const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeParticipantCount);
+  const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeRegisteredParticipantCount, activeWalkInCount);
 
   // Scans are deliberately held in the live workspace until End Session. Keep
   // that draft in the browser session so route changes and reloads do not erase
@@ -1731,7 +2021,7 @@ export function EventManagementPage() {
   }, [activeEvent?.id, activeRows, activeScannerSessionId, attendanceDraftReadySessionId, canManageOwnedEvents]);
 
   // The browser draft is only a convenience layer. On restart, restore the
-  // authoritative server summary as well: it includes unverified walk-ins and
+  // authoritative server summary as well: it includes reconciled Walk-ins and
   // the separately stored checkout method for registered participants.
   useEffect(() => {
     if (!activeEvent?.id || !resolvedLiveSessionId) return;
@@ -1750,6 +2040,7 @@ export function EventManagementPage() {
         checkInTime: row.checkInTime,
         ...(row.timeOut ? { checkOutAt: row.timeOut, checkOutTime: row.checkOutTime ?? formatLocalTime(row.timeOut) } : {}),
         attendanceStatus: row.attendanceStatus,
+        verificationLabel: row.verificationLabel,
         isFinalized: false,
         ...(row.lateReason ? { lateReason: row.lateReason } : {}),
       }));
@@ -1781,6 +2072,7 @@ export function EventManagementPage() {
           checkInTime: record.timeIn ? formatLocalTime(record.timeIn) : "Not recorded",
           ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
           attendanceStatus: record.status === "late" ? "late" : "present",
+          verificationLabel: record.attendanceOrigin === "walk_in" ? "Walk-in" : "Verified",
           isFinalized: Boolean(record.finalizedAt),
           ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
         };
@@ -1820,6 +2112,33 @@ export function EventManagementPage() {
     setActiveRows((rows) => localRows.reduce(upsertAttendanceRow, rows));
   }, [activeEvent?.code, activeEvent?.id, activeScannerSessionId, isLocalAuthoritativeSession, offlineLivePackage]);
 
+  // A reconciled Walk-in now has a canonical participant/attendance record.
+  // Remove its temporary local projection immediately so it cannot appear
+  // beside the resolved student's real row until the next page refresh.
+  useEffect(() => {
+    const removeResolvedWalkIn = (event: globalThis.Event) => {
+      const localScanUuid = (event as unknown as CustomEvent<{ localScanUuid?: string }>).detail?.localScanUuid;
+      if (!localScanUuid) return;
+      finalizedLocalWalkInIdsRef.current.add(localScanUuid);
+      setActiveRows((rows) => rows.filter((row) => localWalkInScanId(row) !== localScanUuid));
+      if (activeEvent?.id && activeScannerSessionId) removeTemporaryWalkInFromDraft(activeScannerSessionId, activeEvent.id, localScanUuid);
+      void refetchAttendanceRecords();
+    };
+    const removeDiscardedWalkIn = (event: globalThis.Event) => {
+      const localScanUuid = (event as unknown as CustomEvent<{ localScanUuid?: string }>).detail?.localScanUuid;
+      if (!localScanUuid) return;
+      finalizedLocalWalkInIdsRef.current.add(localScanUuid);
+      setActiveRows((rows) => rows.filter((row) => localWalkInScanId(row) !== localScanUuid));
+      if (activeEvent?.id && activeScannerSessionId) removeTemporaryWalkInFromDraft(activeScannerSessionId, activeEvent.id, localScanUuid);
+    };
+    window.addEventListener(offlineWalkInResolvedEvent, removeResolvedWalkIn);
+    window.addEventListener(offlineWalkInDiscardedEvent, removeDiscardedWalkIn);
+    return () => {
+      window.removeEventListener(offlineWalkInResolvedEvent, removeResolvedWalkIn);
+      window.removeEventListener(offlineWalkInDiscardedEvent, removeDiscardedWalkIn);
+    };
+  }, [activeEvent?.id, activeScannerSessionId, refetchAttendanceRecords]);
+
   // Scanner phones write to the laptop's local database. Keep the live list
   // hydrated from that same source so a phone-confirmed scan is visible to the
   // organizer immediately, including while the laptop is offline. Do not poll
@@ -1837,8 +2156,9 @@ export function EventManagementPage() {
         const [pending,walkIns] = await Promise.all([api.listPending(activeEvent.id,ownerId),api.listPendingWalkInScans(activeEvent.id,ownerId,activeScannerSessionId)]);
         if (!current) return;
         const records = pending.filter((record) => record.sessionId === activeScannerSessionId);
-        if (records.length || walkIns.length) {
-          setActiveRows((rows) => {
+        // Run this even when both lists are empty: a permanent reconciliation
+        // discard must remove its synthetic local Walk-in from the live grid.
+        setActiveRows((rows) => {
             const phoneRows: DraftAttendanceRow[] = records.map((record): DraftAttendanceRow => {
             const student = (studentsQuery.data?.items ?? []).find((candidate) => candidate.id === record.studentId);
             return {
@@ -1856,8 +2176,12 @@ export function EventManagementPage() {
             };
             // The desktop API already scopes these to the active session, or
             // one unambiguous active walk-in after a renderer restore.
-            }).concat(walkIns.map((scan): DraftAttendanceRow => ({
-              id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Unverified walk-in · ${scan.studentNumber}`,
+            }).concat(walkIns.filter((scan) => scan.syncStatus !== "CONFIRMED" && !finalizedLocalWalkInIdsRef.current.has(scan.localScanUuid)).map((scan): DraftAttendanceRow => ({
+              id:`offline-walkin-${scan.localScanUuid}`,studentId:`walkin:${scan.localScanUuid}`,studentName:`Walk-in · ${scan.studentNumber}`,
+              localScanUuid:scan.localScanUuid,
+              // A local number is not proof of an enrolled identity. Explicitly
+              // clear a stale draft badge until the server confirms it.
+              verificationLabel:undefined,
               eventCode:activeEvent.code,attendanceMethod:attendanceMethodFromVerification(scan.identificationMethod),
               ...(scan.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(scan.checkoutIdentificationMethod) } : {}),
               checkInAt:scan.timeIn,checkInTime:formatLocalTime(scan.timeIn),...(scan.timeOut?{checkOutAt:scan.timeOut,checkOutTime:formatLocalTime(scan.timeOut)}:{}),
@@ -1865,9 +2189,15 @@ export function EventManagementPage() {
             })));
             // Merge rather than replace. A request that began before the QR
             // checkout committed can return an older row with no Time Out.
-            return phoneRows.reduce(upsertAttendanceRow, rows);
-          });
-        }
+            const pendingWalkInIds = new Set(walkIns
+              .filter((scan) => scan.syncStatus !== "CONFIRMED" && !finalizedLocalWalkInIdsRef.current.has(scan.localScanUuid))
+              .map((scan) => scan.localScanUuid));
+            const retainedRows = rows.filter((row) => {
+              const localScanUuid = localWalkInScanId(row);
+              return !localScanUuid || pendingWalkInIds.has(localScanUuid);
+            });
+            return phoneRows.reduce(upsertAttendanceRow, retainedRows);
+        });
         // A scanner-status event is already a targeted signal. Refresh only the
         // active session's scoped query after that signal, never on a timer.
         await refetchAttendanceRecords();
@@ -1980,18 +2310,6 @@ export function EventManagementPage() {
     }
   }, [selectedEventForSession, selectedEvents]);
 
-  function openStartSession(event: EventRecord) {
-    setStartEvent(event);
-    setSessionForm({
-      venue: event.venue,
-      date: event.date,
-      startTime: toTimeInputValue(event.startTime),
-      endTime: toTimeInputValue(event.endTime),
-      method: defaultAttendanceMethod,
-      lateCutoffMinutes: 15
-    });
-  }
-
   async function cancelEvent(event: EventRecord) {
     if (!event.id || cancelReason.trim().length < 5) {
       toast.error("Provide a cancellation reason of at least 5 characters.");
@@ -2004,138 +2322,53 @@ export function EventManagementPage() {
     toast.warning(`${event.code} has been cancelled.`);
   }
 
- async function startSession() {
-  if (!startEvent?.id) {
-    toast.error("Only events synced from Supabase can start a live session.");
-    return;
-  }
+  // The normal online-start path confirms the exact new server session in
+  // SQLite before navigation. This recovery is intentionally narrower: it
+  // only promotes an already-active server session that this page still holds
+  // in trusted state, and only into the matching prepared package. It repairs
+  // an interrupted renderer/preload handoff without allowing a scheduled
+  // package to be started merely because the device is offline.
+  const confirmHybridSessionForOffline = useCallback(async (sessionId: string) => {
+    const api = desktopApi();
+    const organizerProfileId = session?.userId;
+    const startedSession = activeAttendanceSession;
+    if (!api || !organizerProfileId || !activeEvent?.id) return;
 
-  // Validate the session form using Zod schema
-  const validation = eventSessionSchema.safeParse({
-    venue: sessionForm.venue,
-    date: sessionForm.date,
-    startTime: sessionForm.startTime,
-    expectedEndTime: sessionForm.endTime,
-    attendanceMode: "face-to-face"
-  });
+    const localPackage = await api.getPreparedEventBySession(sessionId, organizerProfileId);
+    const localSession = localPackage?.sessions.find((item) => item.id === sessionId);
+    if (!localSession || localSession.offlineLifecycle === "STARTED") return;
+    if (startedSession?.id !== sessionId || startedSession.status !== "active" || !startedSession.attendanceWindowStartAt) return;
 
-  if (!validation.success) {
-    const errors = validation.error.errors.map((err) => err.message).join(", ");
-    toast.error(`Form validation failed: ${errors}`);
-    return;
-  }
-
-  const eventToStart = startEvent;
-  const eventId = eventToStart.id as string;
-  if (eventToStart.date !== getManilaCalendarDate() || sessionForm.date !== getManilaCalendarDate()) {
-    toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
-    return;
-  }
-  if (!eventToStart.id) {
-    toast.error("This event is missing an ID and cannot start an attendance session.");
-    return;
-  }
-  if (desktopApi() && !isOfflineMode) {
-    const preparation = offlinePreparationByEventId.get(eventToStart.id);
-    if (preparation?.packageStatus !== "READY") {
-      const confirmed = window.confirm(`Offline resources for ${eventToStart.code} are not ready. Starting this event will download the required offline package now. The event can start only after that download succeeds. Continue?`);
-      if (!confirmed) return;
-      try {
-        await prepareOfflinePackage(eventToStart);
-      } catch {
-        toast.error("The event was not started because its required offline resources could not be downloaded.");
-        return;
-      }
+    const confirmed = await api.confirmOnlineStartedSession(
+      activeEvent.id,
+      sessionId,
+      organizerProfileId,
+      startedSession.attendanceWindowStartAt,
+      startedSession.lateCutoffAt
+    );
+    const confirmedSession = confirmed.sessions.find((item) => item.id === sessionId);
+    if (!confirmedSession || confirmedSession.status !== "ongoing" || confirmedSession.offlineLifecycle !== "STARTED") {
+      throw new Error("The active server session could not be confirmed for offline attendance.");
     }
-  }
-  let startedSessionId = "";
-  let startedAt = "";
-  let locallyStartedPackage: PreparedEventPackage | null = null;
-  try {
-    if (isOfflineMode) {
-      const ownerId = session?.userId;
-      const api = desktopApi();
-      const localPackage = ownerId && api ? await api.getPreparedEvent(eventId, ownerId) : null;
-      const localSession = localPackage?.sessions.find((item) =>
-        ["scheduled", "ongoing"].includes(item.status) && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
-      );
-      if (!ownerId || !api || !localPackage || !localSession) {
-        throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
-      }
-      const updatedPackage = await startOfflineEvent(eventId, localSession.id, ownerId);
-      const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
-      if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
-        throw new Error("The local attendance session did not enter its started state.");
-      }
-      locallyStartedPackage = updatedPackage;
-      rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
-      startedSessionId = updatedSession.id;
-      startedAt = updatedSession.attendanceWindowStartAt ?? updatedSession.offlineStartedAt ?? new Date().toISOString();
-    } else {
-      const startedSession = await createEventSessionMutation.mutateAsync({
-        eventId: eventToStart.id,
-        venue: sessionForm.venue,
-        date: sessionForm.date,
-        startTime: sessionForm.startTime,
-        expectedEndTime: sessionForm.endTime,
-        attendanceMode: "face-to-face",
-        lateCutoffMinutes: sessionForm.lateCutoffMinutes
-      });
-      startedSessionId = startedSession.id;
-      startedAt = startedSession.attendanceWindowStartAt ?? new Date().toISOString();
-    }
-  } catch {
-    toast.error(isOfflineMode ? "The prepared local session could not be started. No server session was changed." : "The attendance session could not be started.");
-    return;
-  }
+  }, [activeAttendanceSession, activeEvent?.id, session?.userId]);
 
-  // Refresh the offline package after creating the session. A package prepared
-  // before the event starts can be READY while still missing this newly
-  // ongoing session, which would make scanner startup reject it.
-  if (desktopApi() && !isOfflineMode) {
-    try {
-      const refreshed = await prepareEventForOffline(eventId, session?.userId ?? "");
-      if (refreshed.packageStatus !== "READY") throw new Error("Offline package is not ready.");
-      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: refreshed.packageStatus }));
-    } catch {
-      toast.error("The event session was created, but required offline resources could not be confirmed. Do not use offline scanners; refresh preparation and retry.");
-      return;
-    }
-  }
-
-  setActiveRows([]);
-  setFinalizedSummary(null);
-  setSummaryEvent(null);
-  setCaptureMode(defaultAttendanceMethod);
-  setAttendancePhase("time_in");
-  writeAttendancePhase(window.sessionStorage, startedSessionId, "time_in");
-  if (locallyStartedPackage) setLocalStartPackage(locallyStartedPackage);
-  setLiveSessionId(startedSessionId);
-  setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
-  setStartEvent(null);
-  setSelectedEventForSession(null);
-  navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSessionId), APP_ROUTES.adminLiveSession(startedSessionId)), { replace: true });
-  const startedAtTimestamp = new Date(startedAt).getTime();
-  const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
-  const delayedMinutes = Math.max(0, Math.floor((startedAtTimestamp - scheduledAt) / 60_000));
-  toast.success(
-    delayedMinutes > 0
-      ? `${eventToStart.code} started ${delayedMinutes} minutes later than scheduled. Late attendance is calculated from the actual start.`
-      : `${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`
-  );
-}
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
+  if (endingSessionRef.current) return;
+  const eventId = activeEvent.id;
   if (isEndingAfterScheduledTime && endSessionReason.trim().length < 5) {
     toast.error("Provide a short reason for ending after the scheduled time.");
     return;
   }
   let attendanceFinalized = false;
+  let endedLocally = false;
   const finalizedEvent = { id: activeEvent.id, code: activeEvent.code, name: activeEvent.name };
+  endingSessionRef.current = true;
+  setIsEndingSession(true);
   try {
     const sessionId = liveSessionId;
     if (!sessionId) throw new Error("The active attendance session could not be found.");
-    const attendanceRecords: FinalizeAttendanceRecordInput[] = activeRows.map((row) => ({
+    const attendanceRecords: FinalizeAttendanceRecordInput[] = activeRows.filter((row) => !row.studentId.startsWith("walkin:")).map((row) => ({
       studentId: row.studentId,
       status: row.attendanceStatus === "late" ? "late" : "present",
       verificationMethod: verificationMethodFromAttendance(row.attendanceMethod),
@@ -2144,22 +2377,61 @@ export function EventManagementPage() {
       ...(row.checkOutAt && row.checkoutAttendanceMethod ? { checkoutVerificationMethod: verificationMethodFromAttendance(row.checkoutAttendanceMethod) } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    if (isLocalAuthoritativeSession) {
+    const endOnDevice = async () => {
+      await confirmHybridSessionForOffline(sessionId);
+      const requestedEndAt = Date.now();
       const endedPackage = await endOfflineEvent(
-        activeEvent.id,
+        eventId,
         sessionId,
         session?.userId ?? "",
         endSessionReason.trim() || "Organizer ended session"
       );
       setLocalStartPackage(endedPackage);
       clearOfflineLiveSessionHandoff(session?.userId ?? "", sessionId);
+      const savedEndAt = endedPackage.sessions.find((item) => item.id === sessionId)?.offlineEndedAt;
+      if (savedEndAt && Date.parse(savedEndAt) > requestedEndAt) {
+        toast.info("Your device clock changed while offline. The saved session end was adjusted to preserve attendance chronology.");
+      }
       toast.success("Session ended on this device. Attendance is saved locally and will sync after reconnecting.");
+      setOfflinePackageRefreshToken((value) => value + 1);
+    };
+    const api = desktopApi();
+    const localPackage = api && session?.userId
+      ? await api.getPreparedEventBySession(sessionId, session.userId)
+      : null;
+    const localSession = localPackage?.sessions.find((item) => item.id === sessionId && item.eventId === eventId);
+    const canPromoteCurrentHybridSession = Boolean(
+      localSession
+      && activeAttendanceSession?.id === sessionId
+      && activeAttendanceSession.status === "active"
+      && activeAttendanceSession.attendanceWindowStartAt
+    );
+    const canEndLocalSession = Boolean(
+      localSession
+      && (["START_PENDING", "STARTED", "END_PENDING"].includes(localSession.offlineLifecycle ?? "") || canPromoteCurrentHybridSession)
+    );
+    // navigator.onLine changes ahead of React connectivity state. Never send
+    // a known-offline end request to Supabase: the prepared package is the
+    // immediate authority for this exact active session.
+    const mustEndLocally = isOfflineMode || !navigator.onLine;
+    if (mustEndLocally) {
+      if (!canEndLocalSession) throw new Error("This active session has no prepared local package. Reconnect before ending it.");
+      await endOnDevice();
+      endedLocally = true;
     } else {
-      await endSessionMutation.mutateAsync({
-        sessionId,
-        reason: endSessionReason.trim() || "Organizer ended session",
-        attendanceRecords
-      });
+      try {
+        await endSessionSilentlyMutation.mutateAsync({
+          sessionId,
+          reason: endSessionReason.trim() || "Organizer ended session",
+          attendanceRecords
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const isNetworkFailure = !navigator.onLine || /failed to fetch|network|offline|timeout|connection/i.test(message);
+        if (!isNetworkFailure || !canEndLocalSession) throw error;
+        await endOnDevice();
+        endedLocally = true;
+      }
     }
     attendanceFinalized = true;
     finalizedAttendanceSessionIdsRef.current.add(sessionId);
@@ -2170,24 +2442,26 @@ export function EventManagementPage() {
       // The session has already been finalized remotely; a storage cleanup
       // failure must not make the organizer believe it is still open.
     }
-    if (!isLocalAuthoritativeSession) {
-      await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
+    if (!endedLocally) {
+      await completeEventMutation.mutateAsync(eventId); // ADD — marks the event itself completed
     }
+    setSummaryAwaitingSync(endedLocally);
     setFinalizedSummary(
       summarizeFinalizedSession(
         activeRows.map((row) => ({
+          studentId: row.studentId,
           attendanceStatus: row.attendanceStatus,
-          lateReason: row.lateReason,
           isFinalized: row.isFinalized,
           checkOutAt: row.checkOutAt
         })),
-        activeParticipantCount
+        activeRegisteredParticipantCount,
+        activeWalkInCount
       )
     );
     setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
-    if (!isLocalAuthoritativeSession) {
+    if (!endedLocally) {
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Ended Live Session",
         targetType: "attendance_session",
@@ -2196,16 +2470,24 @@ export function EventManagementPage() {
       });
     }
     setLiveSessionId(null);
+    // The summary has its own immutable event snapshot. Do not leave a
+    // completed offline workspace mounted behind it: after reconnect, that
+    // stale state could otherwise resurrect the old Time Out screen until a
+    // manual route change happened to remount this page.
+    setActiveEvent(null);
+    setActiveParticipantIdentities(null);
+    setActiveRows([]);
+    setCaptureMode(null);
+    setFacialCameraOpen(false);
     setEndSessionConfirmOpen(false);
     setEndSessionReason("");
   } catch (error) {
-    // The session mutation already displays its own database error. Only surface
-    // errors from later work, such as completing the event, here.
-    if (attendanceFinalized) {
-      toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
-    }
+    toast.error(error instanceof Error ? error.message : attendanceFinalized ? "Failed to complete the event." : "Unable to end the attendance session.");
+  } finally {
+    endingSessionRef.current = false;
+    setIsEndingSession(false);
   }
-}, [activeEvent, activeParticipantCount, activeRows, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, isLocalAuthoritativeSession, liveSessionId, session?.userId]);
+}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, auditLogMutations.logActionMutation, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -2216,18 +2498,31 @@ export function EventManagementPage() {
         : null;
       const hasLocalSession = Boolean(localPackage?.sessions.some((item) => item.id === activeScannerSessionId));
       let serverPhase: AttendanceCapturePhase = "time_out";
-      if (isLocalAuthoritativeSession) {
+      // A downloaded package may still be present after reconnect, but it is
+      // not permission to mutate only SQLite while the app is online. Try the
+      // authoritative server transition first whenever connectivity has been
+      // restored. Local phase advancement is reserved for a genuinely offline
+      // session or a verified transport failure with saved local evidence.
+      if (isOfflineMode) {
+        await confirmHybridSessionForOffline(activeScannerSessionId ?? "");
         await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
       } else {
         try {
           serverPhase = await advanceServerAttendanceCapturePhase(activeScannerSessionId ?? "");
-          if (hasLocalSession) await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
         } catch (error) {
           const message = error instanceof Error ? error.message : "";
           const isNetworkFailure = !navigator.onLine || /failed to fetch|network|offline|timeout|connection/i.test(message);
           if (!hasLocalSession || !isNetworkFailure) throw error;
+          await confirmHybridSessionForOffline(activeScannerSessionId ?? "");
           await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
         }
+      }
+      // Scanner stations write to the downloaded package, even while the
+      // organizer has reconnected. Keep that package in the same one-way
+      // phase as the server before telling phones to record Time Out.
+      if (serverPhase === "time_out" && api && hasLocalSession && activeScannerSessionId && session?.userId) {
+        const localPhase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
+        if (localPhase !== "time_out") await api.advanceAttendanceCapturePhase(activeScannerSessionId, session.userId);
       }
       const scanner = api ? await api.getScannerStations() : undefined;
       if (scanner?.active) await api?.setScannerCapturePhase(serverPhase);
@@ -2255,7 +2550,7 @@ export function EventManagementPage() {
       setFacialStatus("Start the camera and keep one enrolled student centered.");
       return;
     }
-    if (facialVerifying) return;
+    if (facialVerifying || !beginAttendanceCapture()) return;
 
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face among this event's enrolled participants…");
@@ -2347,6 +2642,7 @@ export function EventManagementPage() {
     if (!scanCode || !activeEvent?.id || isQrProcessing || qrSubmissionInFlightRef.current) {
       return;
     }
+    if (!beginAttendanceCapture()) return;
 
     // Some USB/Bluetooth scanners emit the same payload twice (or emit both
     // their terminator and an idle-delimited submission). Treat that as one
@@ -2401,23 +2697,23 @@ export function EventManagementPage() {
       if (!student) {
         const studentNumber=extractStudentNumber(scanCode);
         if(!studentNumber) throw new Error("This QR does not contain a valid student number for a walk-in checkout.");
-        const remoteWalkIn = await findRemoteUnverifiedWalkIn(studentNumber);
+        const remoteWalkIn = await findRemoteWalkIn(studentNumber);
         if (remoteWalkIn && effectivePhase === "time_in") {
-          toast.warning(`Unverified walk-in ${studentNumber}: ${alreadyRecordedAttendanceLabel(remoteWalkIn.timeOut)}`, {
+          toast.warning(`Walk-in ${studentNumber}: ${alreadyRecordedAttendanceLabel(remoteWalkIn.timeOut)}`, {
             description: alreadyRecordedAttendanceDescription(remoteWalkIn.timeOut)
           });
           return;
         }
         if (remoteWalkIn && effectivePhase === "time_out") {
-          await recordRemoteUnverifiedWalkInTimeOut(remoteWalkIn, "QR Code", recordedAt);
-          toast.success(`Unverified walk-in ${studentNumber}: Time Out saved`, {
+          await recordRemoteWalkInTimeOut(remoteWalkIn, "QR Code", recordedAt);
+          toast.success(`Walk-in ${studentNumber}: Time Out saved`, {
             description: "The original Time In and QR Time Out were recorded."
           });
           return;
         }
         // A Time Out must not ask to create a second walk-in. The local
         // database verifies the original Time In before accepting it.
-        if(effectivePhase === "time_in" && !window.confirm(`Student ${studentNumber} is not in the downloaded roster. Save this scan as an unverified walk-in for later verification?`)) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
+        if(effectivePhase === "time_in" && !await walkInWarning.confirm({ studentNumber, offline: true })) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
         const queued=await api?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:effectivePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
@@ -2425,7 +2721,9 @@ export function EventManagementPage() {
         setActiveRows((current)=>upsertAttendanceRow(current,{
           id:`walkin-${queued.localScanUuid}`,
           studentId:`walkin:${queued.localScanUuid}`,
-          studentName:`Unverified walk-in · ${queued.studentNumber}`,
+          localScanUuid:queued.localScanUuid,
+          studentName:`Walk-in · ${queued.studentNumber}`,
+          verificationLabel:undefined,
           eventCode:activeEvent.code,
           attendanceMethod:attendanceMethodFromVerification(queued.identificationMethod),
           ...(queued.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(queued.checkoutIdentificationMethod) } : {}),
@@ -2437,11 +2735,11 @@ export function EventManagementPage() {
         }));
         lastSuccessfulQrScanAtRef.current=Date.now();
         if (queued.action === "already_recorded") {
-          toast.warning(`Unverified walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
+          toast.warning(`Walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
             description: alreadyRecordedAttendanceDescription(queued.timeOut)
           });
         } else {
-          toast.success(`Unverified walk-in ${queued.studentNumber} saved locally`,{description:`${effectivePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
+          toast.success(`Walk-in ${queued.studentNumber} saved locally`,{description:`${effectivePhase==="time_in"?"Time In":"Time Out"} at ${new Date(recordedAt).toLocaleTimeString()}; not synced.`});
         }
         return;
       }
@@ -2473,13 +2771,61 @@ export function EventManagementPage() {
         toast.warning("The event participant list is still loading. Please scan again in a moment.");
         return;
       }
+      if (!sessionId) throw new Error("The active attendance session could not be found.");
+      // QR scans can arrive immediately after the organizer opens Time Out.
+      // Read the persisted phase instead of trusting the render that received
+      // the scanner input, otherwise an accepted Walk-in could be told it was
+      // already checked in rather than being checked out.
+      const effectiveOnlinePhase = await getServerAttendanceCapturePhase(sessionId);
+      if (effectiveOnlinePhase !== attendancePhase) {
+        setAttendancePhase(effectiveOnlinePhase);
+        writeAttendancePhase(window.sessionStorage, sessionId, effectiveOnlinePhase);
+      }
       const matchedStudent = activeParticipantIdentities.find((student) =>
         studentIdentityMatchesPayload(scanCode, student.studentNumber, student.fullName)
       );
 
       if (!matchedStudent) {
-        if (Date.now() - lastSuccessfulQrScanAtRef.current < duplicateQrSuppressionMs) return;
-        toast.error("No active event participant matches this student number or name.");
+        const studentNumber = extractStudentNumber(scanCode);
+        if (!studentNumber) {
+          toast.error("No enrolled student matches this QR credential.");
+          return;
+        }
+        const knownStudent = (studentsQuery.data?.items ?? []).find((student) => student.studentNumber === studentNumber);
+        if (!knownStudent) {
+          toast.error("No active enrolled student matches this number. No Walk-in attendance was recorded.");
+          return;
+        }
+        if (effectiveOnlinePhase === "time_out") {
+          toast.warning("No Walk-in Time In is recorded for this student.");
+          return;
+        }
+        if (!await walkInWarning.confirm({ studentNumber, displayName: knownStudent?.fullName })) return;
+        const { data, error } = await client.rpc("record_approved_event_walkin" as never, {
+          p_local_scan_uuid: crypto.randomUUID(), p_event_id: activeEvent.id, p_session_id: sessionId,
+          p_student_number: studentNumber, p_identification_method: "qr", p_time_in: new Date().toISOString()
+        } as never);
+        if (error) throw error;
+        const result = data as { disposition?: string; attendance?: { id?: string; student_id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null }; student?: { displayName?: string } } | null;
+        if (result?.disposition !== "confirmed_walk_in" || !result.attendance?.student_id || !result.attendance.time_in) {
+          toast.error("This student could not be admitted as a walk-in.");
+          return;
+        }
+        const attendance = result.attendance as { id?: string; student_id: string; attendance_status?: AttendanceStatus; time_in: string; time_out?: string | null };
+        setActiveRows((current) => upsertAttendanceRow(current, {
+          id: attendance.id ?? `walkin-${attendance.student_id}`,
+          studentId: attendance.student_id,
+          studentName: result.student?.displayName ?? knownStudent?.fullName ?? studentNumber,
+          eventCode: activeEvent.code,
+          attendanceMethod: "QR Code",
+          checkInAt: attendance.time_in,
+          checkInTime: formatLocalTime(attendance.time_in),
+          ...(attendance.time_out ? { checkOutAt: attendance.time_out, checkOutTime: formatLocalTime(attendance.time_out) } : {}),
+          attendanceStatus: attendance.attendance_status ?? "present",
+          verificationLabel: "Walk-in",
+          isFinalized: false
+        }));
+        toast.success(`Walk-in ${studentNumber}: Time In recorded`);
         return;
       }
       const studentId = matchedStudent.studentId;
@@ -2501,20 +2847,32 @@ export function EventManagementPage() {
         return;
       }
 
+      const existingWalkIn = await findRemoteWalkIn(matchedStudent.studentNumber);
+      if (existingWalkIn) {
+        if (effectiveOnlinePhase === "time_in") {
+          toast.warning(`Walk-in ${matchedStudent.studentNumber}: ${alreadyRecordedAttendanceLabel(existingWalkIn.timeOut)}`, {
+            description: alreadyRecordedAttendanceDescription(existingWalkIn.timeOut)
+          });
+          return;
+        }
+        await recordRemoteWalkInTimeOut(existingWalkIn, "QR Code", new Date().toISOString());
+        toast.success(`Walk-in ${matchedStudent.studentNumber}: Time Out saved`);
+        return;
+      }
+
       const existing = activeRows.find((row) => row.studentId === studentId);
       if (existing?.checkOutAt) {
         toast.warning(`${existing.studentName} already has a Time In and Time Out.`);
         return;
       }
-      if (attendancePhase === "time_in" && existing?.checkInAt) {
+      if (effectiveOnlinePhase === "time_in" && existing?.checkInAt) {
         toast.warning(`${existing.studentName} already has a Time In.`);
         return;
       }
-      if (attendancePhase === "time_out" && !existing?.checkInAt) {
+      if (effectiveOnlinePhase === "time_out" && !existing?.checkInAt) {
         toast.warning("No Time In is recorded for this student.");
         return;
       }
-      if (!sessionId) throw new Error("The active attendance session could not be found.");
       const result = await credentialScanMutation.mutateAsync({ sessionId, credentialCode: scanCode, method: "qr" });
       if (result.resultStatus !== "Time In Recorded" && result.resultStatus !== "Time Out Recorded") {
         if (result.resultStatus === "Already Recorded") toast.warning(result.safeMessage);
@@ -2531,8 +2889,8 @@ export function EventManagementPage() {
           studentId,
           studentName: student?.fullName ?? student?.studentNumber ?? studentId,
           eventCode: activeEvent.code,
-          attendanceMethod: attendancePhase === "time_out" && currentRow ? currentRow.attendanceMethod : attendanceMethodFromVerification(record.verificationMethod),
-          ...(attendancePhase === "time_out" ? { checkoutAttendanceMethod: "QR Code" as const } : record.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutVerificationMethod) } : {}),
+          attendanceMethod: effectiveOnlinePhase === "time_out" && currentRow ? currentRow.attendanceMethod : attendanceMethodFromVerification(record.verificationMethod),
+          ...(effectiveOnlinePhase === "time_out" ? { checkoutAttendanceMethod: "QR Code" as const } : record.checkoutVerificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(record.checkoutVerificationMethod) } : {}),
           checkInAt: record.timeIn ?? "",
           checkInTime: record.timeIn ? formatLocalTime(record.timeIn) : "Not recorded",
           ...(record.checkedOutAt ? { checkOutAt: record.checkedOutAt, checkOutTime: formatLocalTime(record.checkedOutAt) } : {}),
@@ -2556,7 +2914,7 @@ export function EventManagementPage() {
           // or the QR is not present in the local package.
         }
       }
-      toast.error(error instanceof Error ? error.message : "The QR code could not be validated.");
+      toast.error(getErrorMessage(error));
     } finally {
       setQrInput("");
       setIsQrProcessing(false);
@@ -2669,6 +3027,10 @@ export function EventManagementPage() {
       toast.warning("Provide a reason of at least 5 characters for the manual attendance entry.");
       return;
     }
+    if (!beginAttendanceCapture()) {
+      toast.info("Please wait one second before recording the next student.");
+      return;
+    }
 
     const eventId = activeEvent.id;
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
@@ -2723,20 +3085,14 @@ export function EventManagementPage() {
       if (!studentNumber) {
         throw new Error("Enter an enrolled student name or a valid walk-in student number.");
       }
-      const remoteWalkIn = await findRemoteUnverifiedWalkIn(studentNumber);
-      if (remoteWalkIn && effectivePhase === "time_in") {
-        toast.warning(`Unverified walk-in ${studentNumber}: ${alreadyRecordedAttendanceLabel(remoteWalkIn.timeOut)}`, {
-          description: alreadyRecordedAttendanceDescription(remoteWalkIn.timeOut),
-        });
-        return;
+      if (effectivePhase === "time_in" && !await walkInWarning.confirm({ studentNumber, offline: true })) {
+        throw new Error("No attendance was saved.");
       }
-      if (remoteWalkIn && effectivePhase === "time_out") {
-        await recordRemoteUnverifiedWalkInTimeOut(remoteWalkIn, "Manual", recordedAt);
-        toast.success(`Unverified walk-in ${studentNumber}: Time Out saved`, {
-          description: "The original Time In and Manual Time Out were recorded.",
-        });
-        return;
-      }
+      // Do not ask Supabase whether this Walk-in was previously synchronized.
+      // In offline/local-authoritative mode that request waits for the browser
+      // network timeout (commonly 5–8 seconds) before it can fall back. The
+      // SQLite queue already deduplicates by event, session, and normalized
+      // student number and can pair this Time Out with its local Time In.
       const queued = await api.queueWalkInScan({
         eventId,
         sessionId,
@@ -2755,7 +3111,9 @@ export function EventManagementPage() {
       setActiveRows((current) => upsertAttendanceRow(current, {
         id: `walkin-${queued.localScanUuid}`,
         studentId: `walkin:${queued.localScanUuid}`,
-        studentName: `Unverified walk-in · ${queued.studentNumber}`,
+        localScanUuid: queued.localScanUuid,
+        studentName: `Walk-in · ${queued.studentNumber}`,
+        verificationLabel: undefined,
         eventCode: activeEvent.code,
         attendanceMethod: attendanceMethodFromVerification(queued.identificationMethod),
         ...(queued.checkoutIdentificationMethod ? { checkoutAttendanceMethod: attendanceMethodFromVerification(queued.checkoutIdentificationMethod) } : {}),
@@ -2766,18 +3124,21 @@ export function EventManagementPage() {
         isFinalized: false,
       }));
       if (queued.action === "already_recorded") {
-        toast.warning(`Unverified walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
+        toast.warning(`Walk-in ${queued.studentNumber}: ${alreadyRecordedAttendanceLabel(queued.timeOut)}`, {
           description: alreadyRecordedAttendanceDescription(queued.timeOut),
         });
       } else {
         toast.success(
-          `Unverified walk-in ${queued.studentNumber}: ${effectivePhase === "time_in" ? "Time In" : "Time Out"} saved locally`,
-          { description: "Awaiting verification and synchronization." },
+          `Walk-in ${queued.studentNumber}: ${effectivePhase === "time_in" ? "Time In" : "Time Out"} saved locally`,
+          { description: "Saved locally and will be reconciled after reconnecting." },
         );
       }
     };
 
-    if (desktopApi()) {
+    // A prepared package is used for local-authoritative/offline attendance
+    // only. While connected, unknown student numbers must go through the
+    // server Walk-in RPC so nonexistent students are discarded immediately.
+    if (desktopApi() && (isLocalAuthoritativeSession || isOfflineMode)) {
       const api = desktopApi();
       const organizerProfileId = session?.userId;
       const preparedLocally = Boolean(
@@ -2798,22 +3159,123 @@ export function EventManagementPage() {
       }
     }
 
+    // A capture-phase switch is persisted centrally. Re-read it immediately
+    // before an online manual submission so a just-opened Time Out phase (or a
+    // restored page) cannot use a stale Time In closure and reject a valid
+    // checkout as "Already Time In".
+    let effectiveAttendancePhase = attendancePhase;
+    if (!isLocalAuthoritativeSession) {
+      if (!sessionId) {
+        toast.error("The active attendance session could not be found.");
+        return;
+      }
+      try {
+        effectiveAttendancePhase = await getServerAttendanceCapturePhase(sessionId);
+      } catch {
+        toast.error("Could not verify whether this session is recording Time In or Time Out. Check the connection and try again.");
+        return;
+      }
+      if (effectiveAttendancePhase !== attendancePhase) {
+        setAttendancePhase(effectiveAttendancePhase);
+        writeAttendancePhase(window.sessionStorage, sessionId, effectiveAttendancePhase);
+      }
+    }
+
     const localStudents = (offlineLivePackage?.participants ?? [])
       .filter((participant) => participant.isParticipant !== false)
       .map((participant) => ({ id: participant.studentId, studentNumber: participant.studentNumber, fullName: participant.displayName }));
     const attendanceLookupStudents = isLocalAuthoritativeSession ? localStudents : (studentsQuery.data?.items ?? []);
     const lookupResult = resolveManualAttendanceLookup(manualInput, attendanceLookupStudents);
     if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
+      const requestedStudentNumber = extractStudentNumber(manualInput);
+      if (requestedStudentNumber && !isLocalAuthoritativeSession) {
+        toast.error("No active enrolled student matches this number. No Walk-in attendance was recorded.");
+        return;
+      }
       toast.warning("Please enter a valid student ID or name.");
       return;
     }
 
     const resolvedStudentId = lookupResult.matchedStudentId;
+    if (activeParticipantIdentities === null) {
+      toast.warning("The event participant list is still loading. Please try again in a moment.");
+      return;
+    }
+    const resolvedStudent = attendanceLookupStudents.find((candidate) => candidate.id === resolvedStudentId);
+    const existingWalkIn = resolvedStudent?.studentNumber ? await findRemoteWalkIn(resolvedStudent.studentNumber) : undefined;
+
+    // Participant identities may still be the pre-admission snapshot after a
+    // Walk-in was accepted. During Time Out, the durable attendance record is
+    // authoritative: update it first and never ask the organizer to admit the
+    // same student a second time.
+    if (effectiveAttendancePhase === "time_out" && existingWalkIn) {
+      if (existingWalkIn.timeOut) {
+        toast.warning(`Walk-in ${existingWalkIn.studentNumber} already has a Time Out.`);
+        return;
+      }
+      await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);
+      setManualInput("");
+      setManualEntryReason("");
+      return;
+    }
+    const assignedParticipant = activeParticipantIdentities.some((participant) => participant.studentId === resolvedStudentId);
+    if (!assignedParticipant) {
+      const walkInStudent = attendanceLookupStudents.find((candidate) => candidate.id === resolvedStudentId);
+      const walkInNumber = walkInStudent?.studentNumber;
+      if (!walkInNumber) {
+        toast.error("A valid student number is required for a Walk-in.");
+        return;
+      }
+      if (!await walkInWarning.confirm({ studentNumber: walkInNumber, displayName: walkInStudent.fullName })) return;
+      if (effectiveAttendancePhase === "time_out") {
+        toast.warning("No Walk-in Time In is recorded for this student.");
+        return;
+      }
+      const walkInSessionId = liveSessionId ?? activeAttendanceSession?.id;
+      if (!walkInSessionId) throw new Error("The active attendance session could not be found.");
+      const { data, error } = await getSupabaseBrowserClient().rpc("record_approved_event_walkin", {
+        p_local_scan_uuid: crypto.randomUUID(), p_event_id: activeEvent.id, p_session_id: walkInSessionId,
+        p_student_number: walkInNumber, p_identification_method: "manual", p_time_in: recordedAt
+      });
+      if (error) throw new Error(error.message);
+      const walkInResult = data as { disposition?: string; attendance?: { id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null } } | null;
+      const walkInAttendance = walkInResult?.attendance;
+      if (walkInResult?.disposition !== "confirmed_walk_in" || !walkInAttendance?.time_in) {
+        toast.error("This student could not be admitted as a Walk-in.");
+        return;
+      }
+      const walkInTimeIn = walkInAttendance.time_in;
+      setActiveRows((rows) => upsertAttendanceRow(rows, {
+        id: walkInAttendance.id ?? `walkin-${resolvedStudentId}`, studentId: resolvedStudentId,
+        studentName: walkInStudent.fullName ?? walkInNumber, eventCode: activeEvent.code,
+        attendanceMethod: "Manual", checkInAt: walkInTimeIn, checkInTime: formatLocalTime(walkInTimeIn),
+        attendanceStatus: walkInAttendance.attendance_status ?? "present", verificationLabel: "Walk-in", isFinalized: false
+      }));
+      toast.success(`Walk-in ${walkInNumber}: Time In recorded`);
+      setManualInput("");
+      setManualEntryReason("");
+      return;
+    }
+    const student = resolvedStudent;
     const existingAttendanceRow = activeRows.find((row) => row.studentId === resolvedStudentId);
+    if (existingWalkIn) {
+      if (effectiveAttendancePhase === "time_in") {
+        toast.warning(`Walk-in ${existingWalkIn.studentNumber}: ${alreadyRecordedAttendanceLabel(existingWalkIn.timeOut)}`, {
+          description: alreadyRecordedAttendanceDescription(existingWalkIn.timeOut)
+        });
+        return;
+      }
+      await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);
+      setManualInput("");
+      setManualEntryReason("");
+      return;
+    }
     if (existingAttendanceRow?.checkOutAt) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In and Time Out.`); return; }
-    if (attendancePhase === "time_in" && existingAttendanceRow?.checkInAt) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In.`); return; }
-    if (attendancePhase === "time_out" && !existingAttendanceRow?.checkInAt) { toast.warning("No Time In is recorded for this student."); return; }
-    const isCheckout = attendancePhase === "time_out";
+    if (effectiveAttendancePhase === "time_in" && existingAttendanceRow?.checkInAt) { toast.warning(`${existingAttendanceRow.studentName} already has a Time In.`); return; }
+    if (effectiveAttendancePhase === "time_out" && !existingAttendanceRow?.checkInAt) { toast.warning("No Time In is recorded for this student."); return; }
+    const isCheckout = effectiveAttendancePhase === "time_out";
     const occurredAt = recordedAt;
     const resolvedStatus: ManualAttendanceStatus = isCheckout
       ? existingAttendanceRow?.attendanceStatus === "late" ? "late" : "present"
@@ -2823,7 +3285,6 @@ export function EventManagementPage() {
       toast.warning("Time Out can be recorded at least one minute after Time In.");
       return;
     }
-    const student = attendanceLookupStudents.find((candidate) => candidate.id === resolvedStudentId);
     if (isLocalAuthoritativeSession) {
       const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
       const participant = offlineLivePackage?.participants.find((candidate) => candidate.studentId === resolvedStudentId);
@@ -2839,7 +3300,7 @@ export function EventManagementPage() {
         attendanceTimestamp: occurredAt,
         attendanceStatus: resolvedStatus,
         remarks: manualEntryReason.trim()
-      }, attendancePhase);
+      }, effectiveAttendancePhase);
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, participant)));
       toast.success(local.action === "checked_out" ? "Student Time Out saved on this device." : local.action === "already_recorded" ? "Student attendance is already recorded." : "Student Time In saved on this device.");
       setManualInput("");
@@ -2886,10 +3347,26 @@ export function EventManagementPage() {
     const eventId = summaryEvent?.id ?? activeEvent?.id;
     if (!eventId) return;
     setSummaryOpen(false);
+    if (isOfflineMode) {
+      toast.info("Event records will be available after this offline session synchronizes.");
+      navigate(workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), { replace: true });
+      return;
+    }
     navigate(workspaceRoute(
       `${APP_ROUTES.organizerRecords}?event=${encodeURIComponent(eventId)}`,
       `${APP_ROUTES.adminAttendance}?event=${encodeURIComponent(eventId)}`
     ));
+  }
+
+  function closeSessionSummary() {
+    // A locally ended session must never remain on the live-session route.
+    // Otherwise closing the summary can let the live workspace hydrate again
+    // from the route's session id before reconciliation has finished.
+    setSummaryOpen(false);
+    navigate(
+      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
+      { replace: true }
+    );
   }
 
   function exportReport(label: string, events = completedEvents) {
@@ -3016,7 +3493,14 @@ export function EventManagementPage() {
           <button
             type="button"
             className="min-w-36 space-y-1 rounded-md p-1 text-left text-xs transition hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            onClick={() => setReadinessEvent(row.original)}
+            onClick={(event) => {
+              // Data grids recycle cell renderers while rows are sorted or
+              // refreshed. Stop the grid's row handler and snapshot the row
+              // payload so this modal can never inherit a neighbouring row's
+              // selection during a live refresh.
+              event.stopPropagation();
+              setReadinessEvent({ ...row.original });
+            }}
             aria-label={`View attendance readiness for ${row.original.code}`}
           >
             <div className="flex items-center justify-between gap-2">
@@ -3113,24 +3597,55 @@ export function EventManagementPage() {
   ];
 
   const liveColumns: ColumnDef<AttendanceRow>[] = [
-    { accessorKey: "studentName", header: "Student Name" },
-    { accessorKey: "checkInTime", header: "Time In" },
+    {
+      accessorKey: "studentName",
+      header: "Student Name",
+      meta: { agGrid: { flex: 2, minWidth: 300 } },
+      cell: ({ row }) => {
+        const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);
+        const studentNumber = participant?.studentNumber ?? provisionalWalkInStudentNumber(row.original.studentName);
+        const displayName = formatAttendanceListName(participant?.fullName ?? row.original.studentName);
+
+        return (
+          <div className="min-w-36">
+            <div className="flex items-center gap-1.5">
+              {row.original.verificationLabel === "Walk-in" ? <StatusBadge label="Walk-in" tone="warning" /> : null}
+              <div className="leading-tight">
+                <div className="font-medium text-foreground">{displayName}</div>
+                {studentNumber ? <div className="mt-px font-mono text-sm text-muted-foreground">{studentNumber}</div> : null}
+              </div>
+            </div>
+          </div>
+        );
+      }
+    },
+    {
+      accessorKey: "checkInTime",
+      header: "Time In",
+      meta: { agGrid: { width: 120, minWidth: 120, flex: 0 } }
+    },
     {
       id: "checkOutTime",
       header: "Time Out",
+      meta: { agGrid: { width: 136, minWidth: 136, flex: 0 } },
       cell: ({ row }) =>
         row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">No Time Out</span>
     },
     {
       id: "attendanceMethod",
       header: "Attendance Method",
+      meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
       cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
     },
-    { id: "status", header: "Attendance Status", cell: ({ row }) => {
-      const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
-      return <StatusBadge label={label} tone={statusTone(label)} />;
-    } },
-    { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
+    {
+      id: "status",
+      header: "Attendance Status",
+      meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
+      cell: ({ row }) => {
+        const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
+        return <StatusBadge label={label} tone={statusTone(label)} />;
+      }
+    }
   ];
 
   if (((!isOfflineMode && eventsQuery.isLoading) || (isOfflineMode && offlinePreparedPackagesLoading)) && !repositoryEvents.length && !offlineLiveSession) {
@@ -3154,7 +3669,7 @@ export function EventManagementPage() {
     );
   }
 
-  if (isOfflineMode && sessionIdFromQuery && !offlineLive.isLoading && !hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession) {
+  if (isOfflineMode && sessionIdFromQuery && !offlineLive.isLoading && !hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession && !hasLocallyEndedSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
         <ErrorState
@@ -3183,7 +3698,7 @@ export function EventManagementPage() {
         title={activeEvent ? "Live attendance session" : "Events"}
         description={activeEvent ? isReadOnlyMonitor ? `Monitoring ${activeEvent.name} in read-only mode.` : `Recording attendance for ${activeEvent.name}.` : isAdmin ? "View institution-wide events, owners, schedules, and operational status." : isDepartmentAdmin ? "View events, organizers, schedules, and live status within your department." : "Find an event, prepare attendance, or open a live session."}
         actions={
-          !activeEvent && canManageOwnedEvents ? (
+          !activeEvent && canManageOwnedEvents && !isOfflineMode ? (
             <Button asChild>
               <NavLink to={workspaceRoute(APP_ROUTES.organizerCreateEvent, APP_ROUTES.adminCreateEvent)}>
                 <span className="text-lg leading-none" aria-hidden="true">+</span>
@@ -3198,7 +3713,7 @@ export function EventManagementPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-widest text-primary">{isAdmin ? "Institution event workspace" : isDepartmentAdmin ? "Department event workspace" : "Your event workspace"}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{isAdmin ? "Review institution-wide schedules and operational status." : isDepartmentAdmin ? "Review schedules and event status for organizers in your department." : "Plan and track scheduled events."}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{isOfflineMode ? "Prepared offline packages on this device. Only a same-day scheduled package can be started." : isAdmin ? "Review institution-wide schedules and operational status." : isDepartmentAdmin ? "Review schedules and event status for organizers in your department." : "Plan and track scheduled events."}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${conflictsByCode.size ? "bg-danger-muted text-danger" : "bg-surface-muted text-muted-foreground"}`}>
@@ -3271,9 +3786,9 @@ export function EventManagementPage() {
             </div>
             <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:flex-nowrap">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
-              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
+              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionSilentlyMutation.isPending || isEndingSession} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
                 <Square className="h-4 w-4" aria-hidden="true" />
-                {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
+                {createEventSessionMutation.isPending || endSessionSilentlyMutation.isPending || isEndingSession ? "Saving…" : "End Session"}
               </Button>
             </div>
           </div>
@@ -3373,7 +3888,7 @@ export function EventManagementPage() {
                           <Camera className="h-4 w-4" aria-hidden="true" />
                           {facialCameraOpen ? "Stop camera" : "Open live verification"}
                         </Button>
-                        <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>
+                        <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || isCaptureCoolingDown} onClick={() => void verifyFacialAttendance()}>
                           {facialVerifying ? "Identifying…" : attendancePhase === "time_out" ? "Verify Time Out" : "Verify attendance"}
                         </Button>
                       </div>
@@ -3384,7 +3899,7 @@ export function EventManagementPage() {
                       <div className="border-b border-border pb-4">
                         <div>
                           <p className="text-sm font-semibold text-foreground">Manual attendance entry</p>
-                          <p className="mt-1 text-sm text-muted-foreground">Record Time In or Time Out. A valid student number outside this event's roster is saved as an unverified walk-in for review. Final status is determined by the session cutoff after required feedback is completed.</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Record Time In or Time Out. An uninvited student may be admitted as a Walk-in after organizer confirmation.</p>
                         </div>
 
                       </div>
@@ -3426,8 +3941,8 @@ export function EventManagementPage() {
                         </label>
 
                         <div className="flex justify-end">
-                          <Button type="submit" className="h-11 rounded-lg px-6">
-                            Record Attendance
+                          <Button type="submit" className="h-11 rounded-lg px-6" disabled={isCaptureCoolingDown}>
+                            {isCaptureCoolingDown ? "Ready in a moment…" : "Record Attendance"}
                           </Button>
                         </div>
                       </form>
@@ -3442,14 +3957,27 @@ export function EventManagementPage() {
           </section>
 
           <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:p-6" aria-label="Live attendance records">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="h-8 w-1 rounded-full bg-primary" aria-hidden="true" />
                 <div><h3 className="text-base font-semibold">Live attendance list</h3><p className="text-sm text-muted-foreground">Records appear as each student is confirmed.</p></div>
               </div>
-              <span className="rounded-full border bg-surface px-3 py-1 text-xs font-medium text-muted-foreground">{activeRows.length} records</span>
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <label className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
+                  <span className="sr-only">Search live attendance</span>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  <input
+                    type="search"
+                    className="h-9 w-full rounded-full border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground"
+                    placeholder="Search attendees"
+                    value={liveAttendanceSearch}
+                    onChange={(event) => setLiveAttendanceSearch(event.target.value)}
+                  />
+                </label>
+                <span className="shrink-0 rounded-full border bg-surface px-3 py-1 text-xs font-medium text-muted-foreground">{activeRows.length} records</span>
+              </div>
             </div>
-            <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Live attendance list" data={activeRows} columns={liveColumns} emptyTitle={attendancePhase === "time_out" ? "No Time Out records yet" : "Ready to record Time In"} emptyDescription={attendancePhase === "time_out" ? "Scan a student who has checked in to record Time Out." : "Scan a student QR code or choose another capture method to begin."} /></div>
+            <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Live attendance list" data={filteredActiveRows} columns={liveColumns} emptyTitle={liveAttendanceSearch.trim() ? "No matching attendees" : attendancePhase === "time_out" ? "No Time Out records yet" : "Ready to record Time In"} emptyDescription={liveAttendanceSearch.trim() ? "Try a different student name or number." : attendancePhase === "time_out" ? "Scan a student who has checked in to record Time Out." : "Scan a student QR code or choose another capture method to begin."} /></div>
           </section>
 
           <ScannerStationsPanel
@@ -3562,7 +4090,11 @@ export function EventManagementPage() {
                     return;
                   }
                   if (localSession.offlineLifecycle === "NOT_STARTED") {
-                    openStartSession(event);
+                    // The Event Details workspace can render from this exact
+                    // prepared package while disconnected. Keep event selection
+                    // consistent with the online route instead of opening a
+                    // second, incomplete start modal.
+                    navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${event.id}`, `${APP_ROUTES.adminEvents}/${event.id}`));
                     return;
                   }
                   toast.warning("This prepared event is awaiting reconciliation and cannot accept more attendance offline.");
@@ -3581,6 +4113,13 @@ export function EventManagementPage() {
               headerHeight={40}
             />
           </section>
+          {isOfflineMode && activeTab === "today" && offlineSyncPresentations.length > 0 ? (
+            <div className="flex justify-center pt-1">
+              <button type="button" className="text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={() => setOfflineCompletionOpen(true)}>
+                View {offlineSyncPresentations.length} saved offline session{offlineSyncPresentations.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
 
@@ -3701,123 +4240,9 @@ export function EventManagementPage() {
       {editEvent ? (
         <EditEventModalComponent 
           event={editEvent} 
-          onClose={() => { setEditEvent(null); setRescheduleForStartId(null); }}
+          onClose={() => setEditEvent(null)}
           context={context}
-          onRescheduled={(updatedEvent) => {
-            if (rescheduleForStartId !== updatedEvent.id) return;
-            const refreshed = eventRecordFromRepository(updatedEvent, editEvent?.objectives ?? []);
-            setStartEvent(refreshed);
-            setRescheduleForStartId(null);
-            setSessionForm((current) => ({
-              ...current,
-              venue: refreshed.venue,
-              date: refreshed.date,
-              startTime: toTimeInputValue(refreshed.startTime),
-              endTime: toTimeInputValue(refreshed.endTime)
-            }));
-          }}
         />
-      ) : null}
-
-      {startEvent ? (
-        <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Attendance</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
-          {startEvent.date !== getManilaCalendarDate() ? (
-            <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-              <p className="font-semibold">This event cannot be started today as currently scheduled.</p>
-              <p className="mt-1 text-sm">Events may only start on their scheduled Manila date. This event is scheduled for {startEvent.date}; reschedule it to {getManilaCalendarDate()} first, or cancel to leave it unchanged.</p>
-              <Button type="button" className="mt-4" onClick={() => {
-                setRescheduleForStartId(startEvent.id ?? null);
-                setEditEvent({ ...startEvent, date: getManilaCalendarDate() });
-                setStartEvent(null);
-              }}>
-                Reschedule to today
-              </Button>
-            </div>
-          ) : (
-          <>
-          <section className="mt-5 rounded-xl border bg-muted/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="font-semibold text-foreground">Planned Schedule</h3>
-              </div>
-              <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">Read only</span>
-            </div>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-4">
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt>
-                <dd className="mt-1 font-medium text-foreground">{sessionForm.venue}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled start</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.startTime}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled end</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.endTime}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Actual start</dt>
-                <dd className="mt-1 font-medium text-foreground">Recorded when Start Session is clicked</dd>
-              </div>
-            </dl>
-          </section>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Late attendance</p>
-              <p className="text-xs text-muted-foreground">Counted from the actual start time.</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <span>Late after</span>
-              <input type="number" min={0} max={240} className="h-9 w-16 rounded-lg border border-border bg-surface px-2 text-center text-sm font-semibold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
-              <span>min</span>
-            </label>
-          </div>
-          <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Actual session time:</span> Start is recorded when you click Start Session; end is recorded when you end it. The session can continue past its scheduled end.
-          </div>
-          {credentialStatusesQuery.isLoading ? (
-            <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-              Checking registered students&apos; QR credentials...
-            </div>
-          ) : startEventReadiness && startEventReadiness.participants > 0 && startEventMissingQrCount > 0 ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <div className="flex gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{startEventMissingQrCount} {startEventMissingQrCount === 1 ? "student needs" : "students need"} a QR credential</p>
-                  <p className="mt-1 text-amber-900">
-                    You can still start the session. Those students can use facial recognition when enrolled, or be recorded manually.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="mt-3 border-amber-300 bg-white hover:bg-amber-100"
-                    onClick={() => {
-                      const eventId = startEvent.id;
-                      setStartEvent(null);
-                      navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${eventId}`, `${APP_ROUTES.adminEvents}/${eventId}`));
-                    }}
-                  >
-                    Manage participants
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : credentialStatusesQuery.isError ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Student credential readiness could not be checked. You can still start the session.
-            </div>
-          ) : null}
-          <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setStartEvent(null)}>Cancel</Button>
-            <Button type="button" onClick={() => void startSession()} disabled={createEventSessionMutation.isPending}><Play className="h-4 w-4" aria-hidden="true" />{createEventSessionMutation.isPending ? "Starting…" : "Start Session"}</Button>
-          </div>
-          </>
-          )}
-        </ModalFrame>
       ) : null}
 
       <ConfirmModal open={timeOutConfirmOpen} title="Open Time Out" description="The live session stays open. Connected phone scanners will immediately record Time Out only." confirmLabel="Open Time Out" onCancel={() => setTimeOutConfirmOpen(false)} onConfirm={() => { setTimeOutConfirmOpen(false); void openTimeOut(); }} />
@@ -3827,23 +4252,55 @@ export function EventManagementPage() {
       </ConfirmModal>
 
       {summaryOpen ? (
-        <ModalFrame onClose={() => setSummaryOpen(false)} width="max-w-xl">
-          <h2 className="text-xl font-semibold">Session Summary</h2>
+        <ModalFrame onClose={closeSessionSummary} width="max-w-xl">
+          <h2 className="text-xl font-semibold">Event Summary</h2>
           <p className="mt-1 text-sm text-muted-foreground">{summaryEvent?.code ?? activeEvent?.code ?? "-"} - {summaryEvent?.name ?? activeEvent?.name ?? ""}</p>
+          {summaryAwaitingSync ? <div className="mt-4 flex gap-3 rounded-lg border border-warning/30 bg-warning-muted p-3 text-sm" role="status"><CloudOff className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" /><div><p className="font-semibold text-foreground">Saved on this device — awaiting synchronization</p><p className="mt-0.5 text-muted-foreground">This summary is local. The final Event Record will be available after PLPass reconnects and confirms every saved attendance record.</p></div></div> : null}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <SummaryTile label="Total Participants" value={sessionSummary.totalParticipants.toString()} />
+            <div className="sm:col-span-2"><SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} /></div>
+            <SummaryTile label="Total Participants" value={sessionSummary.attendancePopulation.toString()} />
             <SummaryTile label="Present" value={sessionSummary.present.toString()} />
             <SummaryTile label="Late" value={sessionSummary.late.toString()} />
-             <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
-            <SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} />
-            <div className="rounded-lg border bg-background p-3 sm:col-span-2">
-              <p className="text-xs text-muted-foreground">Most Common Late Arrival Reason</p>
-              <p className="mt-1 text-lg font-semibold">{sessionSummary.mostCommonLateReason}</p>
-            </div>
+            <SummaryTile label="Absent" value={sessionSummary.absent.toString()} />
+            {sessionSummary.walkIns > 0 ? <SummaryTile label="Walk-ins" value={sessionSummary.walkIns.toString()} /> : null}
           </div>
           <div className="mt-5 flex justify-end">
-            <Button type="button" onClick={viewEventRecordFromSummary}>View Event Record</Button>
+            <Button type="button" disabled={summaryAwaitingSync} title={summaryAwaitingSync ? "Available after synchronization completes" : undefined} onClick={viewEventRecordFromSummary}>View Event Record</Button>
           </div>
+          {summaryAwaitingSync ? <p className="mt-2 text-right text-xs text-muted-foreground">Available after synchronization completes.</p> : null}
+        </ModalFrame>
+      ) : null}
+
+      {offlineCompletionOpen && isOfflineMode ? (
+        <ModalFrame onClose={() => setOfflineCompletionOpen(false)} width="max-w-2xl">
+          <div className="border-b pb-4">
+            <h2 className="text-xl font-semibold">Saved offline sessions</h2>
+            <p className="mt-1 text-sm text-muted-foreground">These sessions are stored on this device and will be finalized only after PLPass reconnects.</p>
+          </div>
+          <div className="mt-5 space-y-3">
+            {offlineSyncPresentations.map((item) => {
+              const localSession = item.package.sessions.find((session) => session.offlineLifecycle === item.lifecycle);
+              const needsReview = item.lifecycle === "CONFLICT";
+              const finalized = item.lifecycle === "ENDED";
+              const statusLabel = needsReview ? "Needs review" : finalized ? "Finalization confirmed" : "Waiting for connection";
+              const statusTone = needsReview ? "danger" : finalized ? "success" : "warning";
+              return <div key={item.package.event.id} className="rounded-lg border bg-surface p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-foreground">{item.package.event.code} — {item.package.event.title}</p>
+                  <StatusBadge label={statusLabel} tone={statusTone} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {needsReview
+                    ? "Saved data is protected on this device and requires review after reconnection."
+                    : finalized
+                      ? "The server has confirmed this session. PLPass will safely remove this completed local package after reconciliation finishes."
+                      : `This session ended on this device. ${item.status.pendingCount} saved attendance record${item.status.pendingCount === 1 ? "" : "s"} and the final event completion will synchronize after verified reconnection.`}
+                </p>
+                {localSession?.offlineEndedAt ? <p className="mt-1 text-xs text-muted-foreground">Saved local end: {formatLocalTime(localSession.offlineEndedAt)}</p> : null}
+              </div>;
+            })}
+          </div>
+          <p className="mt-5 text-sm text-muted-foreground">No Event Record or retry action is available while offline.</p>
         </ModalFrame>
       ) : null}
 
@@ -3888,6 +4345,7 @@ export function EventManagementPage() {
           </div>
         </ModalFrame>
       ) : null}
+      {walkInWarning.dialog}
 
     </div>
   );

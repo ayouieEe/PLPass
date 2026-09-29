@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Keep the test server separate from the desktop/dev preview port. Reusing a
+// running server can silently run the mock E2E suite against staging instead.
+const testServerPort = process.env.PLAYWRIGHT_TEST_PORT ?? "4174";
+const testServerUrl = `http://127.0.0.1:${testServerPort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
@@ -9,13 +14,13 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined,
   expect: { timeout: 15000 },
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL: testServerUrl,
     trace: "on-first-retry"
   },
   webServer: {
-    command: "npm run build && npm run preview -- --host 127.0.0.1",
-    url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
+    command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${testServerPort}`,
+    url: testServerUrl,
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "true",
     timeout: 120 * 1000,
     env: {
       ...process.env,

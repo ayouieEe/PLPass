@@ -46,6 +46,7 @@ type AttendanceSummaryRow = {
   finalized_at?: string | null;
   late_reason_category?: string | null;
   late_reason?: string | null;
+  attendance_origin?: "invited" | "walk_in" | null;
   students?: StudentRelationRow | StudentRelationRow[] | null;
 };
 
@@ -69,13 +70,8 @@ export function resolveOrganizerAttendanceStatus(input: OrganizerAttendanceStatu
     && new Date(input.timeIn).getTime() > new Date(input.lateCutoffAt).getTime()
     ? "late"
     : "present";
-  const deadline = input.feedbackDueAt ? new Date(input.feedbackDueAt).getTime() : Number.POSITIVE_INFINITY;
-  if (input.attendanceSessionStatus === "completed"
-    && input.feedbackTaskStatus
-    && input.feedbackTaskStatus !== "completed"
-    && (input.feedbackTaskStatus === "expired" || (input.now ?? Date.now()) >= deadline)) {
-    return "absent";
-  }
+  // Feedback completion is a separate post-event obligation. It must not
+  // rewrite an already-recorded attendance outcome after the event closes.
   return rawStatus;
 }
 
@@ -87,24 +83,17 @@ export function resolveRecordedOrganizerAttendanceStatus(input: OrganizerAttenda
   return status;
 }
 
-type UnverifiedWalkInRow = {
-  id: string;
-  local_scan_uuid: string;
-  event_id: string;
-  event_session_id: string;
-  student_number: string;
-  identification_method: string;
-  checkout_identification_method?: string | null;
-  time_in: string;
-  time_out: string | null;
-};
-
 export type EventAttendanceSummary = {
   rows: Array<Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: OrgAttendanceStatus }>;
+  /** Actual end of the latest completed session, used for event-history ordering. */
+  completedAt?: string;
   present: number;
   late: number;
   absent: number;
   totalRegistered: number;
+  walkIns: number;
+  /** Registered participants plus any distinct walk-ins counted in the rate. */
+  attendancePopulation: number;
   attendanceRate: number; // 0-100
 };
 
@@ -195,8 +184,10 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
 
   const participantRows = ((participants ?? []) as EventParticipantRow[]).filter((participant) => participant.participant_status !== "removed");
   const registeredCountByEvent = new Map<string, number>();
+  const walkInCountByEvent = new Map<string, number>();
   participantRows.forEach((participant) => {
-    registeredCountByEvent.set(participant.event_id, (registeredCountByEvent.get(participant.event_id) ?? 0) + 1);
+    const countByEvent = participant.participant_status === "walk_in" ? walkInCountByEvent : registeredCountByEvent;
+    countByEvent.set(participant.event_id, (countByEvent.get(participant.event_id) ?? 0) + 1);
   });
 
   const studentIds = [...new Set(participantRows.map((participant) => participant.student_id).filter(Boolean))];
@@ -217,18 +208,12 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
     records = (data ?? []) as AttendanceSummaryRow[];
   }
-
-  const { data: unverifiedWalkIns, error: unverifiedWalkInsError } = await client
-    .from("unverified_walkin_attendance" as never)
-    .select("id, local_scan_uuid, event_id, event_session_id, student_number, identification_method, checkout_identification_method, time_in, time_out")
-    .in("event_id", remoteEventIds);
-  if (unverifiedWalkInsError) throw unverifiedWalkInsError;
 
   const recordIds = records.map((record) => String(record.id)).filter(Boolean);
   const { data: feedbackTaskRows, error: feedbackTaskError } = recordIds.length === 0
@@ -246,8 +231,10 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
         rows: [],
         present: 0,
         late: 0,
-        absent: 0,
+      absent: 0,
       totalRegistered: registeredCountByEvent.get(eventId) ?? 0,
+      walkIns: walkInCountByEvent.get(eventId) ?? 0,
+      attendancePopulation: (registeredCountByEvent.get(eventId) ?? 0) + (walkInCountByEvent.get(eventId) ?? 0),
       attendanceRate: 0
     };
   });
@@ -271,6 +258,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const latestCompletedSession = eventSessions
       .filter((session) => session.session_status === "completed")
       .sort((left, right) => new Date(right.actual_end ?? right.actual_start ?? 0).getTime() - new Date(left.actual_end ?? left.actual_start ?? 0).getTime())[0];
+    if (latestCompletedSession?.actual_end) summaries[eventId].completedAt = latestCompletedSession.actual_end;
     const effectiveSession = activeSession ?? latestCompletedSession;
     if (effectiveSession) effectiveSessionByEvent.set(eventId, effectiveSession);
   }
@@ -309,7 +297,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       ...(row?.time_in ? { timeIn: row.time_in } : {}),
       ...(row?.time_out ? { timeOut: row.time_out } : {}),
       attendanceStatus: status,
-      ...(row ? { verificationLabel: "Verified" as const } : {}),
+      verificationLabel: row?.attendance_origin === "walk_in" ? "Walk-in" as const : "Verified" as const,
       lateReason: status === "late" ? mapLateReason(row?.late_reason_category ?? row?.late_reason ?? null) : undefined
     });
 
@@ -318,51 +306,16 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     else if (status === "absent") summary.absent += 1;
   });
 
-  const walkInByIdentity = new Map<string, UnverifiedWalkInRow>();
-  for (const walkIn of (unverifiedWalkIns ?? []) as unknown as UnverifiedWalkInRow[]) {
-    // The durable walk-in row is the identity. Student number is deliberately
-    // not used here because two unverified submissions may share a number.
-    walkInByIdentity.set(`${walkIn.event_id}:${walkIn.id}`, walkIn);
-  }
-  for (const walkIn of walkInByIdentity.values()) {
-    const eventId = walkIn.event_id;
-    const summary = summaries[eventId];
-    if (!summary) continue;
-    const sessionRow = (sessions as EventSessionRow[]).find((session) => session.id === walkIn.event_session_id);
-    const isLate = Boolean(sessionRow?.late_cutoff_at && new Date(walkIn.time_in).getTime() > new Date(sessionRow.late_cutoff_at).getTime());
-    const walkInStatus: OrgAttendanceStatus = !walkIn.time_out && sessionRow?.session_status === "completed"
-      ? "absent"
-      : isLate ? "late" : "present";
-    summary.rows.push({
-      id: String(walkIn.id),
-      studentId: `walkin:${walkIn.id}`,
-      sessionId: walkIn.event_session_id,
-      localScanUuid: walkIn.local_scan_uuid,
-      studentName: `Unverified walk-in · ${walkIn.student_number}`,
-      eventCode: eventId,
-      attendanceMethod: mapVerificationMethod(walkIn.identification_method),
-      ...(walkIn.checkout_identification_method ? { checkoutAttendanceMethod: mapVerificationMethod(walkIn.checkout_identification_method) } : {}),
-      checkInTime: formatDisplayTime(walkIn.time_in),
-      checkOutTime: walkIn.time_out ? formatDisplayTime(walkIn.time_out) : undefined,
-      timeIn: walkIn.time_in,
-      ...(walkIn.time_out ? { timeOut: walkIn.time_out } : {}),
-      attendanceStatus: walkInStatus,
-      verificationLabel: "Unverified walk-in"
-    });
-    if (walkInStatus === "present") summary.present += 1;
-    else if (walkInStatus === "late") summary.late += 1;
-    else summary.absent += 1;
-  }
-
   Object.values(summaries).forEach((summary) => {
     summary.rows = mergeOrganizerAttendanceRows(summary.rows);
     const calculated = summarizeUniqueAttendance(
       summary.rows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus })),
-      summary.totalRegistered
+      summary.totalRegistered + summary.walkIns
     );
     summary.present = calculated.present;
     summary.late = calculated.late;
     summary.absent = calculated.absent;
+    summary.attendancePopulation = calculated.population;
     summary.attendanceRate = calculated.attendanceRate;
   });
 

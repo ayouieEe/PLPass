@@ -4,7 +4,7 @@ import { mergeOrganizerAttendanceRows, summarizeUniqueAttendance } from "@/featu
 describe("organizer attendance summary identity counting", () => {
   it("prefers the verified attendance row when the same durable scan exists in both sources", () => {
     const rows = mergeOrganizerAttendanceRows([
-      { id: "walkin-row", studentId: "walkin:row", localScanUuid: "scan-1", studentName: "Unverified walk-in · 23-00999", eventCode: "EVT", attendanceMethod: "Manual", checkInTime: "12:00 AM", attendanceStatus: "present", verificationLabel: "Unverified walk-in" },
+      { id: "walkin-row", studentId: "walkin:row", localScanUuid: "scan-1", studentName: "Walk-in · 23-00999", eventCode: "EVT", attendanceMethod: "Manual", checkInTime: "12:00 AM", attendanceStatus: "present", verificationLabel: "Walk-in" },
       { id: "attendance-row", studentId: "student-9", localScanUuid: "scan-1", studentName: "Verified Student", eventCode: "EVT", attendanceMethod: "QR Code", checkInTime: "12:00 AM", attendanceStatus: "late", verificationLabel: "Verified" }
     ]);
 

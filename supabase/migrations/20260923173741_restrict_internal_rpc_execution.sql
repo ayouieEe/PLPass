@@ -10,6 +10,13 @@ revoke execute on function public.finalize_event_attendance_session(
   uuid, text, jsonb
 ) from authenticated;
 
-revoke execute on function public.identify_event_participant_by_face(
-  uuid, jsonb
-) from authenticated;
+-- This helper is optional in deployments that never enabled the older
+-- server-side face lookup. PostgreSQL raises when REVOKE names a missing
+-- signature, which previously made a clean migration replay stop here.
+do $$
+begin
+  if to_regprocedure('public.identify_event_participant_by_face(uuid,jsonb)') is not null then
+    revoke execute on function public.identify_event_participant_by_face(uuid, jsonb) from authenticated;
+  end if;
+end;
+$$;

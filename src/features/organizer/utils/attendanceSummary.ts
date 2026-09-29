@@ -16,18 +16,12 @@ export type UniqueAttendanceSummary = {
 };
 
 /**
- * Merge the two server read sources without allowing a walk-in to disappear
- * or render twice after it is verified. The raw source rows remain untouched.
+ * Merge duplicate server read rows without allowing one attendance identity to
+ * render twice. Accepted walk-ins are now normal attendance rows.
  */
 export function mergeOrganizerAttendanceRows(rows: OrganizerAttendanceRow[]): OrganizerAttendanceRow[] {
-  const verifiedScanUuids = new Set(
-    rows
-      .filter((row) => row.verificationLabel === "Verified" && row.localScanUuid)
-      .map((row) => row.localScanUuid as string)
-  );
   const byIdentity = new Map<string, OrganizerAttendanceRow>();
   for (const row of rows) {
-    if (row.verificationLabel === "Unverified walk-in" && row.localScanUuid && verifiedScanUuids.has(row.localScanUuid)) continue;
     const identity = row.localScanUuid ? `scan:${row.localScanUuid}` : `identity:${row.studentId}`;
     byIdentity.set(identity, row);
   }

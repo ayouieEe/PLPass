@@ -29,6 +29,8 @@ export type PreparedEventSession = {
   offlineLifecycle?: "NOT_STARTED" | "START_PENDING" | "STARTED" | "END_PENDING" | "ENDED" | "CONFLICT";
   offlineStartedAt?: string;
   offlineEndedAt?: string;
+  /** Organizer-provided reason retained with the durable local end record. */
+  offlineEndReason?: string;
   offlineStartReconciledAt?: string;
 };
 
@@ -174,7 +176,12 @@ export interface PLPassDesktopApi {
   prepareEvent(input: PreparedEventPackage, organizerProfileId: string): Promise<OfflineStatus>;
   listPreparedEvents(organizerProfileId: string, manilaDate: string): Promise<OfflinePreparedEventSummary[]>;
   hasUnresolvedWork(organizerProfileId: string): Promise<boolean>;
+  /** Earliest owner-scoped durable retry time, including newly queued rows. */
+  nextSyncAttemptAt(organizerProfileId: string): Promise<string | undefined>;
+  /** Arms Electron's process-level wake-up for the persisted retry deadline. */
+  scheduleSyncWake(organizerProfileId: string, nextAttemptAt?: string): Promise<void>;
   startOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, manilaDate: string, startedAt: string): Promise<PreparedEventPackage>;
+  confirmOnlineStartedSession(eventId: string, sessionId: string, organizerProfileId: string, startedAt: string, lateCutoffAt?: string): Promise<PreparedEventPackage>;
   endOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, endedAt: string, reason?: string): Promise<PreparedEventPackage>;
   setOfflineLifecycleState(eventId: string, sessionId: string, state: "STARTED" | "ENDED" | "CONFLICT"): Promise<void>;
   getStatus(eventId: string, organizerProfileId: string): Promise<OfflineStatus>;
@@ -190,7 +197,7 @@ export interface PLPassDesktopApi {
   queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): Promise<PendingWalkInScan>;
   listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string, activeSessionId?: string): Promise<PendingWalkInScan[]>;
   beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
-  confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
+  confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;participantStatus?:"invited"|"walk_in";attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
   discardWalkInSync(localScanUuid: string, organizerProfileId: string): Promise<void>;
   failWalkInSync(localScanUuid: string, status: "RETRY" | "CONFLICT", safeError: string): Promise<void>;
   listPending(eventId: string | undefined, organizerProfileId: string): Promise<PendingAttendanceRecord[]>;
@@ -210,6 +217,7 @@ export interface PLPassDesktopApi {
   setScannerCapturePhase(phase: AttendanceCapturePhase): Promise<ScannerCoordinatorStatus>;
   onScannerStatus(listener: (status: ScannerCoordinatorStatus) => void): () => void;
   onOfflineAttendanceRecorded(listener: (event: OfflineAttendanceEvent) => void): () => void;
+  onOfflineSyncDue(listener: (organizerProfileId: string) => void): () => void;
 }
 
 declare global {

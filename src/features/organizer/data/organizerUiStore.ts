@@ -48,7 +48,7 @@ export type OrganizerAttendanceRow = {
   timeOut?: string;
   attendanceStatus: AttendanceStatus;
   lateReason?: LateReason;
-  verificationLabel?: "Verified" | "Unverified walk-in";
+  verificationLabel?: "Verified" | "Walk-in";
 };
 
 export function formatAttendanceMethod(row: Pick<OrganizerAttendanceRow, "attendanceMethod" | "checkoutAttendanceMethod">): string {

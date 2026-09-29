@@ -73,7 +73,7 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("v_session.actual_end + interval '24 hours' <= now()");
   });
 
-  it("keeps pre-session attendance neutral and resolves recorded attendance to Present, Late, or Absent", () => {
+  it("keeps pre-session attendance neutral and keeps recorded outcomes independent of feedback", () => {
     const cutoff = "2026-09-22T08:00:00.000Z";
     expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: null, lateCutoffAt: cutoff })).toBeNull();
     expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: "active", lateCutoffAt: cutoff })).toBeNull();
@@ -81,7 +81,7 @@ describe("completion-gated event attendance", () => {
     expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: null, attendanceSessionStatus: "ongoing", lateCutoffAt: cutoff })).toBe("late");
     expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: "completed", lateCutoffAt: cutoff })).toBe("absent");
     expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T07:59:00.000Z", timeOut: null, attendanceSessionStatus: "completed", lateCutoffAt: cutoff })).toBe("absent");
-    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: "2026-09-22T09:00:00.000Z", attendanceSessionStatus: "completed", lateCutoffAt: cutoff, feedbackTaskStatus: "pending", feedbackDueAt: "2026-09-23T09:00:00.000Z", now: new Date("2026-09-23T10:00:00.000Z").getTime() })).toBe("absent");
+    expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: "2026-09-22T09:00:00.000Z", attendanceSessionStatus: "completed", lateCutoffAt: cutoff, feedbackTaskStatus: "pending", feedbackDueAt: "2026-09-23T09:00:00.000Z", now: new Date("2026-09-23T10:00:00.000Z").getTime() })).toBe("late");
     expect(resolveOrganizerAttendanceStatus({ timeIn: "2026-09-22T08:01:00.000Z", timeOut: "2026-09-22T09:00:00.000Z", attendanceSessionStatus: "completed", lateCutoffAt: cutoff, feedbackTaskStatus: "completed", feedbackDueAt: "2026-09-23T09:00:00.000Z", now: new Date("2026-09-23T10:00:00.000Z").getTime() })).toBe("late");
   });
 

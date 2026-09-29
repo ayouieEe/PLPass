@@ -33,6 +33,14 @@ verify_jwt = false
 import_map = "./functions/analyze-feedback/deno.json"
 entrypoint = "./functions/analyze-feedback/index.ts"
 
+[functions.manage-users]
+enabled = true
+# This function validates the caller and action in its handler.  Keep this
+# explicit so staging and production do not silently deploy with different
+# gateway settings.
+verify_jwt = false
+entrypoint = "./functions/manage-users/index.ts"
+
 [functions.send-event-emails]
 enabled = true
 # The handler verifies both dedicated worker headers before dispatching. The

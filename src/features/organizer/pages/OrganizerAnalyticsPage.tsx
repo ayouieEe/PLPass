@@ -513,13 +513,9 @@ export function OrganizerAnalyticsPage() {
         .map((session) => {
           const event = eventById.get(session.eventId ?? "");
         const records = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === session.id);
-        const walkInRows = (organizerAttendanceSummariesQuery.data?.[session.eventId ?? ""]?.rows ?? [])
-          .filter((row) => row.sessionId === session.id && row.verificationLabel === "Unverified walk-in");
-        const summary = summarizeUniqueAttendance([
-          ...records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })),
-          ...walkInRows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus }))
-        ], 0);
-        return { eventCode: event?.code ?? session.title, eventId: session.eventId, date: dateKey(session.startsAt), present: summary.present, late: summary.late, absent: summary.absent, totalRegistered: summary.population, attendanceRate: summary.attendanceRate };
+        const eventSummary = organizerAttendanceSummariesQuery.data?.[session.eventId ?? ""];
+        const summary = summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), eventSummary?.attendancePopulation ?? 0, true);
+        return { eventCode: event?.code ?? session.title, eventId: session.eventId, date: dateKey(session.startsAt), present: summary.present, late: summary.late, absent: summary.absent, totalRegistered: eventSummary?.totalRegistered ?? 0, walkIns: eventSummary?.walkIns ?? 0, attendancePopulation: summary.population, attendanceRate: summary.attendanceRate };
       });
     },
     [attendanceRecordsQuery.data?.items, eventData, organizerAttendanceSummariesQuery.data, sessionsQuery.data?.items]
@@ -775,7 +771,7 @@ export function OrganizerAnalyticsPage() {
     const selectedSummaries = filteredSessionSummaryData;
     const eventLookupForId = (events: typeof eventData, eventId: string) => events.find((event) => event.id === eventId)?.code ?? eventId;
     const reportNames = { master: "PLPass Master Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Prediction Report", sentiment: "PLPass Performance and Sentiment Report", late: "PLPass Late Arrival Patterns Report" };
-    const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered }));
+    const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered, "Walk-ins": row.walkIns, "Total Participants": row.attendancePopulation }));
     const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Predicted Attendance": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%`, "Predicted Absences": event.predictedTurnout == null ? "Not available" : `${100 - event.predictedTurnout}%` }));
     const summaryRows = (summariesQuery.data?.items ?? []).filter((row) => Boolean(row.eventId) && selectedIds.has(row.eventId)).map((row) => ({ "Event Code": eventLookupForId(eventData, row.eventId ?? ""), Positive: `${row.positivePercentage ?? 0}%`, Neutral: `${row.neutralPercentage ?? 0}%`, Negative: `${row.negativePercentage ?? 0}%` }));
     const lateRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, Late: row.late, "Late Rate": `${row.totalRegistered ? Math.round((row.late / row.totalRegistered) * 100) : 0}%` }));
@@ -813,7 +809,7 @@ export function OrganizerAnalyticsPage() {
         keyFindings: [
           `Average attendance rate across monitored sessions: ${overallAttendanceLabel}.`,
           `Total present check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.present, 0)} participants; Late check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.late, 0)} participants.`,
-          `The report includes ${selectedSummaries.length} completed session summary row(s).`
+          `The report includes ${selectedSummaries.length} completed event summary row(s).`
         ],
         recommendations: ["Compare these observed rates with event registration and schedule before making operational changes."]
       };

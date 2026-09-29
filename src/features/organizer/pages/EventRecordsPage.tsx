@@ -91,10 +91,13 @@ function objectiveKey(objective: EventObjective | string, index: number) {
 type AttendanceRow = Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: AttendanceStatus };
 
 type CompletedRecord = EventRecord & {
+  completedAt?: string;
   present: number;
   late: number;
   absent: number;
   totalRegistered: number;
+  walkIns: number;
+  attendancePopulation: number;
   attendanceRate: string;
   sentiment: {
     positive: number;
@@ -229,6 +232,8 @@ function completedFromRepositoryEvent(event: {
     late: 0,
     absent: 0,
     totalRegistered: 0,
+    walkIns: 0,
+    attendancePopulation: 0,
     attendanceRate: "N/A",
     sentiment: { positive: 0, neutral: 0, negative: 0 },
     feedbackCount: 0,
@@ -522,8 +527,16 @@ export function EventRecordsPage() {
     () => repositoryCompletedEvents.map((event) => event.id).filter((id): id is string => Boolean(id)),
     [repositoryCompletedEvents]
   );
+  // Browser fixtures and imported legacy records can use non-Postgres ids.
+  // The attendance-summary query ignores those ids, so do not wait forever
+  // for a query that will never run before opening a URL-selected record.
+  const completedRemoteEventIds = useMemo(() => postgresUuidValues(completedEventIds), [completedEventIds]);
   const attendanceSummariesQuery = useAttendanceSummaries(completedEventIds);
   const feedbackSummariesQuery = useEventFeedbackSummaries(completedEventIds);
+  const attendanceSummariesPending = completedRemoteEventIds.length > 0 && (
+    attendanceSummariesQuery.isPending
+    || (!attendanceSummariesQuery.data && !attendanceSummariesQuery.isError)
+  );
 
   const repositoryCompletedEventsWithAttendance = useMemo<CompletedRecord[]>(() => {
     return repositoryCompletedEvents.map((event) => {
@@ -532,10 +545,13 @@ export function EventRecordsPage() {
       return {
         ...event,
         ...(summary ? {
+          completedAt: summary.completedAt,
           present: summary.present,
           late: summary.late,
-           absent: summary.absent,
+          absent: summary.absent,
           totalRegistered: summary.totalRegistered,
+          walkIns: summary.walkIns,
+          attendancePopulation: summary.attendancePopulation,
           attendanceRate: `${summary.attendanceRate}%`
         } : {}),
         ...(feedback ? {
@@ -557,12 +573,17 @@ export function EventRecordsPage() {
     const eventId = new URLSearchParams(location.search).get("event");
     if (!eventId) return;
 
+    // Never open a completed record with the zero-value placeholder while its
+    // attendance summary is still being fetched. Keeping the event id in the
+    // URL lets this effect reopen the record with its authoritative totals.
+    if (attendanceSummariesPending) return;
+
     const event = completedRows.find((row) => row.id === eventId);
     if (!event) return;
 
     setCompletedModal(event);
     navigate(getWorkspaceRoute(location.pathname, APP_ROUTES.organizerRecords, APP_ROUTES.adminAttendance), { replace: true });
-  }, [completedRows, location.pathname, location.search, navigate]);
+  }, [attendanceSummariesPending, completedRows, location.pathname, location.search, navigate]);
 
 
 
@@ -609,7 +630,9 @@ export function EventRecordsPage() {
       Present: event.present,
       Late: event.late,
       Absent: event.absent,
-      "Total Registered": event.totalRegistered,
+      "Registered": event.totalRegistered,
+      "Walk-ins": event.walkIns,
+      "Total Participants": event.attendancePopulation,
       "Attendance Rate": event.attendanceRate
     }));
     exportTabularReport(label, rows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
@@ -685,12 +708,13 @@ export function EventRecordsPage() {
     { accessorKey: "date", header: "Date" },
     { accessorKey: "venue", header: "Venue" },
     // Attendance outcome — kept together so the numbers can be scanned as one group
-    { accessorKey: "present", header: "Present" },
-    { accessorKey: "late", header: "Late" },
-    { accessorKey: "absent", header: "Absent" },
+    { accessorKey: "present", header: "Present", meta: { agGrid: { width: 96, minWidth: 96, flex: 0 } } },
+    { accessorKey: "late", header: "Late", meta: { agGrid: { width: 84, minWidth: 84, flex: 0 } } },
+    { accessorKey: "absent", header: "Absent", meta: { agGrid: { width: 96, minWidth: 96, flex: 0 } } },
     {
       accessorKey: "attendanceRate",
       header: "Attendance Rate",
+      meta: { agGrid: { width: 128, minWidth: 128, flex: 0 } },
       cell: ({ row }) => <span className="font-semibold text-foreground">{row.original.attendanceRate}</span>
     },
   ];
@@ -700,10 +724,10 @@ export function EventRecordsPage() {
       <PageHeader title="Event Records" description={session?.role === "admin" ? "Review institution-wide completed events and attendance outcomes." : isDepartmentAdmin ? "Review completed events and attendance outcomes for organizers in your department." : "Review your completed events and attendance outcomes."} />
 
       <section aria-label="Completed event summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <EventMetricCard title="Completed events" value={String(pastEventsStats.totalEvents)} icon={CalendarCheck} />
-        <EventMetricCard title="Average attendance" value={pastEventsStats.avgRate ? `${pastEventsStats.avgRate}%` : "—"} icon={BarChart3} />
-        <EventMetricCard title="Present" value={String(pastEventsStats.totalPresent)} icon={UserCheck} />
-        <EventMetricCard title="Absent" value={String(pastEventsStats.totalAbsent)} icon={UserX} />
+        <EventMetricCard title="Completed events" value={attendanceSummariesPending ? "…" : String(pastEventsStats.totalEvents)} icon={CalendarCheck} />
+        <EventMetricCard title="Average attendance" value={attendanceSummariesPending ? "Loading" : pastEventsStats.avgRate ? `${pastEventsStats.avgRate}%` : "—"} icon={BarChart3} />
+        <EventMetricCard title="Present" value={attendanceSummariesPending ? "…" : String(pastEventsStats.totalPresent)} icon={UserCheck} />
+        <EventMetricCard title="Absent" value={attendanceSummariesPending ? "…" : String(pastEventsStats.totalAbsent)} icon={UserX} />
       </section>
 
       <section className="space-y-4">
@@ -774,10 +798,12 @@ export function EventRecordsPage() {
         </div>
 
         <section className="overflow-hidden rounded-xl border bg-surface shadow-sm">
-          {eventsQuery.isPending ? (
+          {eventsQuery.isPending || attendanceSummariesPending ? (
             <LoadingState />
           ) : eventsQuery.isError ? (
             <ErrorState title="Failed to load events" message={eventsQuery.error?.message ?? "An error occurred while loading events. Please try again."} />
+          ) : attendanceSummariesQuery.isError ? (
+            <ErrorState title="Failed to load attendance summaries" message={attendanceSummariesQuery.error?.message ?? "The completed-event totals could not be verified. Please try again."} />
           ) : (
             <PLPassDataGrid
               label="Completed events"
@@ -987,6 +1013,8 @@ export function CompletedEventModal({
                 <SummaryTile label="Category" value={record.category} />
                 <SummaryTile label="Venue" value={record.venue} />
                 <SummaryTile label="Registered" value={String(record.totalRegistered)} />
+                <SummaryTile label="Walk-ins" value={String(record.walkIns)} />
+                {record.attendancePopulation !== record.totalRegistered ? <SummaryTile label="Total Participants" value={String(record.attendancePopulation)} /> : null}
                 <SummaryTile label="Feedback" value={`${record.feedbackCount ?? 0} responses`} />
               </dl>
             </section>

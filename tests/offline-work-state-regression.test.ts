@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const provider = readFileSync(resolve(process.cwd(), "src/app/providers/DevelopmentSessionProvider.tsx"), "utf8");
 const layout = readFileSync(resolve(process.cwd(), "src/app/layouts/DashboardLayout.tsx"), "utf8");
+const offlineEventHook = readFileSync(resolve(process.cwd(), "src/features/offline/useOfflineEvent.ts"), "utf8");
 
 describe("offline work banner state", () => {
   it("uses the owner-scoped unresolved-work result even when diagnostic reads fail", () => {
@@ -31,6 +32,9 @@ describe("offline work banner state", () => {
     expect(exitOfflineAfterVerification).toBeGreaterThan(onlineAfterVerification);
     expect(exitOfflineAfterVerification).toBeLessThan(reconciles);
     expect(provider).toContain("window.setInterval(() => void verifyReachability(), 3_000)");
+    expect(provider).toContain('toast.warning("Offline Walk-in removed"');
+    expect(provider).toContain('No active enrolled student matches this number. No attendance was recorded.');
+    expect(provider).toContain('was already invited. Their attendance was recorded as invited attendance.');
   });
 
   it("keeps the connection state as a compact header status", () => {
@@ -41,5 +45,22 @@ describe("offline work banner state", () => {
     expect(layout).not.toContain("Review saved work");
     expect(layout).not.toContain("Retry synchronization");
     expect(layout).not.toContain("listPendingWalkInScans(undefined, session.userId)");
+  });
+
+  it("uses the durable owner-scoped retry deadline and never stops sync because the window is hidden", () => {
+    expect(provider).toContain("nextSyncAttemptAt(session.userId)");
+    expect(provider).not.toContain('document.visibilityState!=="visible"');
+    expect(provider).not.toContain('document.visibilityState==="visible"');
+    expect(offlineEventHook).not.toContain("automaticSyncDelayMs");
+  });
+
+  it("restores the encrypted organizer session after an offline refresh even when Windows reports stale connectivity", () => {
+    expect(provider).toContain("const canRecoverOffline = Boolean(");
+    expect(provider).toContain("error instanceof RequestTimeoutError");
+    expect(provider).toContain("|| !shouldSignOutAfterAuthFailure(error)");
+    expect(provider).toContain("const offlineSession = await readDesktopOfflineSession();");
+    expect(provider).toContain("setIsNetworkOnline(false);");
+    expect(provider).toContain("setIsOfflineMode(true);");
+    expect(provider).toContain("await cacheDesktopOfflineSession(session);");
   });
 });

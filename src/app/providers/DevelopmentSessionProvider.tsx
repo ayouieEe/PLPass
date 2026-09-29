@@ -20,6 +20,8 @@ import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTime
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
+import { toast } from "sonner";
+import { offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent } from "@/features/offline/offlineService";
 
 function getManilaCalendarDate(at = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
@@ -64,8 +66,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [hasOfflineWork, setHasOfflineWork] = useState(false);
   const [offlineConflictCount, setOfflineConflictCount] = useState(0);
   const [reconciliationState, setReconciliationState] = useState<"idle" | "syncing" | "blocked">("idle");
+  const [offlineSyncStage, setOfflineSyncStage] = useState<"idle" | "confirming_session" | "uploading_attendance" | "finalizing_event" | "blocked">("idle");
   const [offlineSyncError, setOfflineSyncError] = useState<string | undefined>();
   const reconnectInFlight = useRef<Promise<boolean> | null>(null);
+  // Authentication can change while the initial Supabase restore request is
+  // in flight.  A completed restore must never erase a session that was
+  // successfully established by a later sign-in.
+  const authOperationGeneration = useRef(0);
 
   useEffect(() => {
     let disposed = false;
@@ -77,6 +84,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const onOffline = async () => {
       setIsNetworkOnline(false);
       if (disposed || !session || session.role !== "organizer" || !window.plpassDesktop) return;
+      // Ensure a renderer reload immediately after the network transition can
+      // restore this already verified organizer without contacting Supabase.
+      // The main process encrypts and expiry-limits this identity.
+      await cacheDesktopOfflineSession(session);
+      if (disposed) return;
       // Lock the organizer workspace immediately. Route-level guards keep the
       // user inside event navigation; local pages then decide whether a
       // prepared package is available for attendance.
@@ -100,6 +112,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         if (disposed) return;
         if (!error && data.user?.id === session.userId) {
           setIsNetworkOnline(true);
+          // Windows can emit `online` while the access point still cannot
+          // reach Supabase.  A later successful authenticated probe is the
+          // actual recovery boundary, especially for an END_PENDING session
+          // which has no attendance-row retry deadline of its own.
+          window.dispatchEvent(new Event("plpass:connectivity-verified"));
           return;
         }
         if (isLikelyNetworkFailure(error)) {
@@ -122,6 +139,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [session]);
   useEffect(() => {
     let isMounted = true;
+    const restoreGeneration = authOperationGeneration.current;
+    const canApplyRestore = () => isMounted && authOperationGeneration.current === restoreGeneration;
     async function restoreSession() {
       if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
         const stored = window.localStorage.getItem("plpass-development-session");
@@ -129,13 +148,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           try {
             const nextSession = JSON.parse(stored) as DevelopmentSession;
             if (nextSession.role !== "student" && nextSession.role !== "organizer" && nextSession.role !== "admin" && nextSession.role !== "department_admin") {
-              if (isMounted) {
+              if (canApplyRestore()) {
                 setSession(null);
                 setIsSessionRestored(true);
               }
               return;
             }
-            if (isMounted) {
+            if (canApplyRestore()) {
               setSession(nextSession);
               setIsSessionRestored(true);
             }
@@ -144,7 +163,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
             // fallback to null session
           }
         }
-        if (isMounted) {
+        if (canApplyRestore()) {
           setSession(null);
           setIsSessionRestored(true);
         }
@@ -165,7 +184,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           // expired while disconnected even though this desktop was recently
           // authenticated online.
           const offlineSession = await readDesktopOfflineSession();
-          if (isMounted) {
+          if (canApplyRestore()) {
             setOfflineResumeAvailable(Boolean(offlineSession));
             if (offlineSession) {
               // Restore the encrypted organizer identity immediately. This is
@@ -187,7 +206,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         const nextSession = await withRequestTimeout(
           (async () => {
             const { data, error } = await supabase.auth.getUser();
-            if (error || !data.user) return null;
+            // A transport failure is not the same as an intentionally absent
+            // session. Throw it so the encrypted offline-session recovery
+            // below can restore the recently verified organizer identity.
+            // Returning null here bypassed that recovery and routed an
+            // offline refresh to login.
+            if (error) throw error;
+            if (!data.user) return null;
             return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
               id: data.user.id,
               email: data.user.email ?? ""
@@ -196,19 +221,42 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           supabaseAuthDeadlineMs,
           "Session restore took too long. Please sign in again."
         );
-        if (isMounted) {
+        if (canApplyRestore()) {
           setSession(nextSession);
           if (nextSession) void cacheDesktopOfflineSession(nextSession);
           setIsSessionRestored(true);
         }
       } catch (error) {
-        if (isMounted) {
-          if (window.plpassDesktop && supabase && !shouldSignOutAfterAuthFailure(error)) {
+        if (canApplyRestore()) {
+          // Windows can report an active network while the access point still
+          // cannot reach Supabase. A refresh must preserve a recently verified
+          // encrypted organizer identity in that transport/timeout state
+          // rather than treating the timeout as an intentional sign-out.
+          const canRecoverOffline = Boolean(
+            window.plpassDesktop
+            && (
+              isDesktopOffline()
+              || isLikelyNetworkFailure(error)
+              || error instanceof RequestTimeoutError
+              // `getUser()` can succeed from the persisted Supabase session
+              // before the profile/role queries hit an unreachable network.
+              // Those queries deliberately redact their transport details as
+              // a generic non-revocation resolution error. Do not turn that
+              // safe offline condition into a logout when this desktop still
+              // has a recent encrypted organizer identity. Explicit account
+              // revocations and invalid/missing identities still sign out.
+              || !shouldSignOutAfterAuthFailure(error)
+            )
+          );
+          if (canRecoverOffline) {
             try {
-              const { data } = await supabase.auth.getSession();
-              const offlineSession = await readDesktopOfflineSession(data.session?.user.id);
+              // Do not depend on a Supabase session read here. That read may
+              // be absent or expired precisely because this is an offline
+              // refresh; the desktop identity remains owner-scoped and has a
+              // short local expiry enforced by Electron.
+              const offlineSession = await readDesktopOfflineSession();
               setOfflineResumeAvailable(Boolean(offlineSession));
-              if (offlineSession && isLikelyNetworkFailure(error)) {
+              if (offlineSession) {
                 queryClient.clear();
                 setSession(offlineSession);
                 setIsNetworkOnline(false);
@@ -245,6 +293,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           setHasOfflineWork(true);
           setOfflineSyncError(`Local offline database integrity requires review${integrity.details ? `: ${integrity.details}` : "."}`);
           setReconciliationState("blocked");
+          setOfflineSyncStage("blocked");
           return true;
         }
         // An integrity warning may have been reported before a known derived
@@ -273,6 +322,38 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [hasOfflineWork,offlineSyncError,session]);
 
   useEffect(() => { void refreshOfflineWork(); }, [refreshOfflineWork]);
+
+  useEffect(() => {
+    const notifyDiscardedWalkIn = (event: Event) => {
+      const { studentNumber, reasonCode } = (event as CustomEvent<{ studentNumber?: string; reasonCode?: string }>).detail ?? {};
+      const reason = reasonCode === "student_not_found"
+        ? "No active enrolled student matches this number. No attendance was recorded."
+        : reasonCode === "student_removed"
+          ? "This student was removed from the event. No attendance was recorded."
+          : reasonCode === "session_not_available"
+            ? "The event session was no longer available when this record synchronized. No attendance was recorded."
+            : reasonCode === "duplicate_student"
+              ? "Attendance for this student was already recorded for this session."
+              : "The record could not be reconciled safely. No attendance was recorded.";
+      toast.warning("Offline Walk-in removed", {
+        description: `${studentNumber ?? "The student number"}: ${reason}`
+      });
+    };
+    const notifyResolvedWalkIn = (event: Event) => {
+      const detail = (event as CustomEvent<{ studentNumber?: string; displayName?: string; disposition?: string }>).detail ?? {};
+      const student = detail.displayName ? `${detail.displayName} (${detail.studentNumber ?? "student number unavailable"})` : detail.studentNumber ?? "This student";
+      const description = detail.disposition === "confirmed_invited"
+        ? `${student} was already invited. Their attendance was recorded as invited attendance.`
+        : `${student} is an active enrolled student. Their attendance was recorded with a Walk-in badge.`;
+      toast.success("Offline Walk-in reconciled", { description });
+    };
+    window.addEventListener(offlineWalkInDiscardedEvent, notifyDiscardedWalkIn);
+    window.addEventListener(offlineWalkInResolvedEvent, notifyResolvedWalkIn);
+    return () => {
+      window.removeEventListener(offlineWalkInDiscardedEvent, notifyDiscardedWalkIn);
+      window.removeEventListener(offlineWalkInResolvedEvent, notifyResolvedWalkIn);
+    };
+  }, []);
 
   const continueOffline = useCallback(async () => {
     if (!window.plpassDesktop) return null;
@@ -309,9 +390,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       }
       const supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase.auth.getUser();
-      if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
+      if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
-      if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
+      if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       await cacheDesktopOfflineSession(confirmed);
       setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);
       // Connectivity and authentication are confirmed at this point. Keep any
@@ -320,19 +401,21 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       setIsNetworkOnline(true);
       setIsOfflineMode(false);
       const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");
-      const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry);
+      const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry,setOfflineSyncStage);
       const unresolved=await refreshOfflineWork();
       if (!reconciliation.completed) {
         setOfflineSyncError(reconciliation.message);
         setReconciliationState("blocked");
+        setOfflineSyncStage("blocked");
         return false;
       }
       await queryClient.invalidateQueries();
       setAuthError(undefined);
       setOfflineSyncError(undefined);
       setReconciliationState("idle");
+      setOfflineSyncStage("idle");
       return !unresolved;
-      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); return false; }
+      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
   }, [refreshOfflineWork,session]);
 
   const reconnectOnline = useCallback((forceRetry=false):Promise<boolean> => {
@@ -358,15 +441,22 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     if (!session || session.role!=="organizer" || !window.plpassDesktop) return undefined;
     let disposed=false;
     let running=false;
-    let retryTimer:number|undefined;
-    const clearRetry=()=>{if(retryTimer!==undefined) window.clearTimeout(retryTimer);retryTimer=undefined;};
     const scheduleRetry=()=>{
-      clearRetry();
-      if(!disposed && isNetworkOnline && document.visibilityState==="visible") retryTimer=window.setTimeout(()=>void attemptSync(false),30_000);
+      if(disposed || !isNetworkOnline) return;
+      // SQLite owns the deadline and Electron owns the alarm. The renderer
+      // only performs the authenticated, single-flight reconciliation when
+      // the main process wakes it, so minimizing or navigating cannot lose a
+      // weak-network retry.
+      void (async()=>{
+        const api=window.plpassDesktop;
+        const next=api ? await api.nextSyncAttemptAt(session.userId).catch(()=>undefined) : undefined;
+        if(disposed || !isNetworkOnline) return;
+        await api?.scheduleSyncWake(session.userId,next).catch(()=>undefined);
+      })();
     };
     const attemptSync=async(forceRetry:boolean)=>{
-      if(disposed || running || !isNetworkOnline || document.visibilityState!=="visible") return;
-      running=true; clearRetry();
+      if(disposed || running || !isNetworkOnline) return;
+      running=true;
       try {
         const hasWork = await refreshOfflineWork();
         if(isOfflineMode || hasWork) {
@@ -375,14 +465,27 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         }
       } finally { running=false; }
     };
+    // A connectivity notification is not a user request to override the
+    // durable per-record backoff.  Repeated browser/network notifications can
+    // otherwise submit the same rejected record in a tight loop.  The Electron
+    // wake alarm will retry it when SQLite says it is due.
     const onOnline=()=>void attemptSync(false);
+    // Do not rely on the browser's online event alone: it can fire before
+    // Supabase is reachable. The authenticated reachability probe above emits
+    // this event once the connection is genuinely usable.
+    const onVerifiedConnectivity=()=>void attemptSync(false);
+    const removeSyncDue=window.plpassDesktop.onOfflineSyncDue((organizerProfileId)=>{
+      if(organizerProfileId===session.userId) void attemptSync(false);
+    });
     window.addEventListener("online",onOnline);
+    window.addEventListener("plpass:connectivity-verified",onVerifiedConnectivity);
     const removeVisibility=onPageVisibilityChange((visible)=>{
       if(visible) void attemptSync(false);
-      else clearRetry();
     });
+    // Startup restores the scheduler but respects a record's persisted
+    // backoff; only an explicit UI retry may pass forceRetry=true.
     void attemptSync(false);
-    return ()=>{disposed=true;clearRetry();window.removeEventListener("online",onOnline);removeVisibility();};
+    return ()=>{disposed=true;window.removeEventListener("online",onOnline);window.removeEventListener("plpass:connectivity-verified",onVerifiedConnectivity);removeVisibility();removeSyncDue();void window.plpassDesktop?.scheduleSyncWake(session.userId).catch(()=>undefined);};
   }, [isNetworkOnline,isOfflineMode,reconnectOnline,refreshOfflineWork,session]);
 
   // Prepare today's owned events once, serially, after a confirmed online
@@ -514,6 +617,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [session]);
 
   const signInWithPassword = useCallback(async (email: string, password: string) => {
+    authOperationGeneration.current += 1;
     setAuthError(undefined);
     setOfflineSyncError(undefined);
     queryClient.clear();
@@ -597,6 +701,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, []);
 
   const logout = useCallback(async () => {
+    authOperationGeneration.current += 1;
     const wasOffline = isOfflineMode;
     if (wasOffline && session?.role === "organizer" && window.plpassDesktop && await window.plpassDesktop.hasUnresolvedWork(session.userId)) {
       throw new Error("Sync or resolve the saved offline event before logging out. Your local records have been kept.");
@@ -617,8 +722,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [isOfflineMode,session]);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
-    [authError, continueOffline, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
+    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncStage, offlineSyncError, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
+    [authError, continueOffline, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncStage, offlineSyncError, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

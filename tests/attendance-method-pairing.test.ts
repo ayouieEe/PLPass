@@ -8,8 +8,7 @@ const eventManagement = readFileSync(resolve(process.cwd(), "src/features/organi
 const desktopPreload = readFileSync(resolve(process.cwd(), "electron/preload.cjs"), "utf8");
 const summaries = readFileSync(resolve(process.cwd(), "src/features/organizer/hooks/useEventAttendance.ts"), "utf8");
 const offlineService = readFileSync(resolve(process.cwd(), "src/features/offline/offlineService.ts"), "utf8");
-const unverifiedWalkInCheckoutMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260925104624_record_unverified_walkin_checkout.sql"), "utf8");
-const unverifiedWalkInSyncMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260925123504_preserve_unverified_walkin_checkout_sync.sql"), "utf8");
+const approvedWalkInMigration = readFileSync(resolve(process.cwd(), "supabase/migrations/20260926100000_approved_walkin_attendance.sql"), "utf8");
 
 describe("paired attendance methods", () => {
   it("renders Time In and Time Out methods in chronological order", () => {
@@ -34,23 +33,29 @@ describe("paired attendance methods", () => {
 
   it("does not let a stale desktop refresh erase a QR checkout already shown in the live table", () => {
     expect(eventManagement).toContain("const preservesExistingCheckOut = preservesExistingCheckIn");
-    expect(eventManagement).toContain("return phoneRows.reduce(upsertAttendanceRow, rows);");
+    expect(eventManagement).toContain("return phoneRows.reduce(upsertAttendanceRow, retainedRows);");
     expect(eventManagement).toContain("return restoredRows.reduce(upsertAttendanceRow, rows);");
   });
 
-  it("synchronizes an offline walk-in checkout method separately", () => {
-    expect(offlineService).toContain("sync_offline_walkin_attendance_v2");
+  it("removes a locally rendered walk-in after reconciliation permanently discards it", () => {
+    expect(eventManagement).toContain("a permanent reconciliation");
+    expect(eventManagement).toContain("const retainedRows = rows.filter");
+    expect(eventManagement).not.toContain("if (records.length || walkIns.length)");
+  });
+
+  it("synchronizes an approved offline walk-in checkout method separately", () => {
+    expect(offlineService).toContain("record_approved_event_walkin");
     expect(offlineService).toContain("p_checkout_identification_method:scan.checkoutIdentificationMethod");
   });
 
-  it("keeps server-side unverified walk-ins check-outable after offline preparation", () => {
-    expect(summaries).toContain("local_scan_uuid, event_id, event_session_id, student_number, identification_method, checkout_identification_method, time_in, time_out");
-    expect(eventManagement).toContain('rpc("record_unverified_walkin_checkout"');
-    expect(eventManagement).toContain("await findRemoteUnverifiedWalkIn(studentNumber)");
+  it("keeps server-side approved walk-ins check-outable after offline preparation", () => {
+    expect(summaries).toContain("attendance_origin");
+    expect(eventManagement).toContain('rpc("record_approved_event_walkin"');
+    expect(eventManagement).toContain("await findRemoteWalkIn(studentNumber)");
     expect(eventManagement).toContain('.eq("event_session_id", activeScannerSessionId)');
-    expect(eventManagement).toContain('.eq("student_number", studentNumber)');
-    expect(unverifiedWalkInCheckoutMigration).toContain("create or replace function public.record_unverified_walkin_checkout");
-    expect(unverifiedWalkInCheckoutMigration).toContain("checkout_identification_method = p_checkout_identification_method");
+    expect(eventManagement).toContain('.eq("attendance_origin", "walk_in")');
+    expect(approvedWalkInMigration).toContain("create or replace function public.record_approved_event_walkin");
+    expect(approvedWalkInMigration).toContain("p_checkout_identification_method");
   });
 
   it("uses the original saved walk-in methods after a QR retry or checkout", () => {
@@ -66,11 +71,10 @@ describe("paired attendance methods", () => {
     expect(eventManagement).toContain("studentId: row.studentId");
   });
 
-  it("keeps an unverified walk-in and its checkout method when the offline queue synchronizes", () => {
-    expect(unverifiedWalkInSyncMigration).toContain("if v_matches <> 1 then");
-    expect(unverifiedWalkInSyncMigration).toContain("public.unverified_walkin_attendance");
-    expect(unverifiedWalkInSyncMigration).toContain("checkout_identification_method = v_checkout_method");
-    expect(unverifiedWalkInSyncMigration).toContain("'checkoutIdentificationMethod', v_unverified.checkout_identification_method");
+  it("converts only uniquely resolvable legacy rows and removes the obsolete queue", () => {
+    expect(approvedWalkInMigration).toContain("if v_matches=1 then");
+    expect(approvedWalkInMigration).toContain("attendance_origin='walk_in'");
+    expect(approvedWalkInMigration).toContain("drop table if exists public.unverified_walkin_attendance;");
   });
 
   it("labels duplicate Time In and completed-attendance retries accurately", () => {

@@ -9,7 +9,10 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   prepareEvent: (input, organizerId) => ipcRenderer.invoke("offline:prepare", input, organizerId),
   listPreparedEvents: (organizerId, day) => ipcRenderer.invoke("offline:listPrepared", organizerId, day),
   hasUnresolvedWork: (organizerId) => ipcRenderer.invoke("offline:hasWork", organizerId),
+  nextSyncAttemptAt: (organizerId) => ipcRenderer.invoke("offline:nextSyncAttempt", organizerId),
+  scheduleSyncWake: (organizerId, nextAttemptAt) => ipcRenderer.invoke("offline:scheduleSyncWake", organizerId, nextAttemptAt),
   startOfflineSession: (eventId, sessionId, organizerId, day, at) => ipcRenderer.invoke("offline:startSession", eventId, sessionId, organizerId, day, at),
+  confirmOnlineStartedSession: (eventId, sessionId, organizerId, startedAt, lateCutoffAt) => ipcRenderer.invoke("offline:confirmOnlineStart", eventId, sessionId, organizerId, startedAt, lateCutoffAt),
   endOfflineSession: (eventId, sessionId, organizerId, at, reason) => ipcRenderer.invoke("offline:endSession", eventId, sessionId, organizerId, at, reason),
   setOfflineLifecycleState: (eventId, sessionId, state) => ipcRenderer.invoke("offline:setLifecycle", eventId, sessionId, state),
   getStatus: (id, organizerId) => ipcRenderer.invoke("offline:status", id, organizerId),
@@ -45,4 +48,5 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   ,setScannerCapturePhase: (phase) => ipcRenderer.invoke("scanner:setPhase", phase)
   ,onScannerStatus: (listener) => { const handler = (_event, status) => listener(status); ipcRenderer.on("scanner:status", handler); return () => ipcRenderer.removeListener("scanner:status", handler); }
   ,onOfflineAttendanceRecorded: (listener) => { const handler = (_event, result) => listener(result); ipcRenderer.on("offline:attendance-recorded", handler); return () => ipcRenderer.removeListener("offline:attendance-recorded", handler); }
+  ,onOfflineSyncDue: (listener) => { const handler = (_event, organizerProfileId) => listener(organizerProfileId); ipcRenderer.on("offline:sync-due", handler); return () => ipcRenderer.removeListener("offline:sync-due", handler); }
 });

@@ -101,6 +101,7 @@ import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
 import { desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
 import { rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
+import type { PreparedEventPackage } from "@/features/offline/types";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
 type OrganizerScope = {
@@ -151,19 +152,19 @@ type EventFormValues = z.infer<typeof eventFormSchema>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
-  const { session } = useDevelopmentSession();
+  const { session, isOfflineMode } = useDevelopmentSession();
   const context = useMemo(
     () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
     [session]
   );
-  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context);
+  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, !isOfflineMode);
   const isAdmin = session?.role === "admin";
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
-    organizerId: organizerQuery.data?.items[0]?.id ?? (isAdmin ? "admin-global" : undefined),
+    organizerId: organizerQuery.data?.items[0]?.id ?? (isAdmin ? "admin-global" : isOfflineMode ? session?.userId : undefined),
     organizerName: session?.displayName ?? "Organizer",
-    isLoading: organizerQuery.isLoading,
-    isError: !isAdmin && organizerQuery.isError
+    isLoading: !isOfflineMode && organizerQuery.isLoading,
+    isError: !isOfflineMode && !isAdmin && organizerQuery.isError
   };
 }
 
@@ -211,6 +212,87 @@ function formatEventTitle(value: string) {
 
 function studentName(student: Student | undefined) {
   return student ? student.fullName ?? student.formattedName ?? student.studentNumber : "Unknown student";
+}
+
+function offlineEventFromPackage(pkg: PreparedEventPackage, organizerId?: string): Event {
+  const knownStatuses: EventStatus[] = ["pending", "approved", "rejected", "ongoing", "completed", "cancelled"];
+  const localSession = pkg.sessions[0];
+  return {
+    id: pkg.event.id,
+    code: pkg.event.code,
+    organizerId: organizerId ?? pkg.organizerProfileId ?? "offline-organizer",
+    category: "Offline package",
+    title: pkg.event.title,
+    venue: localSession?.venue ?? "Prepared offline event",
+    startsAt: pkg.event.startsAt,
+    endsAt: pkg.event.endsAt,
+    status: knownStatuses.includes(pkg.event.status as EventStatus) ? pkg.event.status as EventStatus : "approved",
+    priorityLevel: "Flexible",
+    impactScore: null,
+    predictedTurnout: pkg.participants.filter((participant) => participant.isParticipant !== false).length
+  };
+}
+
+function offlineParticipantsFromPackage(pkg: PreparedEventPackage): EventParticipant[] {
+  return pkg.participants
+    .filter((participant) => participant.isParticipant !== false)
+    .map((participant) => ({
+      id: `${pkg.event.id}:${participant.studentId}`,
+      eventId: pkg.event.id,
+      studentId: participant.studentId,
+      registeredAt: pkg.preparedAt
+    }));
+}
+
+function offlineStudentsFromPackage(pkg: PreparedEventPackage): Student[] {
+  return pkg.participants
+    .filter((participant) => participant.isParticipant !== false)
+    .map((participant) => ({
+      id: participant.studentId,
+      userId: participant.studentId,
+      studentNumber: participant.studentNumber,
+      status: "enrolled",
+      programId: "offline-program",
+      departmentId: "offline-department",
+      yearLevel: 0,
+      section: "",
+      fullName: participant.displayName,
+      formattedName: participant.displayName,
+      createdAt: pkg.preparedAt
+    }));
+}
+
+function offlineSessionsFromPackage(pkg: PreparedEventPackage, organizerId?: string): AttendanceSession[] {
+  return pkg.sessions.map((session) => ({
+    id: session.id,
+    type: "event",
+    eventId: session.eventId,
+    title: session.title,
+    mode: "required",
+    status: session.status === "ongoing" ? "active" : session.status === "completed" ? "completed" : "draft",
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    lateCutoffAt: session.lateCutoffAt,
+    attendanceWindowStartAt: session.attendanceWindowStartAt,
+    attendanceWindowEndAt: session.attendanceWindowEndAt,
+    createdAt: pkg.preparedAt,
+    createdByUserId: organizerId ?? pkg.organizerProfileId ?? "offline-organizer"
+  }));
+}
+
+function offlineRecordsFromPackage(pkg: PreparedEventPackage): AttendanceRecord[] {
+  return pkg.attendance
+    .filter((record) => record.attendanceStatus === "present" || record.attendanceStatus === "late" || record.attendanceStatus === "absent")
+    .map((record) => ({
+      id: `${record.sessionId}:${record.studentId}`,
+      sessionId: record.sessionId,
+      studentId: record.studentId,
+      status: record.attendanceStatus as AttendanceStatus,
+      verificationMethod: "manual",
+      recordedAt: record.timeIn ?? pkg.preparedAt,
+      timeIn: record.timeIn,
+      checkedOutAt: record.timeOut
+    }));
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {
@@ -341,27 +423,31 @@ export function EventDetailsPage() {
   const [isSavingResource, setIsSavingResource] = useState(false);
   const [resourcePendingRemoval, setResourcePendingRemoval] = useState<EventResource | null>(null);
   const resourceFileInputRef = useRef<HTMLInputElement>(null);
-  const eventQuery = useEvent(eventId, scope.context);
-  const eventsQuery = useEvents({ pageSize: 100 }, scope.context);
-  const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId, sortBy: "actual_start", sortDirection: "desc" }, scope.context);
-  const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context);
-  const attendanceSummaryQuery = useAttendanceSummaries(eventId ? [eventId] : []);
-  const studentsQuery = useStudents({ pageSize: 500 }, scope.context);
+  // A prepared package is complete enough to render this same event workspace.
+  // Never issue remote queries while offline: an expected network failure must
+  // not replace a valid downloaded event with an error screen.
+  const useRemoteData = !isOfflineMode;
+  const eventQuery = useEvent(eventId, scope.context, useRemoteData);
+  const eventsQuery = useEvents({ pageSize: 100 }, scope.context, useRemoteData);
+  const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context, useRemoteData);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId, sortBy: "actual_start", sortDirection: "desc" }, scope.context, useRemoteData);
+  const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context, useRemoteData);
+  const attendanceSummaryQuery = useAttendanceSummaries(eventId ? [eventId] : [], useRemoteData);
+  const studentsQuery = useStudents({ pageSize: 500 }, scope.context, useRemoteData);
   const participantCredentialIds = [...new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId))].sort();
-  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, participantCredentialIds);
-  const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context);
-  const objectivesQuery = useEventObjectives(eventId, scope.context);
-  const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context);
-  const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context);
+  const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, participantCredentialIds, useRemoteData);
+  const catalog = useAcademicCatalog({ pageSize: 200 }, scope.context, useRemoteData);
+  const objectivesQuery = useEventObjectives(eventId, scope.context, useRemoteData);
+  const resourcesQuery = useEventResources(eventId ?? "", { pageSize: 20 }, scope.context, useRemoteData);
+  const predictionsQuery = useMlPredictions({ pageSize: 100, eventId }, scope.context, useRemoteData);
   const mutations = useAttendanceSessionMutations(scope.context);
   const { cancelEventMutation } = useEventMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
   const rescheduleEventMutation = useEventRescheduleMutation(scope.context);
   const offline = useOfflineEvent(eventId);
   const [cleanupMessage,setCleanupMessage]=useState("");
-  
-  const selectedEvent = eventQuery.data;
+  const offlinePackage = isOfflineMode ? offline.preparedEvent : null;
+  const selectedEvent = offlinePackage ? offlineEventFromPackage(offlinePackage, scope.organizerId) : eventQuery.data;
 
   useEffect(() => {
     if (!selectedEvent) return;
@@ -375,12 +461,12 @@ export function EventDetailsPage() {
   }, [selectedEvent]);
 
   useEffect(() => {
-    if (!selectedEvent || !canManageOwnedEvents || ["completed", "cancelled"].includes(selectedEvent.status)) return;
+    if (isOfflineMode || !selectedEvent || !canManageOwnedEvents || ["completed", "cancelled"].includes(selectedEvent.status)) return;
     const lifecycleAction = new URLSearchParams(location.search).get("lifecycleAction");
     if (lifecycleAction === "reschedule") setIsRescheduleOpen(true);
     if (lifecycleAction === "cancel") setIsCancelOpen(true);
     if (lifecycleAction) navigate(location.pathname, { replace: true });
-  }, [canManageOwnedEvents, location.pathname, location.search, navigate, selectedEvent]);
+  }, [canManageOwnedEvents, isOfflineMode, location.pathname, location.search, navigate, selectedEvent]);
 
   useEffect(() => {
     setIsStartSessionOpen(false);
@@ -401,7 +487,7 @@ export function EventDetailsPage() {
   useEffect(() => {
     // Invitation delivery status is supplied by a live Edge Function. Mock and
     // unit-test workspaces intentionally run without Supabase credentials.
-    if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test" || !selectedEvent || !eventId || !scope.organizerId) {
+    if (isOfflineMode || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test" || !selectedEvent || !eventId || !scope.organizerId) {
       setInvitationStatuses([]);
       return undefined;
     }
@@ -421,27 +507,27 @@ export function EventDetailsPage() {
     return () => {
       cancelled = true;
     };
-  }, [eventId, invitationStatusRefreshKey, scope.organizerId, selectedEvent]);
+  }, [eventId, invitationStatusRefreshKey, isOfflineMode, scope.organizerId, selectedEvent]);
 
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
     return shellState;
   }
-  if (eventQuery.isLoading) {
+  if ((isOfflineMode && offline.isLoading) || (!isOfflineMode && eventQuery.isLoading)) {
     return <LoadingState label="Loading event details" />;
   }
-  if (eventQuery.isError || !eventQuery.data) {
+  if ((!offlinePackage && eventQuery.isError) || !selectedEvent) {
     return <ErrorState title="Event unavailable" message="This event was not found or is outside the signed-in organizer scope." />;
   }
-  if (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || catalog.programs.isLoading || objectivesQuery.isLoading || resourcesQuery.isLoading) {
+  if (!isOfflineMode && (participantsQuery.isLoading || sessionsQuery.isLoading || recordsQuery.isLoading || studentsQuery.isLoading || catalog.programs.isLoading || objectivesQuery.isLoading || resourcesQuery.isLoading)) {
     return <LoadingState label="Loading event workspace" />;
   }
-  const event = eventQuery.data;
+  const event = selectedEvent;
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
-  const participants = participantsQuery.data?.items ?? [];
-  const sessions = sessionsQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
-  const students = studentsQuery.data?.items ?? [];
+  const participants = offlinePackage ? offlineParticipantsFromPackage(offlinePackage) : participantsQuery.data?.items ?? [];
+  const sessions = offlinePackage ? offlineSessionsFromPackage(offlinePackage, scope.organizerId) : sessionsQuery.data?.items ?? [];
+  const records = offlinePackage ? offlineRecordsFromPackage(offlinePackage) : recordsQuery.data?.items ?? [];
+  const students = offlinePackage ? offlineStudentsFromPackage(offlinePackage) : studentsQuery.data?.items ?? [];
   const objectives = objectivesQuery.data ?? [];
   const resources = resourcesQuery.data?.items ?? [];
   const participantList = participantStudents(participants, students);
@@ -495,8 +581,9 @@ export function EventDetailsPage() {
   const activeSession = sessions.find((session) => session.eventId === event.id && session.status === "active");
   const activeSessionRecordCount = activeSession ? recordsForSession(records, activeSession.id).length : 0;
   const existingSessionForDialog = sessionModalMode === "existing" ? activeSession : undefined;
-  const canManageParticipants = canManageOwnedEvents && !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
-  const canChangeEvent = canManageOwnedEvents && event.status !== "completed" && event.status !== "cancelled";
+  const canManageParticipants = !isOfflineMode && canManageOwnedEvents && !hasCompletedSession && event.status !== "completed" && event.status !== "cancelled";
+  const canChangeEvent = !isOfflineMode && canManageOwnedEvents && event.status !== "completed" && event.status !== "cancelled";
+  const canStartSession = canManageOwnedEvents && event.status !== "completed" && event.status !== "cancelled";
   const earliestRescheduleDate = dateKey(new Date());
   const scheduleConflicts = (eventsQuery.data?.items ?? []).filter((otherEvent) => sharesSchedule(event, otherEvent));
   const counts = attendanceCounts(records);
@@ -582,7 +669,7 @@ export function EventDetailsPage() {
         const api = desktopApi();
         const localPackage = ownerId && api ? await api.getPreparedEvent(event.id, ownerId) : null;
         const localSession = localPackage?.sessions.find((item) =>
-          ["scheduled", "ongoing"].includes(item.status) && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
+          item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
         );
         if (!ownerId || !api || !localPackage || !localSession) {
           throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
@@ -608,6 +695,24 @@ export function EventDetailsPage() {
           lateCutoffMinutes
         });
         sessionId = created.id;
+        // A server start alone is not enough for hybrid attendance. Before
+        // entering the live screen, mirror this exact server session into the
+        // owner-scoped encrypted package so losing Wi-Fi cannot prevent a
+        // durable local end later.
+        const api = desktopApi();
+        const ownerId = session?.userId;
+        if (api && ownerId) {
+          const preparedPackage = await api.getPreparedEvent(event.id, ownerId);
+          if (preparedPackage?.sessions.some((item) => item.id === created.id)) {
+            await api.confirmOnlineStartedSession(
+              event.id,
+              created.id,
+              ownerId,
+              created.attendanceWindowStartAt ?? created.startsAt,
+              created.lateCutoffAt
+            );
+          }
+        }
       }
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
@@ -930,19 +1035,29 @@ export function EventDetailsPage() {
     <OrganizerFrame>
       <PageHeader
         eyebrow={
-          <NavLink
-            to={workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents)}
-            className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Back to events
-          </NavLink>
+          isOfflineMode ? (
+            <a
+              href={APP_ROUTES.organizerEvents}
+              className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to events
+            </a>
+          ) : (
+            <NavLink
+              to={workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents)}
+              className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to events
+            </NavLink>
+          )
         }
         title={formatEventTitle(event.title)}
         description={isAdmin ? "View event details, owner, schedule, attendance summary, and audit context." : "Manage this event, prepare attendance, and review participation."}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {canChangeEvent ? (
+            {canStartSession ? (
             <div className="flex items-center gap-2">
             <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
               if (!activeSession && dateKey(event.startsAt) !== dateKey(new Date())) {
@@ -964,7 +1079,7 @@ export function EventDetailsPage() {
               <Play className="h-4 w-4" aria-hidden="true" />
               Start session
             </Button>
-            <details className="relative">
+            {canChangeEvent ? <details className="relative">
               <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-input bg-surface px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
                 More actions
                 <ChevronDown className="h-4 w-4" aria-hidden="true" />
@@ -973,7 +1088,7 @@ export function EventDetailsPage() {
                 <button type="button" className="w-full rounded-sm px-3 py-2 text-left text-sm font-medium hover:bg-muted" onClick={() => setIsRescheduleOpen(true)}>Reschedule event</button>
                 <button type="button" className="w-full rounded-sm px-3 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10" onClick={() => setIsCancelOpen(true)}>Cancel event</button>
               </div>
-            </details>
+            </details> : null}
             </div>
             ) : canManageOwnedEvents && event.status === "cancelled" ? (
             <div className="flex items-center gap-2">
@@ -1160,7 +1275,7 @@ export function EventDetailsPage() {
 
         <div className="mt-5 border-t pt-4">
           <div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a resource</p><p className="mt-1 text-xs text-muted-foreground">Choose the resource type first, then complete only the fields in that section.</p></div>
-          {canManageOwnedEvents ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {canChangeEvent ? <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <section className="flex min-h-52 flex-col rounded-lg border bg-background p-4">
               <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-md bg-primary/5 text-primary"><Link2 className="h-4 w-4" aria-hidden="true" /></span><div><h4 className="text-sm font-semibold text-foreground">Add link</h4><p className="text-xs text-muted-foreground">Share a secure web resource.</p></div></div>
               <div className="mt-4 grid gap-3"><label className="grid gap-1.5 text-sm font-medium text-foreground">Link title<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceTitle} onChange={(inputEvent) => setResourceTitle(inputEvent.target.value)} placeholder="e.g. Workshop slides" aria-label="Link title" /></label><label className="grid gap-1.5 text-sm font-medium text-foreground">HTTPS link<input className="plpass-field h-10 rounded-md border bg-background px-3 text-sm font-normal" value={resourceUrl} onChange={(inputEvent) => setResourceUrl(inputEvent.target.value)} placeholder="https://..." aria-label="HTTPS link" /></label></div>
@@ -1198,7 +1313,7 @@ export function EventDetailsPage() {
                       <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
                       {resource.externalUrl ? "Open" : "Download"}
                     </Button>
-                    {canManageOwnedEvents ? <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setResourcePendingRemoval(resource)}>Remove</Button> : null}
+                    {canChangeEvent ? <Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setResourcePendingRemoval(resource)}>Remove</Button> : null}
                   </div>
                 </div>
               ))}
@@ -1344,7 +1459,7 @@ export function EventDetailsPage() {
               />
             </div>
           ) : null}
-          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} total={attendanceSummary?.totalRegistered ?? participants.length} /> : null}
+          {tab === "summary" ? <SessionSummaryCards present={attendanceSummary?.present ?? counts.present} late={attendanceSummary?.late ?? counts.late} absent={attendanceSummary?.absent ?? counts.absent} total={attendanceSummary?.attendancePopulation ?? participants.length} walkIns={attendanceSummary?.walkIns} /> : null}
         </div>
       </section>
 

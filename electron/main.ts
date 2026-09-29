@@ -13,6 +13,27 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
 let facialService: ChildProcess | undefined;
+const syncWakeTimers = new Map<string, NodeJS.Timeout>();
+
+function publishOfflineSyncDue(organizerProfileId: string) {
+  BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("offline:sync-due", organizerProfileId));
+}
+
+function scheduleOfflineSyncWake(organizerProfileId: string, nextAttemptAt?: string) {
+  const existing = syncWakeTimers.get(organizerProfileId);
+  if (existing) clearTimeout(existing);
+  syncWakeTimers.delete(organizerProfileId);
+  if (!nextAttemptAt) return;
+  const parsed = Date.parse(nextAttemptAt);
+  if (!Number.isFinite(parsed)) return;
+  // Keep a bounded native timer. The renderer re-arms it from SQLite after
+  // every attempt, so a long delay is never a second scheduling authority.
+  const delay = Math.max(1_000, Math.min(5 * 60_000, parsed - Date.now()));
+  syncWakeTimers.set(organizerProfileId, setTimeout(() => {
+    syncWakeTimers.delete(organizerProfileId);
+    publishOfflineSyncDue(organizerProfileId);
+  }, delay));
+}
 
 function publishOfflineAttendance(event: OfflineAttendanceEvent) {
   BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("offline:attendance-recorded", event));
@@ -25,7 +46,26 @@ function offlineAttendanceEvent(input: LocalAttendanceInput, result: LocalAttend
 
 const workspaceRoot = path.resolve(directory, "..", "..");
 const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
+// A Playwright desktop test launches against an isolated user-data directory.
+// It must not be blocked by the developer's normal PLPass window, while
+// production launches retain Electron's normal single-instance protection.
+const isIsolatedDesktopTest = process.env.PLPASS_E2E_ISOLATED === "1";
+if (isIsolatedDesktopTest) {
+  // CI/test hosts can lack the Windows GPU runtime. Apply Chromium switches
+  // before app readiness, where Electron reliably honors them.
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-software-rasterizer");
+  app.commandLine.appendSwitch("in-process-gpu");
+}
+const hasSingleInstanceLock = isIsolatedDesktopTest || app.requestSingleInstanceLock();
+
+// Register before Electron becomes ready. The renderer is a secure, standard
+// origin so SPA navigation and module/assets loaded from plpass://app work the
+// same way in the installed desktop application as they do in development.
+protocol.registerSchemesAsPrivileged([{
+  scheme: "plpass",
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+}]);
 
 function backupOfflineDatabaseBeforeIndexRepair(databasePath: string, indexes: string[]) {
   if (!existsSync(databasePath)) return;
@@ -182,28 +222,21 @@ function offlineIdentityStore(userDataPath:string) {
   };
 }
 
-// This must run before Electron becomes ready. Vite's absolute asset paths and
-// React Router need a standard origin instead of a plain file:// document.
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "plpass",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true
-    }
-  }
-]);
-
 function registerHandlers() {
   const identityStore=offlineIdentityStore(app.getPath("userData"));
   const handlers: Record<string, (...args: never[]) => unknown> = {
     "offline:saveIdentity": (identity) => identityStore.save(identity), "offline:getIdentity": (userId) => identityStore.get(userId), "offline:clearIdentity": () => identityStore.clear(),
     "offline:prepare": (pkg, organizerId) => store.prepareEvent(pkg, organizerId), "offline:listPrepared": (organizerId, day) => store.listPreparedEvents(organizerId, day),
-    "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId),
+    "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId), "offline:nextSyncAttempt": (organizerId) => store.nextSyncAttemptAt(organizerId),
+    "offline:scheduleSyncWake": (organizerId, nextAttemptAt) => scheduleOfflineSyncWake(organizerId, nextAttemptAt),
     "offline:startSession": (eventId, sessionId, organizerId, day, at) => store.startOfflineSession(eventId, sessionId, organizerId, day, at),
-    "offline:endSession": (eventId, sessionId, organizerId, at, reason) => { const result = store.endOfflineSession(eventId, sessionId, organizerId, at, reason); const scanner = scannerCoordinator?.getStatus(); if (scanner?.sessionId === sessionId) void scannerCoordinator.stop(); return result; },
+    "offline:confirmOnlineStart": (eventId, sessionId, organizerId, startedAt, lateCutoffAt) => store.confirmOnlineStartedSession(eventId, sessionId, organizerId, startedAt, lateCutoffAt),
+    "offline:endSession": async (eventId, sessionId, organizerId, at, reason) => {
+      const result = store.endOfflineSession(eventId, sessionId, organizerId, at, reason);
+      const scanner = scannerCoordinator?.getStatus();
+      if (scanner?.sessionId === sessionId) await scannerCoordinator.stop();
+      return result;
+    },
     "offline:setLifecycle": (eventId, sessionId, state) => store.setOfflineLifecycleState(eventId, sessionId, state),
     "offline:status": (id, ownerId) => store.getStatusForOrganizer(id, ownerId), "offline:getPreparedEvent": (id, ownerId) => store.getPreparedEventForOrganizer(id, ownerId), "offline:getPreparedEventBySession": (id, ownerId) => store.getPreparedEventBySessionForOrganizer(id, ownerId),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
@@ -227,7 +260,7 @@ function registerHandlers() {
   handlers["scanner:certificateStatus"] = () => scannerCoordinator.getCertificateStatus();
   handlers["scanner:replaceCertificate"] = () => scannerCoordinator.replaceCertificate();
   handlers["scanner:remove"] = (stationId) => scannerCoordinator.removeStation(stationId);
-  handlers["scanner:setPhase"] = (phase) => { const scanner=scannerCoordinator.getStatus(); if(!scanner.sessionId||!scanner.eventId) throw new Error("No active scanner session is available."); if(phase==="time_in"&&store.getAttendanceCapturePhase(scanner.sessionId,store.getPreparedEvent(scanner.eventId)?.organizerProfileId??"")==="time_out") throw new Error("Time Out is a one-way step; this event cannot return to Time In."); return scannerCoordinator.setCapturePhase(phase); };
+  handlers["scanner:setPhase"] = (phase) => { const scanner=scannerCoordinator.getStatus(); if(!scanner.sessionId||!scanner.eventId) throw new Error("No active scanner session is available."); const ownerId=store.getPreparedEvent(scanner.eventId)?.organizerProfileId??""; const localPhase=store.getAttendanceCapturePhase(scanner.sessionId,ownerId); if(localPhase!==phase) throw new Error("Advance the saved attendance step before updating phone scanners."); return scannerCoordinator.setCapturePhase(phase); };
   Object.entries(handlers).forEach(([channel, handler]) => ipcMain.handle(channel, (_event, ...args) => handler(...args as never[])));
 }
 
@@ -237,15 +270,9 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
     const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
     const requestedPath = path.resolve(rendererDirectory, relativePath);
-
-    if (!requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && requestedPath !== path.join(rendererDirectory, "index.html")) {
-      return new Response("Not found", { status: 404 });
-    }
-
-    // React Router owns client-side routes such as /forgot-password. Those
-    // paths are not physical files in the packaged renderer, so serve the
-    // SPA entry point when a requested asset does not exist.
-    const targetPath = existsSync(requestedPath) ? requestedPath : path.join(rendererDirectory, "index.html");
+    const targetPath = requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && existsSync(requestedPath)
+      ? requestedPath
+      : path.join(rendererDirectory, "index.html");
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
@@ -261,7 +288,10 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   registerHandlers();
   const preloadPath = path.join(directory, "preload.cjs");
   if (!existsSync(preloadPath)) console.error(`PLPass desktop preload is missing: ${preloadPath}`);
-  const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  // Pending attendance is a reliability workload. Keep its authenticated
+  // renderer coordinator eligible to run when the organizer minimizes the
+  // desktop window; the queue itself remains durably persisted in SQLite.
+  const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
   win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {
     console.error(`PLPass desktop preload failed (${failedPreloadPath}): ${error.stack ?? error.message}`);
   });
@@ -278,8 +308,10 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
     if (level >= 2) console.error(`Renderer console error at ${sourceId}:${line}: ${message}`);
   });
-  const url = process.env.VITE_DEV_SERVER_URL;
-  if (url) void win.loadURL(url); else void win.loadURL("plpass://app/");
+  const url = process.env.VITE_DEV_SERVER_URL ?? "plpass://app/";
+  void win.loadURL(url).catch((error: unknown) => {
+    console.error(`Renderer failed to open ${url}: ${error instanceof Error ? error.message : String(error)}`);
+  });
 });
 
 app.on("before-quit", () => { void scannerCoordinator?.stop(); facialService?.kill(); });

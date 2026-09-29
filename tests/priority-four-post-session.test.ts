@@ -9,6 +9,10 @@ describe("priority four post-session workflows", () => {
     const source = read("src/features/organizer/pages/EventRecordsPage.tsx");
     expect(source).not.toContain("loadOrganizerUiState");
     expect(source).toContain("repositoryCompletedEventsWithAttendance");
+    expect(source).toContain("const completedRemoteEventIds = useMemo(() => postgresUuidValues(completedEventIds)");
+    expect(source).toContain("const attendanceSummariesPending = completedRemoteEventIds.length > 0");
+    expect(source).toContain("if (attendanceSummariesPending) return;");
+    expect(source).toContain("Failed to load attendance summaries");
   });
 
   it("does not merge local correction request fixtures", () => {

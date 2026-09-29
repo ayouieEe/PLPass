@@ -13,4 +13,10 @@ describe("event record date range controls", () => {
     expect(page).toContain('if (nextFromDate && toDate && toDate < nextFromDate)');
     expect(page).toContain('setToDate("");');
   });
+
+  it("keeps attendance summary number columns compact", () => {
+    expect(page).toContain('meta: { agGrid: { width: 96, minWidth: 96, flex: 0 } }');
+    expect(page).toContain('meta: { agGrid: { width: 84, minWidth: 84, flex: 0 } }');
+    expect(page).toContain('meta: { agGrid: { width: 128, minWidth: 128, flex: 0 } }');
+  });
 });

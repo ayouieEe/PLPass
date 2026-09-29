@@ -17,9 +17,15 @@ describe("event participant actions", () => {
     expect(eventDetailsPage).toContain("normal-case text-sm font-medium tracking-normal text-primary");
   });
 
+  it("returns an offline event detail view to a clean Events route", () => {
+    expect(eventDetailsPage).toContain("href={APP_ROUTES.organizerEvents}");
+    expect(eventDetailsPage).toContain("Back to events");
+    expect(eventDetailsPage).not.toContain("openOfflineEventsDirectory");
+  });
+
   it("keeps new participants neutral and requests credential status only for those participants", () => {
     expect(eventDetailsPage).toContain("participantCredentialIds");
-    expect(eventDetailsPage).toContain("useStudentCredentialStatuses(scope.context, participantCredentialIds)");
+    expect(eventDetailsPage).toContain("useStudentCredentialStatuses(scope.context, participantCredentialIds, useRemoteData)");
     expect(eventDetailsPage).toContain('label="Unavailable"');
     expect(eventDetailsPage).toContain('>—</span>');
     expect(eventDetailsPage).not.toContain('attendance?.attendanceStatus ?? "absent"');

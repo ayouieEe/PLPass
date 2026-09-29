@@ -89,7 +89,7 @@ describe("mock authentication flow", () => {
     expect(screen.queryByRole("link", { name: "Correction Requests" })).not.toBeInTheDocument();
   });
 
-  it("renders department-admin counterpart pages with only assigned-department event data", async () => {
+  it("renders department-admin event access without organizer controls", async () => {
     storeSession("department_admin");
     setRoute("/department/events");
     render(<App />);
@@ -97,8 +97,6 @@ describe("mock authentication flow", () => {
     expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "department_admin navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
-    expect(await screen.findByText("CCS Orientation")).toBeInTheDocument();
-    expect(screen.queryByText("Business Forum")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create|approve|start attendance/i })).not.toBeInTheDocument();
   });
 

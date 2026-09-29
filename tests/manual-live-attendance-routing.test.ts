@@ -26,13 +26,22 @@ describe("manual live attendance routing", () => {
     expect(page).toContain("could not be saved locally");
   });
 
+  it("uses local capture only while the session is offline or locally authoritative", () => {
+    expect(page).toContain("if (desktopApi() && (isLocalAuthoritativeSession || isOfflineMode))");
+    expect(page).toContain("unknown student numbers must go through the");
+  });
+
+  it("does not retain an unknown online student as a Walk-in", () => {
+    expect(page).toContain("No active enrolled student matches this number. No Walk-in attendance was recorded.");
+  });
+
   it("submits manual attendance from either input with Enter", () => {
     expect(page).toContain("onSubmit={(event) => {");
     expect(page).toContain("event.preventDefault();");
     expect(page).toContain("void submitManualAttendance();");
     expect(page).toContain('onKeyDown={(event) => {');
     expect(page).toContain('event.key !== "Enter" || event.nativeEvent.isComposing');
-    expect(page).toContain('<Button type="submit" className="h-11 rounded-lg px-6">');
+    expect(page).toContain('<Button type="submit" className="h-11 rounded-lg px-6" disabled={isCaptureCoolingDown}>');
   });
 
   it("opens the Manual form with the student field ready for Time In or Time Out", () => {

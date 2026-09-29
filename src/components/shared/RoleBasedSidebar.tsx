@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
 import { hasAnyCapability, type Capability } from "@/lib/auth/permissions";
@@ -45,7 +45,6 @@ export function RoleBasedSidebar({
   offlineMode = false
 }: RoleBasedSidebarProps) {
   const visibleItems = (ROLE_NAVIGATION[role] ?? []).filter((item) => {
-    if (offlineMode) return role === "organizer" && item.path === APP_ROUTES.organizerEvents;
     if (!item.capability) return true;
     const capabilities = Array.isArray(item.capability) ? item.capability : [item.capability];
     return hasAnyCapability(role, capabilities as readonly Capability[]);
@@ -53,6 +52,7 @@ export function RoleBasedSidebar({
   const groups = groupedItems(visibleItems);
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
+  const location = useLocation();
   const workspaceLabel = role === "admin" ? "University Admin Workspace" : role === "department_admin" ? "Department Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;
 
   return (
@@ -87,6 +87,49 @@ export function RoleBasedSidebar({
             <div className="space-y-1">
               {items.map((item) => {
                 const Icon = item.icon;
+                const offlineEventsTarget = offlineMode && item.path === APP_ROUTES.organizerEvents;
+                const offlineUnavailable = offlineMode && !offlineEventsTarget;
+                const itemClassName = (isActive = false) =>
+                  cn(
+                    "group relative flex w-full min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+                    collapsed && "justify-center px-0",
+                    isActive && "plpass-sidebar-active"
+                  );
+
+                if (offlineEventsTarget) {
+                  return (
+                    <a
+                      key={item.path}
+                      href={APP_ROUTES.organizerEvents}
+                      title={collapsed ? item.label : undefined}
+                      aria-label={item.label}
+                      onClick={() => {
+                        onNavigate?.();
+                      }}
+                      className={itemClassName(location.pathname === APP_ROUTES.organizerEvents)}
+                    >
+                      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                    </a>
+                  );
+                }
+
+                if (offlineUnavailable) {
+                  return (
+                    <div
+                      key={item.path}
+                      title="Available when PLPass reconnects"
+                      aria-disabled="true"
+                      className={cn(
+                        itemClassName(false),
+                        "cursor-not-allowed opacity-45 hover:border-transparent hover:bg-transparent"
+                      )}
+                    >
+                      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                    </div>
+                  );
+                }
 
                 return (
                   <NavLink
@@ -95,14 +138,10 @@ export function RoleBasedSidebar({
                     end={item.path === APP_ROUTES.organizerEvents}
                     title={collapsed ? item.label : undefined}
                     aria-label={item.label}
-                    onClick={onNavigate}
-                    className={({ isActive }) =>
-                      cn(
-                        "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
-                        collapsed && "justify-center px-0",
-                        isActive && "plpass-sidebar-active"
-                      )
-                    }
+                    onClick={() => {
+                      onNavigate?.();
+                    }}
+                    className={({ isActive }) => itemClassName(isActive)}
                   >
                     <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                     {!collapsed ? <span className="truncate">{item.label}</span> : null}
@@ -114,35 +153,55 @@ export function RoleBasedSidebar({
         ))}
       </nav>
 
-      {!offlineMode ? <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
-        <button
-          type="button"
-          title={collapsed ? `${userLabel} profile` : undefined}
-          aria-label={`${userLabel} profile`}
-          onClick={() => {
+      <div className={cn("mt-auto shrink-0 border-t border-border p-3", collapsed && "px-2")}>
+        {offlineMode ? (
+          <div
+            aria-label={`${userLabel} profile unavailable while offline`}
+            className={cn(
+              "group flex w-full items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground opacity-65",
+              collapsed && "justify-center rounded-xl px-2"
+            )}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
+              {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
+            </span>
+            {!collapsed ? (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-sidebar-foreground">{userLabel}</span>
+                <span className="block truncate text-xs text-muted-foreground">Offline</span>
+              </span>
+            ) : null}
+          </div>
+        ) : (
+          <button
+            type="button"
+            title={collapsed ? `${userLabel} profile` : undefined}
+            aria-label={`${userLabel} profile`}
+            onClick={() => {
             const route = role === "organizer" ? APP_ROUTES.organizerProfile : role === "admin" ? APP_ROUTES.adminProfile : role === "department_admin" ? APP_ROUTES.profile : role === "student" ? APP_ROUTES.studentProfile : APP_ROUTES.profile;
             navigate(route);
             onNavigate?.();
-          }}
-          className={cn(
-            "group flex w-full items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-active/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
-            collapsed && "justify-center rounded-xl px-2"
-          )}
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
-            {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
-          </span>
-          {!collapsed ? (
-            <>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium text-sidebar-foreground">{userLabel}</span>
-                <span className="block truncate text-xs capitalize text-muted-foreground">{role}</span>
-              </span>
-              <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            </>
-          ) : null}
-        </button>
-      </div> : <div className="mt-auto border-t border-border p-3 text-xs text-muted-foreground">Offline • {userLabel}</div>}
+            }}
+            className={cn(
+              "group flex w-full items-center gap-3 rounded-2xl border border-border bg-surface p-2.5 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-active/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",
+              collapsed && "justify-center rounded-xl px-2"
+            )}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
+              {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
+            </span>
+            {!collapsed ? (
+              <>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium text-sidebar-foreground">{userLabel}</span>
+                  <span className="block truncate text-xs capitalize text-muted-foreground">{role}</span>
+                </span>
+                <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </>
+            ) : null}
+          </button>
+        )}
+      </div>
     </aside>
   );
 }
