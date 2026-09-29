@@ -133,6 +133,8 @@ async function isServerSessionCompleted(eventId: string, sessionId: string): Pro
 }
 
 let activeSync: Promise<{confirmed:number;failed:number;discarded:number}> | null = null;
+export type OfflineReconciliationStage = "idle" | "confirming_session" | "uploading_attendance" | "finalizing_event" | "blocked";
+
 let activeLifecycleSync: Promise<{completed:boolean;message:string}> | null = null;
 const syncInterRecordDelayMs = 125;
 const offlineSyncRpcDeadlineMs = 30_000;
@@ -147,7 +149,12 @@ function withOfflineSyncDeadline<T>(operation: PromiseLike<T>, timeoutMs = offli
   });
 }
 
-export async function reconcileOfflineEventLifecycle(organizerProfileId:string,connectionAlreadyConfirmed=false,forceRetry=false):Promise<{completed:boolean;message:string}> {
+export async function reconcileOfflineEventLifecycle(
+  organizerProfileId:string,
+  connectionAlreadyConfirmed=false,
+  forceRetry=false,
+  onProgress?: (stage: OfflineReconciliationStage) => void
+):Promise<{completed:boolean;message:string}> {
   if(activeLifecycleSync) return activeLifecycleSync;
   activeLifecycleSync=(async()=>{
     const api=desktopApi();
@@ -204,6 +211,7 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
     }
     // Reconcile every saved start first. Attendance uploads are gated in the
     // local database until the server knows that its session has started.
+    onProgress?.("confirming_session");
     for(const {pkg,local} of unresolvedSessions){
       if(local.offlineStartReconciledAt) continue;
       try {
@@ -220,6 +228,7 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
 
     // Upload attendance independently of lifecycle transitions. In
     // particular, a session already marked STARTED still has queued scans.
+    onProgress?.("uploading_attendance");
     let discardedWalkIns=0;
     for(let i=0;i<5;i++) {
       const result=await synchronizePendingAttendance(20,forceRetry,true,organizerProfileId);
@@ -238,6 +247,7 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
 
     // Only commit an offline end after every saved attendance row for that
     // event has a server confirmation.
+    onProgress?.("finalizing_event");
     for(const {pkg,local} of refreshedEndSessions){
       if(local.offlineLifecycle!=="END_PENDING") continue;
       try {
@@ -253,7 +263,7 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
         const {error}=await getSupabaseBrowserClient().rpc("reconcile_offline_event_session_end",{
           p_session_id:local.id,
           p_actual_end:local.offlineEndedAt,
-          p_reason:"Organizer ended this session offline.",
+          p_reason:local.offlineEndReason ?? "Organizer ended this session offline.",
           p_expected_student_ids:pkg.participants.filter((participant)=>participant.participantStatus!=="removed").map((participant)=>participant.studentId)
         });
         if(error) throw error;
@@ -292,6 +302,7 @@ export async function reconcileOfflineEventLifecycle(organizerProfileId:string,c
     }
     const discardDetail=discardedWalkIns ? ` ${discardedWalkIns} invalid offline walk-in record${discardedWalkIns === 1 ? " was" : "s were"} discarded automatically.` : "";
     if (pending || failures.length) {
+      onProgress?.("blocked");
       const detail=failures.length ? ` ${failures.join("; ")}.` : "";
       return {completed:false,message:`Some offline work is still awaiting confirmation.${detail}${discardDetail}`};
     }

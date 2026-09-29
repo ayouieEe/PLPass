@@ -1853,33 +1853,6 @@ export type Database = {
           },
         ]
       }
-      rooms: {
-        Row: {
-          building: string | null
-          capacity: number | null
-          created_at: string
-          id: string
-          room_code: string
-          updated_at: string
-        }
-        Insert: {
-          building?: string | null
-          capacity?: number | null
-          created_at?: string
-          id?: string
-          room_code: string
-          updated_at?: string
-        }
-        Update: {
-          building?: string | null
-          capacity?: number | null
-          created_at?: string
-          id?: string
-          room_code?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       sections: {
         Row: {
           academic_year: string

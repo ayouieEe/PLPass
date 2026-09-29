@@ -708,12 +708,13 @@ export function EventRecordsPage() {
     { accessorKey: "date", header: "Date" },
     { accessorKey: "venue", header: "Venue" },
     // Attendance outcome — kept together so the numbers can be scanned as one group
-    { accessorKey: "present", header: "Present" },
-    { accessorKey: "late", header: "Late" },
-    { accessorKey: "absent", header: "Absent" },
+    { accessorKey: "present", header: "Present", meta: { agGrid: { width: 96, minWidth: 96, flex: 0 } } },
+    { accessorKey: "late", header: "Late", meta: { agGrid: { width: 84, minWidth: 84, flex: 0 } } },
+    { accessorKey: "absent", header: "Absent", meta: { agGrid: { width: 96, minWidth: 96, flex: 0 } } },
     {
       accessorKey: "attendanceRate",
       header: "Attendance Rate",
+      meta: { agGrid: { width: 128, minWidth: 128, flex: 0 } },
       cell: ({ row }) => <span className="font-semibold text-foreground">{row.original.attendanceRate}</span>
     },
   ];

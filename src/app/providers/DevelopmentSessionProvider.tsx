@@ -66,6 +66,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   const [hasOfflineWork, setHasOfflineWork] = useState(false);
   const [offlineConflictCount, setOfflineConflictCount] = useState(0);
   const [reconciliationState, setReconciliationState] = useState<"idle" | "syncing" | "blocked">("idle");
+  const [offlineSyncStage, setOfflineSyncStage] = useState<"idle" | "confirming_session" | "uploading_attendance" | "finalizing_event" | "blocked">("idle");
   const [offlineSyncError, setOfflineSyncError] = useState<string | undefined>();
   const reconnectInFlight = useRef<Promise<boolean> | null>(null);
   // Authentication can change while the initial Supabase restore request is
@@ -258,6 +259,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           setHasOfflineWork(true);
           setOfflineSyncError(`Local offline database integrity requires review${integrity.details ? `: ${integrity.details}` : "."}`);
           setReconciliationState("blocked");
+          setOfflineSyncStage("blocked");
           return true;
         }
         // An integrity warning may have been reported before a known derived
@@ -354,9 +356,9 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       }
       const supabase = getSupabaseBrowserClient();
       const { data, error } = await supabase.auth.getUser();
-      if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
+      if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
-      if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); return false; }
+      if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       await cacheDesktopOfflineSession(confirmed);
       setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);
       // Connectivity and authentication are confirmed at this point. Keep any
@@ -365,19 +367,21 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       setIsNetworkOnline(true);
       setIsOfflineMode(false);
       const { reconcileOfflineEventLifecycle } = await import("@/features/offline/offlineService");
-      const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry);
+      const reconciliation = await reconcileOfflineEventLifecycle(confirmed.userId,true,forceRetry,setOfflineSyncStage);
       const unresolved=await refreshOfflineWork();
       if (!reconciliation.completed) {
         setOfflineSyncError(reconciliation.message);
         setReconciliationState("blocked");
+        setOfflineSyncStage("blocked");
         return false;
       }
       await queryClient.invalidateQueries();
       setAuthError(undefined);
       setOfflineSyncError(undefined);
       setReconciliationState("idle");
+      setOfflineSyncStage("idle");
       return !unresolved;
-      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); return false; }
+      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
   }, [refreshOfflineWork,session]);
 
   const reconnectOnline = useCallback((forceRetry=false):Promise<boolean> => {
@@ -684,8 +688,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [isOfflineMode,session]);
 
   const value = useMemo<DevelopmentSessionContextValue>(
-    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
-    [authError, continueOffline, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncError, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
+    () => ({ session, isSessionRestored, isNetworkOnline, isOfflineMode, offlineResumeAvailable, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncStage, offlineSyncError, authError, signInWithPassword, continueOffline, reconnectOnline, refreshOfflineWork, logout }),
+    [authError, continueOffline, hasOfflineWork, offlineConflictCount, reconciliationState, offlineSyncStage, offlineSyncError, isNetworkOnline, isOfflineMode, isSessionRestored, logout, offlineResumeAvailable, reconnectOnline, refreshOfflineWork, session, signInWithPassword]
   );
 
   return <DevelopmentSessionContext.Provider value={value}>{children}</DevelopmentSessionContext.Provider>;

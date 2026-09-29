@@ -279,9 +279,18 @@ export class LocalAttendanceDatabase {
 
   endOfflineSession(eventId:string,sessionId:string,organizerProfileId:string,endedAt:string,reason?:string):PreparedEventPackage {
     const event=this.db.prepare("SELECT 1 FROM prepared_events WHERE event_id=? AND organizer_profile_id=? AND preparation_status='READY'").get(eventId,organizerProfileId);
-    const session=this.db.prepare("SELECT offline_lifecycle,offline_started_at,starts_at FROM cached_sessions WHERE session_id=? AND event_id=?").get(sessionId,eventId) as SqlRow|undefined;
-    if(!event || !session || !["START_PENDING","STARTED"].includes(String(session.offline_lifecycle))) throw new Error("This event has not been started on this device.");
-    const localStart=value(session,"offline_started_at") ?? String(session.starts_at);
+    const session=this.db.prepare("SELECT offline_lifecycle,offline_started_at,offline_ended_at,attendance_window_start_at,starts_at FROM cached_sessions WHERE session_id=? AND event_id=?").get(sessionId,eventId) as SqlRow|undefined;
+    if(!event || !session) throw new Error("This event has not been started on this device.");
+    // The renderer can lose the IPC response after SQLite committed the end.
+    // Returning that exact durable package makes a repeated End Session click
+    // safe and never reopens local attendance.
+    if (["END_PENDING", "ENDED", "CONFLICT"].includes(String(session.offline_lifecycle)) && value(session, "offline_ended_at")) {
+      const existing = this.getPreparedEventForOrganizer(eventId, organizerProfileId);
+      if (!existing) throw new Error("The saved event package disappeared while ending offline.");
+      return existing;
+    }
+    if(!["START_PENDING","STARTED"].includes(String(session.offline_lifecycle))) throw new Error("This event has not been started on this device.");
+    const localStart=value(session,"offline_started_at") ?? value(session,"attendance_window_start_at") ?? String(session.starts_at);
     const requestedEndAt=new Date(endedAt).getTime();
     const localStartAt=new Date(localStart).getTime();
     if(!Number.isFinite(requestedEndAt) || !Number.isFinite(localStartAt)) throw new Error("The device clock returned an invalid session time.");
@@ -313,6 +322,27 @@ export class LocalAttendanceDatabase {
     else this.db.prepare("UPDATE cached_sessions SET offline_lifecycle=? WHERE session_id=? AND event_id=?").run(state,sessionId,eventId);
   }
 
+  // A server start is authoritative, but this exact prepared session must be
+  // durable locally before the desktop can safely continue after Wi-Fi drops.
+  confirmOnlineStartedSession(eventId:string,sessionId:string,organizerProfileId:string,startedAt:string,lateCutoffAt?:string): PreparedEventPackage {
+    if (!Number.isFinite(Date.parse(startedAt))) throw new Error("The server returned an invalid attendance start time.");
+    const session=this.db.prepare(`SELECT s.offline_lifecycle FROM cached_sessions s
+      JOIN prepared_events e ON e.event_id=s.event_id
+      WHERE s.session_id=? AND s.event_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'`).get(sessionId,eventId,organizerProfileId) as SqlRow|undefined;
+    if (!session || ["END_PENDING","ENDED","CONFLICT"].includes(String(session.offline_lifecycle))) {
+      throw new Error("The server-started session is not available in this organizer's prepared offline package.");
+    }
+    this.transaction(()=>this.db.prepare(`UPDATE cached_sessions
+      SET session_status='ongoing', attendance_window_start_at=?, attendance_window_end_at=NULL,
+          late_cutoff_at=COALESCE(?, late_cutoff_at),
+          offline_start_reconciled_at=COALESCE(offline_start_reconciled_at, ?),
+          offline_lifecycle='STARTED'
+      WHERE session_id=? AND event_id=?`).run(startedAt, lateCutoffAt ?? null, startedAt, sessionId, eventId));
+    const updated=this.getPreparedEventForOrganizer(eventId,organizerProfileId);
+    if (!updated) throw new Error("The prepared event package disappeared while confirming the online session.");
+    return updated;
+  }
+
   getStatus(eventId: string): OfflineStatus {
     const event = this.db.prepare("SELECT preparation_status, prepared_at, last_successful_sync_at FROM prepared_events WHERE event_id=?").get(eventId) as SqlRow | undefined;
     // Walk-ins are queued in their own table, but they are first-class
@@ -339,7 +369,7 @@ export class LocalAttendanceDatabase {
   }
   getPreparedEvent(eventId:string):PreparedEventPackage|null {
     const e=this.db.prepare("SELECT * FROM prepared_events WHERE event_id=? AND preparation_status='READY'").get(eventId) as SqlRow|undefined; if(!e)return null;
-    const sessions=(this.db.prepare("SELECT * FROM cached_sessions WHERE event_id=?").all(eventId) as SqlRow[]).map(s=>({id:String(s.session_id),eventId:String(s.event_id),title:String(s.title),venue:String(s.venue),status:String(s.session_status),startsAt:String(s.starts_at),endsAt:String(s.ends_at),lateCutoffAt:value(s,"late_cutoff_at"),attendanceWindowStartAt:value(s,"attendance_window_start_at"),attendanceWindowEndAt:value(s,"attendance_window_end_at"),offlineLifecycle:String(s.offline_lifecycle) as PreparedEventPackage["sessions"][number]["offlineLifecycle"],offlineStartedAt:value(s,"offline_started_at"),offlineEndedAt:value(s,"offline_ended_at"),offlineStartReconciledAt:value(s,"offline_start_reconciled_at")}));
+    const sessions=(this.db.prepare("SELECT * FROM cached_sessions WHERE event_id=?").all(eventId) as SqlRow[]).map(s=>({id:String(s.session_id),eventId:String(s.event_id),title:String(s.title),venue:String(s.venue),status:String(s.session_status),startsAt:String(s.starts_at),endsAt:String(s.ends_at),lateCutoffAt:value(s,"late_cutoff_at"),attendanceWindowStartAt:value(s,"attendance_window_start_at"),attendanceWindowEndAt:value(s,"attendance_window_end_at"),offlineLifecycle:String(s.offline_lifecycle) as PreparedEventPackage["sessions"][number]["offlineLifecycle"],offlineStartedAt:value(s,"offline_started_at"),offlineEndedAt:value(s,"offline_ended_at"),offlineEndReason:value(s,"offline_end_reason"),offlineStartReconciledAt:value(s,"offline_start_reconciled_at")}));
     const participants=(this.db.prepare("SELECT * FROM cached_participants WHERE event_id=?").all(eventId) as SqlRow[]).map(p=>this.participant(p)).filter((p):p is PreparedEventParticipant=>p!==null);
     const attendance=(this.db.prepare("SELECT * FROM cached_attendance_state WHERE session_id IN (SELECT session_id FROM cached_sessions WHERE event_id=?)").all(eventId) as SqlRow[]).map(a=>({sessionId:String(a.session_id),studentId:String(a.student_id),attendanceStatus:String(a.attendance_status),timeIn:value(a,"time_in"),timeOut:value(a,"time_out")}));
     return {cacheVersion:Number(e.cache_version),organizerProfileId:value(e,"organizer_profile_id"),preparedAt:String(e.prepared_at),event:{id:String(e.event_id),code:String(e.event_code),title:String(e.title),status:String(e.event_status),startsAt:String(e.starts_at),endsAt:String(e.ends_at)},sessions,participants,attendance};

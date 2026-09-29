@@ -250,11 +250,11 @@ export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContex
   });
 }
 
-export function useEvent(eventId: string | undefined, context?: RepositoryContext) {
+export function useEvent(eventId: string | undefined, context?: RepositoryContext, enabled = true) {
   return useQuery({
     queryKey: ["event", eventId, context],
     queryFn: () => repositories.eventManagement.getEventById(eventId ?? "", context),
-    enabled: Boolean(eventId),
+    enabled: Boolean(eventId) && enabled,
     retry: false
   });
 }
@@ -335,12 +335,12 @@ export function useEventRescheduleMutation(context?: RepositoryContext) {
   });
 }
 
-export function useEventParticipants(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useEventParticipants(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["eventParticipants", eventId, listQuery, context],
     queryFn: () => repositories.eventManagement.listEventParticipants(eventId, listQuery, context),
-    enabled: Boolean(eventId)
+    enabled: Boolean(eventId) && enabled
   });
 }
 
@@ -368,12 +368,12 @@ export function useParticipantsForEvents(eventIds: readonly string[], context?: 
   });
 }
 
-export function useEventResources(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useEventResources(eventId: string, query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["eventResources", eventId, listQuery, context],
     queryFn: () => repositories.eventManagement.listEventResources(eventId, listQuery, context),
-    enabled: Boolean(eventId)
+    enabled: Boolean(eventId) && enabled
   });
 }
 
@@ -432,6 +432,14 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
+    }),
+    // Hybrid end callers need to decide whether a transport failure should
+    // become a safe local END_PENDING transition. Keep the legacy mutation's
+    // user-facing error behavior for other screens, but let that caller defer
+    // feedback until fallback has either succeeded or genuinely failed.
+    endSessionSilentlyMutation: useMutation({
+      mutationFn: (input: EndAttendanceSessionInput) => repositories.attendanceSessions.endAttendanceSession(input, context),
+      onSuccess: invalidateSessions
     })
   };
 }
@@ -699,11 +707,11 @@ export function useStudentCredentialMutations(context?: RepositoryContext) {
   };
 }
 
-export function useEventObjectives(eventId: string | undefined, context?: RepositoryContext) {
+export function useEventObjectives(eventId: string | undefined, context?: RepositoryContext, enabled = true) {
   return useQuery({
     queryKey: ["eventObjectives", eventId, context],
     queryFn: () => repositories.eventFeedback.listEventObjectives(eventId ?? "", context),
-    enabled: Boolean(eventId)
+    enabled: Boolean(eventId) && enabled
   });
 }
 
@@ -1029,11 +1037,12 @@ export function useAuditLogMutations(context?: RepositoryContext) {
   };
 }
 
-export function useMlPredictions(query?: Partial<ListQuery>, context?: RepositoryContext) {
+export function useMlPredictions(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["mlPredictions", listQuery, context],
-    queryFn: () => repositories.analyticsMl.listMlPredictions(listQuery, context)
+    queryFn: () => repositories.analyticsMl.listMlPredictions(listQuery, context),
+    enabled: Boolean(context) && enabled
   });
 }
 

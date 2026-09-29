@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { canAccessOfflineRoute, isOfflineOrganizerRoute } from "@/app/router/offlineRoutePolicy";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { readFileSync } from "node:fs";
+
+const sidebar = readFileSync("src/components/shared/RoleBasedSidebar.tsx", "utf8");
 
 describe("offline organizer route policy", () => {
   it("keeps event navigation available", () => {
@@ -14,5 +17,10 @@ describe("offline organizer route policy", () => {
     expect(isOfflineOrganizerRoute(APP_ROUTES.notifications)).toBe(false);
     expect(canAccessOfflineRoute("organizer", APP_ROUTES.organizerSettings)).toBe(false);
     expect(canAccessOfflineRoute("admin", APP_ROUTES.organizerEvents)).toBe(false);
+  });
+
+  it("gives the offline Events navigation a clean, package-backed destination", () => {
+    expect(sidebar).toContain("offlineMode && item.path === APP_ROUTES.organizerEvents");
+    expect(sidebar).toContain('navigate({ pathname: APP_ROUTES.organizerEvents, search: "" }, { replace: true })');
   });
 });

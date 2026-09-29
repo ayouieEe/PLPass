@@ -20,6 +20,7 @@ export type DevelopmentSessionContextValue = {
   hasOfflineWork: boolean;
   offlineConflictCount: number;
   reconciliationState: "idle" | "syncing" | "blocked";
+  offlineSyncStage: "idle" | "confirming_session" | "uploading_attendance" | "finalizing_event" | "blocked";
   offlineSyncError?: string;
   authError?: string;
   continueOffline: () => Promise<DevelopmentSession | null>;

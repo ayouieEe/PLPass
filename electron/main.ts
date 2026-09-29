@@ -59,6 +59,14 @@ if (isIsolatedDesktopTest) {
 }
 const hasSingleInstanceLock = isIsolatedDesktopTest || app.requestSingleInstanceLock();
 
+// Register before Electron becomes ready. The renderer is a secure, standard
+// origin so SPA navigation and module/assets loaded from plpass://app work the
+// same way in the installed desktop application as they do in development.
+protocol.registerSchemesAsPrivileged([{
+  scheme: "plpass",
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+}]);
+
 function backupOfflineDatabaseBeforeIndexRepair(databasePath: string, indexes: string[]) {
   if (!existsSync(databasePath)) return;
   const backupDirectory = path.join(path.dirname(databasePath), "offline-index-repair-backups");
@@ -214,20 +222,6 @@ function offlineIdentityStore(userDataPath:string) {
   };
 }
 
-// This must run before Electron becomes ready. Vite's absolute asset paths and
-// React Router need a standard origin instead of a plain file:// document.
-protocol.registerSchemesAsPrivileged([
-  {
-    scheme: "plpass",
-    privileges: {
-      standard: true,
-      secure: true,
-      supportFetchAPI: true,
-      corsEnabled: true
-    }
-  }
-]);
-
 function registerHandlers() {
   const identityStore=offlineIdentityStore(app.getPath("userData"));
   const handlers: Record<string, (...args: never[]) => unknown> = {
@@ -236,7 +230,13 @@ function registerHandlers() {
     "offline:hasWork": (organizerId) => store.hasUnresolvedWork(organizerId), "offline:nextSyncAttempt": (organizerId) => store.nextSyncAttemptAt(organizerId),
     "offline:scheduleSyncWake": (organizerId, nextAttemptAt) => scheduleOfflineSyncWake(organizerId, nextAttemptAt),
     "offline:startSession": (eventId, sessionId, organizerId, day, at) => store.startOfflineSession(eventId, sessionId, organizerId, day, at),
-    "offline:endSession": (eventId, sessionId, organizerId, at, reason) => { const result = store.endOfflineSession(eventId, sessionId, organizerId, at, reason); const scanner = scannerCoordinator?.getStatus(); if (scanner?.sessionId === sessionId) void scannerCoordinator.stop(); return result; },
+    "offline:confirmOnlineStart": (eventId, sessionId, organizerId, startedAt, lateCutoffAt) => store.confirmOnlineStartedSession(eventId, sessionId, organizerId, startedAt, lateCutoffAt),
+    "offline:endSession": async (eventId, sessionId, organizerId, at, reason) => {
+      const result = store.endOfflineSession(eventId, sessionId, organizerId, at, reason);
+      const scanner = scannerCoordinator?.getStatus();
+      if (scanner?.sessionId === sessionId) await scannerCoordinator.stop();
+      return result;
+    },
     "offline:setLifecycle": (eventId, sessionId, state) => store.setOfflineLifecycleState(eventId, sessionId, state),
     "offline:status": (id, ownerId) => store.getStatusForOrganizer(id, ownerId), "offline:getPreparedEvent": (id, ownerId) => store.getPreparedEventForOrganizer(id, ownerId), "offline:getPreparedEventBySession": (id, ownerId) => store.getPreparedEventBySessionForOrganizer(id, ownerId),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
@@ -270,15 +270,9 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
     const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
     const requestedPath = path.resolve(rendererDirectory, relativePath);
-
-    if (!requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && requestedPath !== path.join(rendererDirectory, "index.html")) {
-      return new Response("Not found", { status: 404 });
-    }
-
-    // React Router owns client-side routes such as /forgot-password. Those
-    // paths are not physical files in the packaged renderer, so serve the
-    // SPA entry point when a requested asset does not exist.
-    const targetPath = existsSync(requestedPath) ? requestedPath : path.join(rendererDirectory, "index.html");
+    const targetPath = requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && existsSync(requestedPath)
+      ? requestedPath
+      : path.join(rendererDirectory, "index.html");
     return net.fetch(pathToFileURL(targetPath).toString());
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");

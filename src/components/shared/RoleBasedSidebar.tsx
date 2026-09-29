@@ -95,7 +95,16 @@ export function RoleBasedSidebar({
                     end={item.path === APP_ROUTES.organizerEvents}
                     title={collapsed ? item.label : undefined}
                     aria-label={item.label}
-                    onClick={onNavigate}
+                    onClick={(event) => {
+                      // The one offline navigation target must always return
+                      // to the package-backed Events directory, not preserve
+                      // a stale live-session search parameter or route state.
+                      if (offlineMode && item.path === APP_ROUTES.organizerEvents) {
+                        event.preventDefault();
+                        navigate({ pathname: APP_ROUTES.organizerEvents, search: "" }, { replace: true });
+                      }
+                      onNavigate?.();
+                    }}
                     className={({ isActive }) =>
                       cn(
                         "group relative flex min-h-10 items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium text-sidebar-foreground transition-colors duration-150 hover:border-primary/10 hover:bg-sidebar-active/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar motion-reduce:transition-none",

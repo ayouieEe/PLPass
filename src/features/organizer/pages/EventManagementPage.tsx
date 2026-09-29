@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Activity, AlertTriangle, ArrowLeft, Camera, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Camera, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -23,7 +23,6 @@ import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvents, useAttendanceRecords, useAttendanceSession, useAttendanceSessions, useAttendanceSessionMutations, useAttendanceSubmissionMutations, useStudents, useEventMutations, useAuditLogMutations, useEventRescheduleMutation, useStudentCredentialStatuses, useNotifications } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayTime, formatLocalTime, manilaDateTimeToIso } from "@/lib/utils/date";
-import { eventSessionSchema } from "@/lib/validations/events";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { hasCapability } from "@/lib/auth/permissions";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
@@ -52,8 +51,8 @@ import {
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { useWalkInWarning } from "@/features/attendance/walkInWarning";
-import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent, prepareEventForOffline, recordOfflineAttendance, startOfflineEvent } from "@/features/offline/offlineService";
-import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff, rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "@/features/offline/types";
@@ -89,6 +88,28 @@ type EventOfflinePreparation = {
   preparing?: boolean;
   error?: string;
 };
+type OfflineSyncPresentation = {
+  package: PreparedEventPackage;
+  status: OfflineStatus;
+  lifecycle: "END_PENDING" | "CONFLICT" | "ENDED";
+};
+
+const offlineCompletionLifecycleOrder: Record<OfflineSyncPresentation["lifecycle"], number> = {
+  CONFLICT: 0,
+  END_PENDING: 1,
+  ENDED: 2
+};
+
+function getOfflineCompletionLifecycle(pkg: PreparedEventPackage): OfflineSyncPresentation["lifecycle"] | null {
+  const candidates = pkg.sessions
+    .map((session) => session.offlineLifecycle)
+    .filter((lifecycle): lifecycle is OfflineSyncPresentation["lifecycle"] => (
+      lifecycle === "END_PENDING" || lifecycle === "CONFLICT" || lifecycle === "ENDED"
+    ));
+  if (!candidates.length) return null;
+  return candidates.sort((left, right) => offlineCompletionLifecycleOrder[left] - offlineCompletionLifecycleOrder[right])[0] ?? null;
+}
+
 const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
 const scannerIdleSubmissionDelayMs = 1_000;
@@ -795,8 +816,6 @@ export function EventManagementPage() {
   const [cancelledCodes, setCancelledCodes] = useState<string[]>([]);
   const [eventAttention, setEventAttention] = useState<EventRecord | null>(null);
   const [editEvent, setEditEvent] = useState<EventRecord | null>(null);
-  const [startEvent, setStartEvent] = useState<EventRecord | null>(null);
-  const [rescheduleForStartId, setRescheduleForStartId] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventRecord | null>(null);
   const leavingReadOnlyMonitorRef = useRef(false);
   const activeEventId = activeEvent?.id;
@@ -822,11 +841,17 @@ export function EventManagementPage() {
   const [localStartPackage, setLocalStartPackage] = useState<PreparedEventPackage | null>(null);
   const [attendancePhase, setAttendancePhase] = useState<AttendanceCapturePhase>("time_in");
   const [endSessionConfirmOpen, setEndSessionConfirmOpen] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const endingSessionRef = useRef(false);
   const [endSessionReason, setEndSessionReason] = useState("");
   const [timeOutConfirmOpen, setTimeOutConfirmOpen] = useState(false);
   const [offlinePreparationByEventId, setOfflinePreparationByEventId] = useState<Map<string, EventOfflinePreparation>>(new Map());
   const [offlinePreparedPackages, setOfflinePreparedPackages] = useState<PreparedEventPackage[]>([]);
+  const [offlineSyncPresentations, setOfflineSyncPresentations] = useState<OfflineSyncPresentation[]>([]);
+  const [offlineCompletionOpen, setOfflineCompletionOpen] = useState(false);
   const [offlinePreparedPackagesLoading, setOfflinePreparedPackagesLoading] = useState(false);
+  const [offlinePackageRefreshToken, setOfflinePackageRefreshToken] = useState(0);
+  const [summaryAwaitingSync, setSummaryAwaitingSync] = useState(false);
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
   const [isCaptureCoolingDown, setIsCaptureCoolingDown] = useState(false);
@@ -836,14 +861,6 @@ export function EventManagementPage() {
   const [manualInput, setManualInput] = useState("");
   const [manualEntryReason, setManualEntryReason] = useState("");
   const manualInputRef = useRef<HTMLInputElement>(null);
-  const [sessionForm, setSessionForm] = useState({
-    venue: "",
-    date: "",
-    startTime: "",
-    endTime: "",
-    method: defaultAttendanceMethod,
-    lateCutoffMinutes: 15
-  });
   const qrScannerBufferRef = useRef("");
   const qrScannerFlushTimerRef = useRef<number | undefined>(undefined);
   const submitQrAttendanceRef = useRef<(code: string) => void>(() => undefined);
@@ -887,7 +904,7 @@ export function EventManagementPage() {
     }
   }, []);
 
-  const { session, isOfflineMode, reconciliationState } = useDevelopmentSession();
+  const { session, isOfflineMode, reconciliationState, hasOfflineWork } = useDevelopmentSession();
   const offlineLive = useOfflineEvent(undefined, sessionIdFromQuery ?? undefined);
   const routeStartHandoff = session?.userId && sessionIdFromQuery
     ? readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)
@@ -930,8 +947,18 @@ export function EventManagementPage() {
     const reconciliationJustCompleted = previousReconciliationStateRef.current === "syncing"
       && reconciliationState === "idle";
     previousReconciliationStateRef.current = reconciliationState;
-    if (reconciliationJustCompleted && !isOfflineMode) void refreshOfflineLive();
+    if (reconciliationJustCompleted && !isOfflineMode) {
+      setSummaryAwaitingSync(false);
+      setOfflinePackageRefreshToken((value) => value + 1);
+      void refreshOfflineLive();
+    }
   }, [isOfflineMode, reconciliationState, refreshOfflineLive]);
+
+  // Offline completion details are local-only. Close the dialog immediately
+  // after reconnection so it can never expose online-only routes or actions.
+  useEffect(() => {
+    if (!isOfflineMode) setOfflineCompletionOpen(false);
+  }, [isOfflineMode]);
   // The online student query is intentionally disabled while offline. Keep a
   // name lookup from the prepared package so live attendance never renders a
   // profile UUID as a student's name after a local scanner submission.
@@ -962,10 +989,33 @@ export function EventManagementPage() {
     && offlineLocalSession.eventId === offlineLivePackage.event.id
     && offlineLocalSession.offlineLifecycle === "NOT_STARTED"
   );
+  const hasLocallyEndedSession = Boolean(
+    offlineLocalSession
+    && ["END_PENDING", "ENDED", "CONFLICT"].includes(offlineLocalSession.offlineLifecycle ?? "")
+  );
   const isLocalAuthoritativeSession = Boolean(
     hasLocallyResumableSession
     && (isOfflineMode || !offlineLocalSession?.offlineStartReconciledAt)
   );
+
+  // Closing a local-end summary invalidates the live-session URL itself. Do
+  // not let an END_PENDING package fall through the active-session route
+  // guard, which would incorrectly label protected local completion data as
+  // an unavailable session. Clear both the path/query identity and transient
+  // live state, then show it only through the offline Events view.
+  useEffect(() => {
+    if (!isOfflineMode || !sessionIdFromQuery || !hasLocallyEndedSession) return;
+    setActiveEvent(null);
+    setLiveSessionId(null);
+    setActiveRows([]);
+    setCaptureMode(null);
+    setFacialCameraOpen(false);
+    setHandledSessionRouteId(sessionIdFromQuery);
+    navigate(
+      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
+      { replace: true }
+    );
+  }, [hasLocallyEndedSession, isOfflineMode, navigate, sessionIdFromQuery, workspaceRoute]);
   const offlineLiveSession = useMemo(() => {
     // A verified reconnect changes the header to Online before lifecycle
     // reconciliation and server queries finish. Keep a locally started
@@ -1026,32 +1076,54 @@ export function EventManagementPage() {
   );
   useEffect(() => {
     let current = true;
-    if (!isOfflineMode || session?.role !== "organizer" || !session.userId) {
+    if ((!isOfflineMode && !hasOfflineWork) || session?.role !== "organizer" || !session.userId) {
       setOfflinePreparedPackages([]);
+      setOfflineSyncPresentations([]);
       setOfflinePreparedPackagesLoading(false);
       return () => { current = false; };
     }
     const api = desktopApi();
     if (!api) {
       setOfflinePreparedPackages([]);
+      setOfflineSyncPresentations([]);
       setOfflinePreparedPackagesLoading(false);
       return () => { current = false; };
     }
     setOfflinePreparedPackagesLoading(true);
     void (async () => {
       const summaries = await listOfflineEvents(session.userId);
-      const packages = await Promise.all(summaries.map((summary) => api.getPreparedEvent(summary.event.id, session.userId)));
-      if (current) setOfflinePreparedPackages(packages.filter((pkg): pkg is PreparedEventPackage =>
-        pkg !== null && pkg.event.status !== "completed" && pkg.event.status !== "cancelled" &&
-        pkg.sessions.some((item) => item.offlineLifecycle !== "ENDED" && item.status !== "completed")
-      ));
+      const packages = (await Promise.all(summaries.map((summary) => api.getPreparedEvent(summary.event.id, session.userId))))
+        .filter((pkg): pkg is PreparedEventPackage => pkg !== null && pkg.event.status !== "cancelled");
+      const presentations = await Promise.all(packages.map(async (pkg) => {
+        const lifecycle = getOfflineCompletionLifecycle(pkg);
+        if (!lifecycle) return null;
+        const status = await api.getStatus(pkg.event.id, session.userId);
+        return { package: pkg, status, lifecycle };
+      }));
+      if (current) {
+        // The Events directory is an operational picker, not an archive of
+        // every package ever saved on this device.  Old unfinished packages
+        // stay preserved in the saved-session review view, but they must not
+        // look like today's live events or reopen a stale attendance session.
+        const today = getManilaCalendarDate();
+        const preparedTodayEventIds = new Set(
+          summaries
+            .filter((summary) => getManilaCalendarDate(new Date(summary.preparedAt)) === today)
+            .map((summary) => summary.event.id)
+        );
+        setOfflinePreparedPackages(packages.filter((pkg) =>
+          preparedTodayEventIds.has(pkg.event.id)
+          && pkg.sessions.some((item) => item.offlineLifecycle !== "ENDED" && item.status !== "completed")
+        ));
+        setOfflineSyncPresentations(presentations.filter((item): item is OfflineSyncPresentation => item !== null));
+      }
     })().catch(() => {
-      if (current) setOfflinePreparedPackages([]);
+      if (current) { setOfflinePreparedPackages([]); setOfflineSyncPresentations([]); }
     }).finally(() => {
       if (current) setOfflinePreparedPackagesLoading(false);
     });
     return () => { current = false; };
-  }, [isOfflineMode, session?.role, session?.userId]);
+  }, [hasOfflineWork, isOfflineMode, offlinePackageRefreshToken, reconciliationState, session?.role, session?.userId]);
   const offlinePackageByEventId = useMemo(
     () => new Map(offlinePreparedPackages.map((pkg) => [pkg.event.id, pkg])),
     [offlinePreparedPackages]
@@ -1193,7 +1265,7 @@ export function EventManagementPage() {
     }));
     await refetchAttendanceRecords();
   }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent?.code, activeEvent?.id, activeParticipantIdentities, activeScannerSessionId, refetchAttendanceRecords]);
-  const { createEventSessionMutation, endSessionMutation } = useAttendanceSessionMutations(context);
+  const { createEventSessionMutation, endSessionSilentlyMutation } = useAttendanceSessionMutations(context);
   const { credentialScanMutation, manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
   const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
@@ -1746,8 +1818,6 @@ export function EventManagementPage() {
   );
   const readinessModalSummary = readinessEvent?.id ? readinessByEventId.get(readinessEvent.id) : undefined;
   const readinessModalIssues = readinessEvent?.id ? readinessIssuesByEventId.get(readinessEvent.id) ?? [] : [];
-  const startEventReadiness = startEvent?.id ? readinessByEventId.get(startEvent.id) : undefined;
-  const startEventMissingQrCount = startEventReadiness ? startEventReadiness.participants - startEventReadiness.qrReady : 0;
   const storeCompletedEvents = useMemo(() => uiState.completedEvents.map(completedFromStore), [uiState.completedEvents]);
 
   // Completed events = the repository summaries plus any sessions the
@@ -1832,8 +1902,7 @@ export function EventManagementPage() {
   const activeCounts = countRows(activeRows, activeParticipantCount, false);
   const filteredActiveRows = useMemo(() => {
     const query = liveAttendanceSearch.trim().toLocaleLowerCase();
-    if (!query) return activeRows;
-    return activeRows.filter((row) => [
+    const matchingRows = !query ? activeRows : activeRows.filter((row) => [
       row.studentName,
       row.studentId,
       activeParticipantIdentityByStudentId.get(row.studentId)?.studentNumber,
@@ -1841,6 +1910,15 @@ export function EventManagementPage() {
     ]
       .filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase().includes(query)));
+
+    return [...matchingRows].sort((left, right) => {
+      const walkInOrder = Number(right.verificationLabel === "Walk-in") - Number(left.verificationLabel === "Walk-in");
+      if (walkInOrder !== 0) return walkInOrder;
+
+      const leftName = formatAttendanceListName(activeParticipantIdentityByStudentId.get(left.studentId)?.fullName ?? left.studentName);
+      const rightName = formatAttendanceListName(activeParticipantIdentityByStudentId.get(right.studentId)?.fullName ?? right.studentName);
+      return leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: "base" });
+    });
   }, [activeParticipantIdentityByStudentId, activeRows, liveAttendanceSearch]);
   // A Time Out must be at least a minute after Time In. This is enforced at
   // capture time; the extra check is only a recovery safeguard for an old,
@@ -2181,18 +2259,6 @@ export function EventManagementPage() {
     }
   }, [selectedEventForSession, selectedEvents]);
 
-  function openStartSession(event: EventRecord) {
-    setStartEvent(event);
-    setSessionForm({
-      venue: event.venue,
-      date: event.date,
-      startTime: toTimeInputValue(event.startTime),
-      endTime: toTimeInputValue(event.endTime),
-      method: defaultAttendanceMethod,
-      lateCutoffMinutes: 15
-    });
-  }
-
   async function cancelEvent(event: EventRecord) {
     if (!event.id || cancelReason.trim().length < 5) {
       toast.error("Provide a cancellation reason of at least 5 characters.");
@@ -2205,141 +2271,49 @@ export function EventManagementPage() {
     toast.warning(`${event.code} has been cancelled.`);
   }
 
- async function startSession() {
-  if (!startEvent?.id) {
-    toast.error("Only events synced from Supabase can start a live session.");
-    return;
-  }
+  // The normal online-start path confirms the exact new server session in
+  // SQLite before navigation. This recovery is intentionally narrower: it
+  // only promotes an already-active server session that this page still holds
+  // in trusted state, and only into the matching prepared package. It repairs
+  // an interrupted renderer/preload handoff without allowing a scheduled
+  // package to be started merely because the device is offline.
+  const confirmHybridSessionForOffline = useCallback(async (sessionId: string) => {
+    const api = desktopApi();
+    const organizerProfileId = session?.userId;
+    const startedSession = activeAttendanceSession;
+    if (!api || !organizerProfileId || !activeEvent?.id) return;
 
-  // Validate the session form using Zod schema
-  const validation = eventSessionSchema.safeParse({
-    venue: sessionForm.venue,
-    date: sessionForm.date,
-    startTime: sessionForm.startTime,
-    expectedEndTime: sessionForm.endTime,
-    attendanceMode: "face-to-face"
-  });
+    const localPackage = await api.getPreparedEventBySession(sessionId, organizerProfileId);
+    const localSession = localPackage?.sessions.find((item) => item.id === sessionId);
+    if (!localSession || localSession.offlineLifecycle === "STARTED") return;
+    if (startedSession?.id !== sessionId || startedSession.status !== "active" || !startedSession.attendanceWindowStartAt) return;
 
-  if (!validation.success) {
-    const errors = validation.error.errors.map((err) => err.message).join(", ");
-    toast.error(`Form validation failed: ${errors}`);
-    return;
-  }
-
-  const eventToStart = startEvent;
-  const eventId = eventToStart.id as string;
-  if (eventToStart.date !== getManilaCalendarDate() || sessionForm.date !== getManilaCalendarDate()) {
-    toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
-    return;
-  }
-  if (!eventToStart.id) {
-    toast.error("This event is missing an ID and cannot start an attendance session.");
-    return;
-  }
-  if (desktopApi() && !isOfflineMode) {
-    const preparation = offlinePreparationByEventId.get(eventToStart.id);
-    if (preparation?.packageStatus !== "READY") {
-      const confirmed = window.confirm(`Offline resources for ${eventToStart.code} are not ready. Starting this event will download the required offline package now. The event can start only after that download succeeds. Continue?`);
-      if (!confirmed) return;
-      try {
-        await prepareOfflinePackage(eventToStart);
-      } catch {
-        toast.error("The event was not started because its required offline resources could not be downloaded.");
-        return;
-      }
+    const confirmed = await api.confirmOnlineStartedSession(
+      activeEvent.id,
+      sessionId,
+      organizerProfileId,
+      startedSession.attendanceWindowStartAt,
+      startedSession.lateCutoffAt
+    );
+    const confirmedSession = confirmed.sessions.find((item) => item.id === sessionId);
+    if (!confirmedSession || confirmedSession.status !== "ongoing" || confirmedSession.offlineLifecycle !== "STARTED") {
+      throw new Error("The active server session could not be confirmed for offline attendance.");
     }
-  }
-  let startedSessionId = "";
-  let startedAt = "";
-  let locallyStartedPackage: PreparedEventPackage | null = null;
-  try {
-    if (isOfflineMode) {
-      const ownerId = session?.userId;
-      const api = desktopApi();
-      const localPackage = ownerId && api ? await api.getPreparedEvent(eventId, ownerId) : null;
-      // This must mirror LocalAttendanceDatabase.startOfflineSession. An
-      // ongoing package without local start evidence is stale server state,
-      // not a valid new offline start. Previously the UI selected it and the
-      // main process rejected it, leaving the organizer with a generic error.
-      const localSession = localPackage?.sessions.find((item) =>
-        item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
-      );
-      if (!ownerId || !api || !localPackage || !localSession) {
-        throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
-      }
-      const updatedPackage = await startOfflineEvent(eventId, localSession.id, ownerId);
-      const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
-      if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
-        throw new Error("The local attendance session did not enter its started state.");
-      }
-      locallyStartedPackage = updatedPackage;
-      rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
-      startedSessionId = updatedSession.id;
-      startedAt = updatedSession.attendanceWindowStartAt ?? updatedSession.offlineStartedAt ?? new Date().toISOString();
-    } else {
-      const startedSession = await createEventSessionMutation.mutateAsync({
-        eventId: eventToStart.id,
-        venue: sessionForm.venue,
-        date: sessionForm.date,
-        startTime: sessionForm.startTime,
-        expectedEndTime: sessionForm.endTime,
-        attendanceMode: "face-to-face",
-        lateCutoffMinutes: sessionForm.lateCutoffMinutes
-      });
-      startedSessionId = startedSession.id;
-      startedAt = startedSession.attendanceWindowStartAt ?? new Date().toISOString();
-    }
-  } catch (error) {
-    const fallback = isOfflineMode
-      ? "The prepared local session could not be started. No server session was changed."
-      : "The attendance session could not be started.";
-    toast.error(getErrorMessage(error) || fallback);
-    return;
-  }
+  }, [activeAttendanceSession, activeEvent?.id, session?.userId]);
 
-  // Refresh the offline package after creating the session. A package prepared
-  // before the event starts can be READY while still missing this newly
-  // ongoing session, which would make scanner startup reject it.
-  if (desktopApi() && !isOfflineMode) {
-    try {
-      const refreshed = await prepareEventForOffline(eventId, session?.userId ?? "");
-      if (refreshed.packageStatus !== "READY") throw new Error("Offline package is not ready.");
-      setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: refreshed.packageStatus }));
-    } catch {
-      toast.error("The event session was created, but required offline resources could not be confirmed. Do not use offline scanners; refresh preparation and retry.");
-      return;
-    }
-  }
-
-  setActiveRows([]);
-  setFinalizedSummary(null);
-  setSummaryEvent(null);
-  setCaptureMode(defaultAttendanceMethod);
-  setAttendancePhase("time_in");
-  writeAttendancePhase(window.sessionStorage, startedSessionId, "time_in");
-  if (locallyStartedPackage) setLocalStartPackage(locallyStartedPackage);
-  setLiveSessionId(startedSessionId);
-  setActiveEvent({ ...eventToStart, venue: sessionForm.venue, date: sessionForm.date, startTime: sessionForm.startTime, endTime: sessionForm.endTime });
-  setStartEvent(null);
-  setSelectedEventForSession(null);
-  navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(startedSessionId), APP_ROUTES.adminLiveSession(startedSessionId)), { replace: true });
-  const startedAtTimestamp = new Date(startedAt).getTime();
-  const scheduledAt = new Date(`${eventToStart.date}T${sessionForm.startTime}:00`).getTime();
-  const delayedMinutes = Math.max(0, Math.floor((startedAtTimestamp - scheduledAt) / 60_000));
-  toast.success(
-    delayedMinutes > 0
-      ? `${eventToStart.code} started ${delayedMinutes} minutes later than scheduled. Late attendance is calculated from the actual start.`
-      : `${eventToStart.code} live attendance started. Attendance will be finalized when you end it.`
-  );
-}
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
+  if (endingSessionRef.current) return;
+  const eventId = activeEvent.id;
   if (isEndingAfterScheduledTime && endSessionReason.trim().length < 5) {
     toast.error("Provide a short reason for ending after the scheduled time.");
     return;
   }
   let attendanceFinalized = false;
+  let endedLocally = false;
   const finalizedEvent = { id: activeEvent.id, code: activeEvent.code, name: activeEvent.name };
+  endingSessionRef.current = true;
+  setIsEndingSession(true);
   try {
     const sessionId = liveSessionId;
     if (!sessionId) throw new Error("The active attendance session could not be found.");
@@ -2352,10 +2326,11 @@ export function EventManagementPage() {
       ...(row.checkOutAt && row.checkoutAttendanceMethod ? { checkoutVerificationMethod: verificationMethodFromAttendance(row.checkoutAttendanceMethod) } : {}),
       ...(row.lateReason ? { lateReason: row.lateReason } : {})
     }));
-    if (isLocalAuthoritativeSession) {
+    const endOnDevice = async () => {
+      await confirmHybridSessionForOffline(sessionId);
       const requestedEndAt = Date.now();
       const endedPackage = await endOfflineEvent(
-        activeEvent.id,
+        eventId,
         sessionId,
         session?.userId ?? "",
         endSessionReason.trim() || "Organizer ended session"
@@ -2367,12 +2342,45 @@ export function EventManagementPage() {
         toast.info("Your device clock changed while offline. The saved session end was adjusted to preserve attendance chronology.");
       }
       toast.success("Session ended on this device. Attendance is saved locally and will sync after reconnecting.");
+      setOfflinePackageRefreshToken((value) => value + 1);
+    };
+    const api = desktopApi();
+    const localPackage = api && session?.userId
+      ? await api.getPreparedEventBySession(sessionId, session.userId)
+      : null;
+    const localSession = localPackage?.sessions.find((item) => item.id === sessionId && item.eventId === eventId);
+    const canPromoteCurrentHybridSession = Boolean(
+      localSession
+      && activeAttendanceSession?.id === sessionId
+      && activeAttendanceSession.status === "active"
+      && activeAttendanceSession.attendanceWindowStartAt
+    );
+    const canEndLocalSession = Boolean(
+      localSession
+      && (["START_PENDING", "STARTED", "END_PENDING"].includes(localSession.offlineLifecycle ?? "") || canPromoteCurrentHybridSession)
+    );
+    // navigator.onLine changes ahead of React connectivity state. Never send
+    // a known-offline end request to Supabase: the prepared package is the
+    // immediate authority for this exact active session.
+    const mustEndLocally = isOfflineMode || !navigator.onLine;
+    if (mustEndLocally) {
+      if (!canEndLocalSession) throw new Error("This active session has no prepared local package. Reconnect before ending it.");
+      await endOnDevice();
+      endedLocally = true;
     } else {
-      await endSessionMutation.mutateAsync({
-        sessionId,
-        reason: endSessionReason.trim() || "Organizer ended session",
-        attendanceRecords
-      });
+      try {
+        await endSessionSilentlyMutation.mutateAsync({
+          sessionId,
+          reason: endSessionReason.trim() || "Organizer ended session",
+          attendanceRecords
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const isNetworkFailure = !navigator.onLine || /failed to fetch|network|offline|timeout|connection/i.test(message);
+        if (!isNetworkFailure || !canEndLocalSession) throw error;
+        await endOnDevice();
+        endedLocally = true;
+      }
     }
     attendanceFinalized = true;
     finalizedAttendanceSessionIdsRef.current.add(sessionId);
@@ -2383,9 +2391,10 @@ export function EventManagementPage() {
       // The session has already been finalized remotely; a storage cleanup
       // failure must not make the organizer believe it is still open.
     }
-    if (!isLocalAuthoritativeSession) {
-      await completeEventMutation.mutateAsync(activeEvent.id); // ADD — marks the event itself completed
+    if (!endedLocally) {
+      await completeEventMutation.mutateAsync(eventId); // ADD — marks the event itself completed
     }
+    setSummaryAwaitingSync(endedLocally);
     setFinalizedSummary(
       summarizeFinalizedSession(
         activeRows.map((row) => ({
@@ -2401,7 +2410,7 @@ export function EventManagementPage() {
     setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
-    if (!isLocalAuthoritativeSession) {
+    if (!endedLocally) {
       void auditLogMutations.logActionMutation.mutateAsync({
         action: "Ended Live Session",
         targetType: "attendance_session",
@@ -2422,13 +2431,12 @@ export function EventManagementPage() {
     setEndSessionConfirmOpen(false);
     setEndSessionReason("");
   } catch (error) {
-    // The session mutation already displays its own database error. Only surface
-    // errors from later work, such as completing the event, here.
-    if (attendanceFinalized) {
-      toast.error(error instanceof Error ? error.message : "Failed to complete the event.");
-    }
+    toast.error(error instanceof Error ? error.message : attendanceFinalized ? "Failed to complete the event." : "Unable to end the attendance session.");
+  } finally {
+    endingSessionRef.current = false;
+    setIsEndingSession(false);
   }
-}, [activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, auditLogMutations.logActionMutation, completeEventMutation, endSessionMutation, endSessionReason, isEndingAfterScheduledTime, isLocalAuthoritativeSession, liveSessionId, session?.userId]);
+}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, auditLogMutations.logActionMutation, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -2445,6 +2453,7 @@ export function EventManagementPage() {
       // restored. Local phase advancement is reserved for a genuinely offline
       // session or a verified transport failure with saved local evidence.
       if (isOfflineMode) {
+        await confirmHybridSessionForOffline(activeScannerSessionId ?? "");
         await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
       } else {
         try {
@@ -2453,6 +2462,7 @@ export function EventManagementPage() {
           const message = error instanceof Error ? error.message : "";
           const isNetworkFailure = !navigator.onLine || /failed to fetch|network|offline|timeout|connection/i.test(message);
           if (!hasLocalSession || !isNetworkFailure) throw error;
+          await confirmHybridSessionForOffline(activeScannerSessionId ?? "");
           await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? "", session?.userId ?? "");
         }
       }
@@ -3297,6 +3307,17 @@ export function EventManagementPage() {
     ));
   }
 
+  function closeSessionSummary() {
+    // A locally ended session must never remain on the live-session route.
+    // Otherwise closing the summary can let the live workspace hydrate again
+    // from the route's session id before reconciliation has finished.
+    setSummaryOpen(false);
+    navigate(
+      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
+      { replace: true }
+    );
+  }
+
   function exportReport(label: string, events = completedEvents) {
     const rows = events.map((event) => ({
       "Event Code": event.code,
@@ -3528,6 +3549,7 @@ export function EventManagementPage() {
     {
       accessorKey: "studentName",
       header: "Student Name",
+      meta: { agGrid: { flex: 2, minWidth: 300 } },
       cell: ({ row }) => {
         const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);
         const studentNumber = participant?.studentNumber ?? provisionalWalkInStudentNumber(row.original.studentName);
@@ -3535,32 +3557,44 @@ export function EventManagementPage() {
 
         return (
           <div className="min-w-36">
-            <div className="flex items-center gap-2 font-medium text-foreground">
-              <span>{displayName}</span>
+            <div className="flex items-center gap-1.5">
               {row.original.verificationLabel === "Walk-in" ? <StatusBadge label="Walk-in" tone="warning" /> : null}
+              <div className="leading-tight">
+                <div className="font-medium text-foreground">{displayName}</div>
+                {studentNumber ? <div className="mt-px font-mono text-sm text-muted-foreground">{studentNumber}</div> : null}
+              </div>
             </div>
-            {studentNumber ? <div className="mt-0.5 font-mono text-sm text-muted-foreground">{studentNumber}</div> : null}
           </div>
         );
       }
     },
-    { accessorKey: "checkInTime", header: "Time In" },
+    {
+      accessorKey: "checkInTime",
+      header: "Time In",
+      meta: { agGrid: { width: 120, minWidth: 120, flex: 0 } }
+    },
     {
       id: "checkOutTime",
       header: "Time Out",
+      meta: { agGrid: { width: 136, minWidth: 136, flex: 0 } },
       cell: ({ row }) =>
         row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">No Time Out</span>
     },
     {
       id: "attendanceMethod",
       header: "Attendance Method",
+      meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
       cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
     },
-    { id: "status", header: "Attendance Status", cell: ({ row }) => {
-      const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
-      return <StatusBadge label={label} tone={statusTone(label)} />;
-    } },
-    { id: "lateReason", header: "Late Arrival Category", cell: ({ row }) => row.original.lateReason ?? "-" }
+    {
+      id: "status",
+      header: "Attendance Status",
+      meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
+      cell: ({ row }) => {
+        const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
+        return <StatusBadge label={label} tone={statusTone(label)} />;
+      }
+    }
   ];
 
   if (((!isOfflineMode && eventsQuery.isLoading) || (isOfflineMode && offlinePreparedPackagesLoading)) && !repositoryEvents.length && !offlineLiveSession) {
@@ -3584,7 +3618,7 @@ export function EventManagementPage() {
     );
   }
 
-  if (isOfflineMode && sessionIdFromQuery && !offlineLive.isLoading && !hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession) {
+  if (isOfflineMode && sessionIdFromQuery && !offlineLive.isLoading && !hasOfflineLiveWorkspace && !hasLocallyReadyUnstartedSession && !hasLocallyEndedSession) {
     return (
       <div className="space-y-4 lg:space-y-5">
         <ErrorState
@@ -3701,9 +3735,9 @@ export function EventManagementPage() {
             </div>
             <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:flex-nowrap">
               {attendancePhase === "time_in" ? <Button type="button" onClick={() => setTimeOutConfirmOpen(true)}>Open Time Out</Button> : <StatusBadge label="Time Out open" tone="success" />}
-              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionMutation.isPending} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
+              <Button type="button" variant="destructive" disabled={createEventSessionMutation.isPending || endSessionSilentlyMutation.isPending || isEndingSession} onClick={() => { setEndSessionReason(""); setEndSessionConfirmOpen(true); }}>
                 <Square className="h-4 w-4" aria-hidden="true" />
-                {createEventSessionMutation.isPending || endSessionMutation.isPending ? "Saving…" : "End Session"}
+                {createEventSessionMutation.isPending || endSessionSilentlyMutation.isPending || isEndingSession ? "Saving…" : "End Session"}
               </Button>
             </div>
           </div>
@@ -4005,7 +4039,11 @@ export function EventManagementPage() {
                     return;
                   }
                   if (localSession.offlineLifecycle === "NOT_STARTED") {
-                    openStartSession(event);
+                    // The Event Details workspace can render from this exact
+                    // prepared package while disconnected. Keep event selection
+                    // consistent with the online route instead of opening a
+                    // second, incomplete start modal.
+                    navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${event.id}`, `${APP_ROUTES.adminEvents}/${event.id}`));
                     return;
                   }
                   toast.warning("This prepared event is awaiting reconciliation and cannot accept more attendance offline.");
@@ -4024,6 +4062,13 @@ export function EventManagementPage() {
               headerHeight={40}
             />
           </section>
+          {isOfflineMode && activeTab === "today" && offlineSyncPresentations.length > 0 ? (
+            <div className="flex justify-center pt-1">
+              <button type="button" className="text-sm font-medium text-primary underline-offset-4 hover:underline" onClick={() => setOfflineCompletionOpen(true)}>
+                View {offlineSyncPresentations.length} saved offline session{offlineSyncPresentations.length === 1 ? "" : "s"}
+              </button>
+            </div>
+          ) : null}
         </>
       )}
 
@@ -4144,123 +4189,9 @@ export function EventManagementPage() {
       {editEvent ? (
         <EditEventModalComponent 
           event={editEvent} 
-          onClose={() => { setEditEvent(null); setRescheduleForStartId(null); }}
+          onClose={() => setEditEvent(null)}
           context={context}
-          onRescheduled={(updatedEvent) => {
-            if (rescheduleForStartId !== updatedEvent.id) return;
-            const refreshed = eventRecordFromRepository(updatedEvent, editEvent?.objectives ?? []);
-            setStartEvent(refreshed);
-            setRescheduleForStartId(null);
-            setSessionForm((current) => ({
-              ...current,
-              venue: refreshed.venue,
-              date: refreshed.date,
-              startTime: toTimeInputValue(refreshed.startTime),
-              endTime: toTimeInputValue(refreshed.endTime)
-            }));
-          }}
         />
-      ) : null}
-
-      {startEvent ? (
-        <ModalFrame onClose={() => setStartEvent(null)} width="max-w-2xl">
-          <h2 className="text-xl font-semibold">Start Attendance</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{startEvent.code} - {startEvent.name}</p>
-          {startEvent.date !== getManilaCalendarDate() ? (
-            <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-              <p className="font-semibold">This event cannot be started today as currently scheduled.</p>
-              <p className="mt-1 text-sm">Events may only start on their scheduled Manila date. This event is scheduled for {startEvent.date}; reschedule it to {getManilaCalendarDate()} first, or cancel to leave it unchanged.</p>
-              <Button type="button" className="mt-4" onClick={() => {
-                setRescheduleForStartId(startEvent.id ?? null);
-                setEditEvent({ ...startEvent, date: getManilaCalendarDate() });
-                setStartEvent(null);
-              }}>
-                Reschedule to today
-              </Button>
-            </div>
-          ) : (
-          <>
-          <section className="mt-5 rounded-xl border bg-muted/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="font-semibold text-foreground">Planned Schedule</h3>
-              </div>
-              <span className="rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground">Read only</span>
-            </div>
-            <dl className="mt-4 grid gap-4 sm:grid-cols-4">
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt>
-                <dd className="mt-1 font-medium text-foreground">{sessionForm.venue}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled start</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.startTime}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Scheduled end</dt>
-                <dd className="mt-1 font-medium text-foreground">{startEvent.date} {startEvent.endTime}</dd>
-              </div>
-              <div>
-                <dt className="text-xs font-medium uppercase text-muted-foreground">Actual start</dt>
-                <dd className="mt-1 font-medium text-foreground">Recorded when Start Session is clicked</dd>
-              </div>
-            </dl>
-          </section>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Late attendance</p>
-              <p className="text-xs text-muted-foreground">Counted from the actual start time.</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <span>Late after</span>
-              <input type="number" min={0} max={240} className="h-9 w-16 rounded-lg border border-border bg-surface px-2 text-center text-sm font-semibold outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={sessionForm.lateCutoffMinutes} onChange={(event) => setSessionForm((current) => ({ ...current, lateCutoffMinutes: Math.max(0, Math.min(240, Number(event.target.value) || 0)) }))} />
-              <span>min</span>
-            </label>
-          </div>
-          <div className="mt-3 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Actual session time:</span> Start is recorded when you click Start Session; end is recorded when you end it. The session can continue past its scheduled end.
-          </div>
-          {credentialStatusesQuery.isLoading ? (
-            <div className="mt-3 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-              Checking registered students&apos; QR credentials...
-            </div>
-          ) : startEventReadiness && startEventReadiness.participants > 0 && startEventMissingQrCount > 0 ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              <div className="flex gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold">{startEventMissingQrCount} {startEventMissingQrCount === 1 ? "student needs" : "students need"} a QR credential</p>
-                  <p className="mt-1 text-amber-900">
-                    You can still start the session. Those students can use facial recognition when enrolled, or be recorded manually.
-                  </p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="mt-3 border-amber-300 bg-white hover:bg-amber-100"
-                    onClick={() => {
-                      const eventId = startEvent.id;
-                      setStartEvent(null);
-                      navigate(workspaceRoute(`${APP_ROUTES.organizerEvents}/${eventId}`, `${APP_ROUTES.adminEvents}/${eventId}`));
-                    }}
-                  >
-                    Manage participants
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : credentialStatusesQuery.isError ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-              Student credential readiness could not be checked. You can still start the session.
-            </div>
-          ) : null}
-          <div className="mt-5 flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setStartEvent(null)}>Cancel</Button>
-            <Button type="button" onClick={() => void startSession()} disabled={createEventSessionMutation.isPending}><Play className="h-4 w-4" aria-hidden="true" />{createEventSessionMutation.isPending ? "Starting…" : "Start Session"}</Button>
-          </div>
-          </>
-          )}
-        </ModalFrame>
       ) : null}
 
       <ConfirmModal open={timeOutConfirmOpen} title="Open Time Out" description="The live session stays open. Connected phone scanners will immediately record Time Out only." confirmLabel="Open Time Out" onCancel={() => setTimeOutConfirmOpen(false)} onConfirm={() => { setTimeOutConfirmOpen(false); void openTimeOut(); }} />
@@ -4270,9 +4201,10 @@ export function EventManagementPage() {
       </ConfirmModal>
 
       {summaryOpen ? (
-        <ModalFrame onClose={() => setSummaryOpen(false)} width="max-w-xl">
+        <ModalFrame onClose={closeSessionSummary} width="max-w-xl">
           <h2 className="text-xl font-semibold">Event Summary</h2>
           <p className="mt-1 text-sm text-muted-foreground">{summaryEvent?.code ?? activeEvent?.code ?? "-"} - {summaryEvent?.name ?? activeEvent?.name ?? ""}</p>
+          {summaryAwaitingSync ? <div className="mt-4 flex gap-3 rounded-lg border border-warning/30 bg-warning-muted p-3 text-sm" role="status"><CloudOff className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" /><div><p className="font-semibold text-foreground">Saved on this device — awaiting synchronization</p><p className="mt-0.5 text-muted-foreground">This summary is local. The final Event Record will be available after PLPass reconnects and confirms every saved attendance record.</p></div></div> : null}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2"><SummaryTile label="Attendance Rate" value={`${sessionSummary.attendanceRate}%`} /></div>
             <SummaryTile label="Total Participants" value={sessionSummary.attendancePopulation.toString()} />
@@ -4282,8 +4214,42 @@ export function EventManagementPage() {
             {sessionSummary.walkIns > 0 ? <SummaryTile label="Walk-ins" value={sessionSummary.walkIns.toString()} /> : null}
           </div>
           <div className="mt-5 flex justify-end">
-            <Button type="button" onClick={viewEventRecordFromSummary}>View Event Record</Button>
+            <Button type="button" disabled={summaryAwaitingSync} title={summaryAwaitingSync ? "Available after synchronization completes" : undefined} onClick={viewEventRecordFromSummary}>View Event Record</Button>
           </div>
+          {summaryAwaitingSync ? <p className="mt-2 text-right text-xs text-muted-foreground">Available after synchronization completes.</p> : null}
+        </ModalFrame>
+      ) : null}
+
+      {offlineCompletionOpen && isOfflineMode ? (
+        <ModalFrame onClose={() => setOfflineCompletionOpen(false)} width="max-w-2xl">
+          <div className="border-b pb-4">
+            <h2 className="text-xl font-semibold">Saved offline sessions</h2>
+            <p className="mt-1 text-sm text-muted-foreground">These sessions are stored on this device and will be finalized only after PLPass reconnects.</p>
+          </div>
+          <div className="mt-5 space-y-3">
+            {offlineSyncPresentations.map((item) => {
+              const localSession = item.package.sessions.find((session) => session.offlineLifecycle === item.lifecycle);
+              const needsReview = item.lifecycle === "CONFLICT";
+              const finalized = item.lifecycle === "ENDED";
+              const statusLabel = needsReview ? "Needs review" : finalized ? "Finalization confirmed" : "Waiting for connection";
+              const statusTone = needsReview ? "danger" : finalized ? "success" : "warning";
+              return <div key={item.package.event.id} className="rounded-lg border bg-surface p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold text-foreground">{item.package.event.code} — {item.package.event.title}</p>
+                  <StatusBadge label={statusLabel} tone={statusTone} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {needsReview
+                    ? "Saved data is protected on this device and requires review after reconnection."
+                    : finalized
+                      ? "The server has confirmed this session. PLPass will safely remove this completed local package after reconciliation finishes."
+                      : `This session ended on this device. ${item.status.pendingCount} saved attendance record${item.status.pendingCount === 1 ? "" : "s"} and the final event completion will synchronize after verified reconnection.`}
+                </p>
+                {localSession?.offlineEndedAt ? <p className="mt-1 text-xs text-muted-foreground">Saved local end: {formatLocalTime(localSession.offlineEndedAt)}</p> : null}
+              </div>;
+            })}
+          </div>
+          <p className="mt-5 text-sm text-muted-foreground">No Event Record or retry action is available while offline.</p>
         </ModalFrame>
       ) : null}
 

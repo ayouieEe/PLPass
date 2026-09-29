@@ -2,8 +2,6 @@ import type {
   AttendanceRecord,
   AttendanceSession,
   AuditLog,
-  Class,
-  ClassRoster,
   CorrectionRequest,
   CredentialRequest,
   Event,
@@ -105,37 +103,6 @@ function auditActorDisplayName(row: Row) {
     return [firstName, middleInitial.trim(), lastName].filter(Boolean).join(" ");
   }
   return profileDisplayName(row);
-}
-
-function mapClassStatus(value: string) {
-  return value === "active" ? "active" : "archived";
-}
-
-const dayLabels: Record<number, string> = { 1: "M", 2: "T", 3: "W", 4: "Th", 5: "F", 6: "Sa", 7: "Su" };
-
-function formatScheduleTime(value: string) {
-  const [hoursStr, minutesStr] = value.split(":");
-  const hours = Number(hoursStr);
-  const period = hours >= 12 ? "PM" : "AM";
-  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
-  return `${displayHour}:${minutesStr} ${period}`;
-}
-
-function buildScheduleLabel(row: Row): string {
-  const schedules = row["class_schedules"];
-  if (!Array.isArray(schedules) || schedules.length === 0) {
-    return "Schedule unavailable";
-  }
-  const days = schedules
-    .map((entry) => dayLabels[Number((entry as Row).day_of_week)] ?? "")
-    .join("");
-  const first = schedules[0] as Row;
-  const start = stringValue(first, ["start_time"]);
-  const end = stringValue(first, ["end_time"]);
-  if (!start || !end) {
-    return "Schedule unavailable";
-  }
-  return `${days} ${formatScheduleTime(start)} - ${formatScheduleTime(end)}`;
 }
 
 function mapEmploymentStatus(value: string): FacultyProfile["employmentStatus"] {
@@ -273,37 +240,6 @@ export function mapOrganizer(row: Row): OrganizerProfile {
     departmentId: optionalString(row, ["department_id", "college_id"]),
     position: stringValue(row, ["position"], "Organizer"),
     employmentStatus: mapEmploymentStatus(stringValue(row, ["employment_status", "organizer_status", "status"], "active"))
-  };
-}
-
-export function mapClass(row: Row): Class {
-  const subject = nestedRow(row, "subjects");
-  const room = nestedRow(row, "rooms");
-  const section = nestedRow(row, "sections");
-  const sectionProgram = nestedRow(section ?? {}, "programs");
-  return {
-    id: stringValue(row, ["id", "class_id"]),
-    facultyId: stringValue(row, ["faculty_id"]),
-    programId: stringValue(row, ["program_id"], stringValue(section ?? {}, ["program_id"])),
-    departmentId: stringValue(row, ["department_id", "college_id"], stringValue(sectionProgram ?? {}, ["department_id"])),
-    semesterId: stringValue(row, ["semester_id"]),
-    subjectCode: stringValue(row, ["subject_code", "code"], stringValue(subject ?? {}, ["subject_code"])),
-    subjectTitle: stringValue(row, ["subject_title", "title", "name"], stringValue(subject ?? {}, ["subject_name"], "Subject unavailable")),
-    room: stringValue(row, ["room_code", "room_name"], stringValue(room ?? {}, ["room_code"], stringValue(row, ["room_id"]))),
-    section: stringValue(row, ["section_name"], stringValue(section ?? {}, ["section_name"], stringValue(row, ["section_id"]))),
-    yearLevel: numberValue(row, ["year_level"], numberValue(section ?? {}, ["year_level"], 1)),
-    scheduleLabel: buildScheduleLabel(row),
-    status: mapClassStatus(stringValue(row, ["class_status", "status"], "active")),
-    rosterId: stringValue(row, ["roster_id", "id"])
-  };
-}
-
-export function mapClassRoster(row: Row): ClassRoster {
-  return {
-    id: stringValue(row, ["id"]),
-    classId: stringValue(row, ["class_id"]),
-    studentId: stringValue(row, ["student_id"]),
-    enrolledAt: stringValue(row, ["enrolled_at", "created_at"], new Date().toISOString())
   };
 }
 

@@ -29,6 +29,8 @@ export type PreparedEventSession = {
   offlineLifecycle?: "NOT_STARTED" | "START_PENDING" | "STARTED" | "END_PENDING" | "ENDED" | "CONFLICT";
   offlineStartedAt?: string;
   offlineEndedAt?: string;
+  /** Organizer-provided reason retained with the durable local end record. */
+  offlineEndReason?: string;
   offlineStartReconciledAt?: string;
 };
 
@@ -179,6 +181,7 @@ export interface PLPassDesktopApi {
   /** Arms Electron's process-level wake-up for the persisted retry deadline. */
   scheduleSyncWake(organizerProfileId: string, nextAttemptAt?: string): Promise<void>;
   startOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, manilaDate: string, startedAt: string): Promise<PreparedEventPackage>;
+  confirmOnlineStartedSession(eventId: string, sessionId: string, organizerProfileId: string, startedAt: string, lateCutoffAt?: string): Promise<PreparedEventPackage>;
   endOfflineSession(eventId: string, sessionId: string, organizerProfileId: string, endedAt: string, reason?: string): Promise<PreparedEventPackage>;
   setOfflineLifecycleState(eventId: string, sessionId: string, state: "STARTED" | "ENDED" | "CONFLICT"): Promise<void>;
   getStatus(eventId: string, organizerProfileId: string): Promise<OfflineStatus>;

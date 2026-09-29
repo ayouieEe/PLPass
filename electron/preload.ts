@@ -11,6 +11,7 @@ const api: PLPassDesktopApi = {
   nextSyncAttemptAt: (organizerId) => ipcRenderer.invoke("offline:nextSyncAttempt", organizerId),
   scheduleSyncWake: (organizerId, nextAttemptAt) => ipcRenderer.invoke("offline:scheduleSyncWake", organizerId, nextAttemptAt),
   startOfflineSession: (eventId, sessionId, organizerId, day, at) => ipcRenderer.invoke("offline:startSession", eventId, sessionId, organizerId, day, at),
+  confirmOnlineStartedSession: (eventId, sessionId, organizerId, startedAt, lateCutoffAt) => ipcRenderer.invoke("offline:confirmOnlineStart", eventId, sessionId, organizerId, startedAt, lateCutoffAt),
   endOfflineSession: (eventId, sessionId, organizerId, at, reason) => ipcRenderer.invoke("offline:endSession", eventId, sessionId, organizerId, at, reason),
   setOfflineLifecycleState: (eventId, sessionId, state) => ipcRenderer.invoke("offline:setLifecycle", eventId, sessionId, state),
   getStatus: (id, ownerId) => ipcRenderer.invoke("offline:status", id, ownerId), getPreparedEvent: (id, ownerId) => ipcRenderer.invoke("offline:getPreparedEvent", id, ownerId), getPreparedEventBySession: (id, ownerId) => ipcRenderer.invoke("offline:getPreparedEventBySession", id, ownerId),
