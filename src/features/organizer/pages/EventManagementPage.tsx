@@ -1899,7 +1899,11 @@ export function EventManagementPage() {
     // Persist exactly the server-backed Today directory the organizer is
     // seeing. On a later offline transition, the active package list cannot
     // grow beyond this verified set.
-    saveOfflineDirectorySnapshot(session.userId, getManilaCalendarDate(), todayEvents.map((event) => event.id));
+    saveOfflineDirectorySnapshot(
+      session.userId,
+      getManilaCalendarDate(),
+      todayEvents.map((event) => event.id).filter((eventId): eventId is string => Boolean(eventId))
+    );
   }, [eventsQuery.isSuccess, isOfflineMode, session?.userId, todayEvents]);
 
   const incomingEvents = useMemo(
