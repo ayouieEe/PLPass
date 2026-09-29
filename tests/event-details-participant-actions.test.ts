@@ -18,10 +18,9 @@ describe("event participant actions", () => {
   });
 
   it("returns an offline event detail view to a clean Events route", () => {
-    expect(eventDetailsPage).toContain("const returnToEvents");
-    expect(eventDetailsPage).toContain('{ pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" }');
-    expect(eventDetailsPage).toContain("if (!isOfflineMode) return;");
-    expect(eventDetailsPage).toContain("event.preventDefault();");
+    expect(eventDetailsPage).toContain("href={APP_ROUTES.organizerEvents}");
+    expect(eventDetailsPage).toContain("Back to events");
+    expect(eventDetailsPage).not.toContain("openOfflineEventsDirectory");
   });
 
   it("keeps new participants neutral and requests credential status only for those participants", () => {

@@ -252,8 +252,17 @@ describe("event page validation helpers", () => {
   it("keeps stale prepared packages out of the offline event picker while retaining them for review", () => {
     expect(eventManagementPage).toContain("const preparedTodayEventIds = new Set(");
     expect(eventManagementPage).toContain("getManilaCalendarDate(new Date(summary.preparedAt)) === today");
-    expect(eventManagementPage).toContain("preparedTodayEventIds.has(pkg.event.id)");
+    expect(eventManagementPage).toContain("const selectableEventIds = verifiedOnlineEventIds === null");
     expect(eventManagementPage).toContain("setOfflineSyncPresentations(presentations.filter");
+  });
+
+  it("matches the offline Events directory to the last verified same-day online directory", () => {
+    expect(eventManagementPage).toContain("offlineDirectorySnapshotStoragePrefix");
+    expect(eventManagementPage).toContain("readOfflineDirectorySnapshot(session.userId, today)");
+    expect(eventManagementPage).toContain("const selectableEventIds = verifiedOnlineEventIds === null");
+    expect(eventManagementPage).toContain("selectableEventIds.has(pkg.event.id)");
+    expect(eventManagementPage).toContain("saveOfflineDirectorySnapshot(");
+    expect(eventManagementPage).toContain("!eventsQuery.isSuccess");
   });
 
   it("allows an organizer to start an owned active event without approval", () => {

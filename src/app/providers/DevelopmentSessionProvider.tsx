@@ -84,6 +84,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const onOffline = async () => {
       setIsNetworkOnline(false);
       if (disposed || !session || session.role !== "organizer" || !window.plpassDesktop) return;
+      // Ensure a renderer reload immediately after the network transition can
+      // restore this already verified organizer without contacting Supabase.
+      // The main process encrypts and expiry-limits this identity.
+      await cacheDesktopOfflineSession(session);
+      if (disposed) return;
       // Lock the organizer workspace immediately. Route-level guards keep the
       // user inside event navigation; local pages then decide whether a
       // prepared package is available for attendance.
@@ -201,7 +206,13 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         const nextSession = await withRequestTimeout(
           (async () => {
             const { data, error } = await supabase.auth.getUser();
-            if (error || !data.user) return null;
+            // A transport failure is not the same as an intentionally absent
+            // session. Throw it so the encrypted offline-session recovery
+            // below can restore the recently verified organizer identity.
+            // Returning null here bypassed that recovery and routed an
+            // offline refresh to login.
+            if (error) throw error;
+            if (!data.user) return null;
             return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
               id: data.user.id,
               email: data.user.email ?? ""
@@ -217,12 +228,35 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         }
       } catch (error) {
         if (canApplyRestore()) {
-          if (window.plpassDesktop && supabase && !shouldSignOutAfterAuthFailure(error)) {
+          // Windows can report an active network while the access point still
+          // cannot reach Supabase. A refresh must preserve a recently verified
+          // encrypted organizer identity in that transport/timeout state
+          // rather than treating the timeout as an intentional sign-out.
+          const canRecoverOffline = Boolean(
+            window.plpassDesktop
+            && (
+              isDesktopOffline()
+              || isLikelyNetworkFailure(error)
+              || error instanceof RequestTimeoutError
+              // `getUser()` can succeed from the persisted Supabase session
+              // before the profile/role queries hit an unreachable network.
+              // Those queries deliberately redact their transport details as
+              // a generic non-revocation resolution error. Do not turn that
+              // safe offline condition into a logout when this desktop still
+              // has a recent encrypted organizer identity. Explicit account
+              // revocations and invalid/missing identities still sign out.
+              || !shouldSignOutAfterAuthFailure(error)
+            )
+          );
+          if (canRecoverOffline) {
             try {
-              const { data } = await supabase.auth.getSession();
-              const offlineSession = await readDesktopOfflineSession(data.session?.user.id);
+              // Do not depend on a Supabase session read here. That read may
+              // be absent or expired precisely because this is an offline
+              // refresh; the desktop identity remains owner-scoped and has a
+              // short local expiry enforced by Electron.
+              const offlineSession = await readDesktopOfflineSession();
               setOfflineResumeAvailable(Boolean(offlineSession));
-              if (offlineSession && isLikelyNetworkFailure(error)) {
+              if (offlineSession) {
                 queryClient.clear();
                 setSession(offlineSession);
                 setIsNetworkOnline(false);

@@ -122,7 +122,8 @@ export function PLPassDataGrid<TData extends object>({
   toolbarActions,
   hideHeader = false,
   hidePaginationWhenSinglePage = false,
-  flat = false
+  flat = false,
+  animateRows = false
 }: PLPassDataGridProps<TData>) {
   const gridTitleId = useId();
   const gridInstructionsId = useId();
@@ -349,7 +350,7 @@ export function PLPassDataGrid<TData extends object>({
           suppressMovableColumns
           suppressColumnMoveAnimation
           ensureDomOrder
-          animateRows={false}
+          animateRows={animateRows}
           tooltipShowDelay={250}
           onGridReady={handleGridReady}
           onModelUpdated={handleModelUpdated}

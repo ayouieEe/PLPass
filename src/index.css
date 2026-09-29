@@ -396,6 +396,18 @@
     @apply border-input bg-surface text-foreground placeholder:text-muted-foreground disabled:bg-disabled focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
   }
 
+  .plpass-report-format-option {
+    @apply relative flex min-h-20 items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left text-foreground shadow-sm outline-none;
+    transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out;
+  }
+  .plpass-report-format-option:hover { @apply border-primary/50 bg-primary/5; transform: translateY(-1px); }
+  .plpass-report-format-option:focus-visible { @apply border-primary ring-2 ring-ring; }
+  .plpass-report-format-option:active { transform: scale(0.985); }
+  .plpass-report-format-option[data-selected="true"] { @apply border-primary bg-primary/10 shadow-md ring-2 ring-primary/30; }
+  .plpass-report-format-option-icon { @apply shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors duration-150; }
+  .plpass-report-format-option[data-selected="true"] .plpass-report-format-option-icon { @apply bg-primary/15 text-primary; }
+  .plpass-report-format-option-badge { @apply absolute right-2 top-2 inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground; }
+
   .plpass-select,
   select.plpass-field {
     @apply h-11 w-full appearance-none rounded-xl border border-input bg-surface px-3 pr-10 text-sm font-medium text-foreground outline-none transition disabled:cursor-not-allowed disabled:bg-disabled disabled:opacity-60 focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;

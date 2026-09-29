@@ -8,8 +8,6 @@ import {
   CheckCircle2,
   ClipboardList,
   Download,
-  FileSpreadsheet,
-  FileText,
   IdCard,
   type LucideIcon,
   Search,
@@ -26,6 +24,7 @@ import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { formatDateTime } from "@/lib/utils/date";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
@@ -567,41 +566,8 @@ function ReportExportModal({
               2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable PDF report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable PDF report" />
             </div>
           </div>
         </div>
@@ -838,7 +804,7 @@ function AdminDirectory({ users, adminProfiles, departments, onAdd, onEdit, canA
     { headerName: "Department", field: "department", minWidth: 150 },
     { headerName: "Status", field: "status", minWidth: 140, cellRenderer: ({ value }: ICellRendererParams) => <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${value === "Active" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{value}</span> }
   ], []);
-  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Admin directory</h2><p className="mt-1 text-sm text-muted-foreground">Manage university and department administrator accounts.</p></div>{canAdd ? <button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Admin</button> : null}</div><PLPassDataGrid label="Admin accounts" data={admins.map((user) => { const profile = adminProfiles.find((item) => item.userId === user.id); return { id: profile?.id ?? user.id, userId: user.id, role: user.role, name: user.displayName, email: user.email, accountType: user.role === "department_admin" ? "Department admin" : "University admin", department: profile ? (departmentById.get(profile.departmentId) ?? "—") : "—", status: user.isActive ? "Active" : "Inactive" }; })} columns={columns} emptyTitle="No admin accounts" emptyDescription="Create an admin account to give another user administrator access." enableColumnVisibility hideHeader onRowClick={(row) => onEdit(row.id)} /></div>;
+  return <div className="space-y-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-semibold">Admin directory</h2><p className="mt-1 text-sm text-muted-foreground">Manage university and department administrator accounts.</p></div>{canAdd ? <button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Admin</button> : null}</div><PLPassDataGrid label="Admin accounts" animateRows data={admins.map((user) => { const profile = adminProfiles.find((item) => item.userId === user.id); return { id: profile?.id ?? user.id, userId: user.id, role: user.role, name: user.displayName, email: user.email, accountType: user.role === "department_admin" ? "Department admin" : "University admin", department: profile ? (departmentById.get(profile.departmentId) ?? "—") : "—", status: user.isActive ? "Active" : "Inactive" }; })} columns={columns} emptyTitle="No admin accounts" emptyDescription="Create an admin account to give another user administrator access." enableColumnVisibility hideHeader onRowClick={(row) => onEdit(row.id)} /></div>;
 }
 
 function RevokeUserSessionsDialog({ target, onClose, onConfirm }: { target: { userId: string; displayName: string } | null; onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
@@ -914,7 +880,7 @@ function OrganizerDirectoryConsistent({ organizers, users, events, attendanceRec
     }))
   }));
   const colleges = [...new Set(exportRows.map((organizer) => organizer.department).filter(Boolean))];
-  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, or position..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, cellRenderer: ({ value }: ICellRendererParams<OrganizerProfile, OrganizerStatus>) => <StatusBadge value={value ?? "Inactive"} />, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><ReportExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} exportKind="organizers" organizerRows={exportRows} organizerEventSections={organizerEventSections} organizerInstitution={{ collegeName: colleges.length === 1 ? colleges[0] : "All Participating Colleges", schoolYear }} onExportAction={onExportAction} /></>;
+  return <><div className="rounded-xl border bg-surface p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">Organizer directory</h2><span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">{rows.length} organizers</span></div><p className="mt-1 text-sm text-muted-foreground">Search, filter, and manage organizer accounts.</p></div><div className="flex flex-wrap gap-2">{canAdd ? <><button type="button" onClick={onAdd} className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white hover:bg-primary/90"><UserPlus className="h-4 w-4" />Add Organizer</button><button type="button" onClick={onBulkAdd} className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-semibold hover:bg-muted"><UploadCloud className="h-4 w-4" />Bulk Add</button></> : null}<button type="button" onClick={() => setExportOpen(true)} disabled={!rows.length} className="inline-flex h-9 items-center gap-2 rounded-md bg-emerald-700 px-3 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" />Export</button></div></div><div className="mt-4"><label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, email, ID, or position..." className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm focus:border-primary focus:ring-2 focus:ring-primary/20" /></label></div></div><PLPassDataGrid label="Organizer accounts" animateRows data={rows} columns={[{ headerName: "Organizer", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.displayName ?? "Unnamed organizer", minWidth: 220, flex: 1 }, { headerName: "Email", valueGetter: ({ data }) => users.find((user) => user.id === data?.userId)?.email ?? "—", minWidth: 240, flex: 1 }, { headerName: "Employee ID", field: "employeeNumber", minWidth: 140 }, { headerName: "Department", valueGetter: ({ data }) => departments.find((department) => department.id === data?.departmentId)?.code ?? "—", minWidth: 140 }, { headerName: "Position", field: "position", minWidth: 160 }, { headerName: "Status", valueGetter: ({ data }) => { const user = users.find((item) => item.id === data?.userId); return data?.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive" }, cellRenderer: ({ value }: ICellRendererParams<OrganizerProfile, OrganizerStatus>) => <StatusBadge value={value ?? "Inactive"} />, minWidth: 120 }]} onRowClick={(row) => onEdit(row.id)} emptyTitle="No organizer accounts" emptyDescription="No organizer accounts match the current search." enableColumnVisibility hideHeader /><ReportExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} exportKind="organizers" organizerRows={exportRows} organizerEventSections={organizerEventSections} organizerInstitution={{ collegeName: colleges.length === 1 ? colleges[0] : "All Participating Colleges", schoolYear }} onExportAction={onExportAction} /></>;
 }
 
 function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, canRevokeSessions, onRevokeSessions, onResendInvitation }: { isOpen: boolean; onClose: () => void; admin: AdminProfile | undefined; user: User | undefined; departments: Array<{ id: string; code: string }>; mutation: ReturnType<typeof useUpdateAdminAccountMutation>; canRevokeSessions: boolean; onRevokeSessions: (userId: string, displayName: string) => void; onResendInvitation: (userId: string, displayName: string) => Promise<void> }) {

@@ -115,6 +115,34 @@ const minimumTimeOutIntervalMs = 60_000;
 const scannerIdleSubmissionDelayMs = 1_000;
 const duplicateQrSuppressionMs = 5_000;
 const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
+const offlineDirectorySnapshotStoragePrefix = "plpass:offline-event-directory:";
+
+function offlineDirectorySnapshotKey(organizerProfileId: string) {
+  return `${offlineDirectorySnapshotStoragePrefix}${organizerProfileId}`;
+}
+
+function readOfflineDirectorySnapshot(organizerProfileId: string, today: string): string[] | null {
+  try {
+    const saved = window.localStorage.getItem(offlineDirectorySnapshotKey(organizerProfileId));
+    if (!saved) return null;
+    const snapshot = JSON.parse(saved) as { manilaDate?: unknown; eventIds?: unknown };
+    if (snapshot.manilaDate !== today || !Array.isArray(snapshot.eventIds)) return null;
+    return snapshot.eventIds.filter((eventId): eventId is string => typeof eventId === "string");
+  } catch {
+    return null;
+  }
+}
+
+function saveOfflineDirectorySnapshot(organizerProfileId: string, today: string, eventIds: string[]) {
+  try {
+    window.localStorage.setItem(
+      offlineDirectorySnapshotKey(organizerProfileId),
+      JSON.stringify({ manilaDate: today, eventIds: [...new Set(eventIds)] })
+    );
+  } catch {
+    // Storage failure must not block online browsing or local attendance.
+  }
+}
 
 function attendanceMethodFromVerification(method?: string | null): AttendanceMethod {
   if (method === "facial") return "Facial Recognition";
@@ -1111,8 +1139,16 @@ export function EventManagementPage() {
             .filter((summary) => getManilaCalendarDate(new Date(summary.preparedAt)) === today)
             .map((summary) => summary.event.id)
         );
+        // A same-day server directory captured while online is authoritative
+        // for this offline directory too. Stale prepared packages remain in
+        // saved-session review but cannot appear as live events after Wi-Fi
+        // drops. Cold offline use safely falls back to today's packages.
+        const verifiedOnlineEventIds = readOfflineDirectorySnapshot(session.userId, today);
+        const selectableEventIds = verifiedOnlineEventIds === null
+          ? preparedTodayEventIds
+          : new Set([...preparedTodayEventIds].filter((eventId) => verifiedOnlineEventIds.includes(eventId)));
         setOfflinePreparedPackages(packages.filter((pkg) =>
-          preparedTodayEventIds.has(pkg.event.id)
+          selectableEventIds.has(pkg.event.id)
           && pkg.sessions.some((item) => item.offlineLifecycle !== "ENDED" && item.status !== "completed")
         ));
         setOfflineSyncPresentations(presentations.filter((item): item is OfflineSyncPresentation => item !== null));
@@ -1854,6 +1890,17 @@ export function EventManagementPage() {
     },
     [activeEvent, cancelledCodes, completedCodes, isOfflineMode, isReadOnlyMonitor, search, sessionsList, storeEvents]
   );
+
+  useEffect(() => {
+    // Do not overwrite the trusted directory with the query's initial empty
+    // state. Only a successful server result may decide which packages are
+    // selectable after the next offline transition.
+    if (isOfflineMode || !session?.userId || !eventsQuery.isSuccess) return;
+    // Persist exactly the server-backed Today directory the organizer is
+    // seeing. On a later offline transition, the active package list cannot
+    // grow beyond this verified set.
+    saveOfflineDirectorySnapshot(session.userId, getManilaCalendarDate(), todayEvents.map((event) => event.id));
+  }, [eventsQuery.isSuccess, isOfflineMode, session?.userId, todayEvents]);
 
   const incomingEvents = useMemo(
     () => {

@@ -19,8 +19,10 @@ describe("offline organizer route policy", () => {
     expect(canAccessOfflineRoute("admin", APP_ROUTES.organizerEvents)).toBe(false);
   });
 
-  it("gives the offline Events navigation a clean, package-backed destination", () => {
+  it("keeps offline Events navigation in the renderer without a page reload", () => {
     expect(sidebar).toContain("offlineMode && item.path === APP_ROUTES.organizerEvents");
-    expect(sidebar).toContain('navigate({ pathname: APP_ROUTES.organizerEvents, search: "" }, { replace: true })');
+    expect(sidebar).toContain("if (offlineEventsTarget)");
+    expect(sidebar).toContain("href={APP_ROUTES.organizerEvents}");
+    expect(sidebar).not.toContain("window.location");
   });
 });

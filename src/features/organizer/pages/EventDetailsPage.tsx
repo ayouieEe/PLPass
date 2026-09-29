@@ -387,15 +387,6 @@ export function EventDetailsPage() {
   const location = useLocation();
   const workspaceRoute = (organizerRoute: string, adminRoute: string) => getWorkspaceRoute(location.pathname, organizerRoute, adminRoute);
   const navigate = useNavigate();
-  const returnToEvents = () => {
-    // Offline detail pages are rendered from a local package. Always clear
-    // the current location state when returning to the directory so an old
-    // live-session query cannot keep this detail workspace mounted.
-    navigate(
-      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
-      { replace: true }
-    );
-  };
   const { setHeaderOverride } = useHeader();
   const [tab, setTab] = useState("participants");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -1044,18 +1035,23 @@ export function EventDetailsPage() {
     <OrganizerFrame>
       <PageHeader
         eyebrow={
-          <NavLink
-            to={workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents)}
-            onClick={(event) => {
-              if (!isOfflineMode) return;
-              event.preventDefault();
-              returnToEvents();
-            }}
-            className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Back to events
-          </NavLink>
+          isOfflineMode ? (
+            <a
+              href={APP_ROUTES.organizerEvents}
+              className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to events
+            </a>
+          ) : (
+            <NavLink
+              to={workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents)}
+              className="inline-flex items-center gap-1 normal-case text-sm font-medium tracking-normal text-primary transition-colors hover:text-primary/80 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to events
+            </NavLink>
+          )
         }
         title={formatEventTitle(event.title)}
         description={isAdmin ? "View event details, owner, schedule, attendance summary, and audit context." : "Manage this event, prepare attendance, and review participation."}

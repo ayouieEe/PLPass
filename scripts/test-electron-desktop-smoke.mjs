@@ -19,7 +19,14 @@ try {
   app = await electron.launch({
     args: [projectRoot, `--user-data-dir=${userDataDirectory}`],
     cwd: projectRoot,
-    env: { ...process.env, PLPASS_FACIAL_API_URL: "http://127.0.0.1:9" }
+    // Do not let an organizer's already-running desktop window prevent this
+    // isolated smoke application from starting. Its user-data directory is
+    // temporary, so it cannot read or modify the organizer's local packages.
+    env: {
+      ...process.env,
+      PLPASS_E2E_ISOLATED: "1",
+      PLPASS_FACIAL_API_URL: "http://127.0.0.1:9"
+    }
   });
   const page = await app.firstWindow();
   await page.waitForFunction(() => typeof window.plpassDesktop === "object");

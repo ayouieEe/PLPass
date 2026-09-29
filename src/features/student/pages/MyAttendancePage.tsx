@@ -22,7 +22,7 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { PaginationControls } from "@/components/shared/PaginationControls";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useFinalizedEventYears, useStudentDashboardSummary, useStudentFeedbackTasks } from "@/hooks/useRepositoryQueries";
-import { formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
+import { dateKey, formatDisplayDate, formatDisplayTime, toValidDate } from "@/lib/utils/date";
 import { getErrorMessage } from "@/lib/utils/errors";
 import { cn } from "@/lib/utils/cn";
 import { optimizeImageForUpload } from "@/lib/utils/imageCompression";
@@ -65,7 +65,7 @@ function getRecordYear(record: StudentEventRecord) {
 }
 
 function formatRecordDate(record: StudentEventRecord) {
-  return formatDisplayDate(getRecordDate(record), "Date pending");
+  return dateKey(getRecordDate(record)) || "Date pending";
 }
 
 function formatRecordTime(record: StudentEventRecord) {

@@ -53,4 +53,14 @@ describe("offline work banner state", () => {
     expect(provider).not.toContain('document.visibilityState==="visible"');
     expect(offlineEventHook).not.toContain("automaticSyncDelayMs");
   });
+
+  it("restores the encrypted organizer session after an offline refresh even when Windows reports stale connectivity", () => {
+    expect(provider).toContain("const canRecoverOffline = Boolean(");
+    expect(provider).toContain("error instanceof RequestTimeoutError");
+    expect(provider).toContain("|| !shouldSignOutAfterAuthFailure(error)");
+    expect(provider).toContain("const offlineSession = await readDesktopOfflineSession();");
+    expect(provider).toContain("setIsNetworkOnline(false);");
+    expect(provider).toContain("setIsOfflineMode(true);");
+    expect(provider).toContain("await cacheDesktopOfflineSession(session);");
+  });
 });

@@ -1,4 +1,4 @@
-import { RefreshCw, RotateCcw, Settings, X } from "lucide-react";
+import { CalendarClock, RefreshCw, RotateCcw, Settings, X } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -232,8 +232,8 @@ export function NotificationsPage() {
       {selectedNotification
         ? createPortal(
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => setSelectedNotification(null)}>
-              <section role="dialog" aria-modal="true" aria-labelledby="notification-detail-title" className="w-full max-w-2xl rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-                <div className="flex items-start justify-between gap-4">
+              <section role="dialog" aria-modal="true" aria-labelledby="notification-detail-title" aria-describedby="notification-detail-body" className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                <div className="flex items-start justify-between gap-4 border-b border-border bg-surface-muted/60 px-5 py-5 sm:px-6">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-wider text-primary">Notification details</p>
                     <h2 id="notification-detail-title" className="mt-1 text-xl font-semibold text-foreground">{cleanNotificationText(selectedNotification.title)}</h2>
@@ -244,16 +244,18 @@ export function NotificationsPage() {
                       {selectedNotification.severity === "critical" ? <StatusBadge label="Critical" tone="danger" /> : null}
                     </div>
                   </div>
-                  <button type="button" onClick={() => setSelectedNotification(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label="Close notification details">
+                  <button type="button" onClick={() => setSelectedNotification(null)} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border text-muted-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" aria-label="Close">
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </div>
-                <div className="mt-5 max-h-[55vh] overflow-y-auto rounded-xl border bg-background px-4 py-4 text-sm leading-7 text-foreground whitespace-pre-line">
-                  {cleanNotificationText(selectedNotification.body)}
+                <div className="px-5 py-5 sm:px-6">
+                  <div id="notification-detail-body" className="max-h-[48vh] overflow-y-auto rounded-xl border border-border bg-background px-4 py-4 text-sm leading-7 text-foreground whitespace-pre-line">
+                    {cleanNotificationText(selectedNotification.body)}
+                  </div>
                 </div>
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground">{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col gap-3 border-t border-border bg-surface-muted/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                  <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     {notificationHasUserAction(selectedNotification, session?.role) ? notificationActions(selectedNotification, session?.role).map((action) => (
                       <Button key={action.label} type="button" variant={action.variant} onClick={() => openNotificationAction(selectedNotification, action)}>
                         {action.label}
@@ -262,7 +264,6 @@ export function NotificationsPage() {
                     {selectedNotification.status === "unread" ? (
                       <Button type="button" variant="outline" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>Mark as read</Button>
                     ) : null}
-                    <Button type="button" onClick={() => setSelectedNotification(null)}>Close</Button>
                   </div>
                 </div>
               </section>
