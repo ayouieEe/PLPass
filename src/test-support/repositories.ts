@@ -1844,7 +1844,15 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
     if (context?.actorRole !== "organizer") {
       throw new RepositoryError("Only organizers can access the organizer credential directory.", "PERMISSION_DENIED");
     }
-    return [];
+    const scopedStudentIds = organizerStudentIds(context);
+    return studentFixtures
+      .filter((student) => scopedStudentIds.has(student.id))
+      .map((student) => ({
+        studentId: student.id,
+        studentNumber: student.studentNumber,
+        studentName: student.fullName ?? student.formattedName ?? student.studentNumber,
+        credentialStatus: { studentId: student.id }
+      }));
   },
   async getStudentCredentialStatus(studentId, context) {
     await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
