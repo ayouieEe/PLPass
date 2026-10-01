@@ -4,7 +4,7 @@ import type { Worksheet } from "exceljs";
 import { repositories } from "@/services/repositories";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 
-export type ReportExportScope = { type: "event"; eventId: string } | { type: "organizer"; organizerId: string } | { type: "global" };
+export type ReportExportScope = { type: "event"; eventId: string } | { type: "organizer"; organizerId: string } | { type: "department"; departmentId: string } | { type: "global" };
 export type ReportExportRow = Record<string, string | number | boolean | null | undefined>;
 export type ReportExportColumn = { key: string; header: string; width?: number };
 export type ReportExportSection = { name: string; rows: ReportExportRow[]; columns?: ReportExportColumn[]; header?: string };
@@ -54,13 +54,31 @@ export type ReportExportOptions = {
   showSectionHeaders?: boolean;
 };
 
-export type ExportBranding = { plpLogoUrl: string; collegeName?: string; collegeLogoUrl?: string; systemName: string };
+export type ExportBranding = {
+  plpLogoUrl: string;
+  collegeName?: string;
+  collegeLogoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  systemName: string;
+};
 
 const defaultBranding: ExportBranding = { plpLogoUrl: "/plp-institution-logo.png", systemName: "PLPass" };
 
-async function resolveBranding(scope?: ReportExportScope) {
+function hexRgb(value: string | undefined, fallback: [number, number, number]): [number, number, number] {
+  const normalized = value?.trim().replace(/^#/, "");
+  if (!normalized || !/^[0-9a-f]{6}$/i.test(normalized)) return fallback;
+  return [Number.parseInt(normalized.slice(0, 2), 16), Number.parseInt(normalized.slice(2, 4), 16), Number.parseInt(normalized.slice(4, 6), 16)];
+}
+
+function argb(value: string | undefined, fallback: string) {
+  const normalized = value?.trim().replace(/^#/, "");
+  return normalized && /^[0-9a-f]{6}$/i.test(normalized) ? `FF${normalized.toUpperCase()}` : fallback;
+}
+
+export async function resolveBranding(scope?: ReportExportScope) {
   let session = await repositories.authentication.getSession();
-  if (typeof window !== "undefined" && (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test")) {
+  if (typeof window !== "undefined" && import.meta.env.MODE === "test") {
     const stored = window.localStorage.getItem("plpass-development-session");
     if (stored) {
       try {
@@ -78,17 +96,59 @@ async function resolveBranding(scope?: ReportExportScope) {
   } catch {
     /* Some student contexts cannot read system settings. */
   }
-  if (scope?.type === "global" || (!scope && (session.role === "admin" || session.role === "student"))) return { branding: defaultBranding, context, schoolYear };
+  // A global report still has an owner-specific presentation for organizers.
+  // Only university-admin and student global exports use the institution
+  // default; otherwise department branding would silently disappear from
+  // organizer-wide exports.
+  if ((scope?.type === "global" && (session.role === "admin" || session.role === "student")) || (!scope && (session.role === "admin" || session.role === "student"))) {
+    return { branding: defaultBranding, context, schoolYear };
+  }
+  if (scope?.type === "department") {
+    return { branding: await departmentExportBranding(scope.departmentId, context), context, schoolYear };
+  }
+  if (session.role === "department_admin" && (!scope || scope.type === "global")) {
+    const admins = await repositories.userManagement.listAdminProfiles({ pageIndex: 0, pageSize: 100 }, context);
+    const ownProfile = admins.items.find((profile) => profile.userId === session.userId);
+    if (ownProfile) return { branding: await departmentExportBranding(ownProfile.departmentId, { ...context, departmentId: ownProfile.departmentId }), context, schoolYear };
+  }
   let organizerId: string | undefined = scope?.type === "organizer" ? scope.organizerId : undefined;
   if (scope?.type === "event") {
+    // The event already carries its owning organizer. Avoid a paginated profile
+    // lookup here: it can omit the owner and silently fall back to default
+    // institution branding in otherwise valid event exports.
     const event = await repositories.eventManagement.getEventById(scope.eventId, context);
-    const organizers = await repositories.userManagement.listOrganizerProfiles({ pageIndex: 0, pageSize: 100 }, context);
-    organizerId = organizers.items.find((item) => item.id === event.organizerId)?.id;
+    organizerId = event.organizerId;
   }
-  if (!organizerId) organizerId = (await repositories.userManagement.listOrganizerProfiles({ pageIndex: 0, pageSize: 1 }, context)).items[0]?.id;
+  if (!organizerId && session.role !== "department_admin") {
+    const organizers = await repositories.userManagement.listOrganizerProfiles({ pageIndex: 0, pageSize: 100 }, context);
+    organizerId = session.role === "organizer"
+      ? organizers.items.find((item) => item.userId === session.userId)?.id
+      : organizers.items[0]?.id;
+  }
   if (!organizerId) return { branding: defaultBranding, context, schoolYear };
   const branding = await repositories.userManagement.getOrganizerBranding(organizerId, context);
-  return { branding: { ...defaultBranding, collegeName: branding.collegeName, collegeLogoUrl: branding.collegeLogoUrl }, context, schoolYear };
+  return {
+    branding: {
+      ...defaultBranding,
+      collegeName: branding.collegeName,
+      collegeLogoUrl: branding.collegeLogoUrl,
+      primaryColor: branding.primaryColor,
+      secondaryColor: branding.secondaryColor
+    },
+    context,
+    schoolYear
+  };
+}
+
+async function departmentExportBranding(departmentId: string, context: RepositoryContext): Promise<ExportBranding> {
+  const branding = await repositories.userManagement.getDepartmentBranding(departmentId, context);
+  return {
+    ...defaultBranding,
+    collegeName: branding.displayName,
+    collegeLogoUrl: branding.logoUrl,
+    primaryColor: branding.primaryColor,
+    secondaryColor: branding.secondaryColor
+  };
 }
 
 async function imageToPngDataUrl(url?: string) {
@@ -105,10 +165,49 @@ async function imageToPngDataUrl(url?: string) {
         element.onerror = reject;
         element.src = objectUrl;
       });
+      // Render from the source resolution and trim transparent margins so the
+      // institution and department logos have the same visual footprint.
+      const source = document.createElement("canvas");
+      source.width = image.naturalWidth || image.width;
+      source.height = image.naturalHeight || image.height;
+      const sourceContext = source.getContext("2d", { willReadFrequently: true });
+      if (!sourceContext) return undefined;
+      sourceContext.drawImage(image, 0, 0, source.width, source.height);
+      const pixels = sourceContext.getImageData(0, 0, source.width, source.height).data;
+      let left = source.width;
+      let top = source.height;
+      let right = -1;
+      let bottom = -1;
+      for (let y = 0; y < source.height; y++) {
+        for (let x = 0; x < source.width; x++) {
+          if (pixels[(y * source.width + x) * 4 + 3] > 8) {
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x);
+            bottom = Math.max(bottom, y);
+          }
+        }
+      }
+      if (right < left || bottom < top) return undefined;
+      const padding = Math.max(2, Math.round(Math.max(right - left + 1, bottom - top + 1) * 0.04));
+      left = Math.max(0, left - padding);
+      top = Math.max(0, top - padding);
+      right = Math.min(source.width - 1, right + padding);
+      bottom = Math.min(source.height - 1, bottom + padding);
+
       const canvas = document.createElement("canvas");
-      canvas.width = 128;
-      canvas.height = 128;
-      canvas.getContext("2d")?.drawImage(image, 0, 0, 128, 128);
+      canvas.width = 512;
+      canvas.height = 512;
+      const context = canvas.getContext("2d");
+      if (!context) return undefined;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      const cropWidth = right - left + 1;
+      const cropHeight = bottom - top + 1;
+      const scale = Math.min(480 / cropWidth, 480 / cropHeight);
+      const drawWidth = cropWidth * scale;
+      const drawHeight = cropHeight * scale;
+      context.drawImage(source, left, top, cropWidth, cropHeight, (512 - drawWidth) / 2, (512 - drawHeight) / 2, drawWidth, drawHeight);
       return canvas.toDataURL("image/png");
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -198,7 +297,10 @@ function filterLines(filters: ReportFilterSummary | undefined, count: number) {
 }
 
 function institutionHeader(branding: ExportBranding, institution?: ReportExportOptions["institution"]) {
-  const college = institution?.collegeName || branding.collegeName || "ALL PARTICIPATING COLLEGES";
+  // Saved department branding is authoritative for scoped exports. The
+  // optional institution value is a report hint and must not overwrite a
+  // department's configured presentation name.
+  const college = branding.collegeName || institution?.collegeName || "ALL PARTICIPATING COLLEGES";
   return ["PAMANTASAN NG LUNGSOD NG PASIG", `COLLEGE OF ${college.replace(/^college of\s+/i, "")}`.toUpperCase(), `SCHOOL YEAR ${institution?.schoolYear || "CURRENT SCHOOL YEAR"}`];
 }
 
@@ -214,6 +316,9 @@ function safeMerge(ws: Worksheet, startRow: number, startCol: number, endRow: nu
 
 export async function exportReportPdf(options: ReportExportOptions) {
   const { branding, schoolYear } = await resolveBranding(options.scope);
+  const primary = hexRgb(branding.primaryColor, [21, 72, 34]);
+  const primaryLine = hexRgb(branding.primaryColor, [21, 91, 42]);
+  const secondary = hexRgb(branding.secondaryColor, [245, 249, 245]);
   const sections = sectionsFor(options);
   const total = sections.reduce((sum, section) => sum + section.rows.length, 0);
   if (!total && !options.summaryCards && !options.insightsNarrative) {
@@ -232,7 +337,7 @@ export async function exportReportPdf(options: ReportExportOptions) {
   if (customLogo) doc.addImage(customLogo, "PNG", pageWidth - 36, 8, 22, 22);
 
   const header = institutionHeader(branding, { ...options.institution, schoolYear: options.institution?.schoolYear || schoolYear });
-  doc.setTextColor(21, 72, 34);
+  doc.setTextColor(...primary);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   header.forEach((line, index) => doc.text(line, pageWidth / 2, 13 + index * 5, { align: "center" }));
@@ -245,16 +350,16 @@ export async function exportReportPdf(options: ReportExportOptions) {
   }
 
   // Header separator line & Document Title
-  doc.setDrawColor(21, 91, 42);
+  doc.setDrawColor(...primaryLine);
   doc.setLineWidth(0.4);
   doc.line(14, 34, pageWidth - 14, 34);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
-  doc.setTextColor(21, 72, 34);
+  doc.setTextColor(...primary);
   doc.text(cleanTitle(options.title), 14, 43);
 
-  doc.setDrawColor(21, 91, 42);
+  doc.setDrawColor(...primaryLine);
   doc.line(14, 47, 66, 47);
 
   // Filter Summary Box
@@ -547,9 +652,9 @@ export async function exportReportPdf(options: ReportExportOptions) {
       head: [headers],
       body: valuesFor(section, headers),
       theme: "striped",
-      headStyles: { fillColor: [15, 66, 29], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, font: "helvetica" },
-      alternateRowStyles: { fillColor: [245, 249, 245] },
-      styles: { font: "helvetica", fontSize: maxColumns > 7 ? 7 : 8, cellPadding: 2, lineColor: [220, 231, 221], lineWidth: 0.1 },
+      headStyles: { fillColor: primary, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, font: "helvetica" },
+      alternateRowStyles: { fillColor: secondary },
+      styles: { font: "helvetica", fontSize: maxColumns > 7 ? 7 : 8, cellPadding: 2, lineColor: primaryLine, lineWidth: 0.1 },
       didDrawPage: (data) => {
         doc.setDrawColor(63, 116, 68);
         doc.line(14, pageHeight - 17, pageWidth - 14, pageHeight - 17);
@@ -586,6 +691,8 @@ function safeSheetName(name: string, index = 0, existingNames: Set<string> = new
  */
 export async function exportReportXlsx(options: ReportExportOptions) {
   const { branding, schoolYear } = await resolveBranding(options.scope);
+  const primaryArgb = argb(branding.primaryColor, "FF0F421D");
+  const secondaryArgb = argb(branding.secondaryColor, "FFE8F1E6");
   const sections = sectionsFor(options);
   const total = sections.reduce((sum, section) => sum + section.rows.length, 0);
   if (!total && !options.summaryCards && !options.insightsNarrative) {
@@ -608,7 +715,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       const cell = ws.getCell(rowIndex + 1, 1);
       cell.value = line;
       cell.alignment = { horizontal: "center", vertical: "middle" };
-      cell.font = { bold: true, size: rowIndex === 0 ? 14 : 10, color: { argb: "FF0F421D" } };
+      cell.font = { bold: true, size: rowIndex === 0 ? 14 : 10, color: { argb: primaryArgb } };
     });
     ws.getRow(1).height = 24;
     ws.getRow(2).height = 19;
@@ -618,7 +725,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     ws.getCell(4, 1).font = { italic: true, size: 9, color: { argb: "FF526155" } };
 
     ws.getCell(5, 1).value = mainTitle.toUpperCase();
-    ws.getCell(5, 1).font = { bold: true, size: 13, color: { argb: "FF1A371F" } };
+    ws.getCell(5, 1).font = { bold: true, size: 13, color: { argb: primaryArgb } };
     ws.getCell(5, 1).alignment = { horizontal: "left", vertical: "middle", wrapText: mainTitle.includes("\n") };
     ws.getRow(5).height = mainTitle.includes("\n") ? 52 : 24;
 
@@ -679,7 +786,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
       const titleCell = overviewWs.getCell(curRow, 1);
       titleCell.value = "KEY PERFORMANCE SUMMARY";
-      titleCell.font = { bold: true, size: 10, color: { argb: "FF0F421D" } };
+      titleCell.font = { bold: true, size: 10, color: { argb: primaryArgb } };
       overviewWs.getRow(curRow).height = 20;
       curRow++;
 
@@ -689,7 +796,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
           const hCell = overviewWs.getCell(curRow, colIdx);
           hCell.value = card.label.toUpperCase();
           hCell.font = { bold: true, size: 8.5, color: { argb: "FFFFFFFF" } };
-          hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F421D" } };
+          hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
           hCell.alignment = { horizontal: "center", vertical: "middle" };
         }
       });
@@ -702,7 +809,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
           const vCell = overviewWs.getCell(curRow, colIdx);
           vCell.value = `${card.value}${card.subtitle ? `\n${card.subtitle}` : ""}`;
           vCell.font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
-          vCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+          vCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: secondaryArgb } };
           vCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
           vCell.border = {
             top: { style: "thin", color: { argb: "FFBBF7D0" } },
@@ -721,7 +828,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       curRow++;
       safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
       overviewWs.getCell(curRow, 1).value = options.insightsNarrative.title ?? "EXECUTIVE ANALYTICAL INSIGHTS";
-      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: "FF0F421D" } };
+      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: primaryArgb } };
       overviewWs.getRow(curRow).height = 22;
       curRow++;
 
@@ -730,7 +837,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
         const cell = overviewWs.getCell(curRow, idx + 1);
         cell.value = hText;
         cell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF15803D" } };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
         cell.alignment = { horizontal: "center", vertical: "middle" };
       });
       overviewWs.getRow(curRow).height = 24;
@@ -765,7 +872,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       curRow++;
       safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
       overviewWs.getCell(curRow, 1).value = "VISUAL ANALYTICAL CHARTS";
-      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: "FF0F421D" } };
+      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: primaryArgb } };
       overviewWs.getRow(curRow).height = 22;
       curRow++;
 
@@ -975,7 +1082,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     if (!isMultiTab && options.summaryCards && options.summaryCards.length > 0) {
       safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
       worksheet.getCell(curRow, 1).value = "KEY PERFORMANCE SUMMARY";
-      worksheet.getCell(curRow, 1).font = { bold: true, size: 10, color: { argb: "FF0F421D" } };
+      worksheet.getCell(curRow, 1).font = { bold: true, size: 10, color: { argb: primaryArgb } };
       worksheet.getRow(curRow).height = 20;
       curRow++;
 
@@ -985,7 +1092,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
           const hCell = worksheet.getCell(curRow, colIdx);
           hCell.value = card.label.toUpperCase();
           hCell.font = { bold: true, size: 8.5, color: { argb: "FFFFFFFF" } };
-          hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F421D" } };
+          hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
           hCell.alignment = { horizontal: "center", vertical: "middle" };
         }
       });
@@ -998,7 +1105,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
           const vCell = worksheet.getCell(curRow, colIdx);
           vCell.value = `${card.value}${card.subtitle ? `\n${card.subtitle}` : ""}`;
           vCell.font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
-          vCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+          vCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: secondaryArgb } };
           vCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
           vCell.border = {
             top: { style: "thin", color: { argb: "FFBBF7D0" } },
@@ -1019,7 +1126,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       const cell = worksheet.getCell(tableHeaderRowIdx, colIdx + 1);
       cell.value = headerText;
       cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9 };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F421D" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
       cell.border = {
         top: { style: "thin", color: { argb: "FF0F421D" } },

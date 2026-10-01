@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { AuthLayout } from "@/app/layouts/AuthLayout";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { acceptCurrentLegalDocuments, allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus, LEGAL_POLICY_VERSION } from "@/lib/legal/acceptance";
-import { PRIVACY_SECTIONS, TERMS_SECTIONS } from "@/lib/legal/policies";
+import { acceptCurrentLegalDocuments, allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
+import { useLegalDocument } from "@/hooks/useRepositoryQueries";
 
 type ReviewState = { from?: { pathname?: string; search?: string; hash?: string } };
 
@@ -21,6 +21,8 @@ export function StudentLegalReviewPage() {
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const termsQuery = useLegalDocument("terms");
+  const privacyQuery = useLegalDocument("privacy");
   const from = (location.state as ReviewState | null)?.from;
 
   useEffect(() => {
@@ -32,7 +34,8 @@ export function StudentLegalReviewPage() {
     }).catch(() => toast.error("Could not check your legal agreement status.")).finally(() => setLoading(false));
   }, [from?.hash, from?.pathname, from?.search, navigate, session]);
 
-  if (!session || loading) return <LoadingState label="Loading account agreements" />;
+  if (!session || loading || termsQuery.isLoading || privacyQuery.isLoading) return <LoadingState label="Loading account agreements" />;
+  if (termsQuery.isError || privacyQuery.isError) return <LoadingState label="Legal documents are temporarily unavailable" />;
   const authenticatedSession = session;
 
   async function handleAccept() {
@@ -49,7 +52,7 @@ export function StudentLegalReviewPage() {
   }
 
   return (
-    <AuthLayout title="Terms of Use" description={`PLPass student account information • Version ${LEGAL_POLICY_VERSION}`} wide>
+    <AuthLayout title="Terms of Use" description={`PLPass student account information • Terms ${termsQuery.data?.version} · Privacy ${privacyQuery.data?.version}`} wide>
       <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm leading-6 text-foreground">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
@@ -59,11 +62,11 @@ export function StudentLegalReviewPage() {
       <div className="mt-5 max-h-[min(52vh,30rem)] overflow-y-auto rounded-xl border border-border bg-surface px-5 py-4 text-sm leading-7 text-muted-foreground">
         <section aria-labelledby="student-terms-heading" className="space-y-5">
           <h2 id="student-terms-heading" className="text-lg font-semibold text-foreground">Terms of Use</h2>
-          {TERMS_SECTIONS.map(([heading, body]) => <div key={`terms-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
+          {termsQuery.data?.sections.map(({ heading, body }) => <div key={`terms-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
         </section>
         <section aria-labelledby="student-privacy-heading" className="mt-8 space-y-5 border-t border-border pt-7">
           <h2 id="student-privacy-heading" className="text-lg font-semibold text-foreground">Privacy Policy</h2>
-          {PRIVACY_SECTIONS.map(([heading, body]) => <div key={`privacy-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
+          {privacyQuery.data?.sections.map(({ heading, body }) => <div key={`privacy-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
         </section>
       </div>
       <div className="mt-5 space-y-4 border-t border-border pt-5">

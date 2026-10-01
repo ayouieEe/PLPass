@@ -61,7 +61,7 @@ describe("department read-model coverage", () => {
     expect(migration).not.toContain("for delete");
   });
 
-  it("fails closed on missing department context and avoids non-organizer credential lookups", () => {
+  it("fails closed on missing department context and keeps credential reads server-scoped", () => {
     const repositories = read("src/services/supabase/repositories.ts");
     const credentials = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
     const users = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
@@ -71,7 +71,9 @@ describe("department read-model coverage", () => {
     expect(repositories).toMatch(/const scopedDepartmentId = context\?\.actorRole === "department_admin"\s*\? context\.departmentId\s*:\s*undefined;/);
     expect(repositories).toContain('context?.actorRole === "department_admin" && !scopedDepartmentId) return []');
     expect(repositories).toContain('if (scopedDepartmentId) builder = builder.eq("department_id", scopedDepartmentId);');
-    expect(credentials).toContain('useEvents({ pageSize: 500 }, scope.context, actorRole === "organizer")');
+    expect(credentials).toContain('useOrganizerCredentialDirectory(scope.context, actorRole === "organizer")');
+    expect(credentials).not.toContain("useParticipantsForEvents");
+    expect(credentials).not.toContain("useStudentsByIds");
     expect(users).toContain("fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}");
     expect(users).toContain('row["Department Code"].trim().toLowerCase() !== dept.code.toLowerCase()');
   });

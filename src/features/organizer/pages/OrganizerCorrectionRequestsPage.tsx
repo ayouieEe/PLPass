@@ -370,7 +370,7 @@ export function OrganizerCorrectionRequestsPage() {
 
   useEffect(() => {
     const actorUserId = scope.context.actorUserId;
-    if (!actorUserId || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    if (!actorUserId || import.meta.env.MODE === "test") return;
     const supabase = getSupabaseBrowserClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let retryTimer: number | undefined;

@@ -2461,14 +2461,6 @@ export function EventManagementPage() {
     setSummaryEvent(finalizedEvent);
     setSummaryOpen(true);
     
-    if (!endedLocally) {
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Ended Live Session",
-        targetType: "attendance_session",
-        targetId: sessionId,
-        metadata: { eventCode: activeEvent.code, sessionId }
-      });
-    }
     setLiveSessionId(null);
     // The summary has its own immutable event snapshot. Do not leave a
     // completed offline workspace mounted behind it: after reconnect, that
@@ -2487,7 +2479,7 @@ export function EventManagementPage() {
     endingSessionRef.current = false;
     setIsEndingSession(false);
   }
-}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, auditLogMutations.logActionMutation, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
+}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;

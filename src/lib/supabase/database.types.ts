@@ -1445,6 +1445,36 @@ export type Database = {
         }
         Relationships: []
       }
+      legal_documents: {
+        Row: {
+          document_type: string
+          id: string
+          published_at: string
+          sections: Json
+          updated_at: string
+          updated_by: string | null
+          version: string
+        }
+        Insert: {
+          document_type: string
+          id?: string
+          published_at?: string
+          sections: Json
+          updated_at?: string
+          updated_by?: string | null
+          version: string
+        }
+        Update: {
+          document_type?: string
+          id?: string
+          published_at?: string
+          sections?: Json
+          updated_at?: string
+          updated_by?: string | null
+          version?: string
+        }
+        Relationships: []
+      }
       ml_predictions: {
         Row: {
           event_id: string | null
@@ -2244,6 +2274,29 @@ export type Database = {
         Args: { p_id?: string; p_table: string; p_values?: Json }
         Returns: string
       }
+      organizer_list_credential_directory: {
+        Args: never
+        Returns: {
+          facial_consent_recorded_at: string | null
+          facial_created_at: string | null
+          facial_enrolled_at: string | null
+          facial_id: string | null
+          facial_last_verified_at: string | null
+          facial_status: string | null
+          facial_updated_at: string | null
+          qr_created_at: string | null
+          qr_credential_status: string | null
+          qr_expires_at: string | null
+          qr_id: string | null
+          qr_issued_at: string | null
+          qr_last_successful_check_in_at: string | null
+          qr_revoked_at: string | null
+          qr_updated_at: string | null
+          student_id: string
+          student_name: string
+          student_number: string
+        }[]
+      }
       admin_recover_attendance_session: {
         Args: { p_reason: string; p_session_id: string }
         Returns: {
@@ -2303,9 +2356,17 @@ export type Database = {
         Args: { p_changes: Json; p_settings_id: string }
         Returns: undefined
       }
+      admin_publish_legal_document: {
+        Args: { p_document_type: string; p_expected_version?: string | null; p_sections: Json }
+        Returns: { document_type: string; published_at: string; sections: Json; version: string }[]
+      }
       advance_event_attendance_capture_phase: {
         Args: { p_session_id: string }
         Returns: string
+      }
+      get_published_legal_document: {
+        Args: { p_document_type: string }
+        Returns: { document_type: string; published_at: string; sections: Json; version: string }[]
       }
       cancel_organizer_event: {
         Args: { p_event_id: string; p_reason: string }

@@ -69,7 +69,7 @@ test("organizer accounts keep the organizer dashboard", async ({ page }) => {
   await expect(page).toHaveURL(/\/organizer\/dashboard$/u);
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("href", "/organizer/events");
-  await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("href", "/organizer/settings");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Profile", exact: true })).toHaveAttribute("href", "/organizer/profile");
   await expect(page.getByText("Organizer Workspace", { exact: true })).toBeVisible();
 });

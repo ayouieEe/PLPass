@@ -419,6 +419,8 @@ export type OrganizerBranding = {
   collegeName: string;
   collegeLogoPath?: string;
   collegeLogoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
   updatedAt?: ISODateString;
 };
 
@@ -480,6 +482,15 @@ export type SystemSettings = {
   allowedVerificationMethods: Array<"qr" | "facial">;
   sensitiveActionReasonRequired: boolean;
   updatedAt: ISODateString;
+};
+
+export type LegalDocumentType = "terms" | "privacy";
+export type LegalSection = { heading: string; body: string };
+export type LegalDocument = {
+  documentType: LegalDocumentType;
+  sections: LegalSection[];
+  version: string;
+  publishedAt: ISODateString;
 };
 
 export type InstitutionSettings = Pick<SystemSettings, "institutionName" | "currentSchoolYear" | "currentSemesterId">;

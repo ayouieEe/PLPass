@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync("supabase/migrations/20260925120000_tighten_admin_organizer_notifications.sql", "utf8");
+const liveSessionMigration = readFileSync("supabase/migrations/20260930150000_route_event_started_notifications_to_live_session.sql", "utf8");
 const notificationsPage = readFileSync("src/pages/NotificationsPage.tsx", "utf8");
 const settingsPage = readFileSync("src/features/organizer/pages/OrganizerSettingsPage.tsx", "utf8");
 
@@ -23,6 +24,13 @@ describe("tightened admin and organizer notification delivery", () => {
     expect(notificationsPage).not.toContain('return [{ label: "Open action"');
     expect(notificationsPage).toContain('notification.code === "account.status_changed"');
     expect(notificationsPage).toContain('notification.code === "event.lifecycle.unstarted"');
+  });
+
+  it("routes started-event notifications to the exact live session for admins", () => {
+    expect(liveSessionMigration).toContain("'/admin/events?session=' || new.id::text");
+    expect(liveSessionMigration).toContain("'/department/events?session=' || new.id::text");
+    expect(notificationsPage).toContain('label: "View live attendance"');
+    expect(notificationsPage).toContain("isLiveAttendanceNotification");
   });
 
   it("removes the obsolete event approval setting from active settings UI", () => {

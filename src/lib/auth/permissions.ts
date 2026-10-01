@@ -8,7 +8,7 @@ export const CAPABILITIES = [
   "credentials.use.owned_event", "credentials.reset.owned_event", "credentials.revoke.owned_event", "credentials.read.department", "credentials.reset", "credentials.revoke", "credentials.reset.department", "credentials.revoke.department",
   "system.settings.manage", "system.catalog.manage", "system.health.read", "system.health.read.department", "system.errors.read", "system.jobs.retry",
   "system.data_check.run", "system.cache.refresh",
-  "audit.read.own", "audit.read.all", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own",
+  "audit.read.own", "audit.read.all", "audit.export", "profile.manage.own", "notifications.read.own",
   "departments.read.owned", "departments.branding.manage.owned", "events.read.department",
   "attendance.read.department",
   "analytics.read.department", "audit.read.department", "audit.export.department",
@@ -21,7 +21,7 @@ const organizerCapabilities = [
   "events.create", "events.read.owned", "events.manage.owned", "attendance.read.owned", "attendance.manage.owned",
   "corrections.review.owned", "analytics.read.owned", "credentials.use.owned_event", "credentials.reset.owned_event", "credentials.revoke.owned_event",
   "students.read.event_invite_directory",
-  "audit.read.own", "audit.export", "profile.manage.own", "settings.manage.own", "notifications.read.own"
+  "audit.read.own", "audit.export", "profile.manage.own", "notifications.read.own"
 ] as const satisfies readonly Capability[];
 
 const adminCapabilities = [

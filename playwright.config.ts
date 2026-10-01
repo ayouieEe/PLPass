@@ -18,7 +18,10 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: `npm run build && npm run preview -- --host 127.0.0.1 --port ${testServerPort}`,
+    // The E2E suite seeds the test-only development session in localStorage.
+    // Build the preview with Vite's test mode so DevelopmentSessionProvider
+    // restores that session instead of redirecting every test to login.
+    command: `npm run build -- --mode test && npm run preview -- --host 127.0.0.1 --port ${testServerPort}`,
     url: testServerUrl,
     reuseExistingServer: process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "true",
     timeout: 120 * 1000,

@@ -95,7 +95,9 @@ describe("organizer route access", () => {
     expect(await screen.findByRole("heading", { name: /^Dashboard$/i })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "organizer navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
-    expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
+    expect(screen.getByText("Upcoming Events")).toBeInTheDocument();
+    expect(screen.getByText("Attendance Needing Attention")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View Upcoming Events" })).toHaveAttribute("href", "/organizer/events?tab=incoming");
     expect(within(screen.getByRole("main")).queryByText("Correction Requests")).not.toBeInTheDocument();
   });
 
@@ -395,16 +397,13 @@ describe("organizer UI flows", () => {
     expect(screen.getByRole("link", { name: "Authentication Methods" })).toHaveAttribute("href", "/admin/credentials");
   });
 
-  it("keeps organizer settings focused on personal workspace controls", async () => {
+  it("does not expose a dedicated organizer settings page", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/settings");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
-    expect(screen.queryByText("College branding")).not.toBeInTheDocument();
-    expect(screen.getByText("Notification preferences")).toBeInTheDocument();
-    expect(screen.queryByText("Academic structure")).not.toBeInTheDocument();
-    expect(screen.queryByText("Manage the configuration that controls PLPass operations.")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
+    expect(screen.queryByText("Notification preferences")).not.toBeInTheDocument();
   });
 
   it("keeps global configuration in the admin settings workspace", async () => {

@@ -30,12 +30,10 @@ import {
   formatAuditAction,
   getAuditTargetInfo,
   getAuditLogDetailItems,
+  removeLegacyDuplicateAuditLogs,
   filterAuditLogs,
   type AuditLogFilters
 } from "../utils/auditLogUtils";
-
-const AUDIT_ACTOR_ROLE_OPTIONS = ["admin", "department_admin", "organizer", "student"];
-const DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS = ["department_admin", "organizer", "student"];
 
 function AuditLogsExportModal({ isOpen, recordCount, onClose, onExport }: { isOpen: boolean; recordCount: number; onClose: () => void; onExport: (format: "xlsx" | "pdf") => Promise<void> }) {
   const [format, setFormat] = useState<"xlsx" | "pdf">("xlsx");
@@ -73,7 +71,6 @@ export function OrganizerAuditLogsPage() {
       setCustomEndDate("");
     }
   };
-  const [actorRole, setActorRole] = useState("all");
   const [actionCategory, setActionCategory] = useState<AuditLogFilters["actionCategory"]>("all");
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
@@ -96,7 +93,7 @@ export function OrganizerAuditLogsPage() {
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
   const rawLogs = useMemo(
-    () => auditLogsQuery.data?.items ?? [],
+    () => removeLegacyDuplicateAuditLogs(auditLogsQuery.data?.items ?? []),
     [auditLogsQuery.data?.items]
   );
 
@@ -166,10 +163,9 @@ export function OrganizerAuditLogsPage() {
       datePreset,
       customStartDate,
       customEndDate,
-      actorRole,
       actionCategory
     }),
-    [search, datePreset, customStartDate, customEndDate, actorRole, actionCategory]
+    [search, datePreset, customStartDate, customEndDate, actionCategory]
   );
 
   const filteredLogs = useMemo(
@@ -181,7 +177,6 @@ export function OrganizerAuditLogsPage() {
     Boolean(search) ||
     datePreset !== "all" ||
     Boolean(customStartDate || customEndDate) ||
-    actorRole !== "all" ||
     actionCategory !== "all";
 
   function handleClearFilters() {
@@ -189,7 +184,6 @@ export function OrganizerAuditLogsPage() {
     setDatePreset("all");
     setCustomStartDate("");
     setCustomEndDate("");
-    setActorRole("all");
     setActionCategory("all");
   }
 
@@ -219,25 +213,6 @@ export function OrganizerAuditLogsPage() {
     if (session?.userId === userId) return { name: session.displayName || "Current user", role: session.role };
     return { name: "Deleted account", role: "User", identifier: userId ? `ID ${userId.slice(0, 8)}` : undefined };
   }
-
-  const actorRoleOptions = useMemo(
-    () => {
-      if (isDepartmentAdmin) return DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS;
-
-      const rolesInHistory = rawLogs.map((log) => {
-        const currentRole = usersQuery.data?.items.find((user) => user.id === log.actorUserId)?.role;
-        return (currentRole ?? log.actorRole ?? "").toLowerCase();
-      }).filter(Boolean);
-      return [...AUDIT_ACTOR_ROLE_OPTIONS, ...rolesInHistory.filter((role) => !AUDIT_ACTOR_ROLE_OPTIONS.includes(role))];
-    },
-    [isDepartmentAdmin, rawLogs, usersQuery.data?.items]
-  );
-
-  useEffect(() => {
-    if (isDepartmentAdmin && !DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS.includes(actorRole) && actorRole !== "all") {
-      setActorRole("all");
-    }
-  }, [actorRole, isDepartmentAdmin]);
 
   function formatRole(role: string) {
     if (role === "admin") return "University Admin";
@@ -391,7 +366,7 @@ export function OrganizerAuditLogsPage() {
           </div>
 
           {/* Multi-Filter Controls */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-border/50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-border/50">
             {/* Date Range Filter */}
             <div className="flex flex-col gap-1">
               <label htmlFor="audit-filter-date" className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
@@ -412,25 +387,6 @@ export function OrganizerAuditLogsPage() {
               </select>
             </div>
 
-            {/* Performer Role Filter */}
-            <div className="flex flex-col gap-1">
-              <label htmlFor="audit-filter-role" className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                <UserIcon className="h-3 w-3" />
-                Role
-              </label>
-              <select
-                id="audit-filter-role"
-                className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                value={actorRole}
-                onChange={(e) => setActorRole(e.target.value)}
-              >
-                <option value="all">All Roles</option>
-                {actorRoleOptions.map((role) => (
-                  <option key={role} value={role}>{formatRole(role)}</option>
-                ))}
-              </select>
-            </div>
-
             {/* Action Type Filter */}
             <div className="flex flex-col gap-1">
               <label htmlFor="audit-filter-action" className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
@@ -445,11 +401,10 @@ export function OrganizerAuditLogsPage() {
               >
                 <option value="all">All Action Types</option>
                 <option value="credentials">Credentials (QR / Facial)</option>
-                <option value="events">Events</option>
+                <option value="events">Events & Resources</option>
                 <option value="attendance">Attendance & Sessions</option>
                 <option value="correction">Correction Requests</option>
-                <option value="user">User Management</option>
-                <option value="system">System & Other</option>
+                <option value="account">Account & Exports</option>
               </select>
             </div>
           </div>

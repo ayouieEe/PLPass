@@ -4,7 +4,7 @@ import { LEGAL_DOCUMENTS, LEGAL_POLICY_VERSION, type LegalDocumentType } from "@
 const localAcceptanceKey = "plpass-legal-acceptance";
 
 function isLocalMode() {
-  return import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test";
+  return import.meta.env.MODE === "test";
 }
 
 function isTestMode() {
@@ -25,19 +25,27 @@ export async function getLegalAcceptanceStatus(userId: string): Promise<Record<L
   // its seeded development identities like unit-test identities so journeys
   // test their intended workspace instead of being diverted by the real
   // Supabase legal-acceptance gate.
-  if (isTestMode() || import.meta.env.VITE_DATA_SOURCE === "mock") return { terms: true, privacy: true };
+  if (isTestMode()) return { terms: true, privacy: true };
   if (isLocalMode()) {
     const accepted = getLocalAcceptances(userId);
     return { terms: accepted.has("terms"), privacy: accepted.has("privacy") };
   }
-  const { data, error } = await getSupabaseBrowserClient()
+  const client = getSupabaseBrowserClient();
+  const versions = await Promise.all((Object.keys(LEGAL_DOCUMENTS) as LegalDocumentType[]).map(async (documentType) => {
+    const { data, error } = await client.rpc("get_published_legal_document" as never, { p_document_type: documentType } as never);
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as { version?: string } | null;
+    return [documentType, row?.version ?? ""] as const;
+  }));
+  const currentVersions = Object.fromEntries(versions) as Record<LegalDocumentType, string>;
+  const { data, error } = await client
     .from("legal_acceptances")
-    .select("document_type")
+    .select("document_type, document_version")
     .eq("user_id", userId)
-    .eq("document_version", LEGAL_POLICY_VERSION);
+    .in("document_version", Object.values(currentVersions));
   if (error) throw error;
-  const accepted = new Set((data ?? []).map((row) => row.document_type));
-  return { terms: accepted.has("terms"), privacy: accepted.has("privacy") };
+  const accepted = new Set((data ?? []).map((row) => `${row.document_type}:${row.document_version}`));
+  return { terms: accepted.has(`terms:${currentVersions.terms}`), privacy: accepted.has(`privacy:${currentVersions.privacy}`) };
 }
 
 export async function acceptCurrentLegalDocuments(userId: string) {
@@ -49,9 +57,17 @@ export async function acceptCurrentLegalDocuments(userId: string) {
     return;
   }
   const current = await getLegalAcceptanceStatus(userId);
+  const client = getSupabaseBrowserClient();
+  const versions = await Promise.all((Object.keys(LEGAL_DOCUMENTS) as LegalDocumentType[]).map(async (documentType) => {
+    const { data, error } = await client.rpc("get_published_legal_document" as never, { p_document_type: documentType } as never);
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as { version?: string } | null;
+    return [documentType, row?.version ?? ""] as const;
+  }));
+  const currentVersions = Object.fromEntries(versions) as Record<LegalDocumentType, string>;
   const rows = (["terms", "privacy"] as LegalDocumentType[])
     .filter((documentType) => !current[documentType])
-    .map((documentType) => ({ user_id: userId, document_type: documentType, document_version: LEGAL_POLICY_VERSION }));
+    .map((documentType) => ({ user_id: userId, document_type: documentType, document_version: currentVersions[documentType] }));
   if (rows.length === 0) return;
   const { error } = await getSupabaseBrowserClient().from("legal_acceptances").insert(rows);
   if (error) throw error;

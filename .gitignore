@@ -1,4 +1,5 @@
 node_modules
+.npm-cache/
 .venv/
 .venv-broken/
 __pycache__/

@@ -487,7 +487,7 @@ export function EventDetailsPage() {
   useEffect(() => {
     // Invitation delivery status is supplied by a live Edge Function. Mock and
     // unit-test workspaces intentionally run without Supabase credentials.
-    if (isOfflineMode || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test" || !selectedEvent || !eventId || !scope.organizerId) {
+    if (isOfflineMode || import.meta.env.MODE === "test" || !selectedEvent || !eventId || !scope.organizerId) {
       setInvitationStatuses([]);
       return undefined;
     }

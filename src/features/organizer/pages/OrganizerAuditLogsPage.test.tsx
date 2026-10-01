@@ -9,7 +9,9 @@ import {
   formatTargetType,
   getAuditTargetInfo,
   getAuditLogDetailItems,
-  filterAuditLogs
+  filterAuditLogs,
+  auditActionCategory,
+  removeLegacyDuplicateAuditLogs
 } from "../utils/auditLogUtils";
 import type { AuditLog } from "@/types/domain";
 
@@ -92,6 +94,18 @@ describe("auditLogUtils helper unit tests", () => {
     const eventLogs = filterAuditLogs(logs, { actionCategory: "events" });
     expect(eventLogs).toHaveLength(1);
     expect(eventLogs[0].id).toBe("2");
+
+    expect(auditActionCategory(logs[2])).toBe("account");
+  });
+
+  it("hides only legacy client duplicates that match an authoritative server record", () => {
+    const logs: AuditLog[] = [
+      { id: "server-end", actorUserId: "organizer-1", action: "attendance_session.ended", targetType: "event_session", targetId: "session-1", timestamp: "2026-09-30T00:42:00.000Z", metadata: {} },
+      { id: "client-end", actorUserId: "organizer-1", action: "Ended Live Session", targetType: "attendance_session", targetId: "session-1", timestamp: "2026-09-30T00:42:01.000Z", metadata: {} },
+      { id: "unmatched-client", actorUserId: "organizer-1", action: "Ended Live Session", targetType: "attendance_session", targetId: "session-2", timestamp: "2026-09-30T00:43:00.000Z", metadata: {} }
+    ];
+
+    expect(removeLegacyDuplicateAuditLogs(logs).map((log) => log.id)).toEqual(["server-end", "unmatched-client"]);
   });
 
   it("returns curated details and excludes technical or sensitive metadata", () => {
@@ -176,19 +190,16 @@ describe("OrganizerAuditLogsPage UI component tests", () => {
     });
   });
 
-  it("filters audit logs by actor role instead of a specific user", async () => {
+  it("does not show a role filter because organizer audit records are already owner scoped", async () => {
     storeSession(organizerSession);
     setRoute("/organizer/audit-logs");
     render(<App />);
-    const user = userEvent.setup();
 
-    const roleSelect = await screen.findByLabelText(/^role$/i);
-    await user.selectOptions(roleSelect, "organizer");
-
-    await waitFor(() => {
-      expect(screen.getByText("QR credential issued")).toBeInTheDocument();
-      expect(screen.queryByText("Event approved")).not.toBeInTheDocument();
-    });
+    expect(await screen.findByRole("heading", { name: /^audit logs$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^role$/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Account & Exports" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "User Management" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "System & Other" })).not.toBeInTheDocument();
   });
 
   it("opens log details modal when 'View details' button is clicked", async () => {
