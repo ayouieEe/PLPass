@@ -58,6 +58,10 @@ function notificationHasUserAction(notification: Notification, role?: string) {
   return role === "organizer" && (notification.code === "correction.review_requested" || notification.code === "event.lifecycle.unstarted");
 }
 
+function isLiveAttendanceNotification(notification: Notification, role?: string) {
+  return (role === "admin" || role === "department_admin") && notification.code === "event.started" && Boolean(trustedActionUrl(notification));
+}
+
 function notificationActions(notification: Notification, role?: string): NotificationAction[] {
   const code = `${notification.code ?? ""} ${notification.title}`.toLowerCase();
   if (role === "student" && code.includes("feedback")) return [{ label: "Answer feedback", to: `${APP_ROUTES.studentAttendance}?pendingTasks=1` }];
@@ -73,6 +77,9 @@ function notificationActions(notification: Notification, role?: string): Notific
     ];
   }
   if (role === "organizer" && notification.type === "correction") return [{ label: "Review correction", to: APP_ROUTES.organizerCorrections }];
+  if ((role === "admin" || role === "department_admin") && notification.code === "event.started" && actionUrl) {
+    return [{ label: "View live attendance", to: actionUrl }];
+  }
   return [];
 }
 
@@ -289,11 +296,23 @@ export function NotificationsPage() {
                 tabIndex={0}
                 aria-label={`Open notification: ${cleanNotificationText(notification.title)}`}
                 className="min-w-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                onClick={() => setSelectedNotification(notification)}
+                onClick={() => {
+                  if (isLiveAttendanceNotification(notification, session?.role)) {
+                    if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
+                    navigate(trustedActionUrl(notification) ?? APP_ROUTES.notifications);
+                    return;
+                  }
+                  setSelectedNotification(notification);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    setSelectedNotification(notification);
+                    if (isLiveAttendanceNotification(notification, session?.role)) {
+                      if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
+                      navigate(trustedActionUrl(notification) ?? APP_ROUTES.notifications);
+                    } else {
+                      setSelectedNotification(notification);
+                    }
                   }
                 }}
               >

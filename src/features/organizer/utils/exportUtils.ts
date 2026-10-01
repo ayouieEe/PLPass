@@ -318,20 +318,20 @@ export type ExportFacialProfileRow = {
   lastScan: string;
 };
 
-export async function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[]) {
-  await exportReportXlsx({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })) });
+export async function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[], scope?: ReportExportScope) {
+  await exportReportXlsx({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })), scope });
 }
 
-export async function exportQrCredentialsPdf(rows: ExportQrCredentialRow[]) {
-  await exportReportPdf({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })) });
+export async function exportQrCredentialsPdf(rows: ExportQrCredentialRow[], scope?: ReportExportScope) {
+  await exportReportPdf({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })), scope });
 }
 
-export async function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[]) {
-  await exportReportXlsx({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })) });
+export async function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[], scope?: ReportExportScope) {
+  await exportReportXlsx({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })), scope });
 }
 
-export async function exportFacialProfilesPdf(rows: ExportFacialProfileRow[]) {
-  await exportReportPdf({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })) });
+export async function exportFacialProfilesPdf(rows: ExportFacialProfileRow[], scope?: ReportExportScope) {
+  await exportReportPdf({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })), scope });
 }
 
 

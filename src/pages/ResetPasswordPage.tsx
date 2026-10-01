@@ -22,7 +22,7 @@ export function ResetPasswordPage() {
   useEffect(() => {
     let active = true;
     async function establishRecoverySession() {
-      if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+      if (import.meta.env.MODE === "test") {
         if (active) {
           setIsRecoveryReady(true);
           setIsCheckingRecovery(false);
@@ -57,7 +57,7 @@ export function ResetPasswordPage() {
     setError(null);
     setSubmitting(true);
     try {
-      if (import.meta.env.VITE_DATA_SOURCE !== "mock" && import.meta.env.MODE !== "test") {
+      if (import.meta.env.MODE !== "test") {
         await saveRecoveredPassword(getSupabaseBrowserClient(), parsed.data.password);
       }
       navigate(APP_ROUTES.login, { replace: true, state: { passwordReset: true } });

@@ -27,6 +27,9 @@ import type {
   SystemHealthIssue,
   SystemHealthSnapshot,
   FailedNotificationJob,
+  LegalDocument,
+  LegalDocumentRepository,
+  LegalDocumentType,
   SystemSettingsRepository,
   UserManagementRepository
 } from "@/services/contracts";
@@ -382,6 +385,12 @@ function requireOrganizerContext(context?: { actorRole?: string }) {
   }
 }
 
+function requireStaffConfigurationContext(context?: { actorRole?: string }) {
+  if (context?.actorRole && !["organizer", "department_admin", "admin"].includes(context.actorRole)) {
+    throw new RepositoryError("Only staff accounts can read organizer-scoped configuration.", "PERMISSION_DENIED");
+  }
+}
+
 function requireDepartmentCredentialCapability(context: { actorRole?: string } | undefined, capability: "credentials.reset.department" | "credentials.revoke.department") {
   if (context?.actorRole === "department_admin" && !hasCapability("department_admin", capability)) {
     throw new RepositoryError("Your department-admin account cannot perform this credential action.", "PERMISSION_DENIED");
@@ -670,7 +679,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const row = await selectSingleRowWithColumns("organizers", organizerId, "id, department_id, organization_name, college_logo_path, updated_at");
     const departmentId = typeof row.department_id === "string" ? row.department_id : undefined;
     const department = departmentId
-      ? await selectSingleRowWithColumns("departments", departmentId, "department_name, brand_name_override, logo_path, updated_at")
+      ? await selectSingleRowWithColumns("departments", departmentId, "department_name, brand_name_override, logo_path, primary_color, secondary_color, updated_at")
       : undefined;
     const collegeName = department
       ? (typeof department.brand_name_override === "string" && department.brand_name_override.trim() ? department.brand_name_override : String(department.department_name ?? "PLP"))
@@ -683,6 +692,8 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       collegeName,
       collegeLogoPath,
       collegeLogoUrl: await signedBrandingUrl(collegeLogoPath),
+      primaryColor: typeof department?.primary_color === "string" ? department.primary_color : undefined,
+      secondaryColor: typeof department?.secondary_color === "string" ? department.secondary_color : undefined,
       updatedAt: typeof department?.updated_at === "string" ? department.updated_at : typeof row.updated_at === "string" ? row.updated_at : undefined
     };
   },
@@ -1982,6 +1993,25 @@ export const supabaseStudentCredentialRepository: StudentCredentialRepository = 
     }
     return [...statuses.values()];
   },
+  async listOrganizerCredentialDirectory(context) {
+    if (context?.actorRole !== "organizer") {
+      throw new RepositoryError("Only organizers can access the organizer credential directory.", "PERMISSION_DENIED");
+    }
+    const client = getSupabaseBrowserClient();
+    const { data, error } = await client.rpc("organizer_list_credential_directory" as never);
+    throwIfSupabaseError(error);
+
+    return ((data ?? []) as unknown as Row[]).map((row) => ({
+      studentId: String(row.student_id ?? ""),
+      studentNumber: String(row.student_number ?? ""),
+      studentName: String(row.student_name ?? ""),
+      credentialStatus: {
+        studentId: String(row.student_id ?? ""),
+        qrCredential: row.qr_id ? mapQrCredential({ id: row.qr_id, student_id: row.student_id, credential_status: row.qr_credential_status, issued_at: row.qr_issued_at, expires_at: row.qr_expires_at, revoked_at: row.qr_revoked_at, last_successful_check_in_at: row.qr_last_successful_check_in_at, created_at: row.qr_created_at, updated_at: row.qr_updated_at } as Row) : undefined,
+        facialProfile: row.facial_id ? mapFacialProfile({ id: row.facial_id, student_id: row.student_id, facial_status: row.facial_status, enrolled_at: row.facial_enrolled_at, last_verified_at: row.facial_last_verified_at, consent_recorded_at: row.facial_consent_recorded_at, created_at: row.facial_created_at, updated_at: row.facial_updated_at } as Row) : undefined
+      }
+    })).filter((entry) => entry.studentId && entry.studentNumber);
+  },
   async getStudentCredentialStatus(studentId, context) {
     const scopedStudentId = context?.actorRole === "student"
       ? await currentStudentIdForProfile(context.actorUserId)
@@ -2401,7 +2431,7 @@ export const supabaseAnalyticsMlRepository: AnalyticsMlRepository = {
 
 export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
   async getSettings(context): Promise<SystemSettings> {
-    requireOrganizerContext(context);
+    requireStaffConfigurationContext(context);
     const client = getSupabaseBrowserClient();
     const { data, error } = await client
       .from("system_settings" as never)
@@ -2483,6 +2513,37 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
     const { error } = await client.rpc("admin_update_system_settings" as never, { p_settings_id: current.id, p_changes: changes } as never);
     throwIfSupabaseError(error);
     return supabaseSystemSettingsRepository.getSettings(context);
+  }
+};
+
+function mapLegalDocument(row: Record<string, unknown>): LegalDocument {
+  const sections = Array.isArray(row.sections) ? row.sections : [];
+  return {
+    documentType: row.document_type as LegalDocumentType,
+    sections: sections.filter((section): section is { heading: string; body: string } => Boolean(section && typeof section === "object" && typeof (section as Record<string, unknown>).heading === "string" && typeof (section as Record<string, unknown>).body === "string")).map((section) => ({ heading: section.heading, body: section.body })),
+    version: String(row.version ?? ""),
+    publishedAt: String(row.published_at ?? new Date().toISOString())
+  };
+}
+
+export const supabaseLegalDocumentRepository: LegalDocumentRepository = {
+  async getPublished(documentType) {
+    const { data, error } = await getSupabaseBrowserClient().rpc("get_published_legal_document" as never, { p_document_type: documentType } as never);
+    throwIfSupabaseError(error);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new RepositoryError("The published legal document could not be loaded.", "NOT_FOUND");
+    return mapLegalDocument(row as Record<string, unknown>);
+  },
+  async publish(documentType, sections, expectedVersion, context) {
+    requireAdminContext(context);
+    if (!Array.isArray(sections) || sections.length < 1 || sections.length > 40 || sections.some((section) => !section.heading.trim() || !section.body.trim() || section.heading.length > 200 || section.body.length > 12000)) {
+      throw new RepositoryError("Each legal section needs a heading and body within the allowed length.", "VALIDATION_ERROR");
+    }
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_publish_legal_document" as never, { p_document_type: documentType, p_sections: sections as unknown as Json, p_expected_version: expectedVersion ?? null } as never);
+    throwIfSupabaseError(error);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new RepositoryError("The legal document was not published.", "SERVER_ERROR");
+    return mapLegalDocument(row as Record<string, unknown>);
   }
 };
 
@@ -2680,6 +2741,7 @@ export const supabaseRepositoryRegistry: RepositoryRegistry = {
   auditLogs: supabaseAuditLogRepository,
   analyticsMl: supabaseAnalyticsMlRepository,
   systemSettings: supabaseSystemSettingsRepository,
+  legalDocuments: supabaseLegalDocumentRepository,
   systemHealth: supabaseSystemHealthRepository
 };
 

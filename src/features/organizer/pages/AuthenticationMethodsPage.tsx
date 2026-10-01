@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useOrganizerProfiles, useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useStudentsByIds, useAuditLogMutations, useEvents, useParticipantsForEvents } from "@/hooks/useRepositoryQueries";
+import { useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations, useOrganizerCredentialDirectory } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
+import type { ReportExportScope } from "@/lib/exports/reportExport";
 import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
 import { dateKey, formatDateTime, formatDisplayDate } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
@@ -96,11 +97,7 @@ function useOrganizerScope() {
     () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
-  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, session?.role === "organizer");
-  return {
-    context,
-    organizerProfile: organizerQuery.data?.items[0]
-  };
+  return { context };
 }
 
 function facialTone(status: FacialStatus) {
@@ -254,6 +251,7 @@ function ReportExportModal({
   qrRows,
   facialRows,
   activeTab,
+  exportScope,
   onExportAction
 }: {
   isOpen: boolean;
@@ -261,6 +259,7 @@ function ReportExportModal({
   qrRows: QrRow[];
   facialRows: FacialRow[];
   activeTab: ActiveTab;
+  exportScope?: ReportExportScope;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
   const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
@@ -297,10 +296,10 @@ function ReportExportModal({
         lastUsed: r.lastUsed
       }));
       if (exportFormat === "xlsx") {
-        await exportTools.exportQrCredentialsXlsx(data);
+        await exportTools.exportQrCredentialsXlsx(data, exportScope);
         toast.success(`Exported ${data.length} QR credential record(s) as XLSX.`);
       } else {
-        await exportTools.exportQrCredentialsPdf(data);
+        await exportTools.exportQrCredentialsPdf(data, exportScope);
         toast.success(`Exported ${data.length} QR credential record(s) as PDF.`);
       }
     } else {
@@ -312,10 +311,10 @@ function ReportExportModal({
         lastScan: r.lastScan
       }));
       if (exportFormat === "xlsx") {
-        await exportTools.exportFacialProfilesXlsx(data);
+        await exportTools.exportFacialProfilesXlsx(data, exportScope);
         toast.success(`Exported ${data.length} facial enrollment record(s) as XLSX.`);
       } else {
-        await exportTools.exportFacialProfilesPdf(data);
+        await exportTools.exportFacialProfilesPdf(data, exportScope);
         toast.success(`Exported ${data.length} facial enrollment record(s) as PDF.`);
       }
     }
@@ -475,30 +474,17 @@ export function AuthenticationMethodsPage() {
   const actorRole = scope.context?.actorRole;
   const isDepartmentAdmin = actorRole === "department_admin";
   const isReadOnly = actorRole !== "organizer" && actorRole !== "admin" && actorRole !== "department_admin";
-  // Only organizers need event/participant lookups to derive their credential
-  // scope. Admin and department-admin screens use their own student scope.
-  const eventsQuery = useEvents({ pageSize: 500 }, scope.context, actorRole === "organizer");
-  const ownedEventIds = useMemo(
-    () => actorRole === "organizer"
-      ? (eventsQuery.data?.items ?? []).filter((event) => event.organizerId === scope.organizerProfile?.id).map((event) => event.id)
-      : [],
-    [actorRole, eventsQuery.data?.items, scope.organizerProfile?.id]
-  );
-  const participantsQuery = useParticipantsForEvents(ownedEventIds, scope.context);
-  const organizerParticipantIds = useMemo(
-    () => [...new Set((participantsQuery.data ?? []).map((participant) => participant.studentId))],
-    [participantsQuery.data]
-  );
+  const organizerDirectoryQuery = useOrganizerCredentialDirectory(scope.context, actorRole === "organizer");
   const allStudentsQuery = useStudents({ pageSize: 100 }, scope.context, actorRole !== "organizer");
-  const organizerStudentsQuery = useStudentsByIds(organizerParticipantIds, scope.context);
-  const studentsQuery = actorRole === "organizer" ? organizerStudentsQuery : allStudentsQuery;
+  const studentsQuery = actorRole === "organizer" ? organizerDirectoryQuery : allStudentsQuery;
   const departmentStudentIds = useMemo(
     () => isDepartmentAdmin ? (allStudentsQuery.data?.items ?? []).map((student) => student.id) : [],
     [allStudentsQuery.data?.items, isDepartmentAdmin]
   );
   const credentialStatusesQuery = useStudentCredentialStatuses(
     scope.context,
-    actorRole === "organizer" ? organizerParticipantIds : actorRole === "department_admin" ? departmentStudentIds : undefined
+    actorRole === "department_admin" ? departmentStudentIds : undefined,
+    actorRole !== "organizer"
   );
   const credentialMutations = useStudentCredentialMutations(scope.context);
   const auditLogMutations = useAuditLogMutations(scope.context);
@@ -514,9 +500,9 @@ export function AuthenticationMethodsPage() {
       : actorRole === "admin" && hasCapability(actorRole, "credentials.revoke"));
 
   const rawStudents = useMemo(() => {
-    if (actorRole === "organizer") return organizerStudentsQuery.data ?? [];
+    if (actorRole === "organizer") return (organizerDirectoryQuery.data ?? []).map((entry) => ({ id: entry.studentId, studentNumber: entry.studentNumber, formattedName: entry.studentName, fullName: entry.studentName }));
     return allStudentsQuery.data?.items ?? [];
-  }, [actorRole, organizerStudentsQuery.data, allStudentsQuery.data?.items]);
+  }, [actorRole, organizerDirectoryQuery.data, allStudentsQuery.data?.items]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("qr");
   const [searchQuery, setSearchQuery] = useState("");
@@ -536,8 +522,8 @@ export function AuthenticationMethodsPage() {
   }>(null);
 
   const credentialMap = useMemo(
-    () => new Map((credentialStatusesQuery.data ?? []).map((status) => [status.studentId, status])),
-    [credentialStatusesQuery.data]
+    () => new Map((actorRole === "organizer" ? (organizerDirectoryQuery.data ?? []).map((entry) => entry.credentialStatus) : (credentialStatusesQuery.data ?? [])).map((status) => [status.studentId, status])),
+    [actorRole, credentialStatusesQuery.data, organizerDirectoryQuery.data]
   );
 
   const qrRows = useMemo<QrRow[]>(() => rawStudents.map((student) => {
@@ -1074,6 +1060,7 @@ export function AuthenticationMethodsPage() {
         qrRows={filteredQrRows}
         facialRows={filteredFacialRows}
         activeTab={activeTab}
+        exportScope={actorRole === "department_admin" && scope.context?.departmentId ? { type: "department", departmentId: scope.context.departmentId } : undefined}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({
             action,

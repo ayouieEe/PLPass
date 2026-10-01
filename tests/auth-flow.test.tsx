@@ -81,7 +81,7 @@ describe("mock authentication flow", () => {
     expect(screen.getByRole("link", { name: "User Management" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Reports" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Registered Organizers")).toBeInTheDocument();
+    expect(screen.getByText("Registered Admins")).toBeInTheDocument();
     expect(screen.getByText("Registered Students")).toBeInTheDocument();
     expect(await screen.findByText("Healthy")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "System Health" }).some((link) => link.getAttribute("href") === "/admin/system-health")).toBe(true);

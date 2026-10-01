@@ -44,7 +44,7 @@ export function ForgotPasswordPage() {
     setSubmitting(true);
     setError(null);
     try {
-      if (import.meta.env.VITE_DATA_SOURCE !== "mock" && import.meta.env.MODE !== "test") {
+      if (import.meta.env.MODE !== "test") {
         const redirectTo = `${window.location.origin}${APP_ROUTES.resetPassword}`;
         const { error: resetError } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
         if (resetError) throw resetError;

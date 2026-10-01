@@ -2,7 +2,7 @@ import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { AdminSystemSettingsPage } from "@/features/organizer/pages/OrganizerSettingsPage";
 
-export function AdminSettingsPage({ initialTab }: { initialTab?: "overview" | "academic" | "events" | "attendance" | "notifications" | "access" } = {}) {
+export function AdminSettingsPage({ initialTab }: { initialTab?: "overview" | "academic" | "events" | "attendance" | "notifications" | "access" | "legal" } = {}) {
   const { session } = useDevelopmentSession();
 
   if (session?.role !== "admin") {

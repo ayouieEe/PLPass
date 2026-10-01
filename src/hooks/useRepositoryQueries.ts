@@ -579,7 +579,8 @@ export function useNfcTapAttempts(query?: Partial<ListQuery>, _context?: Reposit
 
 export function useCorrectionRequests(
   query?: Partial<ListQuery>,
-  context?: RepositoryContext
+  context?: RepositoryContext,
+  enabled = true
 ) {
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();
@@ -587,7 +588,7 @@ export function useCorrectionRequests(
     queryKey: ["correctionRequests", listQuery, context],
     queryFn: () => repositories.correctionRequests.listCorrectionRequests(listQuery, context),
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(context)
+    enabled: Boolean(context) && enabled
   });
   const createMutation = useMutation({
     mutationFn: (input: CreateCorrectionRequestInput) =>
@@ -668,6 +669,16 @@ export function useStudentCredentialStatuses(context?: RepositoryContext, studen
     queryKey: ["studentCredentialStatuses", context, normalizedStudentIds],
     queryFn: () => repositories.studentCredentials.listStudentCredentialStatuses(context, normalizedStudentIds),
     enabled: Boolean(context?.actorUserId && enabled && (context.actorRole !== "organizer" || normalizedStudentIds.length))
+  });
+}
+
+export function useOrganizerCredentialDirectory(context?: RepositoryContext, enabled = true) {
+  return useQuery({
+    queryKey: ["organizerCredentialDirectory", context],
+    queryFn: () => boundedDashboardRequest(repositories.studentCredentials.listOrganizerCredentialDirectory(context), "Credential directory"),
+    retry: retryUnlessTimedOut,
+    staleTime: studentCachePolicy.operationalStaleTime,
+    enabled: Boolean(context?.actorUserId && context.actorRole === "organizer" && enabled)
   });
 }
 
@@ -1065,4 +1076,22 @@ export function useSystemSettings(context?: RepositoryContext) {
   });
 
   return { ...settingsQuery, updateMutation };
+}
+
+export function useLegalDocument(documentType: "terms" | "privacy", context?: RepositoryContext) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["legalDocument", documentType],
+    queryFn: () => repositories.legalDocuments.getPublished(documentType)
+  });
+  const publishMutation = useMutation({
+    mutationFn: ({ sections, expectedVersion }: { sections: Array<{ heading: string; body: string }>; expectedVersion?: string }) => repositories.legalDocuments.publish(documentType, sections, expectedVersion, context),
+    onSuccess: async (document) => {
+      queryClient.setQueryData(["legalDocument", documentType], document);
+      await queryClient.invalidateQueries({ queryKey: ["legalDocument", documentType] });
+      toast.success(`${documentType === "terms" ? "Terms of Use" : "Privacy Policy"} published successfully.`);
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+  return { ...query, publishMutation };
 }

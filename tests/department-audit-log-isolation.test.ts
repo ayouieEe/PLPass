@@ -16,10 +16,10 @@ describe("department audit-log isolation", () => {
     expect(migration).not.toContain("target_type = 'event'");
   });
 
-  it("does not offer University Admin in a Department Admin's role filter", () => {
+  it("does not render a role filter for a department audit view", () => {
     const page = read("src/features/organizer/pages/OrganizerAuditLogsPage.tsx");
 
-    expect(page).toContain('const DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS = ["department_admin", "organizer", "student"]');
-    expect(page).toContain("if (isDepartmentAdmin) return DEPARTMENT_AUDIT_ACTOR_ROLE_OPTIONS");
+    expect(page).not.toContain('id="audit-filter-role"');
+    expect(page).not.toContain("All Roles");
   });
 });

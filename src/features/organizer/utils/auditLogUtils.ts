@@ -323,18 +323,45 @@ export interface AuditLogFilters {
   datePreset?: "all" | "today" | "past_7_days" | "past_30_days" | "custom";
   customStartDate?: string;
   customEndDate?: string;
-  actorRole?: string;
-  actionCategory?: "all" | "credentials" | "events" | "attendance" | "correction" | "user" | "system";
+  actionCategory?: "all" | "credentials" | "events" | "attendance" | "correction" | "account";
 }
 
-function auditActionCategory(log: AuditLog): NonNullable<AuditLogFilters["actionCategory"]> {
+export function auditActionCategory(log: AuditLog): NonNullable<AuditLogFilters["actionCategory"]> {
   const value = `${log.action} ${log.targetType}`.toLowerCase();
   if (/(correction|attendance_request)/.test(value)) return "correction";
   if (/(attendance|session|check[-_ ]?in|check[-_ ]?out)/.test(value)) return "attendance";
   if (/(credential|qr|facial|verification)/.test(value)) return "credentials";
+  if (/(export|profile|password)/.test(value)) return "account";
   if (/(event|objective|feedback|resource)/.test(value)) return "events";
-  if (/(user|profile|organizer|admin|student)/.test(value)) return "user";
-  return "system";
+  return "account";
+}
+
+const LEGACY_DUPLICATE_ACTIONS: Readonly<Record<string, string>> = {
+  "ended live session": "attendance_session.ended",
+  "submitted manual attendance": "attendance.manual_recorded"
+};
+
+/**
+ * Older desktop clients wrote a second, client-side audit entry after the
+ * authoritative database procedure had already recorded the same mutation.
+ * Keep the canonical server record visible and preserve the legacy row in the
+ * database for forensics; only suppress it in the audit presentation when its
+ * actor and target exactly match the canonical record.
+ */
+export function removeLegacyDuplicateAuditLogs(logs: AuditLog[]): AuditLog[] {
+  const canonicalKeys = new Set(
+    logs
+      .filter((log) => Boolean(log.actorUserId && log.targetId))
+      .map((log) => `${log.actorUserId}:${log.targetId}:${log.action.trim().toLowerCase()}`)
+  );
+
+  return logs.filter((log) => {
+    const canonicalAction = LEGACY_DUPLICATE_ACTIONS[log.action.trim().toLowerCase()];
+    return !canonicalAction
+      || !log.actorUserId
+      || !log.targetId
+      || !canonicalKeys.has(`${log.actorUserId}:${log.targetId}:${canonicalAction}`);
+  });
 }
 
 export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, lookups?: AuditTargetLookups): AuditLog[] {
@@ -391,15 +418,8 @@ export function filterAuditLogs(logs: AuditLog[], filters: AuditLogFilters, look
       }
     }
 
-    // 3. Actor role filter. Prefer the current profile role, with the
-    // historical audit snapshot retained for deleted or unavailable accounts.
-    if (filters.actorRole && filters.actorRole !== "all") {
-      const currentRole = lookups?.users?.find((user) => user.id === log.actorUserId)?.role;
-      const role = (currentRole ?? log.actorRole ?? "").toLowerCase();
-      if (role !== filters.actorRole) return false;
-    }
-
-    // 4. Action Category filter
+    // 3. Action category filter. The organizer workspace is already scoped
+    // by RLS to the signed-in organizer's own audit history.
     if (filters.actionCategory && filters.actionCategory !== "all") {
       if (auditActionCategory(log) !== filters.actionCategory) return false;
     }

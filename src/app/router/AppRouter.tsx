@@ -30,7 +30,6 @@ const AuthenticationMethodsPage = lazy(() => import("@/features/organizer/pages/
 const OrganizerAnalyticsPage = lazy(() => import("@/features/organizer/pages/OrganizerAnalyticsPage").then((module) => ({ default: module.OrganizerAnalyticsPage })));
 const OrganizerCorrectionRequestsPage = lazy(() => import("@/features/organizer/pages/OrganizerCorrectionRequestsPage").then((module) => ({ default: module.OrganizerCorrectionRequestsPage })));
 const OrganizerAuditLogsPage = lazy(() => import("@/features/organizer/pages/OrganizerAuditLogsPage").then((module) => ({ default: module.OrganizerAuditLogsPage })));
-const OrganizerPersonalSettingsPage = lazy(() => import("@/features/organizer/pages/OrganizerPersonalSettingsPage").then((module) => ({ default: module.OrganizerPersonalSettingsPage })));
 const OrganizerUserManagementPage = lazy(() => import("@/features/organizer/pages/OrganizerUserManagement").then((module) => ({ default: module.OrganizerUserManagementPage })));
 const AdminSystemHealthPage = lazy(() => import("@/features/admin/pages/AdminSystemHealthPage").then((module) => ({ default: module.AdminSystemHealthPage })));
 const DepartmentBrandingPage = lazy(() => import("@/features/department/pages/DepartmentWorkspacePages").then((module) => ({ default: module.DepartmentBrandingPage })));
@@ -49,11 +48,6 @@ const StudentCorrectionRequestsPage = lazy(() => import("@/features/student/page
 const StudentFaqPage = lazy(() => import("@/features/student/pages/StudentFaqPage").then((module) => ({ default: module.StudentFaqPage })));
 const StudentProfilePage = lazy(() => import("@/features/student/pages/StudentProfilePage").then((module) => ({ default: module.StudentProfilePage })));
 const StudentLegalReviewPage = lazy(() => import("@/features/student/pages/StudentLegalReviewPage").then((module) => ({ default: module.StudentLegalReviewPage })));
-
-function AdminOrOrganizerSettingsPage() {
-  const { session } = useDevelopmentSession();
-  return session?.role === "admin" ? <AdminSettingsPage /> : <OrganizerPersonalSettingsPage />;
-}
 
 function AdminOrOrganizerProfilePage() {
   return <ProfilePage />;
@@ -144,9 +138,6 @@ export function AppRouter() {
             </Route>
             <Route element={<RoleRoute allowedRoles={["organizer"]} permission="profile.manage.own" />}>
               <Route path={APP_ROUTES.organizerProfile} element={<AdminOrOrganizerProfilePage />} />
-            </Route>
-            <Route element={<RoleRoute allowedRoles={["organizer"]} permission="settings.manage.own" />}>
-              <Route path={APP_ROUTES.organizerSettings} element={<AdminOrOrganizerSettingsPage />} />
             </Route>
             <Route element={<RoleRoute allowedRoles={["admin"]} />}>
               <Route path={APP_ROUTES.admin} element={<Navigate to={APP_ROUTES.adminDashboard} replace />} />

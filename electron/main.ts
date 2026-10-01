@@ -291,7 +291,14 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   // Pending attendance is a reliability workload. Keep its authenticated
   // renderer coordinator eligible to run when the organizer minimizes the
   // desktop window; the queue itself remains durably persisted in SQLite.
-  const win = new BrowserWindow({ width: 1440, height: 960, webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false } });
+  const win = new BrowserWindow({
+    width: 1440,
+    height: 960,
+    // Use the same PLPass mark as the workspace. Electron accepts the PNG on
+    // Windows and preserves it in the native title bar and taskbar.
+    icon: path.join(rendererDirectory, "plp-logo.png"),
+    webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
+  });
   win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {
     console.error(`PLPass desktop preload failed (${failedPreloadPath}): ${error.stack ?? error.message}`);
   });

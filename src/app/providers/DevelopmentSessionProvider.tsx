@@ -142,7 +142,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const restoreGeneration = authOperationGeneration.current;
     const canApplyRestore = () => isMounted && authOperationGeneration.current === restoreGeneration;
     async function restoreSession() {
-      if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+      if (import.meta.env.MODE === "test") {
         const stored = window.localStorage.getItem("plpass-development-session");
         if (stored) {
           try {
@@ -271,7 +271,12 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           if (shouldSignOutAfterAuthFailure(error) && supabase) {
             void supabase.auth.signOut();
           }
-          setAuthError(error instanceof RequestTimeoutError ? error.message : toSafeAuthErrorMessage(error));
+          // Startup restoration is not a user-initiated sign-in attempt. A
+          // stale token, an interrupted profile lookup, or a temporary
+          // Supabase response must return the user to a clean sign-in form,
+          // not show a generic failure banner before they have done anything.
+          // Explicit sign-in failures remain visible in signInWithPassword.
+          setAuthError(undefined);
           setSession(null);
           setIsSessionRestored(true);
         }
@@ -537,7 +542,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   }, [isOfflineMode, session]);
 
   useEffect(() => {
-    if (!session || isOfflineMode || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+    if (!session || isOfflineMode || import.meta.env.MODE === "test") {
       return;
     }
 
@@ -621,7 +626,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     setAuthError(undefined);
     setOfflineSyncError(undefined);
     queryClient.clear();
-    if (import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") {
+    if (import.meta.env.MODE === "test") {
       const accounts = await repositories.authentication.listDevelopmentAccounts();
       const account = accounts.find((candidate) => candidate.email.toLowerCase() === email.trim().toLowerCase());
       if (!account || !password) {
@@ -716,7 +721,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     setHasOfflineWork(false);
     setIsOfflineMode(false);
     setOfflineResumeAvailable(false);
-    if (wasOffline || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    if (wasOffline || import.meta.env.MODE === "test") return;
     const { error } = await getSupabaseBrowserClient().auth.signOut();
     if (error) throw error;
   }, [isOfflineMode,session]);

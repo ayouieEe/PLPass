@@ -81,13 +81,6 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
       breadcrumbs: [rolePrefix, "Event Records"]
     };
   }
-  if (pathname === "/organizer/settings") {
-    return {
-      title: "Settings",
-      description: "Manage preferences for your Organizer account.",
-      breadcrumbs: [rolePrefix, "Settings"]
-    };
-  }
   if (pathname === "/organizer/audit-logs") {
     return {
       title: "Audit Logs",

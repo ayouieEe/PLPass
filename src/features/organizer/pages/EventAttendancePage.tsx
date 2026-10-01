@@ -56,8 +56,7 @@ import {
   useMlPredictions,
   useNfcTapAttempts,
   useOrganizerProfiles,
-  useStudents,
-  useAuditLogMutations
+  useStudents
 } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
@@ -347,7 +346,6 @@ export function EventAttendancePage() {
   const tapsQuery = useNfcTapAttempts({ pageSize: 500 }, scope.context);
   const mutations = useAttendanceSessionMutations(scope.context);
   const attendanceMutations = useAttendanceSubmissionMutations(scope.context);
-  const auditLogMutations = useAuditLogMutations(scope.context);
   const offline = useOfflineEvent(sessionQuery.data?.eventId, sessionId);
   const [latestResult, setLatestResult] = useState<AttendanceSubmissionResult | null>(null);
   const [offlineCapturePhase,setOfflineCapturePhase]=useState<AttendanceCapturePhase>("time_in");
@@ -424,7 +422,7 @@ export function EventAttendancePage() {
   }, [selectedSession, selectedEvent, setHeaderOverride]);
 
   useEffect(() => {
-    if (!sessionId || import.meta.env.VITE_DATA_SOURCE === "mock" || import.meta.env.MODE === "test") return;
+    if (!sessionId || import.meta.env.MODE === "test") return;
     const supabase = getSupabaseBrowserClient();
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let retryTimer: number | undefined;
@@ -818,13 +816,6 @@ export function EventAttendancePage() {
       setManualStatus("present");
       setManualLateReason("");
       toast(result.resultStatus, { description: result.safeMessage });
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Submitted Manual Attendance",
-        targetType: "attendance_record",
-        targetId: result.attendanceRecord?.id,
-        metadata: { studentId: selectedStudent.id, sessionId: activeSession.id, status: manualStatus }
-      });
     } catch (error) {
       if(isConnectivityFailure(error)&&canUsePreparedCache&&event){try{const selectedStudent=await identifyOfflineStudent(event.id,"manual",manualStudentId);if(selectedStudent&&selectedStudent.isParticipant!==false){const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:selectedStudent.studentId,identificationMethod:"manual",attendanceTimestamp:at,remarks:[manualReason,manualRemarks].filter(Boolean).join(": ")},offlineCapturePhase);toast.success(`Attendance saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();return;}}catch{/* Show safe failure below. */}}
       toast.error("Manual attendance was not saved", { description: "Neither the central service nor the prepared local package confirmed the record." });
@@ -837,14 +828,6 @@ export function EventAttendancePage() {
     }
     await mutations.endSessionMutation.mutateAsync({ sessionId: activeSession.id, reason: endReason });
     setEndOpen(false);
-    
-    void auditLogMutations.logActionMutation.mutateAsync({
-      action: "Ended Live Session",
-      targetType: "attendance_session",
-      targetId: activeSession.id,
-      metadata: { sessionId: activeSession.id, reason: endReason }
-    });
-    
     navigate(APP_ROUTES.organizerRecords);
   }
   return (

@@ -15,7 +15,6 @@ describe("offline organizer route policy", () => {
 
   it("blocks unrelated workspaces and non-organizers", () => {
     expect(isOfflineOrganizerRoute(APP_ROUTES.notifications)).toBe(false);
-    expect(canAccessOfflineRoute("organizer", APP_ROUTES.organizerSettings)).toBe(false);
     expect(canAccessOfflineRoute("admin", APP_ROUTES.organizerEvents)).toBe(false);
   });
 

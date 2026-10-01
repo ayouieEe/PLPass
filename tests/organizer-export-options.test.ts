@@ -55,4 +55,11 @@ describe("organizer export report options", () => {
     expect(auditMigration).toContain("role in ('admin', 'department_admin', 'organizer')");
     expect(auditMigration).toContain("grant execute on function public.log_client_action");
   });
+
+  it("does not discard organizer branding for global exports", () => {
+    const reportExport = read("src/lib/exports/reportExport.ts");
+
+    expect(reportExport).toContain("scope?.type === \"global\" && (session.role === \"admin\" || session.role === \"student\")");
+    expect(reportExport).not.toContain("if (scope?.type === \"global\" ||");
+  });
 });

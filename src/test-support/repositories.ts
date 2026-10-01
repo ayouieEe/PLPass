@@ -57,10 +57,12 @@ import type {
   SystemHealthIssue,
   SystemHealthSnapshot,
   SystemSettingsRepository,
+  LegalDocumentRepository,
   UpdateSystemSettingsInput,
   UpdateOrganizerBrandingInput,
   UserManagementRepository
 } from "@/services/contracts";
+import { PRIVACY_SECTIONS, TERMS_SECTIONS } from "@/lib/legal/policies";
 import { generateAccountEmail } from "@/lib/utils/accountEmail";
 import { formatStudentNumber } from "@/lib/utils/studentNumber";
 import {
@@ -78,6 +80,7 @@ import type {
   AttendanceSession,
   Class,
   CorrectionRequest,
+  DepartmentBranding,
   CredentialRequest,
   Event,
   EventFeedbackTask,
@@ -299,6 +302,25 @@ let attendanceAttemptState = attendanceAttemptFixtures.map((entry) => ({ ...entr
 let notificationState: Notification[] = notificationFixtures.map((notification) => ({ ...notification }));
 let notificationPreferencesState: Record<string, NotificationPreferences> = {};
 let systemSettingsState = { ...systemSettingsFixture };
+type SimulatedDepartmentBranding = DepartmentBranding;
+let departmentBrandingState: Record<string, SimulatedDepartmentBranding> = Object.fromEntries(
+  departmentFixtures.map((department) => [department.id, {
+    departmentId: department.id,
+    displayName: department.name,
+    primaryColor: "#3f7a44",
+    secondaryColor: "#e8f1e6",
+    updatedAt: new Date().toISOString()
+  }])
+);
+
+async function simulatedLogoDataUrl(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  }
+  return `data:${file.type};base64,${btoa(binary)}`;
+}
 let failedNotificationState: FailedNotificationJob[] = [
   {
     id: "notification-job-1",
@@ -331,6 +353,15 @@ export function resetSimulatedRepositoryState() {
   notificationState = notificationFixtures.map((notification) => ({ ...notification }));
   notificationPreferencesState = {};
   systemSettingsState = { ...systemSettingsFixture };
+  departmentBrandingState = Object.fromEntries(
+    departmentFixtures.map((department) => [department.id, {
+      departmentId: department.id,
+      displayName: department.name,
+      primaryColor: "#3f7a44",
+      secondaryColor: "#e8f1e6",
+      updatedAt: new Date().toISOString()
+    }])
+  );
   failedNotificationState = [
     {
       id: "notification-job-1",
@@ -875,12 +906,15 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       throw new RepositoryError("You can only view your own branding.", "PERMISSION_DENIED");
     }
     const department = departmentFixtures.find((item) => item.id === profile.departmentId);
+    const branding = profile.departmentId ? departmentBrandingState[profile.departmentId] : undefined;
     return {
       organizerId: profile.id,
-      collegeName: department?.name ?? profile.organizationName,
-      collegeLogoPath: undefined,
-      collegeLogoUrl: undefined,
-      updatedAt: new Date().toISOString()
+      collegeName: branding?.displayName ?? department?.name ?? profile.organizationName,
+      collegeLogoPath: branding?.logoPath,
+      collegeLogoUrl: branding?.logoUrl,
+      primaryColor: branding?.primaryColor,
+      secondaryColor: branding?.secondaryColor,
+      updatedAt: branding?.updatedAt
     };
   },
   async updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context) {
@@ -891,14 +925,28 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     await beforeRead("userManagement", context, ["admin", "department_admin"]);
     const department = departmentFixtures.find((item) => item.id === departmentId);
     if (!department) throw new RepositoryError("Department was not found.", "NOT_FOUND");
-    return { departmentId, displayName: department.name, primaryColor: "#3f7a44", secondaryColor: "#e8f1e6", updatedAt: new Date().toISOString() };
+    return structuredClone(departmentBrandingState[departmentId]);
   },
   async updateDepartmentBranding(input, context) {
     await beforeRead("userManagement", context, ["admin", "department_admin"]);
     const department = departmentFixtures.find((item) => item.id === input.departmentId);
     if (!department) throw new RepositoryError("Department was not found.", "NOT_FOUND");
     if (!input.displayName.trim()) throw new RepositoryError("A department display name is required.", "VALIDATION_ERROR");
-    return { departmentId: input.departmentId, displayName: input.displayName.trim(), primaryColor: input.primaryColor, secondaryColor: input.secondaryColor, updatedAt: new Date().toISOString() };
+    if (input.primaryColor && !/^#[0-9A-Fa-f]{6}$/.test(input.primaryColor.trim())) throw new RepositoryError("Primary color must be a six-digit hex value.", "VALIDATION_ERROR");
+    if (input.secondaryColor && !/^#[0-9A-Fa-f]{6}$/.test(input.secondaryColor.trim())) throw new RepositoryError("Secondary color must be a six-digit hex value.", "VALIDATION_ERROR");
+    const previous = departmentBrandingState[input.departmentId] ?? { departmentId: input.departmentId, displayName: department.name };
+    const logoUrl = input.logo ? await simulatedLogoDataUrl(input.logo) : input.removeLogo ? undefined : previous.logoUrl;
+    const next: SimulatedDepartmentBranding = {
+      departmentId: input.departmentId,
+      displayName: input.displayName.trim(),
+      primaryColor: input.primaryColor?.trim() || undefined,
+      secondaryColor: input.secondaryColor?.trim() || undefined,
+      logoPath: input.logo ? `departments/${input.departmentId}/logo.${input.logo.type === "image/png" ? "png" : input.logo.type === "image/webp" ? "webp" : "jpg"}` : input.removeLogo ? undefined : previous.logoPath,
+      logoUrl,
+      updatedAt: new Date().toISOString()
+    };
+    departmentBrandingState = { ...departmentBrandingState, [input.departmentId]: next };
+    return structuredClone(next);
   }
 };
 
@@ -1791,6 +1839,13 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
     if (context?.actorRole === "organizer" && !studentIds?.length) return [];
     return [];
   },
+  async listOrganizerCredentialDirectory(context) {
+    await beforeRead("studentCredentials", context, ["organizer"]);
+    if (context?.actorRole !== "organizer") {
+      throw new RepositoryError("Only organizers can access the organizer credential directory.", "PERMISSION_DENIED");
+    }
+    return [];
+  },
   async getStudentCredentialStatus(studentId, context) {
     await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
     const currentContext = contextOrDefault(context);
@@ -2065,6 +2120,24 @@ export const simulatedSystemSettingsRepository: SystemSettingsRepository = {
   }
 };
 
+let legalDocumentState: Record<"terms" | "privacy", { documentType: "terms" | "privacy"; sections: Array<{ heading: string; body: string }>; version: string; publishedAt: string }> = {
+  terms: { documentType: "terms", sections: TERMS_SECTIONS.map(([heading, body]) => ({ heading, body })), version: "2026-09-21.1", publishedAt: "2026-09-21T00:00:00.000Z" },
+  privacy: { documentType: "privacy", sections: PRIVACY_SECTIONS.map(([heading, body]) => ({ heading, body })), version: "2026-09-21.1", publishedAt: "2026-09-21T00:00:00.000Z" }
+};
+
+export const simulatedLegalDocumentRepository: LegalDocumentRepository = {
+  async getPublished(documentType) { return structuredClone(legalDocumentState[documentType]); },
+  async publish(documentType, sections, expectedVersion, context) {
+    await beforeRead("legalDocuments", context, ["admin"]);
+    const current = legalDocumentState[documentType];
+    if (expectedVersion && current.version !== expectedVersion) throw new RepositoryError("This legal document changed since it was loaded. Refresh and try again.", "VALIDATION_ERROR");
+    if (!Array.isArray(sections) || sections.length < 1 || sections.length > 40 || sections.some((section) => !section.heading.trim() || !section.body.trim() || section.heading.length > 200 || section.body.length > 12000)) throw new RepositoryError("Each legal section needs a heading and body within the allowed length.", "VALIDATION_ERROR");
+    const next = { documentType, sections: structuredClone(sections), version: `${new Date().toISOString().slice(0, 10)}.${Number(current.version.split(".")[1] ?? 0) + 1}`, publishedAt: new Date().toISOString() };
+    legalDocumentState = { ...legalDocumentState, [documentType]: next };
+    return structuredClone(next);
+  }
+};
+
 function requireHealthReason(reason: string) {
   if (!reason.trim()) {
     throw new RepositoryError("A reason is required for system recovery actions.", "VALIDATION_ERROR");
@@ -2174,5 +2247,6 @@ export const simulatedRepositoryRegistry: RepositoryRegistry = {
   auditLogs: simulatedAuditLogRepository,
   analyticsMl: simulatedAnalyticsMlRepository,
   systemSettings: simulatedSystemSettingsRepository,
+  legalDocuments: simulatedLegalDocumentRepository,
   systemHealth: simulatedSystemHealthRepository
 };

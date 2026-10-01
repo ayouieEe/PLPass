@@ -27,6 +27,8 @@ import type {
   Student,
   StudentCredentialStatus,
   SystemSettings,
+  LegalDocument,
+  LegalDocumentType,
   User,
   DevelopmentAccount,
   EventFeedback,
@@ -310,6 +312,13 @@ export type SetStudentCredentialStatusInput = {
   status: "activated" | "inactive" | "blocked";
 };
 
+export type OrganizerCredentialDirectoryEntry = {
+  studentId: string;
+  studentNumber: string;
+  studentName: string;
+  credentialStatus: StudentCredentialStatus;
+};
+
 export type ReviewCredentialRequestInput = {
   requestId: string;
   status: Extract<CredentialRequest["status"], "approved" | "rejected">;
@@ -483,6 +492,7 @@ export interface CredentialRequestRepository {
 
 export interface StudentCredentialRepository {
   listStudentCredentialStatuses(context?: RepositoryContext, studentIds?: readonly string[]): Promise<StudentCredentialStatus[]>;
+  listOrganizerCredentialDirectory(context?: RepositoryContext): Promise<OrganizerCredentialDirectoryEntry[]>;
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
@@ -530,6 +540,11 @@ export interface AnalyticsMlRepository {
 export interface SystemSettingsRepository {
   getSettings(context?: RepositoryContext): Promise<SystemSettings>;
   updateSettings(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<SystemSettings>;
+}
+
+export interface LegalDocumentRepository {
+  getPublished(documentType: LegalDocumentType): Promise<LegalDocument>;
+  publish(documentType: LegalDocumentType, sections: LegalDocument["sections"], expectedVersion?: string, context?: RepositoryContext): Promise<LegalDocument>;
 }
 
 export type SystemHealthStatus = "healthy" | "degraded" | "failed" | "not_configured";
@@ -596,7 +611,9 @@ export type RepositoryRegistry = {
   auditLogs: AuditLogRepository;
   analyticsMl: AnalyticsMlRepository;
   systemSettings: SystemSettingsRepository;
+  legalDocuments: LegalDocumentRepository;
   systemHealth: SystemHealthRepository;
 };
 
 export type { RepositoryContext } from "@/services/repositoryUtils";
+export type { LegalDocument, LegalDocumentType } from "@/types/domain";
