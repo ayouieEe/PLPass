@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Activity, AlertTriangle, ArrowLeft, Camera, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, Camera, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, UserRoundPlus, X } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -114,6 +114,7 @@ const defaultAttendanceMethod: AttendanceMethod = "QR Code";
 const minimumTimeOutIntervalMs = 60_000;
 const scannerIdleSubmissionDelayMs = 1_000;
 const duplicateQrSuppressionMs = 5_000;
+const scannerBurstIntervalMs = 80;
 const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
 const offlineDirectorySnapshotStoragePrefix = "plpass:offline-event-directory:";
 
@@ -157,12 +158,6 @@ function verificationMethodFromAttendance(method: AttendanceMethod): "qr" | "fac
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isEditableScanTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement && (
-    target.isContentEditable || target.matches("input, textarea, select")
-  );
-}
 
 type AttendanceRow = OrganizerAttendanceRow & {
   /** Set when the student verifies a second time in the same live session. */
@@ -891,6 +886,8 @@ export function EventManagementPage() {
   const manualInputRef = useRef<HTMLInputElement>(null);
   const qrScannerBufferRef = useRef("");
   const qrScannerFlushTimerRef = useRef<number | undefined>(undefined);
+  const qrScannerLastKeyAtRef = useRef<number | undefined>(undefined);
+  const qrScannerBurstRef = useRef(true);
   const submitQrAttendanceRef = useRef<(code: string) => void>(() => undefined);
   const recentQrScansRef = useRef(new Map<string, number>());
   const qrSubmissionInFlightRef = useRef(false);
@@ -2473,13 +2470,17 @@ export function EventManagementPage() {
     setFacialCameraOpen(false);
     setEndSessionConfirmOpen(false);
     setEndSessionReason("");
+    navigate(
+      { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
+      { replace: true }
+    );
   } catch (error) {
     toast.error(error instanceof Error ? error.message : attendanceFinalized ? "Failed to complete the event." : "Unable to end the attendance session.");
   } finally {
     endingSessionRef.current = false;
     setIsEndingSession(false);
   }
-}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, session?.userId]);
+}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, navigate, session?.userId, workspaceRoute]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -2632,6 +2633,20 @@ export function EventManagementPage() {
   async function submitQrAttendance(inputCode = qrInput) {
     const scanCode = inputCode.trim();
     if (!scanCode || !activeEvent?.id || isQrProcessing || qrSubmissionInFlightRef.current) {
+      return;
+    }
+
+    const plainStudentNumber = extractStudentNumber(scanCode);
+    if (plainStudentNumber && scanCode === plainStudentNumber) {
+      qrSubmissionInFlightRef.current = true;
+      setIsQrProcessing(true);
+      try {
+        await submitManualAttendance(plainStudentNumber, "Barcode scanner input");
+      } finally {
+        setQrInput("");
+        setIsQrProcessing(false);
+        qrSubmissionInFlightRef.current = false;
+      }
       return;
     }
     if (!beginAttendanceCapture()) return;
@@ -2925,11 +2940,13 @@ export function EventManagementPage() {
         qrScannerFlushTimerRef.current = undefined;
       }
       qrScannerBufferRef.current = "";
+      qrScannerLastKeyAtRef.current = undefined;
+      qrScannerBurstRef.current = true;
     };
 
     const submitBufferedScan = () => {
       const value = qrScannerBufferRef.current.trim();
-      if (value.length < 3) {
+      if (value.length < 3 || !qrScannerBurstRef.current) {
         resetScannerBuffer();
         return;
       }
@@ -2944,13 +2961,14 @@ export function EventManagementPage() {
     }
 
     const handleScannerKeyDown = (event: KeyboardEvent) => {
-      if (isQrProcessing || isEditableScanTarget(event.target)) {
+      if (isQrProcessing) {
         resetScannerBuffer();
         return;
       }
 
       if (event.key === "Enter" || event.key === "Tab") {
-        if (qrScannerBufferRef.current.trim().length >= 3) {
+        const value = qrScannerBufferRef.current.trim();
+        if (value.length >= 3 && qrScannerBurstRef.current) {
           event.preventDefault();
           submitBufferedScan();
         } else {
@@ -2960,16 +2978,17 @@ export function EventManagementPage() {
       }
 
       if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
-      // Barcode scanners vary substantially in their key interval, especially
-      // when connected by Bluetooth. Submission is delimited by the scanner's
-      // Enter/Tab suffix, with an idle fallback for scanners without a suffix.
+      const now = performance.now();
+      const previous = qrScannerLastKeyAtRef.current;
+      if (previous !== undefined && now - previous > scannerBurstIntervalMs) qrScannerBurstRef.current = false;
+      qrScannerLastKeyAtRef.current = now;
       qrScannerBufferRef.current += event.key;
       if (qrScannerFlushTimerRef.current !== undefined) window.clearTimeout(qrScannerFlushTimerRef.current);
       qrScannerFlushTimerRef.current = window.setTimeout(submitBufferedScan, scannerIdleSubmissionDelayMs);
     };
 
     const handleScannerPaste = (event: ClipboardEvent) => {
-      if (isQrProcessing || isEditableScanTarget(event.target)) return;
+      if (isQrProcessing) return;
       const value = event.clipboardData?.getData("text")?.trim() ?? "";
       if (value.length < 3) return;
       event.preventDefault();
@@ -3010,12 +3029,14 @@ export function EventManagementPage() {
     window.requestAnimationFrame(() => manualInputRef.current?.focus());
   }
 
-  async function submitManualAttendance() {
-    if (!manualInput || !activeEvent?.id) {
+  async function submitManualAttendance(inputValue = manualInput, reasonValue = manualEntryReason) {
+    const normalizedInput = inputValue.trim();
+    const normalizedReason = reasonValue.trim();
+    if (!normalizedInput || !activeEvent?.id) {
       toast.warning("Please select a student.");
       return;
     }
-    if (manualEntryReason.trim().length < 5) {
+    if (normalizedReason.length < 5) {
       toast.warning("Provide a reason of at least 5 characters for the manual attendance entry.");
       return;
     }
@@ -3049,7 +3070,7 @@ export function EventManagementPage() {
         writeAttendancePhase(window.sessionStorage, sessionId, effectivePhase);
       }
 
-      const participant = await identifyOfflineStudent(eventId, "manual", manualInput);
+      const participant = await identifyOfflineStudent(eventId, "manual", normalizedInput);
       if (participant) {
         const local = await recordOfflineAttendance({
           eventId,
@@ -3057,7 +3078,7 @@ export function EventManagementPage() {
           studentId: participant.studentId,
           identificationMethod: "manual",
           attendanceTimestamp: recordedAt,
-          remarks: manualEntryReason.trim(),
+          remarks: normalizedReason,
         }, effectivePhase);
         setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, participant)));
         if (local.action === "already_recorded") {
@@ -3073,7 +3094,7 @@ export function EventManagementPage() {
         return;
       }
 
-      const studentNumber = extractStudentNumber(manualInput);
+      const studentNumber = extractStudentNumber(normalizedInput);
       if (!studentNumber) {
         throw new Error("Enter an enrolled student name or a valid walk-in student number.");
       }
@@ -3177,9 +3198,9 @@ export function EventManagementPage() {
       .filter((participant) => participant.isParticipant !== false)
       .map((participant) => ({ id: participant.studentId, studentNumber: participant.studentNumber, fullName: participant.displayName }));
     const attendanceLookupStudents = isLocalAuthoritativeSession ? localStudents : (studentsQuery.data?.items ?? []);
-    const lookupResult = resolveManualAttendanceLookup(manualInput, attendanceLookupStudents);
+    const lookupResult = resolveManualAttendanceLookup(normalizedInput, attendanceLookupStudents);
     if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
-      const requestedStudentNumber = extractStudentNumber(manualInput);
+      const requestedStudentNumber = extractStudentNumber(normalizedInput);
       if (requestedStudentNumber && !isLocalAuthoritativeSession) {
         toast.error("No active enrolled student matches this number. No Walk-in attendance was recorded.");
         return;
@@ -3291,7 +3312,7 @@ export function EventManagementPage() {
         identificationMethod: "manual",
         attendanceTimestamp: occurredAt,
         attendanceStatus: resolvedStatus,
-        remarks: manualEntryReason.trim()
+        remarks: normalizedReason
       }, effectiveAttendancePhase);
       setActiveRows((current) => upsertAttendanceRow(current, localAttendanceRow(local, activeEvent.code, participant)));
       toast.success(local.action === "checked_out" ? "Student Time Out saved on this device." : local.action === "already_recorded" ? "Student attendance is already recorded." : "Student Time In saved on this device.");
@@ -3302,7 +3323,7 @@ export function EventManagementPage() {
     const result = await manualAttendanceMutation.mutateAsync({
       sessionId: liveSessionId ?? activeAttendanceSession?.id ?? "",
       studentId: resolvedStudentId,
-      reason: manualEntryReason.trim(),
+      reason: normalizedReason,
       remarks: "",
       statusOverride: resolvedStatus,
       occurredAt
@@ -3597,11 +3618,17 @@ export function EventManagementPage() {
         const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);
         const studentNumber = participant?.studentNumber ?? provisionalWalkInStudentNumber(row.original.studentName);
         const displayName = formatAttendanceListName(participant?.fullName ?? row.original.studentName);
+        const isWalkIn = row.original.verificationLabel === "Walk-in";
 
         return (
           <div className="min-w-36">
             <div className="flex items-center gap-1.5">
-              {row.original.verificationLabel === "Walk-in" ? <StatusBadge label="Walk-in" tone="warning" /> : null}
+              {isWalkIn ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-warning-muted px-2.5 py-1 text-xs font-medium text-warning">
+                  <UserRoundPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Walk-in
+                </span>
+              ) : null}
               <div className="leading-tight">
                 <div className="font-medium text-foreground">{displayName}</div>
                 {studentNumber ? <div className="mt-px font-mono text-sm text-muted-foreground">{studentNumber}</div> : null}

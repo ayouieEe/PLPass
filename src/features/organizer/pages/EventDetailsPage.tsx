@@ -99,8 +99,7 @@ import type {
 } from "@/types/enums";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
-import { desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
-import { rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
+import { confirmSupabaseConnectivity, desktopApi } from "@/features/offline/offlineService";
 import type { PreparedEventPackage } from "@/features/offline/types";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
@@ -412,9 +411,14 @@ export function EventDetailsPage() {
   const [rescheduleToStart, setRescheduleToStart] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isStartSessionOpen, setIsStartSessionOpen] = useState(false);
+  const [lateCutoffMinutes, setLateCutoffMinutes] = useState(15);
+  const [isOfflinePreparationOpen, setIsOfflinePreparationOpen] = useState(false);
+  const [isDownloadingOfflineResources, setIsDownloadingOfflineResources] = useState(false);
+  const [offlinePreparationError, setOfflinePreparationError] = useState("");
+  const [pendingStartedSession, setPendingStartedSession] = useState<{ id: string; startedAt: string; lateCutoffAt?: string } | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState(false);
   const [sessionModalMode, setSessionModalMode] = useState<"start" | "existing">("start");
   const [isDiscardSessionOpen, setIsDiscardSessionOpen] = useState(false);
-  const [lateCutoffMinutes, setLateCutoffMinutes] = useState(15);
   const [rescheduleValues, setRescheduleValues] = useState({ venue: "", date: "", startTime: "", endTime: "", reason: "" });
   const [cancellationReason, setCancellationReason] = useState("");
   const [resourceTitle, setResourceTitle] = useState("");
@@ -445,6 +449,7 @@ export function EventDetailsPage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const rescheduleEventMutation = useEventRescheduleMutation(scope.context);
   const offline = useOfflineEvent(eventId);
+  const isDesktopRuntimeAvailable = Boolean(desktopApi());
   const [cleanupMessage,setCleanupMessage]=useState("");
   const offlinePackage = isOfflineMode ? offline.preparedEvent : null;
   const selectedEvent = offlinePackage ? offlineEventFromPackage(offlinePackage, scope.organizerId) : eventQuery.data;
@@ -470,6 +475,9 @@ export function EventDetailsPage() {
 
   useEffect(() => {
     setIsStartSessionOpen(false);
+    setIsOfflinePreparationOpen(false);
+    setOfflinePreparationError("");
+    setPendingStartedSession(null);
     setSessionModalMode("start");
     setLateCutoffMinutes(15);
   }, [eventId]);
@@ -618,12 +626,12 @@ export function EventDetailsPage() {
     }
 
     try {
-      await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
+      const rescheduledEvent = await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
       await eventQuery.refetch();
       setIsRescheduleOpen(false);
       if (rescheduleToStart) {
         setRescheduleToStart(false);
-        setIsStartSessionOpen(true);
+        void openAttendanceStartFlow(rescheduledEvent);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "The attendance session could not be started.");
@@ -647,6 +655,91 @@ export function EventDetailsPage() {
     }
   }
 
+  async function getStartableLocalSession(eventToStart: Event = event, expectedSessionId?: string) {
+    const ownerId = session?.userId;
+    const api = desktopApi();
+    if (!ownerId || !api) return null;
+    const localPackage = await api.getPreparedEvent(eventToStart.id, ownerId);
+    const localSession = localPackage?.sessions.find((item) => expectedSessionId
+      ? item.id === expectedSessionId
+      : item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
+    );
+    return localPackage && localSession ? { api, ownerId, localPackage, localSession } : null;
+  }
+
+  async function openAttendanceStartFlow(eventToStart: Event = event) {
+    if (activeSession) {
+      setSessionModalMode("existing");
+      setIsStartSessionOpen(true);
+      return;
+    }
+    if (dateKey(eventToStart.startsAt) !== dateKey(new Date())) {
+      setRescheduleValues({
+        venue: eventToStart.venue,
+        date: dateKey(new Date()),
+        startTime: timeInputValue(eventToStart.startsAt),
+        endTime: timeInputValue(eventToStart.endsAt),
+        reason: "Reschedule event to today to start attendance."
+      });
+      setRescheduleToStart(true);
+      setIsRescheduleOpen(true);
+      return;
+    }
+    if (!desktopApi()) {
+      setOfflinePreparationError("Attendance resources must be downloaded in the PLPass desktop app before starting this session.");
+      setIsOfflinePreparationOpen(true);
+      return;
+    }
+    try {
+      if (await getStartableLocalSession(eventToStart)) {
+        setSessionModalMode("start");
+        setIsStartSessionOpen(true);
+        return;
+      }
+      setOfflinePreparationError("");
+      setIsOfflinePreparationOpen(true);
+    } catch (error) {
+      setOfflinePreparationError(error instanceof Error ? error.message : "The offline resources could not be checked.");
+      setIsOfflinePreparationOpen(true);
+    }
+  }
+
+  async function downloadOfflineResourcesAndContinue() {
+    setIsDownloadingOfflineResources(true);
+    setOfflinePreparationError("");
+    try {
+      if (!desktopApi()) throw new Error("Open this event in the PLPass desktop app to download its offline resources.");
+      if (!(await confirmSupabaseConnectivity())) throw new Error("Connect to Wi-Fi to download the offline resources before starting attendance.");
+      await offline.prepare();
+      if (pendingStartedSession) {
+        const localSession = await getStartableLocalSession(event, pendingStartedSession.id);
+        if (!localSession) throw new Error("The refreshed package does not contain the active attendance session. Try downloading again.");
+        await localSession.api.confirmOnlineStartedSession(
+          event.id,
+          pendingStartedSession.id,
+          localSession.ownerId,
+          pendingStartedSession.startedAt,
+          pendingStartedSession.lateCutoffAt,
+        );
+        setPendingStartedSession(null);
+        setIsOfflinePreparationOpen(false);
+        toast.success("Attendance session started.");
+        navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(pendingStartedSession.id), APP_ROUTES.adminLiveSession(pendingStartedSession.id)));
+        return;
+      }
+      if (!(await getStartableLocalSession())) {
+        throw new Error("The offline package was downloaded, but it does not contain a ready attendance session. Refresh the event and try again.");
+      }
+      setIsOfflinePreparationOpen(false);
+      setSessionModalMode("start");
+      setIsStartSessionOpen(true);
+    } catch (error) {
+      setOfflinePreparationError(error instanceof Error ? error.message : "Offline resources could not be downloaded.");
+    } finally {
+      setIsDownloadingOfflineResources(false);
+    }
+  }
+
   async function startAttendanceSession() {
     if (dateKey(event.startsAt) !== dateKey(new Date())) {
       toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
@@ -662,63 +755,50 @@ export function EventDetailsPage() {
       setIsRescheduleOpen(true);
       return;
     }
+    setIsStartingSession(true);
+    let createdSession: { id: string; startsAt: string; attendanceWindowStartAt?: string; lateCutoffAt?: string } | null = null;
     try {
-      let sessionId = "";
-      if (isOfflineMode) {
-        const ownerId = session?.userId;
-        const api = desktopApi();
-        const localPackage = ownerId && api ? await api.getPreparedEvent(event.id, ownerId) : null;
-        const localSession = localPackage?.sessions.find((item) =>
-          item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
-        );
-        if (!ownerId || !api || !localPackage || !localSession) {
-          throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
-        }
-        const updatedPackage = await startOfflineEvent(event.id, localSession.id, ownerId);
-        const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
-        if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
-          throw new Error("The local attendance session did not enter its started state.");
-        }
-        // Preserve the successful local start across this route transition.
-        // The encrypted local package remains durable; this short-lived handoff
-        // only prevents a concurrent connectivity probe from racing its first read.
-        rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
-        sessionId = updatedSession.id;
-      } else {
-        const created = await mutations.createEventSessionMutation.mutateAsync({
-          eventId: event.id,
-          venue: event.venue,
-          date: dateKey(event.startsAt),
-          startTime: timeInputValue(event.startsAt),
-          expectedEndTime: timeInputValue(event.endsAt),
-          attendanceMode: "face-to-face",
-          lateCutoffMinutes
-        });
-        sessionId = created.id;
-        // A server start alone is not enough for hybrid attendance. Before
-        // entering the live screen, mirror this exact server session into the
-        // owner-scoped encrypted package so losing Wi-Fi cannot prevent a
-        // durable local end later.
-        const api = desktopApi();
-        const ownerId = session?.userId;
-        if (api && ownerId) {
-          const preparedPackage = await api.getPreparedEvent(event.id, ownerId);
-          if (preparedPackage?.sessions.some((item) => item.id === created.id)) {
-            await api.confirmOnlineStartedSession(
-              event.id,
-              created.id,
-              ownerId,
-              created.attendanceWindowStartAt ?? created.startsAt,
-              created.lateCutoffAt
-            );
-          }
-        }
+      const created = await mutations.createEventSessionMutation.mutateAsync({
+        eventId: event.id,
+        venue: event.venue,
+        date: dateKey(event.startsAt),
+        startTime: timeInputValue(event.startsAt),
+        expectedEndTime: timeInputValue(event.endsAt),
+        attendanceMode: "face-to-face",
+        lateCutoffMinutes
+      });
+      createdSession = created;
+      const startedAt = created.attendanceWindowStartAt ?? created.startsAt;
+      const localSession = await getStartableLocalSession();
+      if (!localSession) {
+        throw new Error("The prepared attendance package is no longer available on this device.");
       }
+      await localSession.api.confirmOnlineStartedSession(
+        event.id,
+        created.id,
+        localSession.ownerId,
+        startedAt,
+        created.lateCutoffAt,
+      );
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
-      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(sessionId), APP_ROUTES.adminLiveSession(sessionId)));
-    } catch {
-      // The mutation displays the repository error in a toast.
+      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(created.id), APP_ROUTES.adminLiveSession(created.id)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The attendance session could not be started.";
+      if (createdSession) {
+        setPendingStartedSession({
+          id: createdSession.id,
+          startedAt: createdSession.attendanceWindowStartAt ?? createdSession.startsAt,
+          lateCutoffAt: createdSession.lateCutoffAt,
+        });
+        setIsStartSessionOpen(false);
+        setOfflinePreparationError(`Attendance started on the server, but this device could not verify its offline package. ${message}`);
+        setIsOfflinePreparationOpen(true);
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setIsStartingSession(false);
     }
   }
 
@@ -1059,23 +1139,7 @@ export function EventDetailsPage() {
           <div className="flex flex-wrap items-center justify-end gap-2">
             {canStartSession ? (
             <div className="flex items-center gap-2">
-            <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
-              if (!activeSession && dateKey(event.startsAt) !== dateKey(new Date())) {
-                setRescheduleValues({
-                  venue: event.venue,
-                  date: dateKey(new Date()),
-                  startTime: timeInputValue(event.startsAt),
-                  endTime: timeInputValue(event.endsAt),
-                  reason: "Reschedule event to today to start attendance."
-                });
-                setRescheduleToStart(true);
-                setIsRescheduleOpen(true);
-                return;
-              }
-              setSessionModalMode(activeSession ? "existing" : "start");
-              if (!activeSession) setLateCutoffMinutes(15);
-              setIsStartSessionOpen(true);
-            }}>
+            <Button type="button" size="sm" disabled={isStartingSession || isDownloadingOfflineResources} onClick={() => void openAttendanceStartFlow()}>
               <Play className="h-4 w-4" aria-hidden="true" />
               Start session
             </Button>
@@ -1464,12 +1528,34 @@ export function EventDetailsPage() {
       </section>
 
       <ModalShell
+        open={isOfflinePreparationOpen}
+        title={pendingStartedSession ? "Repair attendance resources" : isDesktopRuntimeAvailable ? "Download attendance resources first" : "Start attendance in PLPass desktop"}
+        description={pendingStartedSession
+          ? "The server session has started. Repair and verify this device's local attendance package before opening live attendance."
+          : isDesktopRuntimeAvailable
+          ? "Download this event's roster and scheduled attendance session before starting."
+          : "Attendance resources are downloaded and verified in the PLPass desktop app before a session can start."}
+        size="sm"
+        onClose={isDownloadingOfflineResources || pendingStartedSession ? undefined : () => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}
+        footer={isDesktopRuntimeAvailable ? <>
+          {!pendingStartedSession ? <Button type="button" variant="outline" disabled={isDownloadingOfflineResources} onClick={() => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}>Cancel</Button> : null}
+          <Button type="button" disabled={isDownloadingOfflineResources} onClick={() => void downloadOfflineResourcesAndContinue()}>{isDownloadingOfflineResources ? "Downloading offline resources..." : pendingStartedSession ? "Repair & continue" : "Download & continue"}</Button>
+        </> : <Button type="button" onClick={() => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}>Close</Button>}
+      >
+        <div className="space-y-3" aria-live="polite">
+          {isDesktopRuntimeAvailable ? <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">The download includes the approved student roster, QR/manual lookup data, and the scheduled attendance session. It does not start attendance yet.</div> : null}
+          {isDownloadingOfflineResources ? <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm font-medium text-primary">Downloading and verifying the offline event package…</div> : null}
+          {offlinePreparationError ? <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{offlinePreparationError}</p> : null}
+        </div>
+      </ModalShell>
+
+      <ModalShell
         open={isStartSessionOpen}
         title={existingSessionForDialog ? "Live session already started" : "Start attendance"}
         description={existingSessionForDialog ? "Continue this event's attendance, or discard it if it was started by mistake." : "Attendance starts now. The planned schedule stays unchanged."}
         size="sm"
-        onClose={() => !mutations.createEventSessionMutation.isPending && setIsStartSessionOpen(false)}
-        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(existingSessionForDialog.id), APP_ROUTES.adminLiveSession(existingSessionForDialog.id))}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
+        onClose={() => !isStartingSession && setIsStartSessionOpen(false)}
+        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(existingSessionForDialog.id), APP_ROUTES.adminLiveSession(existingSessionForDialog.id))}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={isStartingSession}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={isStartingSession || mutations.createEventSessionMutation.isPending}>{isStartingSession || mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
       >
         <div className="space-y-4">
           <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">

@@ -53,13 +53,27 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("activeRows.some((record) => Boolean(record.checkOutAt))");
   });
 
-  it("makes hybrid session ending local-first when the browser already knows it is offline", () => {
-    expect(eventDetailsPage).toContain("await api.confirmOnlineStartedSession(");
-    expect(eventDetailsPage).toContain("created.attendanceWindowStartAt ?? created.startsAt");
+  it("requires downloaded resources before using the normal server session lifecycle", () => {
+    expect(eventDetailsPage).toContain("Download attendance resources first");
+    expect(eventDetailsPage).toContain("await offline.prepare()");
+    expect(eventDetailsPage).toContain("mutations.createEventSessionMutation.mutateAsync");
     expect(eventManagementPage).toContain("const mustEndLocally = isOfflineMode || !navigator.onLine;");
     expect(eventManagementPage).toContain("if (mustEndLocally) {");
     expect(eventManagementPage).toContain("await endSessionSilentlyMutation.mutateAsync");
     expect(eventManagementPage).toContain("Session ended on this device. Attendance is saved locally and will sync after reconnecting.");
+  });
+
+  it("keeps a server-started session out of live attendance until its local package is confirmed", () => {
+    expect(eventDetailsPage).toContain("await localSession.api.confirmOnlineStartedSession(");
+    expect(eventDetailsPage).toContain("setPendingStartedSession({");
+    expect(eventDetailsPage).toContain("Repair & continue");
+    expect(eventDetailsPage).toContain("Repair and verify this device's local attendance package");
+  });
+
+  it("uses the barcode-provided reason for every manual-attendance write path", () => {
+    expect(eventManagementPage).toContain('await submitManualAttendance(plainStudentNumber, "Barcode scanner input")');
+    expect(eventManagementPage).toContain("reason: normalizedReason");
+    expect(eventManagementPage).toContain("remarks: normalizedReason");
   });
 
   it("returns a locally ended session to Events instead of the unavailable-live-route error", () => {
@@ -287,11 +301,11 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).not.toContain("mostCommonLateReason");
   });
 
-  it("starts and ends prepared attendance locally while offline", () => {
+  it("keeps prepared resources available while normal attendance remains server-backed", () => {
     expect(eventManagementPage).toContain("if (isOfflineMode)");
     expect(eventManagementPage).toContain("await endOfflineEvent(");
-    expect(eventDetailsPage).toContain("startOfflineEvent(event.id, localSession.id, ownerId)");
-    expect(eventDetailsPage).toContain("rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id)");
+    expect(eventDetailsPage).toContain("Download & continue");
+    expect(eventDetailsPage).toContain("mutations.createEventSessionMutation.mutateAsync");
     expect(eventManagementPage).toContain("readOfflineLiveSessionHandoff(session.userId, sessionIdFromQuery)");
     expect(eventManagementPage).not.toContain("writeAttendancePhase(window.sessionStorage, startedSession.id");
   });
@@ -434,8 +448,7 @@ describe("event page validation helpers", () => {
 
   it("uses the same scheduled-only eligibility check as the local offline-start guard", () => {
     expect(eventDetailsPage).toContain('item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"');
-    expect(eventDetailsPage).toContain("This event has no prepared local attendance session. Prepare it while online before starting offline.");
-    expect(eventDetailsPage).toContain("The local attendance session did not enter its started state.");
+    expect(eventDetailsPage).toContain("The offline package was downloaded, but it does not contain a ready attendance session.");
   });
 
   it("does not wait for a remote Walk-in lookup before queuing offline manual attendance", () => {
@@ -464,7 +477,7 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("await api?.advanceAttendanceCapturePhase(activeScannerSessionId ?? \"\", session?.userId ?? \"\");");
     expect(eventManagementPage).toContain('identificationMethod: "manual"');
     expect(eventManagementPage).toContain("recordOfflineAttendance({");
-    expect(eventManagementPage).toContain("remarks: manualEntryReason.trim()");
+    expect(eventManagementPage).toContain("remarks: normalizedReason");
   });
 
   it("uses the server capture-phase RPC when the session is online even if a downloaded package remains", () => {
@@ -501,7 +514,7 @@ describe("event page validation helpers", () => {
 
   it("retains the durable Walk-in origin when hydrating the live attendee list", () => {
     expect(eventManagementPage).toContain('verificationLabel: record.attendanceOrigin === "walk_in" ? "Walk-in" : "Verified"');
-    expect(eventManagementPage).toContain('<StatusBadge label="Walk-in" tone="warning" />');
+    expect(eventManagementPage).toContain('<UserRoundPlus className="h-3.5 w-3.5" aria-hidden="true" />');
   });
 
   it("renders each live attendee with a surname-first name and student number", () => {
