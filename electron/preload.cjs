@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("plpassDesktop", {
   identifyOfflineFace: (eventId, capture) => ipcRenderer.invoke("offline:identifyFace", eventId, capture),
   recordAttendance: (input) => ipcRenderer.invoke("offline:record", input),
   recordScannerAttendance: (input, phase) => ipcRenderer.invoke("offline:recordScanner", input, phase),
+  cacheOnlineAttendance: (input) => ipcRenderer.invoke("offline:cacheOnlineAttendance", input),
   getAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:capturePhase", sessionId, ownerId),
   advanceAttendanceCapturePhase: (sessionId, ownerId) => ipcRenderer.invoke("offline:advancePhase", sessionId, ownerId),
   queueWalkInScan: (input) => ipcRenderer.invoke("offline:queueWalkin", input),

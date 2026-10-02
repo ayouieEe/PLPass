@@ -63,6 +63,7 @@ import {
   useStudentCredentialStatuses
 } from "@/hooks/useRepositoryQueries";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { cleanupExpiredReconciledEvents, refreshPreparedEventAfterChange } from "@/features/offline/offlineService";
 import {
   createEventLinkResource,
   eventResourceErrorMessage,
@@ -99,8 +100,7 @@ import type {
 } from "@/types/enums";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { OfflineStatusPanel } from "@/features/offline/OfflineStatusPanel";
-import { desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
-import { rememberOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
+import { confirmSupabaseConnectivity, desktopApi, startOfflineEvent } from "@/features/offline/offlineService";
 import type { PreparedEventPackage } from "@/features/offline/types";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 
@@ -412,9 +412,16 @@ export function EventDetailsPage() {
   const [rescheduleToStart, setRescheduleToStart] = useState(false);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isStartSessionOpen, setIsStartSessionOpen] = useState(false);
+  const [lateCutoffMinutes, setLateCutoffMinutes] = useState(15);
+  const [isOfflinePreparationOpen, setIsOfflinePreparationOpen] = useState(false);
+  const [isDownloadingOfflineResources, setIsDownloadingOfflineResources] = useState(false);
+  const [offlinePreparationError, setOfflinePreparationError] = useState("");
+  const [pendingStartedSession, setPendingStartedSession] = useState<{ id: string; startedAt: string; lateCutoffAt?: string } | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState(false);
+  const [isOpeningLiveSession, setIsOpeningLiveSession] = useState(false);
+  const [liveSessionRedirectError, setLiveSessionRedirectError] = useState("");
   const [sessionModalMode, setSessionModalMode] = useState<"start" | "existing">("start");
   const [isDiscardSessionOpen, setIsDiscardSessionOpen] = useState(false);
-  const [lateCutoffMinutes, setLateCutoffMinutes] = useState(15);
   const [rescheduleValues, setRescheduleValues] = useState({ venue: "", date: "", startTime: "", endTime: "", reason: "" });
   const [cancellationReason, setCancellationReason] = useState("");
   const [resourceTitle, setResourceTitle] = useState("");
@@ -423,6 +430,7 @@ export function EventDetailsPage() {
   const [isSavingResource, setIsSavingResource] = useState(false);
   const [resourcePendingRemoval, setResourcePendingRemoval] = useState<EventResource | null>(null);
   const resourceFileInputRef = useRef<HTMLInputElement>(null);
+  const liveSessionRedirectRef = useRef<{ sessionId: string; target: string; fallbackAttempted: boolean } | null>(null);
   // A prepared package is complete enough to render this same event workspace.
   // Never issue remote queries while offline: an expected network failure must
   // not replace a valid downloaded event with an error screen.
@@ -445,6 +453,7 @@ export function EventDetailsPage() {
   const auditLogMutations = useAuditLogMutations(scope.context);
   const rescheduleEventMutation = useEventRescheduleMutation(scope.context);
   const offline = useOfflineEvent(eventId);
+  const isDesktopRuntimeAvailable = Boolean(desktopApi());
   const [cleanupMessage,setCleanupMessage]=useState("");
   const offlinePackage = isOfflineMode ? offline.preparedEvent : null;
   const selectedEvent = offlinePackage ? offlineEventFromPackage(offlinePackage, scope.organizerId) : eventQuery.data;
@@ -470,9 +479,73 @@ export function EventDetailsPage() {
 
   useEffect(() => {
     setIsStartSessionOpen(false);
+    setIsOfflinePreparationOpen(false);
+    setOfflinePreparationError("");
+    setPendingStartedSession(null);
+    liveSessionRedirectRef.current = null;
+    setIsOpeningLiveSession(false);
+    setLiveSessionRedirectError("");
     setSessionModalMode("start");
     setLateCutoffMinutes(15);
   }, [eventId]);
+
+  useEffect(() => {
+    const pending = liveSessionRedirectRef.current;
+    if (!pending) return undefined;
+    const routedSessionId = new URLSearchParams(location.search).get("session");
+    const expectedPath = pending.target.split("?", 1)[0];
+    if (location.pathname === expectedPath && routedSessionId === pending.sessionId) {
+      liveSessionRedirectRef.current = null;
+      setIsOpeningLiveSession(false);
+      return undefined;
+    }
+    const retryTimer = window.setTimeout(() => {
+      const current = liveSessionRedirectRef.current;
+      const currentSessionId = new URLSearchParams(window.location.search).get("session");
+      const currentPath = window.location.pathname;
+      const currentExpectedPath = current?.target.split("?", 1)[0];
+      if (!current || current.fallbackAttempted || (currentPath === currentExpectedPath && currentSessionId === current.sessionId)) return;
+      current.fallbackAttempted = true;
+      try {
+        // BrowserRouter listens for popstate. This same-document fallback is
+        // reliable in Electron's plpass:// protocol where a hard assignment
+        // can reload the index document without committing the SPA route.
+        window.history.replaceState(null, "", current.target);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      } catch {
+        window.location.assign(current.target);
+        return;
+      }
+      window.setTimeout(() => {
+        const latest = liveSessionRedirectRef.current;
+        const latestSessionId = new URLSearchParams(window.location.search).get("session");
+        const latestPath = window.location.pathname;
+        const latestExpectedPath = latest?.target.split("?", 1)[0];
+        if (!latest || (latestPath === latestExpectedPath && latestSessionId === latest.sessionId)) return;
+        liveSessionRedirectRef.current = null;
+        setIsOpeningLiveSession(false);
+        setLiveSessionRedirectError("Live attendance could not be opened. Please try starting the session again.");
+        toast.error("Live attendance could not be opened", { description: "The session was saved on this device. Try opening it again from Events." });
+      }, 750);
+    }, 250);
+    return () => window.clearTimeout(retryTimer);
+  }, [isOpeningLiveSession, location.pathname, location.search]);
+
+  function navigateToLiveSession(sessionId: string, options?: { reload?: boolean }) {
+    const target = workspaceRoute(APP_ROUTES.organizerLiveSession(sessionId), APP_ROUTES.adminLiveSession(sessionId));
+    liveSessionRedirectRef.current = { sessionId, target, fallbackAttempted: false };
+    setLiveSessionRedirectError("");
+    setIsOpeningLiveSession(true);
+    if (options?.reload) {
+      // A fully offline Electron start has no server route to resolve. Reload
+      // the exact custom-protocol URL so BrowserRouter boots directly into
+      // EventManagementPage, which rehydrates the SQLite session reliably.
+      const absoluteTarget = new URL(target, window.location.href).toString();
+      window.location.replace(absoluteTarget);
+      return;
+    }
+    navigate(target, { replace: true });
+  }
 
   useEffect(() => {
     if (selectedEvent) {
@@ -618,15 +691,27 @@ export function EventDetailsPage() {
     }
 
     try {
-      await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
+      const rescheduledEvent = await rescheduleEventMutation.mutateAsync({ eventId: event.id, ...rescheduleValues });
+      await refreshOfflineResourcesAfterChange();
       await eventQuery.refetch();
       setIsRescheduleOpen(false);
       if (rescheduleToStart) {
         setRescheduleToStart(false);
-        setIsStartSessionOpen(true);
+        void openAttendanceStartFlow(rescheduledEvent);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The attendance session could not be started.");
+      toast.error(getErrorMessage(error) || "The attendance session could not be started.");
+    }
+  }
+
+  async function refreshOfflineResourcesAfterChange() {
+    const refreshResult = await refreshPreparedEventAfterChange(event.id, scope.context.actorUserId);
+    if (refreshResult === "refreshed") {
+      toast.info("The event changed, so its offline resources were updated on this device.");
+    } else if (refreshResult === "blocked") {
+      toast.warning("The event changed, but offline resources were kept safe because this event has attendance waiting to sync.");
+    } else if (refreshResult === "failed") {
+      toast.warning("The event changed, but offline resources could not be refreshed. Download them again before the next offline session.");
     }
   }
 
@@ -647,6 +732,91 @@ export function EventDetailsPage() {
     }
   }
 
+  async function getStartableLocalSession(eventToStart: Event = event, expectedSessionId?: string) {
+    const ownerId = session?.userId;
+    const api = desktopApi();
+    if (!ownerId || !api) return null;
+    const localPackage = await api.getPreparedEvent(eventToStart.id, ownerId);
+    const localSession = localPackage?.sessions.find((item) => expectedSessionId
+      ? item.id === expectedSessionId
+      : item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
+    );
+    return localPackage && localSession ? { api, ownerId, localPackage, localSession } : null;
+  }
+
+  async function openAttendanceStartFlow(eventToStart: Event = event) {
+    if (activeSession) {
+      setSessionModalMode("existing");
+      setIsStartSessionOpen(true);
+      return;
+    }
+    if (dateKey(eventToStart.startsAt) !== dateKey(new Date())) {
+      setRescheduleValues({
+        venue: eventToStart.venue,
+        date: dateKey(new Date()),
+        startTime: timeInputValue(eventToStart.startsAt),
+        endTime: timeInputValue(eventToStart.endsAt),
+        reason: "Reschedule event to today to start attendance."
+      });
+      setRescheduleToStart(true);
+      setIsRescheduleOpen(true);
+      return;
+    }
+    if (!desktopApi()) {
+      setOfflinePreparationError("Attendance resources must be downloaded in the PLPass desktop app before starting this session.");
+      setIsOfflinePreparationOpen(true);
+      return;
+    }
+    try {
+      if (await getStartableLocalSession(eventToStart)) {
+        setSessionModalMode("start");
+        setIsStartSessionOpen(true);
+        return;
+      }
+      setOfflinePreparationError("");
+      setIsOfflinePreparationOpen(true);
+    } catch (error) {
+      setOfflinePreparationError(getErrorMessage(error) || "The offline resources could not be checked.");
+      setIsOfflinePreparationOpen(true);
+    }
+  }
+
+  async function downloadOfflineResourcesAndContinue() {
+    setIsDownloadingOfflineResources(true);
+    setOfflinePreparationError("");
+    try {
+      if (!desktopApi()) throw new Error("Open this event in the PLPass desktop app to download its offline resources.");
+      if (!(await confirmSupabaseConnectivity())) throw new Error("Connect to Wi-Fi to download the offline resources before starting attendance.");
+      await offline.prepare();
+      if (pendingStartedSession) {
+        const localSession = await getStartableLocalSession(event, pendingStartedSession.id);
+        if (!localSession) throw new Error("The refreshed package does not contain the active attendance session. Try downloading again.");
+        await localSession.api.confirmOnlineStartedSession(
+          event.id,
+          pendingStartedSession.id,
+          localSession.ownerId,
+          pendingStartedSession.startedAt,
+          pendingStartedSession.lateCutoffAt,
+        );
+        setPendingStartedSession(null);
+        setIsOfflinePreparationOpen(false);
+        toast.success("Attendance session started.");
+        navigateToLiveSession(pendingStartedSession.id);
+        return;
+      }
+      if (!(await getStartableLocalSession())) {
+        throw new Error("The offline package was downloaded, but it does not contain a ready attendance session. Refresh the event and try again.");
+      }
+      setIsOfflinePreparationOpen(false);
+      setSessionModalMode("start");
+      setIsStartSessionOpen(true);
+    } catch (error) {
+      setOfflinePreparationError(getErrorMessage(error) || "Offline resources could not be downloaded.");
+    } finally {
+      setIsDownloadingOfflineResources(false);
+    }
+  }
+
   async function startAttendanceSession() {
     if (dateKey(event.startsAt) !== dateKey(new Date())) {
       toast.error("This event can only start on its scheduled Manila date. Reschedule it to today first.");
@@ -662,63 +832,89 @@ export function EventDetailsPage() {
       setIsRescheduleOpen(true);
       return;
     }
+    setIsStartingSession(true);
+    let createdSession: { id: string; startsAt: string; attendanceWindowStartAt?: string; lateCutoffAt?: string } | null = null;
     try {
-      let sessionId = "";
-      if (isOfflineMode) {
-        const ownerId = session?.userId;
-        const api = desktopApi();
-        const localPackage = ownerId && api ? await api.getPreparedEvent(event.id, ownerId) : null;
-        const localSession = localPackage?.sessions.find((item) =>
-          item.status === "scheduled" && (item.offlineLifecycle ?? "NOT_STARTED") === "NOT_STARTED"
-        );
-        if (!ownerId || !api || !localPackage || !localSession) {
-          throw new Error("This event has no prepared local attendance session. Prepare it while online before starting offline.");
+      // A verified package is the local authority while disconnected. Keep
+      // the online Supabase start path unchanged for stable connectivity.
+      const shouldStartOffline = isOfflineMode || !navigator.onLine;
+      if (shouldStartOffline) {
+        const localSession = await getStartableLocalSession();
+        if (!localSession) {
+          throw new Error("This event has no verified prepared local package. Reconnect and download the offline resources first.");
         }
-        const updatedPackage = await startOfflineEvent(event.id, localSession.id, ownerId);
-        const updatedSession = updatedPackage.sessions.find((item) => item.id === localSession.id);
-        if (!updatedSession || !["START_PENDING", "STARTED"].includes(updatedSession.offlineLifecycle ?? "")) {
-          throw new Error("The local attendance session did not enter its started state.");
-        }
-        // Preserve the successful local start across this route transition.
-        // The encrypted local package remains durable; this short-lived handoff
-        // only prevents a concurrent connectivity probe from racing its first read.
-        rememberOfflineLiveSessionHandoff(updatedPackage, ownerId, updatedSession.id);
-        sessionId = updatedSession.id;
-      } else {
-        const created = await mutations.createEventSessionMutation.mutateAsync({
-          eventId: event.id,
-          venue: event.venue,
-          date: dateKey(event.startsAt),
-          startTime: timeInputValue(event.startsAt),
-          expectedEndTime: timeInputValue(event.endsAt),
-          attendanceMode: "face-to-face",
-          lateCutoffMinutes
-        });
-        sessionId = created.id;
-        // A server start alone is not enough for hybrid attendance. Before
-        // entering the live screen, mirror this exact server session into the
-        // owner-scoped encrypted package so losing Wi-Fi cannot prevent a
-        // durable local end later.
-        const api = desktopApi();
-        const ownerId = session?.userId;
-        if (api && ownerId) {
-          const preparedPackage = await api.getPreparedEvent(event.id, ownerId);
-          if (preparedPackage?.sessions.some((item) => item.id === created.id)) {
-            await api.confirmOnlineStartedSession(
-              event.id,
-              created.id,
-              ownerId,
-              created.attendanceWindowStartAt ?? created.startsAt,
-              created.lateCutoffAt
-            );
-          }
-        }
+        await startOfflineEvent(event.id, localSession.localSession.id, localSession.ownerId);
+        setIsStartSessionOpen(false);
+        toast.success("Attendance session started on this device. It will synchronize after reconnecting.");
+        navigateToLiveSession(localSession.localSession.id, { reload: true });
+        return;
       }
+      const created = await mutations.createEventSessionMutation.mutateAsync({
+        eventId: event.id,
+        venue: event.venue,
+        date: dateKey(event.startsAt),
+        startTime: timeInputValue(event.startsAt),
+        expectedEndTime: timeInputValue(event.endsAt),
+        attendanceMode: "face-to-face",
+        lateCutoffMinutes
+      });
+      createdSession = created;
+      const startedAt = created.attendanceWindowStartAt ?? created.startsAt;
+      const localSession = await getStartableLocalSession();
+      if (!localSession) {
+        throw new Error("The prepared attendance package is no longer available on this device.");
+      }
+      await localSession.api.confirmOnlineStartedSession(
+        event.id,
+        created.id,
+        localSession.ownerId,
+        startedAt,
+        created.lateCutoffAt,
+      );
       setIsStartSessionOpen(false);
       toast.success("Attendance session started.");
-      navigate(workspaceRoute(APP_ROUTES.organizerLiveSession(sessionId), APP_ROUTES.adminLiveSession(sessionId)));
-    } catch {
-      // The mutation displays the repository error in a toast.
+      navigateToLiveSession(created.id);
+    } catch (error) {
+      const message = getErrorMessage(error) || "The attendance session could not be started.";
+      if (createdSession) {
+        setPendingStartedSession({
+          id: createdSession.id,
+          startedAt: createdSession.attendanceWindowStartAt ?? createdSession.startsAt,
+          lateCutoffAt: createdSession.lateCutoffAt,
+        });
+        setIsStartSessionOpen(false);
+        setOfflinePreparationError(`Attendance started on the server, but this device could not verify its offline package. ${message}`);
+        setIsOfflinePreparationOpen(true);
+      } else {
+        const transportFailure = error instanceof TypeError || /failed to fetch|network|offline|timeout|connection/i.test(message);
+        if (transportFailure) {
+          try {
+            const refreshed = await sessionsQuery.refetch();
+            const recovered = refreshed.data?.items.find((candidate) => candidate.eventId === event.id && candidate.status === "active");
+            if (recovered) {
+              const localSession = await getStartableLocalSession(event, recovered.id);
+              if (!localSession) throw new Error("The server started attendance, but the prepared package is unavailable on this device.");
+              await localSession.api.confirmOnlineStartedSession(
+                event.id,
+                recovered.id,
+                localSession.ownerId,
+                recovered.attendanceWindowStartAt ?? recovered.startsAt,
+                recovered.lateCutoffAt,
+              );
+              setIsStartSessionOpen(false);
+              toast.success("Attendance session started.");
+              navigateToLiveSession(recovered.id);
+              return;
+            }
+          } catch (recoveryError) {
+            toast.error(getErrorMessage(recoveryError) || message);
+            return;
+          }
+        }
+        toast.error(message);
+      }
+    } finally {
+      setIsStartingSession(false);
     }
   }
 
@@ -836,6 +1032,7 @@ export function EventDetailsPage() {
       if (error) throw error;
 
       await participantsQuery.refetch();
+      await refreshOfflineResourcesAfterChange();
       setParticipantStudentNumber("");
       setParticipantPendingAddition(null);
       setInvitationStatusRefreshKey((current) => current + 1);
@@ -863,6 +1060,7 @@ export function EventDetailsPage() {
 
       const addedCount = participantPickerSelectedIds.length;
       await participantsQuery.refetch();
+      await refreshOfflineResourcesAfterChange();
       setParticipantPickerSelectedIds([]);
       setIsParticipantPickerOpen(false);
       setInvitationStatusRefreshKey((current) => current + 1);
@@ -888,6 +1086,7 @@ export function EventDetailsPage() {
       const student = students.find((item) => item.id === studentId);
       setParticipantPendingRemoval(null);
       await participantsQuery.refetch();
+      await refreshOfflineResourcesAfterChange();
       toast.success(`${student ? studentName(student) : "Student"} removed from this event.`);
     } catch (error) {
       console.error("Failed to remove event participant:", error);
@@ -1057,27 +1256,12 @@ export function EventDetailsPage() {
         description={isAdmin ? "View event details, owner, schedule, attendance summary, and audit context." : "Manage this event, prepare attendance, and review participation."}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {liveSessionRedirectError ? <p className="basis-full text-right text-sm text-destructive" role="alert">{liveSessionRedirectError}</p> : null}
             {canStartSession ? (
             <div className="flex items-center gap-2">
-            <Button type="button" size="sm" disabled={mutations.createEventSessionMutation.isPending} onClick={() => {
-              if (!activeSession && dateKey(event.startsAt) !== dateKey(new Date())) {
-                setRescheduleValues({
-                  venue: event.venue,
-                  date: dateKey(new Date()),
-                  startTime: timeInputValue(event.startsAt),
-                  endTime: timeInputValue(event.endsAt),
-                  reason: "Reschedule event to today to start attendance."
-                });
-                setRescheduleToStart(true);
-                setIsRescheduleOpen(true);
-                return;
-              }
-              setSessionModalMode(activeSession ? "existing" : "start");
-              if (!activeSession) setLateCutoffMinutes(15);
-              setIsStartSessionOpen(true);
-            }}>
+            <Button type="button" size="sm" disabled={isStartingSession || isDownloadingOfflineResources || isOpeningLiveSession} onClick={() => void openAttendanceStartFlow()}>
               <Play className="h-4 w-4" aria-hidden="true" />
-              Start session
+              {isOpeningLiveSession ? "Opening live attendance…" : "Start session"}
             </Button>
             {canChangeEvent ? <details className="relative">
               <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-1 rounded-md border border-input bg-surface px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
@@ -1129,8 +1313,8 @@ export function EventDetailsPage() {
       </section>
 
       {canManageOwnedEvents ? <>
-        <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(error instanceof Error?error.message:"Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
-        {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Available only after the event is completed, all local records are confirmed, and Supabase is reachable.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const api=desktopApi();if(!api)return;const result=await api.cleanupEvent(event.id,offline.status.connectivity==="online"&&offline.status.pendingCount===0,event.status==="completed");setCleanupMessage(result.message);if(result.cleaned)await offline.refresh();})()}>Clean up offline package</Button></div></section>:null}
+        <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(getErrorMessage(error) || "Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
+        {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Completed packages are removed automatically after server confirmation and a 24-hour safety period.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const cleaned=await cleanupExpiredReconciledEvents(scope.context.actorUserId);setCleanupMessage(cleaned?"Cleanup completed. Temporary event and biometric cache data were removed.":"Cleanup is not ready yet. PLPass will keep this package until reconciliation and the 24-hour safety period are complete.");if(cleaned)await offline.refresh();})()}>Check cleanup status</Button></div></section>:null}
       </> : null}
       
       {/* Event Overview Stats */}
@@ -1464,12 +1648,34 @@ export function EventDetailsPage() {
       </section>
 
       <ModalShell
+        open={isOfflinePreparationOpen}
+        title={pendingStartedSession ? "Repair attendance resources" : isDesktopRuntimeAvailable ? "Download attendance resources first" : "Start attendance in PLPass desktop"}
+        description={pendingStartedSession
+          ? "The server session has started. Repair and verify this device's local attendance package before opening live attendance."
+          : isDesktopRuntimeAvailable
+          ? "Download this event's roster and scheduled attendance session before starting."
+          : "Attendance resources are downloaded and verified in the PLPass desktop app before a session can start."}
+        size="sm"
+        onClose={isDownloadingOfflineResources || pendingStartedSession ? undefined : () => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}
+        footer={isDesktopRuntimeAvailable ? <>
+          {!pendingStartedSession ? <Button type="button" variant="outline" disabled={isDownloadingOfflineResources} onClick={() => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}>Cancel</Button> : null}
+          <Button type="button" disabled={isDownloadingOfflineResources} onClick={() => void downloadOfflineResourcesAndContinue()}>{isDownloadingOfflineResources ? "Downloading offline resources..." : pendingStartedSession ? "Repair & continue" : "Download & continue"}</Button>
+        </> : <Button type="button" onClick={() => { setIsOfflinePreparationOpen(false); setOfflinePreparationError(""); }}>Close</Button>}
+      >
+        <div className="space-y-3" aria-live="polite">
+          {isDesktopRuntimeAvailable ? <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">The download includes the approved student roster, QR/manual lookup data, and the scheduled attendance session. It does not start attendance yet.</div> : null}
+          {isDownloadingOfflineResources ? <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm font-medium text-primary">Downloading and verifying the offline event package…</div> : null}
+          {offlinePreparationError ? <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{offlinePreparationError}</p> : null}
+        </div>
+      </ModalShell>
+
+      <ModalShell
         open={isStartSessionOpen}
         title={existingSessionForDialog ? "Live session already started" : "Start attendance"}
         description={existingSessionForDialog ? "Continue this event's attendance, or discard it if it was started by mistake." : "Attendance starts now. The planned schedule stays unchanged."}
         size="sm"
-        onClose={() => !mutations.createEventSessionMutation.isPending && setIsStartSessionOpen(false)}
-        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(existingSessionForDialog.id), APP_ROUTES.adminLiveSession(existingSessionForDialog.id))}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={mutations.createEventSessionMutation.isPending}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={mutations.createEventSessionMutation.isPending}>{mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
+        onClose={() => !isStartingSession && setIsStartSessionOpen(false)}
+        footer={existingSessionForDialog ? <>{activeSessionRecordCount === 0 ? <Button type="button" variant="outline" className="border-destructive/40 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setIsDiscardSessionOpen(true)}>Discard session</Button> : null}<Button asChild type="button"><NavLink to={workspaceRoute(APP_ROUTES.organizerLiveSession(existingSessionForDialog.id), APP_ROUTES.adminLiveSession(existingSessionForDialog.id))}>Open live session</NavLink></Button></> : <><Button type="button" variant="outline" onClick={() => setIsStartSessionOpen(false)} disabled={isStartingSession}>Cancel</Button><Button type="button" onClick={() => void startAttendanceSession()} disabled={isStartingSession || mutations.createEventSessionMutation.isPending}>{isStartingSession || mutations.createEventSessionMutation.isPending ? "Starting..." : "Start session"}</Button></>}
       >
         <div className="space-y-4">
           <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">

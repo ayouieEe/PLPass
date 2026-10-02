@@ -7,6 +7,17 @@ import { _electron as electron } from "playwright";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const userDataDirectory = await mkdtemp(path.join(os.tmpdir(), "plpass-electron-smoke-"));
+async function removeSmokeDirectory() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(userDataDirectory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
 const organizerId = "00000000-0000-4000-8000-000000000101";
 const eventId = "00000000-0000-4000-8000-000000000102";
 const sessionId = "00000000-0000-4000-8000-000000000103";
@@ -15,9 +26,36 @@ const startedAt = "2026-09-27T08:00:00.000Z";
 const checkedOutAt = "2026-09-27T08:02:00.000Z";
 
 let app;
+const smokeTimeoutMs = 20_000;
+const withSmokeTimeout = (promise, label, timeoutMs = smokeTimeoutMs) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`Electron smoke timed out during ${label} after ${timeoutMs}ms.`)), timeoutMs))
+]);
+const waitForRendererReady = (page) => new Promise((resolve, reject) => {
+  let settled = false;
+  const finish = (callback, value) => {
+    if (settled) return;
+    settled = true;
+    page.off("close", onClose);
+    page.off("requestfailed", onRequestFailed);
+    page.off("crash", onCrash);
+    callback(value);
+  };
+  const onClose = () => finish(reject, new Error(`Electron smoke renderer closed before the preload bridge was available (URL: ${page.url() || "unknown"}).`));
+  const onRequestFailed = (request) => {
+    if (request.isNavigationRequest()) finish(reject, new Error(`Electron smoke renderer navigation failed for ${request.url()}: ${request.failure()?.errorText ?? "unknown"}.`));
+  };
+  const onCrash = () => finish(reject, new Error(`Electron smoke renderer crashed before the preload bridge was available (URL: ${page.url() || "unknown"}).`));
+  page.once("close", onClose);
+  page.on("requestfailed", onRequestFailed);
+  page.once("crash", onCrash);
+  void page.waitForFunction(() => typeof window.plpassDesktop === "object", { timeout: smokeTimeoutMs })
+    .then(() => finish(resolve), (error) => finish(reject, error));
+});
 try {
-  app = await electron.launch({
-    args: [projectRoot, `--user-data-dir=${userDataDirectory}`],
+  console.log("Electron smoke: launching isolated app...");
+  app = await withSmokeTimeout(electron.launch({
+    args: [projectRoot, `--user-data-dir=${userDataDirectory}`, "--headless", "--disable-gpu", "--disable-gpu-compositing", "--use-angle=swiftshader"],
     cwd: projectRoot,
     // Do not let an organizer's already-running desktop window prevent this
     // isolated smoke application from starting. Its user-data directory is
@@ -25,11 +63,18 @@ try {
     env: {
       ...process.env,
       PLPASS_E2E_ISOLATED: "1",
-      PLPASS_FACIAL_API_URL: "http://127.0.0.1:9"
+      PLPASS_FACIAL_API_URL: "http://127.0.0.1:9",
+      VITE_DEV_SERVER_URL: "plpass://app/"
     }
-  });
-  const page = await app.firstWindow();
-  await page.waitForFunction(() => typeof window.plpassDesktop === "object");
+  }), "app launch");
+  app.process().stdout?.on("data", (chunk) => console.error(`Electron smoke main: ${chunk.toString().trim()}`));
+  app.process().stderr?.on("data", (chunk) => console.error(`Electron smoke main: ${chunk.toString().trim()}`));
+  const page = await withSmokeTimeout(app.firstWindow(), "first window");
+  page.on("console", (message) => console.log(`Electron smoke renderer ${message.type()}: ${message.text()}`));
+  page.on("pageerror", (error) => console.error(`Electron smoke renderer error: ${error.message}`));
+  page.on("close", () => console.error("Electron smoke renderer window closed."));
+  page.on("requestfailed", (request) => console.error(`Electron smoke request failed: ${request.url()} (${request.failure()?.errorText ?? "unknown"})`));
+  await waitForRendererReady(page);
 
   const result = await page.evaluate(async ({ organizerId, eventId, sessionId, studentId, startedAt, checkedOutAt }) => {
     const desktop = window.plpassDesktop;
@@ -93,6 +138,22 @@ try {
   assert.equal(result.integrity.integrity, "ok");
   console.log("Desktop smoke passed: preload, SQLite, lifecycle, Time In, Time Out, and integrity checks succeeded.");
 } finally {
-  await app?.close();
-  await rm(userDataDirectory, { recursive: true, force: true });
+  if (app) {
+    const child = app.process();
+    await Promise.race([
+      app.close(),
+      new Promise((resolve) => setTimeout(resolve, 5_000))
+    ]);
+    try {
+      if (child && !child.killed) child.kill("SIGKILL");
+      child?.stdout?.removeAllListeners();
+      child?.stderr?.removeAllListeners();
+      child?.stdout?.destroy();
+      child?.stderr?.destroy();
+      child?.unref?.();
+    } catch {
+      // The Electron application may already have exited after a launch timeout.
+    }
+  }
+  await removeSmokeDirectory();
 }

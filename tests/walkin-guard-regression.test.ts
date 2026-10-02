@@ -22,8 +22,9 @@ describe("Walk-in safety guards", () => {
   });
 
   it("routes an admitted Walk-in checkout through the guarded RPC", () => {
-    expect(management).toContain("const existingWalkIn = await findRemoteWalkIn(matchedStudent.studentNumber);");
+    expect(management).toContain("existingWalkIn = await findRemoteWalkIn(resolvedStudent.studentNumber);");
     expect(management).toContain('await recordRemoteWalkInTimeOut(existingWalkIn, "QR Code", new Date().toISOString());');
+    expect(management).toContain("let existingWalkIn = requestedStudentNumber");
     expect(attendance).toContain("if (existingWalkIn || !participantStudents.some");
     expect(attendance).toContain("if (!isCheckingOut && !await walkInWarning.confirm");
   });

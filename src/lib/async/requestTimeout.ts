@@ -7,7 +7,7 @@ export class RequestTimeoutError extends Error {
   }
 }
 
-export function withRequestTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+export function withRequestTimeout<T>(operation: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = globalThis.setTimeout(() => reject(new RequestTimeoutError(message)), timeoutMs);
 

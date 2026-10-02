@@ -61,7 +61,7 @@ import {
   mapStudent
 } from "@/lib/supabase/mappers";
 import { RepositoryError } from "@/services/repositoryUtils";
-import { normalizeStudentIdentityValue, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
+import { extractQrCredentialId, normalizeStudentIdentityValue, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
 import type {
@@ -1403,7 +1403,30 @@ export const supabaseAttendanceRecordRepository: AttendanceRecordRepository = {
       return credentialScanResult(input, "Invalid Credential", occurredAt, "No active event participant matches this student number or name.", { failedAttempts: 1 });
     }
     const studentId = String(matchedParticipant.student_id);
-    const credentialAttemptMetadata = {};
+    // Accepted QR verification attempts must reference the credential that
+    // was actually used. Barcode scanners commonly emit the student number
+    // rather than the opaque credential UUID, so resolve the active student
+    // credential after matching the participant instead of assuming the raw
+    // payload is already a credential id.
+    const scannedCredentialId = extractQrCredentialId(input.credentialCode).toLowerCase();
+    const { data: credentialRows, error: credentialError } = await client
+      .from("qr_credentials")
+      .select("id, expires_at, issued_at")
+      .eq("student_id", studentId)
+      .eq("credential_status", "activated")
+      .order("issued_at", { ascending: false })
+      .limit(20);
+    throwIfSupabaseError(credentialError);
+    const activeQrCredential = (credentialRows ?? [])
+      .map((row) => row as Row)
+      .filter((row) => !row.expires_at || new Date(String(row.expires_at)).getTime() > new Date(occurredAt).getTime())
+      .find((row) => String(row.id ?? "").toLowerCase() === scannedCredentialId)
+      ?? (credentialRows ?? [])[0] as Row | undefined;
+    if (!activeQrCredential?.id) {
+      await insertVerificationAttempt(input.sessionId, input.method, false, "qr_not_enrolled", "Student does not have an active QR credential.", occurredAt, { studentId });
+      return credentialScanResult(input, "Blocked Credential", occurredAt, "This student does not have an active QR credential.", { failedAttempts: 1 });
+    }
+    const credentialAttemptMetadata = { qrCredentialId: String(activeQrCredential.id) };
     const { data: enrolledParticipant, error: participantError } = await client
       .from("event_participants")
       .select("id")

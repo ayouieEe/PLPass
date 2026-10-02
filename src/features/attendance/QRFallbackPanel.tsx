@@ -8,13 +8,7 @@ type QRFallbackPanelProps = {
 };
 const scannerIdleSubmissionDelayMs = 1_000;
 const duplicateQrSuppressionMs = 5_000;
-
-function isEditableTarget(target: EventTarget | null) {
-  return target instanceof HTMLElement && (
-    target.isContentEditable ||
-    target.matches("input, textarea, select")
-  );
-}
+const scannerBurstIntervalMs = 80;
 
 export function QRFallbackPanel({ disabled, onScan }: QRFallbackPanelProps) {
   const [qrCode, setQrCode] = useState("");
@@ -24,6 +18,8 @@ export function QRFallbackPanel({ disabled, onScan }: QRFallbackPanelProps) {
   const onScanRef = useRef(onScan);
   const scannerBufferRef = useRef("");
   const scannerFlushTimerRef = useRef<number | undefined>(undefined);
+  const scannerLastKeyAtRef = useRef<number | undefined>(undefined);
+  const scannerBurstRef = useRef(true);
   const recentScansRef = useRef(new Map<string, number>());
 
   useEffect(() => {
@@ -37,11 +33,13 @@ export function QRFallbackPanel({ disabled, onScan }: QRFallbackPanelProps) {
         scannerFlushTimerRef.current = undefined;
       }
       scannerBufferRef.current = "";
+      scannerLastKeyAtRef.current = undefined;
+      scannerBurstRef.current = true;
     };
 
     const submitBufferedScan = () => {
       const value = scannerBufferRef.current.trim();
-      if (value.length < 3) {
+      if (value.length < 3 || !scannerBurstRef.current) {
         resetScannerBuffer();
         return;
       }
@@ -60,13 +58,14 @@ export function QRFallbackPanel({ disabled, onScan }: QRFallbackPanelProps) {
     };
 
     const handleScannerKeyDown = (event: KeyboardEvent) => {
-      if (disabled || isEditableTarget(event.target)) {
+      if (disabled) {
         resetScannerBuffer();
         return;
       }
 
       if (event.key === "Enter" || event.key === "Tab") {
-        if (scannerBufferRef.current.trim().length >= 3) {
+        const value = scannerBufferRef.current.trim();
+        if (value.length >= 3 && scannerBurstRef.current) {
           event.preventDefault();
           submitBufferedScan();
         } else {
@@ -77,6 +76,10 @@ export function QRFallbackPanel({ disabled, onScan }: QRFallbackPanelProps) {
 
       if (event.key.length !== 1 || event.ctrlKey || event.altKey || event.metaKey) return;
 
+      const now = performance.now();
+      const previous = scannerLastKeyAtRef.current;
+      if (previous !== undefined && now - previous > scannerBurstIntervalMs) scannerBurstRef.current = false;
+      scannerLastKeyAtRef.current = now;
       scannerBufferRef.current += event.key;
       if (scannerFlushTimerRef.current !== undefined) window.clearTimeout(scannerFlushTimerRef.current);
       scannerFlushTimerRef.current = window.setTimeout(submitBufferedScan, scannerIdleSubmissionDelayMs);

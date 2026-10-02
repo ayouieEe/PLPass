@@ -1,9 +1,9 @@
-import { app, BrowserWindow, ipcMain, net, protocol, safeStorage } from "electron";
+import { app, BrowserWindow, ipcMain, protocol, safeStorage } from "electron";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { LocalAttendanceDatabase } from "./localDatabase.js";
 import { ScannerCoordinator, type ScannerCertificateStore, type ScannerRootCertificate } from "./scannerCoordinator.js";
@@ -54,7 +54,6 @@ if (isIsolatedDesktopTest) {
   // CI/test hosts can lack the Windows GPU runtime. Apply Chromium switches
   // before app readiness, where Electron reliably honors them.
   app.commandLine.appendSwitch("disable-gpu");
-  app.commandLine.appendSwitch("disable-software-rasterizer");
   app.commandLine.appendSwitch("in-process-gpu");
 }
 const hasSingleInstanceLock = isIsolatedDesktopTest || app.requestSingleInstanceLock();
@@ -242,7 +241,7 @@ function registerHandlers() {
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
     "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => { const attendanceInput = input as unknown as LocalAttendanceInput; const result = store.recordAttendance(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
     "offline:recordScanner": (input, phase) => { const attendanceInput = input as unknown as LocalAttendanceInput; const capturePhase = phase as unknown as "time_in" | "time_out"; const result = capturePhase === "time_out" ? store.recordScannerCheckOut(attendanceInput) : store.recordScannerCheckIn(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
-    "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId),
+    "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId), "offline:cacheOnlineAttendance": (input) => store.cacheOnlineAttendance(input as { eventId:string; sessionId:string; organizerProfileId:string; studentId:string; studentNumber?:string; displayName?:string; participantStatus?:"invited"|"confirmed"|"walk_in"; attendanceStatus:"present"|"late"; timeIn:string; timeOut?:string|null }),
     "offline:queueWalkin": (input) => { const walkInInput = input as unknown as {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:"time_in"|"time_out";attendanceTimestamp:string;organizerProfileId:string}; const result = store.queueWalkInScan(walkInInput); const action = result.action ?? (walkInInput.capturePhase === "time_in" ? "checked_in" : "checked_out"); publishOfflineAttendance({ eventId: walkInInput.eventId, sessionId: walkInInput.sessionId, studentNumber: result.studentNumber, action, recordedAt: action === "already_recorded" ? result.timeIn : walkInInput.attendanceTimestamp, timeIn: result.timeIn, timeOut: result.timeOut, syncStatus: result.syncStatus, message: action === "already_recorded" ? "This walk-in already has Time In recorded." : `${walkInInput.capturePhase === "time_in" ? "Time In" : "Time Out"} saved on this device at ${new Date(walkInInput.attendanceTimestamp).toLocaleTimeString()}; not synced.`,source:"organizer" }); return result; }, "offline:listWalkins": (eventId,ownerId,activeSessionId) => store.listPendingWalkInScans(eventId,ownerId,activeSessionId),
     "offline:beginWalkinSync": (limit,ownerId,forceRetry) => store.beginWalkInSync(limit,ownerId,forceRetry), "offline:confirmWalkinSync": (id,student) => store.confirmWalkInSync(id,student), "offline:discardWalkinSync": (id,ownerId) => store.discardWalkInSync(id,ownerId), "offline:failWalkinSync": (id,status,error) => store.failWalkInSync(id,status,error),
     "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
@@ -266,14 +265,15 @@ function registerHandlers() {
 
 if (hasSingleInstanceLock) app.whenReady().then(() => {
   const rendererDirectory = path.resolve(directory, "..", "..", "dist");
-  protocol.handle("plpass", (request) => {
+  protocol.registerBufferProtocol("plpass", (request, callback) => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);
     const relativePath = requestPath === "/" ? "index.html" : requestPath.replace(/^\/+/, "");
     const requestedPath = path.resolve(rendererDirectory, relativePath);
     const targetPath = requestedPath.startsWith(`${rendererDirectory}${path.sep}`) && existsSync(requestedPath)
       ? requestedPath
       : path.join(rendererDirectory, "index.html");
-    return net.fetch(pathToFileURL(targetPath).toString());
+    const contentType = targetPath.endsWith(".js") ? "text/javascript" : targetPath.endsWith(".css") ? "text/css" : targetPath.endsWith(".svg") ? "image/svg+xml" : targetPath.endsWith(".png") ? "image/png" : "text/html";
+    callback({ mimeType: contentType, data: readFileSync(targetPath) });
   });
   const dbPath = path.join(app.getPath("userData"), "plpass-offline.sqlite3");
   console.info(`PLPass offline SQLite database: ${dbPath}`);

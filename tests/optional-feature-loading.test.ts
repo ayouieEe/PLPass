@@ -5,7 +5,7 @@ const { humanLoad, HumanMock } = vi.hoisted(() => {
   const load = vi.fn().mockResolvedValue(undefined);
   return {
     humanLoad: load,
-    HumanMock: vi.fn().mockImplementation(() => ({ load }))
+    HumanMock: vi.fn().mockImplementation(function HumanMock() { return { load }; })
   };
 });
 

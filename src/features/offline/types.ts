@@ -192,9 +192,10 @@ export interface PLPassDesktopApi {
   identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   recordScannerAttendance(input: LocalAttendanceInput, phase: AttendanceCapturePhase): Promise<LocalAttendanceResult>;
+  cacheOnlineAttendance(input: { eventId: string; sessionId: string; organizerProfileId: string; studentId: string; studentNumber?: string; displayName?: string; participantStatus?: "invited" | "confirmed" | "walk_in"; attendanceStatus: "present" | "late"; timeIn: string; timeOut?: string | null }): Promise<void>;
   getAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
   advanceAttendanceCapturePhase(sessionId: string, organizerProfileId: string): Promise<AttendanceCapturePhase>;
-  queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string}): Promise<PendingWalkInScan>;
+  queueWalkInScan(input: {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:AttendanceCapturePhase;attendanceTimestamp:string;organizerProfileId:string;localScanUuid?:string}): Promise<PendingWalkInScan>;
   listPendingWalkInScans(eventId: string | undefined, organizerProfileId: string, activeSessionId?: string): Promise<PendingWalkInScan[]>;
   beginWalkInSync(limit: number, organizerProfileId: string, forceRetry?: boolean): Promise<PendingWalkInScan[]>;
   confirmWalkInSync(localScanUuid: string, student?: {id:string;studentNumber:string;displayName:string;participantStatus?:"invited"|"walk_in";attendanceStatus:string;timeIn:string;timeOut?:string}): Promise<void>;
