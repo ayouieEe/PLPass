@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { LocalAttendanceDatabase, offlineRetryDelayMs, offlineRetryMaxMs, pendingAttendanceIndexesFromIntegrityErrors } from "../electron/localDatabase";

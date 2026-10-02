@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { DatabaseSync } from "node:sqlite";
 import { request } from "node:https";
 import { get } from "node:http";
