@@ -462,7 +462,7 @@ function ReportExportModal({
 
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to export the selected records. Please try again.");
+      toast.error(getErrorMessage(error) || "Unable to export the selected records. Please try again.");
     } finally {
       setIsExportLoading(false);
     }

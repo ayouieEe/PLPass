@@ -32,6 +32,19 @@ describe("offline synchronization",()=>{beforeEach(()=>{vi.clearAllMocks();getUs
     expect(rpc).not.toHaveBeenCalledWith("reconcile_offline_event_session_start",expect.anything());
     expect(local.setOfflineLifecycleState).toHaveBeenCalledWith("event-1","session-1","ENDED");
   });
+  it("repairs the old premature-start ordering before replaying attendance",async()=>{
+    const session={id:"session-1",eventId:"event-1",title:"Event",venue:"Hall",status:"completed",startsAt:"2026-09-05T00:00:00.000Z",endsAt:"2026-09-05T03:00:00.000Z",offlineLifecycle:"END_PENDING" as const,offlineStartedAt:"2026-09-05T00:15:00.000Z",offlineEndedAt:"2026-09-05T02:00:00.000Z",offlineEndReason:"Venue closed early",offlineStartReconciledAt:"2026-09-05T00:16:00.000Z"};
+    const pkg={event:{id:"event-1",code:"EVT-1",title:"Event",status:"completed",startsAt:session.startsAt,endsAt:session.endsAt},sessions:[session],participants:[{studentId:"student-1",studentNumber:"S1",displayName:"Student One",participantStatus:"active",faceEmbeddings:[]}],attendance:[]};
+    const calls:string[]=[];
+    const conflicted={...record,syncStatus:"CONFLICT" as const,lastSyncError:"The offline record needs manual review before synchronization can continue."};
+    const local={...api(),listPreparedEvents:vi.fn().mockResolvedValue([{event:pkg.event,sessionId:session.id,lifecycle:"END_PENDING"}]),getPreparedEvent:vi.fn().mockResolvedValue(pkg),setOfflineLifecycleState:vi.fn().mockResolvedValue(undefined),listPending:vi.fn().mockResolvedValueOnce([conflicted]).mockResolvedValueOnce([]),beginSync:vi.fn().mockImplementation(async()=>{calls.push("sync");return [record];}),failSync:vi.fn().mockImplementation(async()=>{calls.push("recover");}),confirmSync:vi.fn().mockImplementation(async()=>{calls.push("confirm");}),listPendingWalkInScans:vi.fn().mockResolvedValue([]),hasUnresolvedWork:vi.fn().mockResolvedValue(false)} as unknown as PLPassDesktopApi;
+    window.plpassDesktop=local;
+    from.mockImplementation(()=>({select:()=>({in:vi.fn().mockResolvedValue({data:[{id:session.id,event_id:session.eventId,session_status:"scheduled"}],error:null})})}));
+    rpc.mockImplementation(async(name:string)=>{calls.push(name);return {data:{id:session.id,local_attendance_uuid:record.localAttendanceUuid},error:null};});
+    expect(await reconcileOfflineEventLifecycle("organizer",true)).toMatchObject({completed:true});
+    expect(calls).toEqual(["recover","reconcile_offline_event_session_start","sync","sync_offline_event_attendance","confirm","reconcile_offline_event_session_end"]);
+    expect(local.failSync).toHaveBeenCalledWith(record.localAttendanceUuid,"RETRY",expect.stringContaining("server session is being started"));
+  });
   it("reports reconciliation stages without altering the durable end protocol",async()=>{
     const session={id:"session-1",eventId:"event-1",title:"Event",venue:"Hall",status:"completed",startsAt:"2026-09-05T00:00:00.000Z",endsAt:"2026-09-05T03:00:00.000Z",offlineLifecycle:"END_PENDING" as const,offlineStartedAt:"2026-09-05T00:15:00.000Z",offlineEndedAt:"2026-09-05T02:00:00.000Z",offlineStartReconciledAt:"2026-09-05T00:16:00.000Z"};
     const pkg={event:{id:"event-1",code:"EVT-1",title:"Event",status:"ongoing",startsAt:session.startsAt,endsAt:session.endsAt},sessions:[session],participants:[],attendance:[]};

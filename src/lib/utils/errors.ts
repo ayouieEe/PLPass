@@ -34,6 +34,12 @@ export function formatUserErrorMessage(rawMessage: string | null | undefined): s
   }
 
   let msg = rawMessage.trim();
+  // Electron prefixes rejected IPC calls with the channel name and a second
+  // Error prefix. Keep that detail for logs, but never show it to organizers.
+  const ipcError = msg.match(/^Error invoking remote method\s+'[^']+'\s*:\s*(?:Error:\s*)?([\s\S]+)$/i);
+  if (ipcError?.[1]) msg = ipcError[1].trim();
+  const nestedError = msg.match(/^Error:\s*([\s\S]+)$/i);
+  if (nestedError?.[1]) msg = nestedError[1].trim();
   const lower = msg.toLowerCase();
 
   // Strip technical log or error prefixes if present
@@ -66,6 +72,10 @@ export function formatUserErrorMessage(rawMessage: string | null | undefined): s
     lower.includes("deadline exceeded")
   ) {
     return "The request took longer than expected to complete. Please check your network connection and try again.";
+  }
+
+  if (lower.includes("time out can be recorded at least one minute after time in")) {
+    return "Please wait at least one minute after Time In before recording Time Out.";
   }
 
   // Supabase / Postgrest Schema Cache & Migration Issues

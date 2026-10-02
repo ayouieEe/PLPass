@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
 import { prepareEventForOffline } from "./offlineService";
+import { getErrorMessage } from "@/lib/utils/errors";
 import type { AttendanceCapturePhase, ScannerCertificateStatus, ScannerCoordinatorStatus } from "./types";
 
 const inactive: ScannerCoordinatorStatus = { active: false, addresses: [], stations: [] };
@@ -52,7 +53,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
       toast.success("Scanner stations are ready. Start the laptop hotspot, then connect each phone.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Scanner stations could not be started.");
+      toast.error(getErrorMessage(error) || "Scanner stations could not be started.");
     } finally {
       setBusy(false);
     }
@@ -81,7 +82,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
       toast.success("Scanner connection QR refreshed. Reconnect phones using the new QR code.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The scanner connection QR could not be refreshed.");
+      toast.error(getErrorMessage(error) || "The scanner connection QR could not be refreshed.");
     } finally {
       setBusy(false);
     }
@@ -100,7 +101,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       setReplaceOpen(false);
       toast.success("Trusted certificate replaced. Phones must install the new certificate before they scan again.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "The trusted certificate could not be replaced.");
+      toast.error(getErrorMessage(error) || "The trusted certificate could not be replaced.");
     } finally {
       setBusy(false);
     }

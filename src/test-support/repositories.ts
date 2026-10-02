@@ -1458,6 +1458,8 @@ export const simulatedAttendanceSessionRepository: AttendanceSessionRepository =
     attendanceRecordState = [...generatedAbsences, ...attendanceRecordState];
     const updated = { ...session, status: "completed" as const, endsAt: endedAt };
     attendanceSessionState = attendanceSessionState.map((entry) => (entry.id === input.sessionId ? updated : entry));
+    const eventId = session.eventId;
+    eventState = eventState.map((entry) => (entry.id === eventId ? { ...entry, status: "completed" as const } : entry));
     auditLogState = [
       {
         id: `audit-session-ended-${Date.now()}`,

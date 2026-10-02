@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { desktopApi, confirmSupabaseConnectivity, prepareEventForOffline, synchronizePendingAttendance } from "./offlineService";
 import type { OfflineStatus, PreparedEventPackage } from "./types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
+import { getErrorMessage } from "@/lib/utils/errors";
 
 const unavailable: OfflineStatus={runtimeAvailable:false,connectivity:"checking",packageStatus:"NOT_PREPARED",pendingCount:0,retryCount:0,conflictCount:0,syncingCount:0};
 
@@ -46,7 +47,7 @@ export function useOfflineEvent(eventId?:string,sessionId?:string){
         setStatus({...local,connectivity:online?"online":"offline"});
       });
     } catch(error) {
-      apply(()=>setLookupError(error instanceof Error ? error.message : "The prepared local session could not be read."));
+      apply(()=>setLookupError(getErrorMessage(error) || "The prepared local session could not be read."));
     } finally {
       apply(()=>setResolvedRequestKey(requestKey));
     }

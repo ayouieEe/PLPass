@@ -1,5 +1,6 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
+import { getErrorMessage } from "@/lib/utils/errors";
 import type { EventResource } from "@/types/domain";
 
 export const EVENT_RESOURCE_BUCKET = "event-resources";
@@ -68,7 +69,7 @@ export function formatResourceFileSize(bytes: number) {
 }
 
 export function eventResourceErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : "";
+  const message = getErrorMessage(error);
   if (/bucket not found|bucket.*does not exist/i.test(message)) {
     return "File uploads are not set up yet. Apply the latest Supabase migration, then try again.";
   }

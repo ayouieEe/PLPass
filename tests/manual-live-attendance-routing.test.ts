@@ -9,7 +9,7 @@ const page = readFileSync(
 
 describe("manual live attendance routing", () => {
   it("records cached participants through the desktop offline attendance queue", () => {
-    expect(page).toContain('identifyOfflineStudent(eventId, "manual", manualInput)');
+    expect(page).toContain('identifyOfflineStudent(eventId, "manual", normalizedInput)');
     expect(page).toContain('identificationMethod: "manual"');
     expect(page).toContain("recordOfflineAttendance({");
   });
@@ -33,6 +33,27 @@ describe("manual live attendance routing", () => {
 
   it("does not retain an unknown online student as a Walk-in", () => {
     expect(page).toContain("No active enrolled student matches this number. No Walk-in attendance was recorded.");
+  });
+
+  it("reconciles a local Time Out phase before the first post-reconnect scan", () => {
+    expect(page).toContain("coordinateAttendancePhase");
+    expect(page).toContain("storedPhase: cachedPhase");
+    expect(page).toContain("advanceServerPhase: () => advanceServerAttendanceCapturePhase(sessionId)");
+    expect(page).toContain("effectiveAttendancePhase = await prepareOnlineAttendanceCapture(sessionId);");
+  });
+
+  it("resolves a synchronized walk-in before stale participant membership can request a second admission", () => {
+    const resolver = page.indexOf("const scannedStudentNumber = extractStudentNumber(scanCode);");
+    const participantMatch = page.indexOf("const matchedStudent = activeParticipantIdentities.find");
+    expect(resolver).toBeGreaterThan(-1);
+    expect(resolver).toBeLessThan(participantMatch);
+    expect(page).toContain('await recordRemoteWalkInTimeOut(existingWalkIn, "QR Code", new Date().toISOString())');
+  });
+
+  it("removes the temporary walk-in projection by local UUID and student number after sync", () => {
+    expect(page).toContain("removeTemporaryWalkInFromDraftByStudentNumber");
+    expect(page).toContain("isTemporaryWalkInForStudentNumber(row, studentNumber)");
+    expect(page).toContain("const resolvedWalkInNumbers = new Set(");
   });
 
   it("submits manual attendance from either input with Enter", () => {

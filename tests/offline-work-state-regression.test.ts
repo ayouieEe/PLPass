@@ -37,6 +37,15 @@ describe("offline work banner state", () => {
     expect(provider).toContain('was already invited. Their attendance was recorded as invited attendance.');
   });
 
+  it("reloads only after successful reconciliation on non-live routes", () => {
+    expect(provider).toContain("function isActiveAttendanceRoute()");
+    expect(provider).toContain('pathname.includes("/live-attendance/")');
+    expect(provider).toContain('new URLSearchParams(window.location.search).has("session")');
+    expect(provider).toContain("if (!unresolved && !isActiveAttendanceRoute())");
+    expect(provider).toContain("window.setTimeout(() => window.location.reload(), 0);");
+    expect(provider).not.toContain("window.location.reload();\n      setAuthError");
+  });
+
   it("keeps the connection state as a compact header status", () => {
     expect(layout).toContain('connectionOffline ? "Offline" : "Online"');
     expect(layout).toContain('aria-label={connectionOffline ? "Offline" : "Online"}');

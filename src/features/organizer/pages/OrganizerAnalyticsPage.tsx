@@ -34,6 +34,7 @@ import { useForm } from "react-hook-form";
 import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -963,7 +964,7 @@ export function OrganizerAnalyticsPage() {
         metadata: { reportType: request.reportType, format: request.format, ...filters }
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to generate this report.");
+      toast.error(getErrorMessage(error) || "Unable to generate this report.");
     }
   }
 

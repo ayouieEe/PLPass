@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef, RowData } from "@tanstack/react-table";
 import type { ColDef } from "ag-grid-community";
 import { createPortal } from "react-dom";
@@ -14,7 +14,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useEvent, useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -445,6 +445,7 @@ export function EventRecordsPage() {
   const [priorityFilter, setPriorityFilter] = useState<PriorityLevel | "">("");
   const [completedModal, setCompletedModal] = useState<CompletedRecord | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const eventRecordRefreshAttemptRef = useRef<{ eventId: string; attempts: number; inFlight: boolean } | null>(null);
 
   const handleFromDateChange = (nextFromDate: string) => {
     setFromDate(nextFromDate);
@@ -461,6 +462,10 @@ export function EventRecordsPage() {
   );
   const auditLogMutations = useAuditLogMutations(context);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
+  const { isFetching: eventsFetching, isPending: eventsPending, refetch: refetchEvents } = eventsQuery;
+  const requestedEventId = new URLSearchParams(location.search).get("event") ?? undefined;
+  const requestedEventQuery = useEvent(requestedEventId, context, Boolean(requestedEventId));
+  const { data: requestedEvent, isPending: requestedEventPending, isFetching: requestedEventFetching, refetch: refetchRequestedEvent } = requestedEventQuery;
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, EventObjective[]>>(new Map());
 
   useEffect(() => {
@@ -501,7 +506,7 @@ export function EventRecordsPage() {
   }, [eventsQuery.data?.items, location.pathname]);
 
   const repositoryCompletedEvents = useMemo<CompletedRecord[]>(() => {
-    return (eventsQuery.data?.items ?? [])
+    const completed = (eventsQuery.data?.items ?? [])
       .filter((event) => event.status === "completed")
       .map((event) =>
         completedFromRepositoryEvent({
@@ -519,7 +524,24 @@ export function EventRecordsPage() {
           objectives: objectivesByEventId.get(event.id) ?? []
         })
       );
-  }, [eventsQuery.data?.items, objectivesByEventId]);
+    if (requestedEvent?.status === "completed" && !completed.some((event) => event.id === requestedEvent.id)) {
+      completed.push(completedFromRepositoryEvent({
+        id: requestedEvent.id,
+        code: requestedEvent.code,
+        title: requestedEvent.title,
+        category: requestedEvent.category,
+        venue: requestedEvent.venue,
+        startsAt: requestedEvent.startsAt,
+        endsAt: requestedEvent.endsAt,
+        priorityLevel: requestedEvent.priorityLevel,
+        impactScore: requestedEvent.impactScore,
+        predictedTurnout: requestedEvent.predictedTurnout,
+        collegeOffice: requestedEvent.collegeOffice,
+        objectives: objectivesByEventId.get(requestedEvent.id) ?? []
+      }));
+    }
+    return completed;
+  }, [eventsQuery.data?.items, objectivesByEventId, requestedEvent]);
 
   // Real attendance/late/absent/rate + attendee rows for every completed
   // event, fetched in one batched query keyed by event id.
@@ -571,19 +593,46 @@ export function EventRecordsPage() {
 
   useEffect(() => {
     const eventId = new URLSearchParams(location.search).get("event");
-    if (!eventId) return;
+    if (!eventId) {
+      eventRecordRefreshAttemptRef.current = null;
+      return;
+    }
 
     // Never open a completed record with the zero-value placeholder while its
     // attendance summary is still being fetched. Keeping the event id in the
     // URL lets this effect reopen the record with its authoritative totals.
     if (attendanceSummariesPending) return;
+    if (eventsPending || requestedEventPending) return;
 
     const event = completedRows.find((row) => row.id === eventId);
-    if (!event) return;
+    if (!event) {
+      // Session finalization marks the parent event completed. Its cached
+      // event list can still be one render behind when the summary links here.
+      // Refresh once before declaring the record unavailable.
+      const refreshState = eventRecordRefreshAttemptRef.current?.eventId === eventId
+        ? eventRecordRefreshAttemptRef.current
+        : { eventId, attempts: 0, inFlight: false };
+      if (refreshState.attempts < 4 && !refreshState.inFlight) {
+        refreshState.attempts += 1;
+        refreshState.inFlight = true;
+        eventRecordRefreshAttemptRef.current = refreshState;
+        void Promise.all([refetchEvents(), refetchRequestedEvent()]).finally(() => {
+          if (eventRecordRefreshAttemptRef.current?.eventId === eventId) {
+            eventRecordRefreshAttemptRef.current.inFlight = false;
+          }
+        });
+        return;
+      }
+      if (eventsFetching || requestedEventFetching || refreshState.inFlight) return;
+      toast.error("The event record is not available yet. Please try again after the event completion is confirmed.");
+      navigate(getWorkspaceRoute(location.pathname, APP_ROUTES.organizerRecords, APP_ROUTES.adminAttendance), { replace: true });
+      return;
+    }
 
+    eventRecordRefreshAttemptRef.current = null;
     setCompletedModal(event);
     navigate(getWorkspaceRoute(location.pathname, APP_ROUTES.organizerRecords, APP_ROUTES.adminAttendance), { replace: true });
-  }, [attendanceSummariesPending, completedRows, location.pathname, location.search, navigate]);
+  }, [attendanceSummariesPending, completedRows, eventsFetching, eventsPending, location.pathname, location.search, navigate, refetchEvents, refetchRequestedEvent, requestedEventFetching, requestedEventPending]);
 
 
 

@@ -33,6 +33,11 @@ const supabaseAuthDeadlineMs = 12_000;
 const desktopOfflineSessionMaxAgeMs = 24 * 60 * 60_000;
 const dailyPackagePreparationRuns = new Set<string>();
 
+function isActiveAttendanceRoute() {
+  const pathname = window.location.pathname;
+  return pathname.includes("/live-attendance/") || new URLSearchParams(window.location.search).has("session");
+}
+
 function isDesktopOffline() {
   return Boolean(window.plpassDesktop) && !navigator.onLine;
 }
@@ -415,6 +420,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         return false;
       }
       await queryClient.invalidateQueries();
+      // A completed reconnect can leave a non-live page with stale route and
+      // query state from the offline session. Refresh those safe pages once so
+      // the organizer sees the authoritative server event immediately. Never
+      // reload an active attendance route: camera, scanner, and capture state
+      // must remain uninterrupted.
+      if (!unresolved && !isActiveAttendanceRoute()) {
+        window.setTimeout(() => window.location.reload(), 0);
+      }
       setAuthError(undefined);
       setOfflineSyncError(undefined);
       setReconciliationState("idle");
@@ -467,6 +480,10 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         if(isOfflineMode || hasWork) {
           const complete=await reconnectOnline(forceRetry);
           if(!complete && await refreshOfflineWork()) scheduleRetry();
+        } else {
+          const { cleanupExpiredReconciledEvents } = await import("@/features/offline/offlineService");
+          const cleaned = await cleanupExpiredReconciledEvents(session.userId);
+          if (cleaned) await queryClient.invalidateQueries();
         }
       } finally { running=false; }
     };
@@ -487,10 +504,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     const removeVisibility=onPageVisibilityChange((visible)=>{
       if(visible) void attemptSync(false);
     });
+    // Completed packages are retained for 24 hours. A lightweight hourly
+    // sweep removes them after the grace period even when the app stays open
+    // and no connectivity event occurs.
+    const cleanupTimer = window.setInterval(() => void attemptSync(false), 60 * 60 * 1000);
     // Startup restores the scheduler but respects a record's persisted
     // backoff; only an explicit UI retry may pass forceRetry=true.
     void attemptSync(false);
-    return ()=>{disposed=true;window.removeEventListener("online",onOnline);window.removeEventListener("plpass:connectivity-verified",onVerifiedConnectivity);removeVisibility();removeSyncDue();void window.plpassDesktop?.scheduleSyncWake(session.userId).catch(()=>undefined);};
+    return ()=>{disposed=true;window.clearInterval(cleanupTimer);window.removeEventListener("online",onOnline);window.removeEventListener("plpass:connectivity-verified",onVerifiedConnectivity);removeVisibility();removeSyncDue();void window.plpassDesktop?.scheduleSyncWake(session.userId).catch(()=>undefined);};
   }, [isNetworkOnline,isOfflineMode,reconnectOnline,refreshOfflineWork,session]);
 
   // Prepare today's owned events once, serially, after a confirmed online

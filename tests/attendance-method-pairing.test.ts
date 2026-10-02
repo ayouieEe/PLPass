@@ -34,7 +34,7 @@ describe("paired attendance methods", () => {
   it("does not let a stale desktop refresh erase a QR checkout already shown in the live table", () => {
     expect(eventManagement).toContain("const preservesExistingCheckOut = preservesExistingCheckIn");
     expect(eventManagement).toContain("return phoneRows.reduce(upsertAttendanceRow, retainedRows);");
-    expect(eventManagement).toContain("return restoredRows.reduce(upsertAttendanceRow, rows);");
+    expect(eventManagement).toContain("return restoredRows.reduce(upsertAttendanceRow, withoutResolvedTemporaryWalkIns);");
   });
 
   it("removes a locally rendered walk-in after reconciliation permanently discards it", () => {

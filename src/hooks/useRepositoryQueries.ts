@@ -43,6 +43,8 @@ const queryDefaults = {
 } satisfies Pick<ListQuery, "pageIndex" | "pageSize">;
 
 const dashboardRequestDeadlineMs = 12_000;
+const attendanceMutationDeadlineMs = 30_000;
+const attendanceCaptureDeadlineMs = 30_000;
 
 function boundedDashboardRequest<T>(operation: Promise<T>, label: string) {
   return withRequestTimeout(operation, dashboardRequestDeadlineMs, `${label} took too long to load. Please retry.`);
@@ -403,6 +405,10 @@ export function useAttendanceSession(sessionId: string | undefined, context?: Re
 export function useAttendanceSessionMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   const invalidateSessions = async () => {
+    // Ending an event session also marks its parent event completed in the
+    // same server transaction. Keep event lists coherent for the immediate
+    // Event Summary -> Event Record handoff.
+    await queryClient.invalidateQueries({ queryKey: ["events"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceSession"] });
     await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
@@ -420,14 +426,22 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
       }
     }),
     createEventSessionMutation: useMutation({
-      mutationFn: (input: CreateEventSessionInput) => repositories.attendanceSessions.createEventSession(input, context),
+      mutationFn: (input: CreateEventSessionInput) => withRequestTimeout(
+        repositories.attendanceSessions.createEventSession(input, context),
+        attendanceMutationDeadlineMs,
+        "Starting the attendance session took too long. Check the connection and try again."
+      ),
       onSuccess: invalidateSessions,
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
     }),
     endSessionMutation: useMutation({
-      mutationFn: (input: EndAttendanceSessionInput) => repositories.attendanceSessions.endAttendanceSession(input, context),
+      mutationFn: (input: EndAttendanceSessionInput) => withRequestTimeout(
+        repositories.attendanceSessions.endAttendanceSession(input, context),
+        attendanceMutationDeadlineMs,
+        "Ending the attendance session took too long. Check the connection and retry."
+      ),
       onSuccess: invalidateSessions,
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
@@ -438,7 +452,11 @@ export function useAttendanceSessionMutations(context?: RepositoryContext) {
     // user-facing error behavior for other screens, but let that caller defer
     // feedback until fallback has either succeeded or genuinely failed.
     endSessionSilentlyMutation: useMutation({
-      mutationFn: (input: EndAttendanceSessionInput) => repositories.attendanceSessions.endAttendanceSession(input, context),
+      mutationFn: (input: EndAttendanceSessionInput) => withRequestTimeout(
+        repositories.attendanceSessions.endAttendanceSession(input, context),
+        attendanceMutationDeadlineMs,
+        "Ending the attendance session took too long. Check the connection and retry."
+      ),
       onSuccess: invalidateSessions
     })
   };
@@ -509,14 +527,22 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
   };
   return {
     credentialScanMutation: useMutation({
-      mutationFn: (input: AttendanceScanInput) => repositories.attendanceRecords.recordCredentialAttendance(input, context),
+      mutationFn: (input: AttendanceScanInput) => withRequestTimeout(
+        repositories.attendanceRecords.recordCredentialAttendance(input, context),
+        attendanceCaptureDeadlineMs,
+        "Recording attendance took too long. Check the connection and try again."
+      ),
       onSuccess: (result) => void invalidateAttendance(result),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));
       }
     }),
     manualAttendanceMutation: useMutation({
-      mutationFn: (input: ManualAttendanceInput) => repositories.attendanceRecords.recordManualAttendance(input, context),
+      mutationFn: (input: ManualAttendanceInput) => withRequestTimeout(
+        repositories.attendanceRecords.recordManualAttendance(input, context),
+        attendanceCaptureDeadlineMs,
+        "Recording attendance took too long. Check the connection and try again."
+      ),
       onSuccess: (result) => void invalidateAttendance(result),
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));

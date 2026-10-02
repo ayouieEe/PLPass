@@ -9,6 +9,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { withRequestTimeout } from "@/lib/async/requestTimeout";
 import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { extractStudentNumber, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
@@ -51,13 +52,14 @@ import {
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
 import { ScannerStationsPanel } from "@/features/offline/ScannerStationsPanel";
 import { useWalkInWarning } from "@/features/attendance/walkInWarning";
-import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent, prepareEventForOffline, recordOfflineAttendance } from "@/features/offline/offlineService";
+import { confirmSupabaseConnectivity, desktopApi, endOfflineEvent, getManilaCalendarDate, getOfflineSessionEndState, identifyOfflineStudent, listOfflineEvents, offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent, prepareEventForOffline, recordOfflineAttendance, refreshPreparedEventAfterChange } from "@/features/offline/offlineService";
 import { clearOfflineLiveSessionHandoff, readOfflineLiveSessionHandoff } from "@/features/offline/offlineLiveSessionHandoff";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import type { AttendanceCapturePhase, LocalAttendanceResult, OfflineStatus, PreparedEventPackage, PreparedEventParticipant } from "@/features/offline/types";
 import { useOfflineEvent } from "@/features/offline/useOfflineEvent";
 import { clearAttendancePhase, readAttendancePhase, writeAttendancePhase } from "@/features/organizer/attendancePhaseStorage";
+import { coordinateAttendancePhase, resolveForwardOnlyAttendancePhase } from "@/features/organizer/attendancePhaseAuthority";
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 
 // Event Records is organized around Today, Incoming, and Cancelled events.
@@ -117,6 +119,12 @@ const duplicateQrSuppressionMs = 5_000;
 const scannerBurstIntervalMs = 80;
 const liveAttendanceDraftStoragePrefix = "plpass:live-attendance-draft:";
 const offlineDirectorySnapshotStoragePrefix = "plpass:offline-event-directory:";
+
+function isAttendanceTransportFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const browserOnline = typeof navigator === "undefined" || navigator.onLine;
+  return !browserOnline || error instanceof TypeError || /failed to fetch|network|offline|timeout|connection|temporarily unavailable/i.test(message);
+}
 
 function offlineDirectorySnapshotKey(organizerProfileId: string) {
   return `${offlineDirectorySnapshotStoragePrefix}${organizerProfileId}`;
@@ -245,6 +253,15 @@ function provisionalWalkInStudentNumber(studentName: string) {
   return match?.[1]?.trim();
 }
 
+function normalizedWalkInStudentNumber(studentNumber: string | undefined) {
+  return studentNumber?.trim().toUpperCase();
+}
+
+function isTemporaryWalkInForStudentNumber(row: DraftAttendanceRow, studentNumber: string) {
+  return normalizedWalkInStudentNumber(provisionalWalkInStudentNumber(row.studentName))
+    === normalizedWalkInStudentNumber(studentNumber);
+}
+
 function removeTemporaryWalkInFromDraft(sessionId: string, eventId: string, localScanUuid: string) {
   try {
     const key = liveAttendanceDraftStorageKey(sessionId);
@@ -258,6 +275,22 @@ function removeTemporaryWalkInFromDraft(sessionId: string, eventId: string, loca
     window.sessionStorage.setItem(key, JSON.stringify({ eventId, rows: retainedRows } satisfies StoredLiveAttendanceDraft));
   } catch {
     // State cleanup below still removes the projection for this open session.
+  }
+}
+
+function removeTemporaryWalkInFromDraftByStudentNumber(sessionId: string, eventId: string, studentNumber: string) {
+  try {
+    const key = liveAttendanceDraftStorageKey(sessionId);
+    const rawDraft = window.sessionStorage.getItem(key);
+    if (!rawDraft) return;
+    const draft = JSON.parse(rawDraft) as Partial<StoredLiveAttendanceDraft>;
+    if (draft.eventId !== eventId || !Array.isArray(draft.rows)) return;
+    const rows = draft.rows.filter(isDraftAttendanceRow);
+    const retainedRows = rows.filter((row) => !isTemporaryWalkInForStudentNumber(row, studentNumber));
+    if (retainedRows.length === rows.length) return;
+    window.sessionStorage.setItem(key, JSON.stringify({ eventId, rows: retainedRows } satisfies StoredLiveAttendanceDraft));
+  } catch {
+    // The open live table is cleaned independently below.
   }
 }
 
@@ -681,10 +714,11 @@ interface EditEventModalComponentProps {
   event: EventRecord;
   onClose: () => void;
   context?: RepositoryContext;
+  organizerProfileId?: string;
   onRescheduled?: (event: Event) => void;
 }
 
-function EditEventModalComponent({ event, onClose, context, onRescheduled }: EditEventModalComponentProps) {
+function EditEventModalComponent({ event, onClose, context, organizerProfileId, onRescheduled }: EditEventModalComponentProps) {
   const rescheduleEventMutation = useEventRescheduleMutation(context);
   const form = useForm<RescheduleEventFormValues>({
     resolver: zodResolver(rescheduleEventSchema),
@@ -718,6 +752,14 @@ function EditEventModalComponent({ event, onClose, context, onRescheduled }: Edi
         endTime: toTimeInputValue(values.endTime || ""),
         reason: values.reason
       });
+      const refreshResult = await refreshPreparedEventAfterChange(event.id || "", organizerProfileId);
+      if (refreshResult === "refreshed") {
+        toast.info("The event changed, so its offline resources were updated on this device.");
+      } else if (refreshResult === "blocked") {
+        toast.warning("The event changed, but offline resources were kept safe because this event has attendance waiting to sync.");
+      } else if (refreshResult === "failed") {
+        toast.warning("The event changed, but offline resources could not be refreshed. Download them again before the next offline session.");
+      }
       onRescheduled?.(updatedEvent);
       onClose();
     } catch {
@@ -875,6 +917,7 @@ export function EventManagementPage() {
   const [offlinePreparedPackagesLoading, setOfflinePreparedPackagesLoading] = useState(false);
   const [offlinePackageRefreshToken, setOfflinePackageRefreshToken] = useState(0);
   const [summaryAwaitingSync, setSummaryAwaitingSync] = useState(false);
+  const [offlineContinuityWarningShown, setOfflineContinuityWarningShown] = useState(false);
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
   const [isCaptureCoolingDown, setIsCaptureCoolingDown] = useState(false);
@@ -1205,13 +1248,13 @@ export function EventManagementPage() {
     // before accepting another Time In or routing Time Out to the local queue.
     if (!activeEvent?.id || !activeScannerSessionId) return undefined;
     const client = getSupabaseBrowserClient();
-    const { data, error } = await client
+    const { data, error } = await withRequestTimeout(client
       .from("attendance_records")
       .select("id, student_id, local_attendance_uuid, verification_method, checkout_verification_method, time_in, time_out, students!inner(student_id)")
       .eq("event_session_id", activeScannerSessionId)
       .eq("attendance_origin", "walk_in")
       .eq("students.student_id", studentNumber)
-      .limit(2);
+      .limit(2), 30_000, "Checking existing walk-in attendance took too long. Check the connection and try again.");
     if (error) {
       // An unavailable server must not prevent an offline package from using
       // its local duplicate protection and queued Time Out path.
@@ -1243,6 +1286,40 @@ export function EventManagementPage() {
         : {}),
     } : undefined;
   }, [activeEvent?.id, activeScannerSessionId]);
+  const prepareOnlineAttendanceCapture = useCallback(async (sessionId: string): Promise<AttendanceCapturePhase> => {
+    const api = desktopApi();
+    const cachedPhase = readAttendancePhase(window.sessionStorage, sessionId);
+    let localPhase: AttendanceCapturePhase | undefined;
+    if (api && session?.userId) {
+      try {
+        const pkg = await api.getPreparedEventBySession(sessionId, session.userId);
+        if (pkg?.sessions.some((candidate) => candidate.id === sessionId)) {
+          localPhase = await api.getAttendanceCapturePhase(sessionId, session.userId);
+        }
+      } catch {
+        // The remote phase remains the source of truth when this device no
+        // longer has a prepared package for the active session.
+      }
+    }
+
+    const coordinated = await coordinateAttendancePhase({
+      localPhase,
+      storedPhase: cachedPhase,
+      currentPhase: attendancePhase,
+      online: navigator.onLine,
+      readServerPhase: () => getServerAttendanceCapturePhase(sessionId),
+      advanceServerPhase: () => advanceServerAttendanceCapturePhase(sessionId),
+    });
+    const phase = coordinated.phase;
+    if (phase === "time_out" && localPhase === "time_in" && api && session?.userId) {
+      await api.advanceAttendanceCapturePhase(sessionId, session.userId);
+    }
+    if (phase !== attendancePhase) {
+      setAttendancePhase(phase);
+      writeAttendancePhase(window.sessionStorage, sessionId, phase);
+    }
+    return phase;
+  }, [attendancePhase, session?.userId]);
   const recordRemoteWalkInTimeOut = useCallback(async (
     walkIn: RemoteWalkIn,
     method: Extract<AttendanceMethod, "QR Code" | "Manual">,
@@ -1260,7 +1337,7 @@ export function EventManagementPage() {
     const client = getSupabaseBrowserClient() as unknown as {
       rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
     };
-    const { error } = await client.rpc("record_approved_event_walkin", {
+    const { error } = await withRequestTimeout(client.rpc("record_approved_event_walkin", {
       p_local_scan_uuid: walkIn.id,
       p_event_id: activeEvent?.id,
       p_session_id: activeScannerSessionId,
@@ -1269,7 +1346,7 @@ export function EventManagementPage() {
       p_time_in: walkIn.timeIn,
       p_checkout_identification_method: verificationMethodFromAttendance(method),
       p_time_out: occurredAt
-    });
+    }), 30_000, "Recording walk-in Time Out took too long. Check the connection and try again.");
     if (error) throw error;
     setActiveRows((rows) => upsertAttendanceRow(rows, {
       id: walkIn.id,
@@ -1300,7 +1377,7 @@ export function EventManagementPage() {
   }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent?.code, activeEvent?.id, activeParticipantIdentities, activeScannerSessionId, refetchAttendanceRecords]);
   const { createEventSessionMutation, endSessionSilentlyMutation } = useAttendanceSessionMutations(context);
   const { credentialScanMutation, manualAttendanceMutation } = useAttendanceSubmissionMutations(context);
-  const { completeEventMutation, cancelEventMutation } = useEventMutations(context);
+  const { cancelEventMutation } = useEventMutations(context);
   const auditLogMutations = useAuditLogMutations(context);
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, string[]>>(new Map());
   const [participantStudentIdsByEventId, setParticipantStudentIdsByEventId] = useState<Map<string, string[]>>(new Map());
@@ -1708,6 +1785,10 @@ export function EventManagementPage() {
     setHandledSessionRouteId(sessionIdFromQuery);
     if (hydratedSessionIdRef.current !== requestedSession.id) {
       hydratedSessionIdRef.current = requestedSession.id;
+      setSummaryOpen(false);
+      setFinalizedSummary(null);
+      setSummaryEvent(null);
+      setSummaryAwaitingSync(false);
       setActiveRows([]);
       setCaptureMode(defaultAttendanceMethod);
       setAttendancePhase(readAttendancePhase(window.sessionStorage, requestedSession.id));
@@ -1728,43 +1809,49 @@ export function EventManagementPage() {
     const hasRecordedTimeOut = (attendanceRecordsQuery.data?.items ?? []).some(
       (record) => record.sessionId === activeScannerSessionId && Boolean(record.checkedOutAt)
     ) || activeRows.some((record) => Boolean(record.checkOutAt));
-    const browserPhase = readAttendancePhase(window.sessionStorage, activeScannerSessionId);
     const applyPhase = (phase: AttendanceCapturePhase) => {
       if (!current) return;
-      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : phase;
+      const resolved = resolveForwardOnlyAttendancePhase(
+        hasRecordedTimeOut ? "time_out" : undefined,
+        readAttendancePhase(window.sessionStorage, activeScannerSessionId),
+        phase
+      );
       writeAttendancePhase(window.sessionStorage, activeScannerSessionId, resolved);
       setAttendancePhase(resolved);
     };
-    if (hasRecordedTimeOut || browserPhase === "time_out") setAttendancePhase("time_out");
+    if (hasRecordedTimeOut || readAttendancePhase(window.sessionStorage, activeScannerSessionId) === "time_out") setAttendancePhase("time_out");
     if (!api || !activeEvent?.id || !session?.userId) {
       void getServerAttendanceCapturePhase(activeScannerSessionId)
         .then(applyPhase)
-        .catch(() => applyPhase(browserPhase === "time_out" ? "time_out" : "time_in"));
+        .catch(() => applyPhase("time_in"));
       return () => { current = false; };
     }
     const restore = async () => {
-      // While offline SQLite is the authority.  Once connectivity is restored
-      // the central phase is authoritative, but any durable local Time Out
-      // evidence is forward-only and must never be downgraded by a stale
-      // package refresh or a delayed server read.
-      let phase: AttendanceCapturePhase;
-      if (isOfflineMode) {
-        phase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
-      } else {
+      // Always inspect the durable desktop phase first. Once it reaches Time
+      // Out it is a floor for this session, including after reconnection.
+      let localPhase: AttendanceCapturePhase | undefined;
+      try {
+        localPhase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
+        applyPhase(localPhase);
+      } catch {
+        // A browser-originated session has no desktop phase to restore.
+      }
+      let phase = localPhase;
+      if (localPhase !== "time_out" && !isOfflineMode) {
         try {
           phase = await getServerAttendanceCapturePhase(activeScannerSessionId);
         } catch {
-          phase = await api.getAttendanceCapturePhase(activeScannerSessionId, session.userId);
+          phase = localPhase ?? "time_in";
         }
       }
-      applyPhase(phase);
+      const resolved = resolveForwardOnlyAttendancePhase(localPhase, phase);
+      applyPhase(resolved);
       const scanner = await api.getScannerStations();
-      const resolved: AttendanceCapturePhase = hasRecordedTimeOut || browserPhase === "time_out" || phase === "time_out" ? "time_out" : "time_in";
       if (current && scanner.active && scanner.eventId === activeEvent.id && scanner.sessionId === activeScannerSessionId && scanner.capturePhase !== resolved) {
         await api.setScannerCapturePhase(resolved);
       }
     };
-    void restore().catch(() => applyPhase(hasRecordedTimeOut || browserPhase === "time_out" ? "time_out" : "time_in"));
+    void restore().catch(() => applyPhase("time_in"));
     return () => { current = false; };
   }, [activeEvent?.id, activeRows, activeScannerSessionId, attendanceRecordsQuery.data?.items, isOfflineMode, session?.userId]);
 
@@ -2053,6 +2140,16 @@ export function EventManagementPage() {
     if (!activeEvent?.id || !resolvedLiveSessionId) return;
     const serverRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => record.sessionId === resolvedLiveSessionId);
     if (!serverRecords.length) return;
+    const resolvedWalkInNumbers = new Set(
+      serverRecords
+        .filter((record) => record.attendanceOrigin === "walk_in")
+        .map((record) => (studentsQuery.data?.items ?? []).find((student) => student.id === record.studentId)?.studentNumber)
+        .map(normalizedWalkInStudentNumber)
+        .filter((studentNumber): studentNumber is string => Boolean(studentNumber))
+    );
+    for (const studentNumber of resolvedWalkInNumbers) {
+      removeTemporaryWalkInFromDraftByStudentNumber(resolvedLiveSessionId, activeEvent.id, studentNumber);
+    }
 
     setActiveRows((rows) => {
       const restoredRows: DraftAttendanceRow[] = serverRecords.map((record) => {
@@ -2074,7 +2171,11 @@ export function EventManagementPage() {
           ...(record.lateReason ? { lateReason: record.lateReason as LateReason } : {})
         };
       });
-      return restoredRows.reduce(upsertAttendanceRow, rows);
+      const withoutResolvedTemporaryWalkIns = rows.filter((row) => {
+        const studentNumber = normalizedWalkInStudentNumber(provisionalWalkInStudentNumber(row.studentName));
+        return !studentNumber || !resolvedWalkInNumbers.has(studentNumber);
+      });
+      return restoredRows.reduce(upsertAttendanceRow, withoutResolvedTemporaryWalkIns);
     });
   }, [activeEvent?.code, activeEvent?.id, attendanceRecordsQuery.data?.items, resolvedLiveSessionId, studentsQuery.data?.items]);
 
@@ -2114,11 +2215,19 @@ export function EventManagementPage() {
   // beside the resolved student's real row until the next page refresh.
   useEffect(() => {
     const removeResolvedWalkIn = (event: globalThis.Event) => {
-      const localScanUuid = (event as unknown as CustomEvent<{ localScanUuid?: string }>).detail?.localScanUuid;
+      const detail = (event as unknown as CustomEvent<{ localScanUuid?: string; studentNumber?: string }>).detail;
+      const localScanUuid = detail?.localScanUuid;
+      const studentNumber = detail?.studentNumber;
       if (!localScanUuid) return;
       finalizedLocalWalkInIdsRef.current.add(localScanUuid);
-      setActiveRows((rows) => rows.filter((row) => localWalkInScanId(row) !== localScanUuid));
-      if (activeEvent?.id && activeScannerSessionId) removeTemporaryWalkInFromDraft(activeScannerSessionId, activeEvent.id, localScanUuid);
+      setActiveRows((rows) => rows.filter((row) =>
+        localWalkInScanId(row) !== localScanUuid
+        && (!studentNumber || !isTemporaryWalkInForStudentNumber(row, studentNumber))
+      ));
+      if (activeEvent?.id && activeScannerSessionId) {
+        removeTemporaryWalkInFromDraft(activeScannerSessionId, activeEvent.id, localScanUuid);
+        if (studentNumber) removeTemporaryWalkInFromDraftByStudentNumber(activeScannerSessionId, activeEvent.id, studentNumber);
+      }
       void refetchAttendanceRecords();
     };
     const removeDiscardedWalkIn = (event: globalThis.Event) => {
@@ -2256,7 +2365,7 @@ export function EventManagementPage() {
       const remainingFailures=Object.fromEntries(Object.entries(failures).filter(([key])=>key!==eventId));window.localStorage.setItem(failuresKey,JSON.stringify(remainingFailures));
       if (!options.silent) toast.success(`${event.code} is ready for offline use.`);
     } catch (error) {
-      const message=error instanceof Error ? error.message : "Preparation failed.";
+      const message=getErrorMessage(error) || "Preparation failed.";
       setOfflinePreparationByEventId((current) => new Map(current).set(eventId, { packageStatus: "INCOMPLETE", error: message }));
       if(session?.userId){const failuresKey=`plpass-offline-package-failures:${session.userId}:${getManilaCalendarDate()}`;const failures=JSON.parse(window.localStorage.getItem(failuresKey)??"{}") as Record<string,string>;failures[eventId]=message;window.localStorage.setItem(failuresKey,JSON.stringify(failures));}
       if (!options.silent) toast.error(`Unable to prepare ${event.code} for offline use.`);
@@ -2333,7 +2442,11 @@ export function EventManagementPage() {
 
     const localPackage = await api.getPreparedEventBySession(sessionId, organizerProfileId);
     const localSession = localPackage?.sessions.find((item) => item.id === sessionId);
-    if (!localSession || localSession.offlineLifecycle === "STARTED") return;
+    // A START_PENDING session was started fully offline. It must remain
+    // unreconciled until the reconnect flow calls the server start RPC.
+    // Only a prepared NOT_STARTED session can be promoted here because its
+    // active server session is the authority (the hybrid/offline handoff).
+    if (!localSession || localSession.offlineLifecycle !== "NOT_STARTED") return;
     if (startedSession?.id !== sessionId || startedSession.status !== "active" || !startedSession.attendanceWindowStartAt) return;
 
     const confirmed = await api.confirmOnlineStartedSession(
@@ -2348,6 +2461,46 @@ export function EventManagementPage() {
       throw new Error("The active server session could not be confirmed for offline attendance.");
     }
   }, [activeAttendanceSession, activeEvent?.id, session?.userId]);
+
+  const cacheOnlineAttendanceForOffline = useCallback(async (input: {
+    sessionId: string;
+    studentId: string;
+    studentNumber?: string;
+    displayName?: string;
+    participantStatus?: "invited" | "confirmed" | "walk_in";
+    attendanceStatus: "present" | "late";
+    timeIn: string;
+    timeOut?: string | null;
+  }) => {
+    const api = desktopApi();
+    if (!api || !session?.userId || !activeEvent?.id) return;
+    try {
+      // Promote the exact server-started session before caching attendance so
+      // a Wi-Fi loss immediately after this response still has a valid local
+      // lifecycle and capture window.
+      await confirmHybridSessionForOffline(input.sessionId);
+      await api.cacheOnlineAttendance({
+        eventId: activeEvent.id,
+        sessionId: input.sessionId,
+        organizerProfileId: session.userId,
+        studentId: input.studentId,
+        studentNumber: input.studentNumber,
+        displayName: input.displayName,
+        participantStatus: input.participantStatus,
+        attendanceStatus: input.attendanceStatus,
+        timeIn: input.timeIn,
+        timeOut: input.timeOut,
+      });
+    } catch {
+      // Supabase remains authoritative while online. A missing or stale local
+      // package must not turn a confirmed online attendance into a UI error;
+      // offline fallback is available only when this cache write succeeds.
+      if (!offlineContinuityWarningShown) {
+        setOfflineContinuityWarningShown(true);
+        toast.warning("Online attendance was recorded, but offline continuity is unavailable for this session.");
+      }
+    }
+  }, [activeEvent?.id, confirmHybridSessionForOffline, offlineContinuityWarningShown, session?.userId]);
 
  const endSession = useCallback(async () => {
   if (!activeEvent?.id) return;
@@ -2439,9 +2592,6 @@ export function EventManagementPage() {
       // The session has already been finalized remotely; a storage cleanup
       // failure must not make the organizer believe it is still open.
     }
-    if (!endedLocally) {
-      await completeEventMutation.mutateAsync(eventId); // ADD — marks the event itself completed
-    }
     setSummaryAwaitingSync(endedLocally);
     setFinalizedSummary(
       summarizeFinalizedSession(
@@ -2456,6 +2606,10 @@ export function EventManagementPage() {
       )
     );
     setSummaryEvent(finalizedEvent);
+    // The Events list is the safe post-end screen, but keep the immutable
+    // summary visible over that list after navigation. The live workspace is
+    // cleared below before the route changes, so it can never sit behind the
+    // modal.
     setSummaryOpen(true);
     
     setLiveSessionId(null);
@@ -2475,12 +2629,12 @@ export function EventManagementPage() {
       { replace: true }
     );
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : attendanceFinalized ? "Failed to complete the event." : "Unable to end the attendance session.");
+    toast.error(getErrorMessage(error) || (attendanceFinalized ? "Failed to complete the event." : "Unable to end the attendance session."));
   } finally {
     endingSessionRef.current = false;
     setIsEndingSession(false);
   }
-}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, completeEventMutation, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, navigate, session?.userId, workspaceRoute]);
+}, [activeAttendanceSession, activeEvent, activeRegisteredParticipantCount, activeRows, activeWalkInCount, confirmHybridSessionForOffline, endSessionReason, endSessionSilentlyMutation, isEndingAfterScheduledTime, isOfflineMode, liveSessionId, navigate, session?.userId, workspaceRoute]);
 
   async function openTimeOut() {
     if (attendancePhase === "time_out") return;
@@ -2523,7 +2677,7 @@ export function EventManagementPage() {
       if (activeScannerSessionId) writeAttendancePhase(window.sessionStorage, activeScannerSessionId, serverPhase);
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Time Out could not be opened.");
+      toast.error(getErrorMessage(error) || "Time Out could not be opened.");
     }
   }
 
@@ -2547,19 +2701,27 @@ export function EventManagementPage() {
 
     setFacialVerifying(true);
     setFacialStatus("Identifying one live face among this event's enrolled participants…");
+    let effectiveFacialPhase = attendancePhase;
     try {
+      if (!isLocalAuthoritativeSession) {
+        effectiveFacialPhase = await prepareOnlineAttendanceCapture(sessionId);
+        if (effectiveFacialPhase !== attendancePhase) {
+          setAttendancePhase(effectiveFacialPhase);
+          writeAttendancePhase(window.sessionStorage, sessionId, effectiveFacialPhase);
+        }
+      }
       const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
       const client = getSupabaseBrowserClient();
-      const { data: candidates, error: candidatesError } = await client.rpc("get_live_facial_candidates", {
+      const { data: candidates, error: candidatesError } = await withRequestTimeout(client.rpc("get_live_facial_candidates", {
         p_event_session_id: sessionId
-      });
+      }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
       if (candidatesError) throw new Error(candidatesError.message);
 
       const matches = (await Promise.all((candidates ?? []).map(async (candidate) => {
-        const { data: descriptor, error } = await client.rpc("get_facial_descriptor_for_organizer", {
+        const { data: descriptor, error } = await withRequestTimeout(client.rpc("get_facial_descriptor_for_organizer", {
           p_event_session_id: sessionId,
           p_student_id: candidate.student_id
-        });
+        }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
         if (error || !Array.isArray(descriptor) || !descriptor.every((value) => typeof value === "number")) return null;
         return { candidate, similarity: faceSimilarity(descriptor, liveDescriptor) };
       }))).filter((match): match is NonNullable<typeof match> => Boolean(match));
@@ -2574,13 +2736,13 @@ export function EventManagementPage() {
       }
 
       const occurredAt = new Date().toISOString();
-      const { data: attendance, error: attendanceError } = await client.rpc("record_live_facial_attendance", {
+      const { data: attendance, error: attendanceError } = await withRequestTimeout(client.rpc("record_live_facial_attendance", {
         p_event_session_id: sessionId,
         p_student_id: bestMatch.candidate.student_id,
         p_similarity: bestMatch.similarity,
-        p_action: attendancePhase === "time_out" ? "check_out" : "check_in",
+        p_action: effectiveFacialPhase === "time_out" ? "check_out" : "check_in",
         p_occurred_at: occurredAt
-      });
+      }), 30_000, "Facial attendance took too long. Use QR or manual attendance and try again.");
       if (attendanceError) throw new Error(attendanceError.message);
       const action = attendance && typeof attendance === "object" && "action" in attendance && typeof attendance.action === "string"
         ? attendance.action
@@ -2618,12 +2780,29 @@ export function EventManagementPage() {
         });
       }
 
+      const facialAttendance = attendance && typeof attendance === "object" ? attendance as {
+        attendance_status?: "present" | "late";
+        time_in?: string;
+        time_out?: string | null;
+      } : null;
+      const facialExisting = activeRows.find((row) => row.studentId === bestMatch.candidate.student_id);
+      await cacheOnlineAttendanceForOffline({
+        sessionId,
+        studentId: bestMatch.candidate.student_id,
+        studentNumber: bestMatch.candidate.student_number,
+        displayName: bestMatch.candidate.display_name,
+        participantStatus: "invited",
+        attendanceStatus,
+        timeIn: facialAttendance?.time_in ?? facialExisting?.checkInAt ?? occurredAt,
+        timeOut: facialAttendance?.time_out ?? (action === "checked_out" ? occurredAt : null),
+      });
+
       setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. You can scan the next enrolled participant.`);
       toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Face verification could not be completed.";
-      setFacialStatus(!navigator.onLine || /failed to fetch|network|offline/i.test(errorMessage)
-        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR attendance."
+      const errorMessage = getErrorMessage(error) || "Face verification could not be completed.";
+      setFacialStatus(isAttendanceTransportFailure(error)
+        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR/manual attendance."
         : errorMessage);
     } finally {
       setFacialVerifying(false);
@@ -2636,19 +2815,6 @@ export function EventManagementPage() {
       return;
     }
 
-    const plainStudentNumber = extractStudentNumber(scanCode);
-    if (plainStudentNumber && scanCode === plainStudentNumber) {
-      qrSubmissionInFlightRef.current = true;
-      setIsQrProcessing(true);
-      try {
-        await submitManualAttendance(plainStudentNumber, "Barcode scanner input");
-      } finally {
-        setQrInput("");
-        setIsQrProcessing(false);
-        qrSubmissionInFlightRef.current = false;
-      }
-      return;
-    }
     if (!beginAttendanceCapture()) return;
 
     // Some USB/Bluetooth scanners emit the same payload twice (or emit both
@@ -2675,6 +2841,7 @@ export function EventManagementPage() {
       return;
     }
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
+    const walkInScanUuid = crypto.randomUUID();
     const recordQrLocally = async () => {
       if (!sessionId) throw new Error("The active attendance session could not be found.");
       if(session?.userId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) throw new Error("This event was ended on this device. Attendance capture is locked until synchronization is confirmed.");
@@ -2722,7 +2889,7 @@ export function EventManagementPage() {
         // database verifies the original Time In before accepting it.
         if(effectivePhase === "time_in" && !await walkInWarning.confirm({ studentNumber, offline: true })) throw new Error("This QR is not in the downloaded roster; no attendance was saved.");
         const ownerId=session?.userId;if(!ownerId)throw new Error("Organizer identity is unavailable; the scan was not saved.");
-        const queued=await api?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:effectivePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId});
+        const queued=await api?.queueWalkInScan({eventId,sessionId,studentNumber,identificationMethod:"qr",capturePhase:effectivePhase,attendanceTimestamp:recordedAt,organizerProfileId:ownerId,localScanUuid:walkInScanUuid});
         if(!queued) throw new Error("The walk-in scan could not be securely saved on this desktop.");
         const walkInStatus=resolveRecordedOrganizerAttendanceStatus({timeIn:queued.timeIn,timeOut:queued.timeOut,attendanceSessionStatus:activeAttendanceSession?.status,lateCutoffAt:activeAttendanceSession?.lateCutoffAt});
         setActiveRows((current)=>upsertAttendanceRow(current,{
@@ -2769,7 +2936,7 @@ export function EventManagementPage() {
           try {
             await recordQrLocally();
           } catch (error) {
-            toast.error(error instanceof Error ? error.message : "The QR attendance could not be saved locally.");
+            toast.error(getErrorMessage(error) || "The QR attendance could not be saved locally.");
           }
           return;
         }
@@ -2779,21 +2946,31 @@ export function EventManagementPage() {
         return;
       }
       if (!sessionId) throw new Error("The active attendance session could not be found.");
-      // QR scans can arrive immediately after the organizer opens Time Out.
-      // Read the persisted phase instead of trusting the render that received
-      // the scanner input, otherwise an accepted Walk-in could be told it was
-      // already checked in rather than being checked out.
-      const effectiveOnlinePhase = await getServerAttendanceCapturePhase(sessionId);
-      if (effectiveOnlinePhase !== attendancePhase) {
-        setAttendancePhase(effectiveOnlinePhase);
-        writeAttendancePhase(window.sessionStorage, sessionId, effectiveOnlinePhase);
+      const effectiveOnlinePhase = await prepareOnlineAttendanceCapture(sessionId);
+      const scannedStudentNumber = extractStudentNumber(scanCode);
+      // Resolve a reconciled Walk-in before relying on the participant query.
+      // That query can still contain the pre-admission roster immediately
+      // after sync, while the attendance record is already durable.
+      if (scannedStudentNumber) {
+        const existingWalkIn = await findRemoteWalkIn(scannedStudentNumber);
+        if (existingWalkIn) {
+          if (effectiveOnlinePhase === "time_in") {
+            toast.warning(`Walk-in ${scannedStudentNumber}: ${alreadyRecordedAttendanceLabel(existingWalkIn.timeOut)}`, {
+              description: alreadyRecordedAttendanceDescription(existingWalkIn.timeOut)
+            });
+            return;
+          }
+          await recordRemoteWalkInTimeOut(existingWalkIn, "QR Code", new Date().toISOString());
+          toast.success(`Walk-in ${scannedStudentNumber}: Time Out saved`);
+          return;
+        }
       }
       const matchedStudent = activeParticipantIdentities.find((student) =>
         studentIdentityMatchesPayload(scanCode, student.studentNumber, student.fullName)
       );
 
       if (!matchedStudent) {
-        const studentNumber = extractStudentNumber(scanCode);
+        const studentNumber = scannedStudentNumber;
         if (!studentNumber) {
           toast.error("No enrolled student matches this QR credential.");
           return;
@@ -2808,12 +2985,12 @@ export function EventManagementPage() {
           return;
         }
         if (!await walkInWarning.confirm({ studentNumber, displayName: knownStudent?.fullName })) return;
-        const { data, error } = await client.rpc("record_approved_event_walkin" as never, {
-          p_local_scan_uuid: crypto.randomUUID(), p_event_id: activeEvent.id, p_session_id: sessionId,
+        const { data, error } = await withRequestTimeout(client.rpc("record_approved_event_walkin" as never, {
+          p_local_scan_uuid: walkInScanUuid, p_event_id: activeEvent.id, p_session_id: sessionId,
           p_student_number: studentNumber, p_identification_method: "qr", p_time_in: new Date().toISOString()
-        } as never);
+        } as never), 30_000, "Recording walk-in attendance took too long. Check the connection and try again.");
         if (error) throw error;
-        const result = data as { disposition?: string; attendance?: { id?: string; student_id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null }; student?: { displayName?: string } } | null;
+        const result = data as { disposition?: string; attendance?: { id?: string; student_id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null }; student?: { id?: string; studentNumber?: string; displayName?: string } } | null;
         if (result?.disposition !== "confirmed_walk_in" || !result.attendance?.student_id || !result.attendance.time_in) {
           toast.error("This student could not be admitted as a walk-in.");
           return;
@@ -2832,6 +3009,16 @@ export function EventManagementPage() {
           verificationLabel: "Walk-in",
           isFinalized: false
         }));
+        await cacheOnlineAttendanceForOffline({
+          sessionId,
+          studentId: attendance.student_id,
+          studentNumber: result.student?.studentNumber ?? studentNumber,
+          displayName: result.student?.displayName ?? knownStudent?.fullName ?? studentNumber,
+          participantStatus: "walk_in",
+          attendanceStatus: attendance.attendance_status === "late" ? "late" : "present",
+          timeIn: attendance.time_in,
+          timeOut: attendance.time_out,
+        });
         toast.success(`Walk-in ${studentNumber}: Time In recorded`);
         return;
       }
@@ -2851,19 +3038,6 @@ export function EventManagementPage() {
       if (participantError) throw participantError;
       if (!participant) {
         toast.error("This student is not assigned to the active event.");
-        return;
-      }
-
-      const existingWalkIn = await findRemoteWalkIn(matchedStudent.studentNumber);
-      if (existingWalkIn) {
-        if (effectiveOnlinePhase === "time_in") {
-          toast.warning(`Walk-in ${matchedStudent.studentNumber}: ${alreadyRecordedAttendanceLabel(existingWalkIn.timeOut)}`, {
-            description: alreadyRecordedAttendanceDescription(existingWalkIn.timeOut)
-          });
-          return;
-        }
-        await recordRemoteWalkInTimeOut(existingWalkIn, "QR Code", new Date().toISOString());
-        toast.success(`Walk-in ${matchedStudent.studentNumber}: Time Out saved`);
         return;
       }
 
@@ -2909,9 +3083,15 @@ export function EventManagementPage() {
       });
       toast.success(`${student?.fullName ?? student?.studentNumber ?? "Student"}: ${result.safeMessage}`);
       lastSuccessfulQrScanAtRef.current = Date.now();
+      await cacheOnlineAttendanceForOffline({
+        sessionId,
+        studentId,
+        attendanceStatus: record.status === "late" ? "late" : "present",
+        timeIn: record.timeIn ?? "",
+        timeOut: record.checkedOutAt,
+      });
     } catch (error) {
-      const networkFailure = error instanceof TypeError
-        || (error instanceof Error && /(?:network|fetch|timeout|offline|connection)/i.test(error.message));
+      const networkFailure = isAttendanceTransportFailure(error);
       if (desktopApi() && (isLocalAuthoritativeSession || isOfflineMode || networkFailure)) {
         try {
           await recordQrLocally();
@@ -3048,6 +3228,7 @@ export function EventManagementPage() {
     const eventId = activeEvent.id;
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
     const recordedAt = new Date().toISOString();
+    const walkInScanUuid = crypto.randomUUID();
     const recordManualLocally = async () => {
       const api = desktopApi();
       const organizerProfileId = session?.userId;
@@ -3114,6 +3295,7 @@ export function EventManagementPage() {
         capturePhase: effectivePhase,
         attendanceTimestamp: recordedAt,
         organizerProfileId,
+        localScanUuid: walkInScanUuid,
       });
       const walkInStatus = resolveRecordedOrganizerAttendanceStatus({
         timeIn: queued.timeIn,
@@ -3148,6 +3330,24 @@ export function EventManagementPage() {
       }
     };
 
+    const tryRecordManualLocallyAfterTransportFailure = async (error: unknown): Promise<boolean> => {
+      if (!isAttendanceTransportFailure(error) || !session?.userId) return false;
+      const api = desktopApi();
+      if (!api) return false;
+      try {
+        const prepared = await api.getPreparedEvent(eventId, session.userId);
+        if (!prepared) return false;
+        await recordManualLocally();
+        setManualInput("");
+        setManualEntryReason("");
+        return true;
+      } catch {
+        // Keep the original online error when this session is not locally
+        // authoritative or the prepared package cannot safely accept it.
+        return false;
+      }
+    };
+
     // A prepared package is used for local-authoritative/offline attendance
     // only. While connected, unknown student numbers must go through the
     // server Walk-in RPC so nonexistent students are discarded immediately.
@@ -3166,7 +3366,7 @@ export function EventManagementPage() {
           setManualEntryReason("");
           return;
         } catch (error) {
-          toast.error(error instanceof Error ? error.message : "The manual attendance entry could not be saved locally.");
+          toast.error(getErrorMessage(error) || "The manual attendance entry could not be saved locally.");
           return;
         }
       }
@@ -3183,8 +3383,9 @@ export function EventManagementPage() {
         return;
       }
       try {
-        effectiveAttendancePhase = await getServerAttendanceCapturePhase(sessionId);
-      } catch {
+        effectiveAttendancePhase = await prepareOnlineAttendanceCapture(sessionId);
+      } catch (error) {
+        if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
         toast.error("Could not verify whether this session is recording Time In or Time Out. Check the connection and try again.");
         return;
       }
@@ -3194,13 +3395,42 @@ export function EventManagementPage() {
       }
     }
 
+    // A reconciled Walk-in may not exist in the participant query yet. Resolve
+    // the durable attendance row by student number before requiring roster
+    // membership, especially for manual Time Out after reconnect.
+    const requestedStudentNumber = extractStudentNumber(normalizedInput);
+    let existingWalkIn = requestedStudentNumber
+      ? await findRemoteWalkIn(requestedStudentNumber)
+      : undefined;
+    if (existingWalkIn) {
+      if (effectiveAttendancePhase === "time_in") {
+        toast.warning(`Walk-in ${existingWalkIn.studentNumber}: ${alreadyRecordedAttendanceLabel(existingWalkIn.timeOut)}`, {
+          description: alreadyRecordedAttendanceDescription(existingWalkIn.timeOut),
+        });
+        return;
+      }
+      if (existingWalkIn.timeOut) {
+        toast.warning(`Walk-in ${existingWalkIn.studentNumber} already has a Time Out.`);
+        return;
+      }
+      try {
+        await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      } catch (error) {
+        if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
+        throw error;
+      }
+      toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);
+      setManualInput("");
+      setManualEntryReason("");
+      return;
+    }
+
     const localStudents = (offlineLivePackage?.participants ?? [])
       .filter((participant) => participant.isParticipant !== false)
       .map((participant) => ({ id: participant.studentId, studentNumber: participant.studentNumber, fullName: participant.displayName }));
     const attendanceLookupStudents = isLocalAuthoritativeSession ? localStudents : (studentsQuery.data?.items ?? []);
     const lookupResult = resolveManualAttendanceLookup(normalizedInput, attendanceLookupStudents);
     if (!lookupResult.isValid || !lookupResult.matchedStudentId) {
-      const requestedStudentNumber = extractStudentNumber(normalizedInput);
       if (requestedStudentNumber && !isLocalAuthoritativeSession) {
         toast.error("No active enrolled student matches this number. No Walk-in attendance was recorded.");
         return;
@@ -3215,7 +3445,9 @@ export function EventManagementPage() {
       return;
     }
     const resolvedStudent = attendanceLookupStudents.find((candidate) => candidate.id === resolvedStudentId);
-    const existingWalkIn = resolvedStudent?.studentNumber ? await findRemoteWalkIn(resolvedStudent.studentNumber) : undefined;
+    if (!existingWalkIn && resolvedStudent?.studentNumber) {
+      existingWalkIn = await findRemoteWalkIn(resolvedStudent.studentNumber);
+    }
 
     // Participant identities may still be the pre-admission snapshot after a
     // Walk-in was accepted. During Time Out, the durable attendance record is
@@ -3226,7 +3458,12 @@ export function EventManagementPage() {
         toast.warning(`Walk-in ${existingWalkIn.studentNumber} already has a Time Out.`);
         return;
       }
-      await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      try {
+        await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      } catch (error) {
+        if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
+        throw error;
+      }
       toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);
       setManualInput("");
       setManualEntryReason("");
@@ -3247,12 +3484,19 @@ export function EventManagementPage() {
       }
       const walkInSessionId = liveSessionId ?? activeAttendanceSession?.id;
       if (!walkInSessionId) throw new Error("The active attendance session could not be found.");
-      const { data, error } = await getSupabaseBrowserClient().rpc("record_approved_event_walkin", {
-        p_local_scan_uuid: crypto.randomUUID(), p_event_id: activeEvent.id, p_session_id: walkInSessionId,
-        p_student_number: walkInNumber, p_identification_method: "manual", p_time_in: recordedAt
-      });
-      if (error) throw new Error(error.message);
-      const walkInResult = data as { disposition?: string; attendance?: { id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null } } | null;
+      let data: unknown;
+      try {
+        const response = await withRequestTimeout(getSupabaseBrowserClient().rpc("record_approved_event_walkin", {
+          p_local_scan_uuid: walkInScanUuid, p_event_id: activeEvent.id, p_session_id: walkInSessionId,
+          p_student_number: walkInNumber, p_identification_method: "manual", p_time_in: recordedAt
+        }), 30_000, "Recording walk-in attendance took too long. Check the connection and try again.");
+        if (response.error) throw new Error(response.error.message);
+        data = response.data;
+      } catch (error) {
+        if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
+        throw error;
+      }
+      const walkInResult = data as { disposition?: string; attendance?: { id?: string; student_id?: string; attendance_status?: AttendanceStatus; time_in?: string; time_out?: string | null }; student?: { id?: string; studentNumber?: string; displayName?: string } } | null;
       const walkInAttendance = walkInResult?.attendance;
       if (walkInResult?.disposition !== "confirmed_walk_in" || !walkInAttendance?.time_in) {
         toast.error("This student could not be admitted as a Walk-in.");
@@ -3265,6 +3509,16 @@ export function EventManagementPage() {
         attendanceMethod: "Manual", checkInAt: walkInTimeIn, checkInTime: formatLocalTime(walkInTimeIn),
         attendanceStatus: walkInAttendance.attendance_status ?? "present", verificationLabel: "Walk-in", isFinalized: false
       }));
+      await cacheOnlineAttendanceForOffline({
+        sessionId: walkInSessionId,
+        studentId: walkInAttendance.student_id ?? walkInResult?.student?.id ?? resolvedStudentId,
+        studentNumber: walkInResult?.student?.studentNumber ?? walkInNumber,
+        displayName: walkInResult?.student?.displayName ?? walkInStudent.fullName ?? walkInNumber,
+        participantStatus: "walk_in",
+        attendanceStatus: walkInAttendance.attendance_status === "late" ? "late" : "present",
+        timeIn: walkInTimeIn,
+        timeOut: walkInAttendance.time_out,
+      });
       toast.success(`Walk-in ${walkInNumber}: Time In recorded`);
       setManualInput("");
       setManualEntryReason("");
@@ -3279,7 +3533,12 @@ export function EventManagementPage() {
         });
         return;
       }
-      await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      try {
+        await recordRemoteWalkInTimeOut(existingWalkIn, "Manual", recordedAt);
+      } catch (error) {
+        if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
+        throw error;
+      }
       toast.success(`Walk-in ${existingWalkIn.studentNumber}: Time Out saved`);
       setManualInput("");
       setManualEntryReason("");
@@ -3320,16 +3579,29 @@ export function EventManagementPage() {
       setManualEntryReason("");
       return;
     }
-    const result = await manualAttendanceMutation.mutateAsync({
-      sessionId: liveSessionId ?? activeAttendanceSession?.id ?? "",
-      studentId: resolvedStudentId,
-      reason: normalizedReason,
-      remarks: "",
-      statusOverride: resolvedStatus,
-      occurredAt
-    });
+    let result;
+    try {
+      result = await manualAttendanceMutation.mutateAsync({
+        sessionId: liveSessionId ?? activeAttendanceSession?.id ?? "",
+        studentId: resolvedStudentId,
+        reason: normalizedReason,
+        remarks: "",
+        statusOverride: resolvedStatus,
+        occurredAt
+      });
+    } catch (error) {
+      if (await tryRecordManualLocallyAfterTransportFailure(error)) return;
+      throw error;
+    }
     const saved = result.attendanceRecord;
     if (!saved) throw new Error("The attendance record could not be confirmed.");
+    await cacheOnlineAttendanceForOffline({
+      sessionId: liveSessionId ?? activeAttendanceSession?.id ?? "",
+      studentId: resolvedStudentId,
+      attendanceStatus: saved.status === "late" ? "late" : "present",
+      timeIn: saved.timeIn ?? "",
+      timeOut: saved.checkedOutAt,
+    });
     setActiveRows((current) => {
       const currentRow = current.find((row) => row.studentId === resolvedStudentId);
       return upsertAttendanceRow(current, {
@@ -4261,6 +4533,7 @@ export function EventManagementPage() {
           event={editEvent} 
           onClose={() => setEditEvent(null)}
           context={context}
+          organizerProfileId={session?.userId}
         />
       ) : null}
 
