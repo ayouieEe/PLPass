@@ -50,7 +50,7 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
   }, []);
 
   return (
-    <main className={`plpass-auth-scene relative flex min-h-[100dvh] w-full ${legal ? "plpass-auth-legal h-[100dvh] overflow-hidden" : ""}`}>
+    <main className={`plpass-auth-scene relative flex min-h-[100dvh] w-full ${legal ? "plpass-auth-legal h-[100dvh] overflow-hidden" : "overflow-x-hidden overflow-y-auto"}`}>
       {/* Decorative Background for the entire view */}
       <div className="plpass-auth-grid absolute inset-0 z-0" aria-hidden="true" />
       <div className="plpass-auth-ribbons absolute inset-0 z-0" aria-hidden="true" />
