@@ -33,6 +33,6 @@ export type PLPassDataGridProps<TData extends object> = {
   hidePaginationWhenSinglePage?: boolean;
   /** Removes the standalone card treatment when the grid lives inside another page section. */
   flat?: boolean;
-  /** Enables the brief fade-out and reflow transition when filtered rows are removed. */
+  /** Enables ag-Grid row transitions for non-live administrative lists. */
   animateRows?: boolean;
 };

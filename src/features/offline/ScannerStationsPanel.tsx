@@ -14,11 +14,9 @@ function JoinCode({ label, value }: { label: string; value?: string }) {
   const dataUrl = useQrCredentialDataUrl(Boolean(value), value ?? "");
   if (!value) return null;
   return (
-    <div className="flex flex-col justify-center rounded-xl border bg-background p-4 text-center">
-      <p className="text-sm font-semibold">{label}</p>
-      <div className="mt-3 flex justify-center">
-        {dataUrl ? <img src={dataUrl} alt={label} className="h-32 w-32" /> : <QrCode className="h-12 w-12 text-muted-foreground" />}
-      </div>
+    <div className="rounded-xl border bg-background p-4 text-center">
+      <p className="mb-3 text-sm font-semibold">{label}</p>
+      {dataUrl ? <img src={dataUrl} alt={label} className="mx-auto h-40 w-40" /> : <QrCode className="mx-auto h-12 w-12 text-muted-foreground" />}
       <p className="mt-3 break-all text-xs text-muted-foreground">{value}</p>
     </div>
   );
@@ -138,16 +136,12 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
         </div>
         {!enabled ? <p className="mt-3 text-sm text-muted-foreground">Prepare this event for offline use before starting phone scanners.</p> : null}
         {!status.active && certificateStatus.configured ? <p className="mt-3 text-sm text-muted-foreground">Phones that already trust this laptop’s certificate are ready until {certificateStatus.expiresAt ? new Date(certificateStatus.expiresAt).toLocaleDateString() : "it expires"}.</p> : null}
-        {status.active ? <div className="mt-4 space-y-3">
+        {status.active ? <div className="mt-4 space-y-4">
           <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm"><p className="font-semibold">Phone scanners are {phaseLabel.toLowerCase()}</p></div>
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,0.8fr)] xl:items-stretch">
-            <JoinCode label="Join scanner stations — scan on up to five phones" value={status.joinUrl} />
-            <div className="grid content-start gap-3">
-              <div className="rounded-xl border border-warning/30 bg-warning-muted p-3 text-sm text-foreground"><p className="font-semibold">Connect a phone</p><p className="mt-1 text-muted-foreground">Turn on the laptop hotspot. Each phone joins it, then scans this same QR code.</p></div>
-              <div className="rounded-xl border bg-background p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">Trusted scanner certificate</p><p className="mt-1 text-xs text-muted-foreground">Fingerprint: {status.certificateFingerprint}</p>{status.certificateExpiresAt ? <p className="mt-1 text-xs text-muted-foreground">Expires: {new Date(status.certificateExpiresAt).toLocaleDateString()}</p> : null}</div><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setReplaceOpen(true)}>Replace trusted certificate</Button></div></div>
-              <div className="rounded-xl border bg-background p-3"><p className="font-medium">Laptop addresses</p>{status.addresses.map((address) => <p key={address} className="mt-1 break-all font-mono text-xs text-muted-foreground">{address}</p>)}</div>
-            </div>
-          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Connect a phone</p><p className="mt-1">Turn on the laptop hotspot. Each phone joins it, then scans this same QR code.</p></div>
+          <JoinCode label="Join scanner stations — scan on up to five phones" value={status.joinUrl} />
+          <div className="rounded-xl border bg-background p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">Trusted scanner certificate</p><p className="mt-1 text-xs text-muted-foreground">Fingerprint: {status.certificateFingerprint}</p>{status.certificateExpiresAt ? <p className="mt-1 text-xs text-muted-foreground">Expires: {new Date(status.certificateExpiresAt).toLocaleDateString()}</p> : null}</div><Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setReplaceOpen(true)}>Replace trusted certificate</Button></div></div>
+          <div className="rounded-xl border bg-background p-3"><p className="font-medium">Laptop addresses</p>{status.addresses.map((address) => <p key={address} className="mt-1 break-all font-mono text-xs text-muted-foreground">{address}</p>)}</div>
           <div><p className="mb-2 flex items-center gap-2 font-medium"><Users className="h-4 w-4" /> Connected phones</p>{status.stations.length ? <ul className="space-y-2">{status.stations.map((station) => <li key={station.id} className="flex items-center justify-between rounded-xl border bg-background p-2 text-sm"><span>{station.name}<span className="ml-2 text-muted-foreground">Last activity: {new Date(station.lastSeenAt).toLocaleTimeString()}</span></span><Button type="button" variant="ghost" size="icon" aria-label={`Remove ${station.name}`} onClick={() => void removeStation(station.id)}><Trash2 className="h-4 w-4" /></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">No phones connected yet.</p>}</div>
         </div> : null}
       </div> : null}

@@ -32,7 +32,6 @@ import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
 import type { Event } from "@/types/domain";
-import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import {
   eventScheduleLabel,
   isTodayEvent,
@@ -336,8 +335,6 @@ const PRIORITY_RANK: Record<PriorityLevel, number> = {
   "Flexible": 1
 };
 
-const PRIORITY_FILTER_OPTIONS: PriorityLevel[] = ["Time-Sensitive", "Business-Critical", "Flexible"];
-
 function priorityTone(level: PriorityLevel) {
   if (level === "Business-Critical") {
     return "danger" as const;
@@ -493,13 +490,12 @@ function lateBreakdown(rows: AttendanceRow[]) {
 }
 
 function matchesEventFilters(event: EventRecord, filters: EventFilters) {
-  const priority = event.priorityLevel ?? "Flexible";
   return (
     (!filters.dateFrom || event.date >= filters.dateFrom) &&
     (!filters.dateTo || event.date <= filters.dateTo) &&
     (!filters.venue || event.venue === filters.venue) &&
     (!filters.category || event.category === filters.category) &&
-    (filters.priority === "all" || priority === filters.priority)
+    (filters.priority === "all" || event.priorityLevel === filters.priority)
   );
 }
 
@@ -825,7 +821,7 @@ function EditEventModalComponent({ event, onClose, context, organizerProfileId, 
           />
         </div>
         <p className="text-xs text-muted-foreground">To reschedule for today, choose a start time later than the current Manila time and an end time after it.</p>
-        <div className="rounded-lg border border-info/30 bg-info-muted p-3 text-sm text-foreground">
+        <div className="rounded-lg border bg-blue-50 p-3 text-sm text-blue-900">
           <p className="font-medium">Note:</p>
           <p className="mt-1">Rescheduling will archive all existing sessions for this event. Students will be notified of the change.</p>
         </div>
@@ -1961,7 +1957,7 @@ export function EventManagementPage() {
   // impact score as tiebreaker) so the most urgent events surface first.
   const todayEvents = useMemo(
     () => {
-      if (isOfflineMode) return sortByPriority(storeEvents.filter((event) => matchesSearch(event, search) && matchesEventFilters(event, eventFilters)));
+      if (isOfflineMode) return sortByPriority(storeEvents.filter((event) => matchesSearch(event, search)));
       return sortByPriority(
         storeEvents.filter(
           (event) =>
@@ -1972,12 +1968,11 @@ export function EventManagementPage() {
               completedCodes,
               sessionsList
             }) &&
-            matchesSearch(event, search) &&
-            matchesEventFilters(event, eventFilters)
+            matchesSearch(event, search)
         )
       );
     },
-    [activeEvent, cancelledCodes, completedCodes, eventFilters, isOfflineMode, isReadOnlyMonitor, search, sessionsList, storeEvents]
+    [activeEvent, cancelledCodes, completedCodes, isOfflineMode, isReadOnlyMonitor, search, sessionsList, storeEvents]
   );
 
   useEffect(() => {
@@ -2007,12 +2002,11 @@ export function EventManagementPage() {
               completedCodes,
               sessionsList
             }) &&
-            matchesSearch(event, search) &&
-            matchesEventFilters(event, eventFilters)
+            matchesSearch(event, search)
         )
       );
     },
-    [activeEvent, cancelledCodes, completedCodes, eventFilters, isOfflineMode, search, sessionsList, storeEvents]
+    [activeEvent, cancelledCodes, completedCodes, isOfflineMode, search, sessionsList, storeEvents]
   );
 
   // Conflicts are computed across every non-cancelled, non-completed event
@@ -2332,21 +2326,18 @@ export function EventManagementPage() {
     return () => { current = false; unsubscribe(); unsubscribeAttendance(); };
   }, [activeAttendanceSession?.lateCutoffAt, activeAttendanceSession?.status, activeEvent, activeScannerSessionId, canManageOwnedEvents, offlineParticipantNames, refetchAttendanceRecords, session?.userId, studentsQuery.data?.items]);
 
-  // Keep filter options independent from the active tab and selected filters.
-  // Otherwise selecting a value can remove choices from the other event tabs.
-  const filterableEvents = useMemo<EventRecord[]>(
-    () => isOfflineMode
-      ? repositoryEvents
-      : (eventsQuery.data?.items ?? [])
-        .filter((event) => event.status !== "completed")
-        .map((event) => eventRecordFromRepository(event, objectivesByEventId.get(event.id) ?? [])),
-    [eventsQuery.data?.items, isOfflineMode, objectivesByEventId, repositoryEvents]
+  // Filter options are global to the Events workspace. Build them from every
+  // loaded event so switching between Today, Incoming, and Cancelled never
+  // removes a venue or category from the available choices.
+  const filterableEvents = useMemo(
+    () => repositoryEvents,
+    [repositoryEvents]
   );
   const filterOptions = useMemo(
     () => ({
-      venues: [...new Set([...EVENT_VENUE_OPTIONS.map((option) => option.value), ...filterableEvents.map((event) => event.venue).filter(Boolean)])],
-      categories: [...new Set([...EVENT_CATEGORY_OPTIONS.map((option) => option.value), ...filterableEvents.map((event) => event.category).filter(Boolean)])],
-      priorities: PRIORITY_FILTER_OPTIONS
+      venues: [...new Set(filterableEvents.map((event) => event.venue).filter(Boolean))].sort(),
+      categories: [...new Set(filterableEvents.map((event) => event.category).filter(Boolean))].sort(),
+      priorities: Object.keys(PRIORITY_RANK) as PriorityLevel[]
     }),
     [filterableEvents]
   );
@@ -3838,11 +3829,11 @@ export function EventManagementPage() {
     {
       id: "status",
       header: "Offline status",
-      meta: { agGrid: { width: 224, minWidth: 224, flex: 0 } },
+      minWidth: 180,
       cell: ({ row }) => {
         const preparation = row.original.id ? offlinePreparationByEventId.get(row.original.id) : undefined;
-        if (preparation?.packageStatus === "READY") return <span className="whitespace-nowrap"><StatusBadge label="Ready for Offline Use" tone="success" /></span>;
-        if (preparation?.preparing) return <span className="whitespace-nowrap"><StatusBadge label="Preparing offline package" tone="info" /></span>;
+        if (preparation?.packageStatus === "READY") return <StatusBadge label="Ready for Offline Use" tone="success" />;
+        if (preparation?.preparing) return <StatusBadge label="Preparing offline package" tone="info" />;
         if (preparation?.error) return <span title={preparation.error}><StatusBadge label="Preparation failed" tone="danger" /></span>;
         return <StatusBadge label={isTodayEvent(row.original) ? "Today" : "Incoming"} tone={isTodayEvent(row.original) ? "success" : "info"} />;
       }
@@ -4227,7 +4218,7 @@ export function EventManagementPage() {
                             value={manualInput}
                             onChange={(e) => setManualInput(e.target.value)}
                             placeholder="Enter student ID, name, or walk-in student number"
-                            className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring"
+                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
                           />
                         </label>
                         <label className="space-y-2 text-sm font-medium">
@@ -4236,7 +4227,7 @@ export function EventManagementPage() {
                             value={manualEntryReason}
                             onChange={(event) => setManualEntryReason(event.target.value)}
                             placeholder="Explain why manual capture is needed"
-                            className="w-full rounded-lg border border-input bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none transition focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring"
+                            className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm outline-none"
                           />
                         </label>
 
@@ -4496,7 +4487,7 @@ export function EventManagementPage() {
       {eventAttention ? (
         <ModalFrame onClose={() => setEventAttention(null)} width="max-w-md">
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning-muted text-warning">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
               <AlertTriangle className="h-5 w-5" aria-hidden="true" />
             </span>
             <div>
@@ -4504,18 +4495,13 @@ export function EventManagementPage() {
               <p className="mt-1 text-sm text-muted-foreground">{eventAttention.code} · {eventAttention.name}</p>
             </div>
           </div>
-          <div className="mt-5 rounded-xl border border-warning/30 bg-warning-muted p-4 text-sm text-foreground">
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             This event was scheduled to start at {eventAttention.startTime}, but no attendance session has been started. Reschedule or cancel it before the end of today.
           </div>
-          <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-            <details className="relative">
-              <summary className="flex h-10 cursor-pointer list-none items-center rounded-lg border border-border bg-surface px-3 text-sm font-medium text-foreground transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">More actions</summary>
-              <div className="absolute bottom-full right-0 z-10 mb-2 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg">
-                <button type="button" className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-foreground hover:bg-surface-muted" onClick={() => setEventAttention(null)}>Remind me later</button>
-                <button type="button" className="mt-1 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-danger hover:bg-danger-muted" onClick={() => { setConfirmCancelEvent(eventAttention); setEventAttention(null); }}>Cancel event</button>
-              </div>
-            </details>
-            <Button type="button" onClick={() => { setEditEvent(eventAttention); setEventAttention(null); }}>Reschedule</Button>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setEventAttention(null)}>Remind me later</Button>
+            <Button type="button" variant="outline" onClick={() => { setEditEvent(eventAttention); setEventAttention(null); }}>Reschedule</Button>
+            <Button type="button" variant="destructive" onClick={() => { setConfirmCancelEvent(eventAttention); setEventAttention(null); }}>Cancel event</Button>
           </div>
         </ModalFrame>
       ) : null}

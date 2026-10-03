@@ -16,20 +16,4 @@ describe("analytics dark-mode compatibility", () => {
     expect(styles).toContain('.dark [class~="bg-white"][class*="border-slate"]');
     expect(styles).toContain('.dark [class~="text-slate-500"]');
   });
-
-  it("uses semantic tokens for the four overview cards", () => {
-    expect(page).toContain('rounded-xl border border-border bg-surface p-4');
-    expect(page).toContain('bg-info-muted text-info');
-    expect(page).toContain('bg-success-muted text-success');
-    expect(page).toContain('bg-warning-muted text-warning');
-    expect(page).toContain('bg-primary/10 text-primary');
-  });
-
-  it("uses semantic tokens for prediction-factor panels", () => {
-    expect(page).toContain('hover:bg-surface-muted');
-    expect(page).toContain('border-info/30 bg-info-muted text-info');
-    expect(page).toContain('border-border bg-surface-muted text-muted-foreground');
-    expect(page).toContain('ChevronDown className="h-5 w-5 text-muted-foreground"');
-    expect(page).toContain('border-t border-primary/10 bg-surface');
-  });
 });

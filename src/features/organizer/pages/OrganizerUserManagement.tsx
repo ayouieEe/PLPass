@@ -6,7 +6,6 @@ import {
   BadgeCheck,
   CalendarCheck,
   CheckCircle2,
-  ChevronDown,
   ClipboardList,
   Download,
   IdCard,
@@ -114,12 +113,12 @@ function nextEmployeeId(items: Array<{ employeeNumber: string }>, prefix: "O" | 
 }
 function statusClass(status: StudentStatus | CredentialStatus | OrganizerStatus) {
   if (status === "Active") {
-    return "border-success/30 bg-success-muted text-success";
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
   if (status === "Pending") {
-    return "border-warning/30 bg-warning-muted text-warning";
+    return "border-amber-200 bg-amber-50 text-amber-700";
   }
-  return "border-danger/30 bg-danger-muted text-danger";
+  return "border-red-200 bg-red-50 text-red-700";
 }
 
 function StatusBadge({ value }: { value: StudentStatus | CredentialStatus | OrganizerStatus }) {
@@ -206,8 +205,6 @@ function StudentDetailModal({
   onRevokeSessions?: (userId: string, displayName: string) => void;
   isStatusUpdating?: boolean;
 }) {
-  const [isAccountActionsOpen, setIsAccountActionsOpen] = useState(false);
-
   if (!student) {
     return null;
   }
@@ -220,15 +217,15 @@ function StudentDetailModal({
   // wrapper) can trap the modal in a local stacking context, letting a
   // sticky/fixed topbar render on top of it and show through as a white bar.
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gray-700/40 p-6" onClick={onClose}>
       <section
-        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-2xl"
+        className="max-h-[86vh] w-full max-w-6xl overflow-hidden rounded-2xl border bg-white shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby="student-detail-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="border-b border-border bg-gradient-to-r from-primary/15 via-surface to-surface px-5 py-4 sm:px-6">
+        <div className="border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-sm">{initials}</span>
@@ -247,62 +244,31 @@ function StudentDetailModal({
                 <button
                   type="button"
                   onClick={() => onEdit(student.id)}
-                  className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-medium text-foreground transition hover:bg-muted"
+                  className="inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm font-medium text-foreground transition hover:bg-muted"
                 >
                   <Edit className="h-4 w-4" aria-hidden="true" />
                   Edit Information
                 </button>
               )}
-              {onToggleAccountStatus || onRevokeSessions ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsAccountActionsOpen((open) => !open)}
-                    className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-sm font-semibold text-foreground transition hover:bg-muted"
-                    aria-haspopup="menu"
-                    aria-expanded={isAccountActionsOpen}
-                    aria-label={`Account actions for ${student.name}`}
-                  >
-                    Account actions
-                    <ChevronDown className={`h-4 w-4 transition-transform ${isAccountActionsOpen ? "rotate-180" : ""}`} aria-hidden="true" />
-                  </button>
-                  {isAccountActionsOpen ? (
-                    <div role="menu" aria-label="Account actions" className="absolute right-0 z-10 mt-2 min-w-52 rounded-lg border border-border bg-popover p-1 shadow-lg">
-                      {onToggleAccountStatus ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={isStatusUpdating}
-                          onClick={() => {
-                            setIsAccountActionsOpen(false);
-                            onToggleAccountStatus(student.id, student.accountStatus === "active" ? "inactive" : "active");
-                          }}
-                          className={`flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold transition hover:bg-muted disabled:cursor-wait disabled:opacity-60 ${student.accountStatus === "active" ? "text-danger" : "text-success"}`}
-                        >
-                          {isStatusUpdating ? "Updating..." : student.accountStatus === "active" ? "Deactivate" : "Reactivate"}
-                        </button>
-                      ) : null}
-                      {onRevokeSessions ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setIsAccountActionsOpen(false);
-                            onRevokeSessions(student.userId, student.name);
-                          }}
-                          className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm font-semibold text-warning transition hover:bg-warning-muted"
-                        >
-                          Revoke all sessions
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
+              {onToggleAccountStatus ? (
+                <button
+                  type="button"
+                  disabled={isStatusUpdating}
+                  onClick={() => onToggleAccountStatus(student.id, student.accountStatus === "active" ? "inactive" : "active")}
+                  className={`inline-flex h-9 items-center rounded-md border px-3 text-sm font-semibold transition disabled:cursor-wait disabled:opacity-60 ${
+                    student.accountStatus === "active"
+                      ? "border-red-200 bg-red-50 text-red-700 hover:border-red-300 hover:bg-red-100"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100"
+                  }`}
+                >
+                  {isStatusUpdating ? "Updating..." : student.accountStatus === "active" ? "Deactivate" : "Reactivate"}
+                </button>
               ) : null}
+              {onRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(student.userId, student.name)} className="inline-flex h-9 items-center rounded-md border border-amber-300 bg-amber-50 px-3 text-sm font-semibold text-amber-800 transition hover:bg-amber-100">Revoke all sessions</button> : null}
               <button
                 type="button"
                 onClick={onClose}
-                className="grid h-9 w-9 place-items-center rounded-md border border-border bg-surface text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                className="grid h-9 w-9 place-items-center rounded-md border bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground"
                 aria-label="Close student details"
               >
                 <X className="h-4 w-4" aria-hidden="true" />
@@ -712,50 +678,50 @@ function AddStudentModal({
   return createPortal(
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={requestClose}>
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border bg-gradient-to-r from-primary/15 via-surface to-surface px-6 py-4">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UserPlus className="h-5 w-5" aria-hidden="true" /></span>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student account</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Add student</h2></div>
           </div>
-          <button type="button" onClick={requestClose} className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close add student modal">
+          <button type="button" onClick={requestClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close add student modal">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4 bg-surface p-6">
+        <form onSubmit={handleSubmit} className="space-y-4 bg-muted/20 p-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground">First Name</label>
-              <input required type="text" className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground placeholder:text-muted-foreground" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: capitalizePersonName(e.target.value) })} />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: capitalizePersonName(e.target.value) })} />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground">Last Name</label>
-              <input required type="text" className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground placeholder:text-muted-foreground" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: capitalizePersonName(e.target.value) })} />
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name</label>
+              <input required type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: capitalizePersonName(e.target.value) })} />
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Middle Name (Optional)</label>
-            <input type="text" className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground placeholder:text-muted-foreground" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: capitalizePersonName(e.target.value) })} />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Middle Name (Optional)</label>
+            <input type="text" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: capitalizePersonName(e.target.value) })} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-muted-foreground" htmlFor="student-name-extension">Extension Name (Optional)</label>
-            <select id="student-name-extension" className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as CreateStudentInput["nameExtension"] })}>
+            <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-name-extension">Extension Name (Optional)</label>
+            <select id="student-name-extension" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as CreateStudentInput["nameExtension"] })}>
               <option value="">No extension</option>
               {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Student Number</label>
-            <input required type="text" inputMode="numeric" autoComplete="off" maxLength={8} pattern="\d{2}-\d{5}" placeholder="00-00000" className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground placeholder:text-muted-foreground" value={formData.studentNumber} onChange={(e) => setFormData({ ...formData, studentNumber: formatStudentNumber(e.target.value) })} />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Student Number</label>
+            <input required type="text" inputMode="numeric" autoComplete="off" maxLength={8} pattern="\d{2}-\d{5}" placeholder="00-00000" className="h-9 w-full rounded-md border px-3 text-sm" value={formData.studentNumber} onChange={(e) => setFormData({ ...formData, studentNumber: formatStudentNumber(e.target.value) })} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-muted-foreground">Generated email</label>
-            <input readOnly aria-readonly="true" type="email" className="h-9 w-full rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground placeholder:text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" />
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Generated email</label>
+            <input readOnly aria-readonly="true" type="email" className="h-9 w-full rounded-md border bg-muted px-3 text-sm" value={generatedEmail} placeholder="Enter the name to generate an email" />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground" htmlFor="student-department">Department</label>
-              {fixedDepartmentId ? <input id="student-department" readOnly aria-readonly="true" className="h-9 w-full rounded-md border border-input bg-muted px-3 text-sm text-muted-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /> : <select id="student-department" required className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-department">Department</label>
+              {fixedDepartmentId ? <input id="student-department" readOnly aria-readonly="true" className="h-9 w-full rounded-md border bg-muted px-3 text-sm" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /> : <select id="student-department" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
                 <option value="">Select Department</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>{d.code}</option>
@@ -763,8 +729,8 @@ function AddStudentModal({
               </select>}
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground" htmlFor="student-program">Program</label>
-              <select id="student-program" required className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value, sectionId: "" })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-program">Program</label>
+              <select id="student-program" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.programId} onChange={(e) => setFormData({ ...formData, programId: e.target.value, sectionId: "" })}>
                 <option value="">Select Program</option>
                 {programs.filter(p => !formData.departmentId || p.departmentId === formData.departmentId).map((p) => (
                   <option key={p.id} value={p.id}>{p.code}</option>
@@ -774,22 +740,22 @@ function AddStudentModal({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground" htmlFor="student-year-level">Year Level</label>
-              <select id="student-year-level" required className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground" value={formData.yearLevel} onChange={(e) => setFormData({ ...formData, yearLevel: Number(e.target.value), sectionId: "" })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-year-level">Year Level</label>
+              <select id="student-year-level" required className="h-9 w-full rounded-md border px-3 text-sm" value={formData.yearLevel} onChange={(e) => setFormData({ ...formData, yearLevel: Number(e.target.value), sectionId: "" })}>
                 {[1, 2, 3, 4, 5].map((yearLevel) => <option key={yearLevel} value={yearLevel}>{yearLevel}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-muted-foreground" htmlFor="student-section">Section</label>
-              <select id="student-section" required disabled={!formData.programId || availableSections.length === 0} className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}>
+              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="student-section">Section</label>
+              <select id="student-section" required disabled={!formData.programId || availableSections.length === 0} className="h-9 w-full rounded-md border px-3 text-sm disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground" value={formData.sectionId} onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}>
                 <option value="">{!formData.programId ? "Select a program first" : availableSections.length ? "Select Section" : "No sections available"}</option>
                 {availableSections.map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
               </select>
             </div>
           </div>
           <div className="pt-4 flex justify-end gap-2">
-            <button type="button" onClick={requestClose} className="h-9 rounded-md border border-border bg-surface px-4 text-sm font-medium text-foreground hover:bg-muted">Cancel</button>
-            <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            <button type="button" onClick={requestClose} className="h-9 rounded-md border px-4 text-sm font-medium hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={isLoading} className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
               {isLoading ? "Saving..." : "Save Student"}
             </button>
           </div>
@@ -1272,40 +1238,35 @@ function EditStudentModal({
             <X className="h-5 w-5" />
           </button></div>
         </div>
-        <form onSubmit={handleSubmit} className="account-edit-student-form space-y-5 overflow-y-auto bg-surface p-6 sm:p-9">
-          <section className="space-y-5 rounded-2xl border border-border bg-background/40 p-5">
-            <div className="border-b border-border pb-3"><h3 className="text-base font-semibold">Personal information</h3><p className="mt-1 text-sm text-muted-foreground">Update the student’s name and contact details.</p></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">First name</label>
-                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: capitalizePersonName(e.target.value) })} />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Last name</label>
-                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: capitalizePersonName(e.target.value) })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Middle name (optional)</label>
-                <input type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: capitalizePersonName(e.target.value) })} />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="edit-student-name-extension">Extension name (optional)</label>
-                <select id="edit-student-name-extension" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as UpdateStudentInput["nameExtension"] })}>
-                  <option value="">No extension</option>
-                  {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
-                </select>
-              </div>
+        <form onSubmit={handleSubmit} className="account-edit-student-form space-y-4 overflow-y-auto bg-surface p-6 sm:p-9">
+          <h3 className="border-b pb-3 text-base font-semibold">Personal information</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">First name</label>
+              <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: capitalizePersonName(e.target.value) })} />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-foreground">Email</label>
-              <input required type="email" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+              <label className="mb-1 block text-sm font-medium text-foreground">Last name</label>
+              <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: capitalizePersonName(e.target.value) })} />
             </div>
-          </section>
-          <section className="space-y-5 rounded-2xl border border-border bg-background/40 p-5">
-            <div className="border-b border-border pb-3"><h3 className="text-base font-semibold">Academic information</h3><p className="mt-1 text-sm text-muted-foreground">Keep the student’s department, program, and class placement accurate.</p></div>
-            <div className="grid grid-cols-2 gap-4">
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Middle name (optional)</label>
+            <input type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: capitalizePersonName(e.target.value) })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="edit-student-name-extension">Extension name (optional)</label>
+            <select id="edit-student-name-extension" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as UpdateStudentInput["nameExtension"] })}>
+              <option value="">No extension</option>
+              {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-foreground">Email</label>
+            <input required type="email" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+          </div>
+          <h3 className="border-b pb-3 pt-2 text-base font-semibold">Academic information</h3>
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">Department</label>
               {fixedDepartmentId ? <input readOnly aria-readonly="true" className="h-11 w-full rounded-lg border border-border bg-muted px-3 text-sm text-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /> : <select required className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.departmentId} onChange={(e) => setFormData({ ...formData, departmentId: e.target.value, programId: "", sectionId: "" })}>
@@ -1324,8 +1285,8 @@ function EditStudentModal({
                 ))}
               </select>
             </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          </div>
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">Year level</label>
               <select required id="edit-student-year-level" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.yearLevel} onChange={(e) => setFormData({ ...formData, yearLevel: Number(e.target.value), sectionId: "" })}>
@@ -1339,12 +1300,9 @@ function EditStudentModal({
                 {sections.filter((section) => section.isActive && section.programId === formData.programId && section.yearLevel === formData.yearLevel).map((section) => <option key={section.id} value={section.id}>{section.name}</option>)}
               </select>
             </div>
-            </div>
-          </section>
-          <section className="rounded-2xl border border-border bg-background/40 p-5">
-            <div className="border-b border-border pb-3"><h3 className="text-base font-semibold">Account</h3><p className="mt-1 text-sm text-muted-foreground">Control whether this student can access their account.</p></div>
-            <label className="mt-4 block max-w-sm text-sm font-medium text-foreground">Account status<select className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.accountStatus} onChange={(event) => setFormData({ ...formData, accountStatus: event.target.value as UpdateStudentInput["accountStatus"] })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
-          </section>
+          </div>
+          <h3 className="border-b pb-3 pt-2 text-base font-semibold">Account</h3>
+          <label className="block text-sm font-medium text-foreground">Account status<select className="mt-1.5 h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.accountStatus} onChange={(event) => setFormData({ ...formData, accountStatus: event.target.value as UpdateStudentInput["accountStatus"] })}><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
           <div className="account-edit-footer">
             <button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold hover:bg-muted">Cancel</button>
             <button type="submit" disabled={isLoading} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
@@ -1491,18 +1449,18 @@ function BulkAddStudentModal({
   return createPortal(
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border bg-gradient-to-r from-primary/15 via-surface to-surface px-6 py-4">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-primary/10 bg-gradient-to-r from-primary/[0.08] via-white to-white px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><UploadCloud className="h-5 w-5" aria-hidden="true" /></span>
             <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary">Student accounts</p><h2 className="mt-0.5 text-lg font-semibold text-foreground">Bulk import</h2></div>
           </div>
-          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close bulk import modal">
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border bg-white text-muted-foreground transition hover:bg-muted hover:text-foreground" aria-label="Close bulk import modal">
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="space-y-6 bg-surface p-6">
-        <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground">
+        <div className="space-y-6 bg-muted/20 p-6">
+        <div className="rounded-xl border bg-white p-4 text-sm text-slate-600">
           <p className="mb-3 font-semibold">Instructions:</p>
           <ol className="list-decimal pl-4 space-y-1">
             <li>Download the template file.</li>
@@ -1516,22 +1474,22 @@ function BulkAddStudentModal({
         </div>
 
         {fileError && (
-          <div role="alert" className="mb-4 rounded-md border border-danger/30 bg-danger-muted p-3 text-sm text-danger">
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
             {fileError}
           </div>
         )}
 
         <div className="space-y-3">
           {selectedFile ? (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success-muted px-4 py-3 text-sm text-success">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               <span className="min-w-0 truncate font-medium">{selectedFile.name}</span>
               <button type="button" onClick={removeSelectedFile} disabled={isLoading} className="shrink-0 font-semibold underline disabled:opacity-50">Remove</button>
             </div>
           ) : null}
           <div className="flex flex-col items-center gap-2">
-            <label className={`flex min-h-12 w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-surface px-4 py-3 text-center transition hover:border-primary/50 hover:bg-primary/5 ${isLoading ? "pointer-events-none opacity-50" : ""}`}>
-              <UploadCloud className="h-5 w-5 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">{isLoading ? "Processing..." : selectedFile ? "Choose another CSV" : "Choose CSV file"}</span>
+            <label className={`flex min-h-12 w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-center transition hover:bg-slate-50 ${isLoading ? "pointer-events-none opacity-50" : ""}`}>
+              <UploadCloud className="h-5 w-5 text-slate-400" />
+              <span className="text-xs font-medium text-slate-600">{isLoading ? "Processing..." : selectedFile ? "Choose another CSV" : "Choose CSV file"}</span>
               <input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFileSelect} disabled={isLoading} />
             </label>
             <button type="button" onClick={handleFileUpload} disabled={!selectedFile || isLoading} className="inline-flex min-h-12 w-full max-w-xs items-center justify-center rounded-lg bg-primary px-4 py-3 text-xs font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50">
