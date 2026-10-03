@@ -13,12 +13,14 @@ import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useEvent, useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
-import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
+import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { formatAttendanceMethod, type OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
@@ -56,6 +58,8 @@ function priorityTone(level: PriorityLevel) {
   }
   return "muted" as const;
 }
+
+const PRIORITY_FILTER_OPTIONS: PriorityLevel[] = ["Time-Sensitive", "Business-Critical", "Flexible"];
 
 type EventRecord = {
   id?: string;
@@ -220,7 +224,7 @@ function completedFromRepositoryEvent(event: {
     venue: event.venue,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
-    date: formatDisplayDate(event.startsAt),
+    date: dateKey(event.startsAt),
     startTime: formatDisplayTime(event.startsAt, "08:00 AM"),
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
@@ -362,41 +366,8 @@ function EventRecordsExportModal({
               3. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable formatted report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable formatted report" />
             </div>
           </div>
         </div>
@@ -637,22 +608,23 @@ export function EventRecordsPage() {
 
 
   const venueOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.venue.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_VENUE_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.venue.trim()).filter(Boolean)])],
     [completedRows]
   );
   const categoryOptions = useMemo(
-    () => [...new Set(completedRows.map((event) => event.category.trim()).filter(Boolean))].sort(),
+    () => [...new Set([...EVENT_CATEGORY_OPTIONS.map((option) => option.value), ...completedRows.map((event) => event.category.trim()).filter(Boolean)])],
     [completedRows]
   );
   const pastEvents = useMemo(
     () => sortCompletedEventsNewestFirst(completedRows.filter((event) => {
       const scheduledDate = dateKey(event.startsAt ?? event.date);
+      const eventPriority = event.priorityLevel ?? "Flexible";
       return matchesSearch(event, search)
         && (!fromDate || Boolean(scheduledDate && scheduledDate >= fromDate))
         && (!toDate || Boolean(scheduledDate && scheduledDate <= toDate))
         && (!venueFilter || event.venue === venueFilter)
         && (!categoryFilter || event.category === categoryFilter)
-        && (!priorityFilter || event.priorityLevel === priorityFilter);
+        && (!priorityFilter || eventPriority === priorityFilter);
     })),
     [categoryFilter, completedRows, fromDate, priorityFilter, search, toDate, venueFilter]
   );
@@ -838,9 +810,7 @@ export function EventRecordsPage() {
               <span className="text-xs font-medium text-muted-foreground">Priority</span>
               <select className="h-10 min-w-0 w-full rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value as PriorityLevel | "")}>
                 <option value="">All priorities</option>
-                <option value="Time-Sensitive">Time-Sensitive</option>
-                <option value="Business-Critical">Business-Critical</option>
-                <option value="Flexible">Flexible</option>
+                {PRIORITY_FILTER_OPTIONS.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
               </select>
             </label>
           </div>
@@ -1058,7 +1028,7 @@ export function CompletedEventModal({
                 </div>
                 {record.priorityLevel ? <StatusBadge label={record.priorityLevel} tone={priorityTone(record.priorityLevel)} /> : null}
               </div>
-              <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <dl className={`mt-5 grid gap-3 sm:grid-cols-2 ${record.attendancePopulation !== record.totalRegistered ? "lg:grid-cols-3 xl:grid-cols-6" : "lg:grid-cols-5"}`}>
                 <SummaryTile label="Category" value={record.category} />
                 <SummaryTile label="Venue" value={record.venue} />
                 <SummaryTile label="Registered" value={String(record.totalRegistered)} />

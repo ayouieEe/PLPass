@@ -261,16 +261,20 @@ export function NotificationsPage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-3 border-t border-border bg-surface-muted/50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                  <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="inline-flex items-center gap-2 text-xs text-muted-foreground"><CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />{formatDateTime(selectedNotification.createdAt, "Date unavailable")}</p>
+                    {selectedNotification.status === "unread" ? (
+                      <Button type="button" variant="ghost" size="sm" className="h-8 px-2.5 text-muted-foreground hover:text-foreground" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>
+                        Mark as read
+                      </Button>
+                    ) : null}
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     {notificationHasUserAction(selectedNotification, session?.role) ? notificationActions(selectedNotification, session?.role).map((action) => (
                       <Button key={action.label} type="button" variant={action.variant} onClick={() => openNotificationAction(selectedNotification, action)}>
                         {action.label}
                       </Button>
                     )) : null}
-                    {selectedNotification.status === "unread" ? (
-                      <Button type="button" variant="outline" onClick={() => { notifications.markReadMutation.mutate(selectedNotification.id); setSelectedNotification(null); }}>Mark as read</Button>
-                    ) : null}
                   </div>
                 </div>
               </section>
