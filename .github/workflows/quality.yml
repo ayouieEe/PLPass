@@ -29,7 +29,8 @@ jobs:
       - run: npm test -- --retry=2
       - run: npm run build
       - run: npm run check:bundle
-      - run: npm audit --audit-level=high
+      # Tailwind and its file-watching toolchain are build-only dependencies.
+      - run: npm audit --omit=dev --audit-level=high
 
   browsers:
     name: Functional and accessibility browsers
