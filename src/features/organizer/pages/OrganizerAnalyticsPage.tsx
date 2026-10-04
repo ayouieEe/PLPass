@@ -1075,48 +1075,48 @@ export function OrganizerAnalyticsPage() {
 
       {/* Analytics Summary KPI Bar */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
+        <article className="rounded-xl border border-border bg-surface p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Overall Attendance</p>
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Overall Attendance</p>
+            <div className="p-2 rounded-lg bg-info-muted text-info">
               <TrendingUp className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{overallAttendanceLabel}</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">Average across filtered sessions</p>
+          <p className="mt-2 text-2xl font-bold text-foreground">{overallAttendanceLabel}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground font-medium">Average across filtered sessions</p>
         </article>
 
-        <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
+        <article className="rounded-xl border border-border bg-surface p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Turnout Forecast</p>
-            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-              {isPredicting ? <span className="animate-spin h-4 w-4 block rounded-full border-2 border-emerald-600 border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Turnout Forecast</p>
+            <div className="p-2 rounded-lg bg-success-muted text-success">
+              {isPredicting ? <span className="animate-spin h-4 w-4 block rounded-full border-2 border-success border-t-transparent" /> : <Sparkles className="h-4 w-4" />}
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{isPredicting ? "…" : selectedPrediction == null ? "N/A" : `${selectedPrediction}%`}</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">{isPredicting ? "Calculating for registered event participants…" : isDepartmentAdmin ? "Saved event estimate only; live department inference unavailable" : "Experimental model estimate; N/A means unavailable"}</p>
+          <p className="mt-2 text-2xl font-bold text-foreground">{isPredicting ? "…" : selectedPrediction == null ? "N/A" : `${selectedPrediction}%`}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground font-medium">{isPredicting ? "Calculating for registered event participants…" : isDepartmentAdmin ? "Saved event estimate only; live department inference unavailable" : "Experimental model estimate; N/A means unavailable"}</p>
         </article>
 
-        <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
+        <article className="rounded-xl border border-border bg-surface p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Positive Sentiment</p>
-            <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Positive Sentiment</p>
+            <div className="p-2 rounded-lg bg-warning-muted text-warning">
               <MessageSquareQuote className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-2 text-2xl font-bold text-slate-900">{positiveSentimentLabel}</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">Favorable student feedback</p>
+          <p className="mt-2 text-2xl font-bold text-foreground">{positiveSentimentLabel}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground font-medium">Favorable student feedback</p>
         </article>
 
-        <article className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs transition hover:shadow-md">
+        <article className="rounded-xl border border-border bg-surface p-4 shadow-xs transition hover:shadow-md">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Top Late Cause</p>
-            <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Top Late Cause</p>
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
               <Clock3 className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-2 text-base font-bold text-slate-900 truncate">{topLateReason.category}</p>
-          <p className="mt-1 text-[11px] text-slate-500 font-medium">
+          <p className="mt-2 text-base font-bold text-foreground truncate">{topLateReason.category}</p>
+          <p className="mt-1 text-[11px] text-muted-foreground font-medium">
             {topLateReason.count > 0 ? `${topLateReason.count} check-ins (${topLateReason.share}%)` : "No late arrivals recorded"}
           </p>
         </article>
@@ -1287,7 +1287,7 @@ export function OrganizerAnalyticsPage() {
                   return (
                     <div 
                       key={factor.id} 
-                      className={`overflow-hidden rounded-xl border transition-all duration-300 ${isActive ? 'bg-primary/5 border-primary/30 shadow-sm' : 'bg-surface hover:border-primary/20 hover:bg-slate-50'}`}
+                      className={`overflow-hidden rounded-xl border transition-all duration-300 ${isActive ? 'bg-primary/5 border-primary/30 shadow-sm' : 'bg-surface hover:border-primary/30 hover:bg-surface-muted'}`}
                     >
                       <button 
                         type="button"
@@ -1297,7 +1297,7 @@ export function OrganizerAnalyticsPage() {
                         <div className="flex-1 pr-4">
                           <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 className="text-sm font-bold text-foreground">{factor.name}</h4>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${isActionable ? 'bg-blue-100 text-blue-700 border-blue-200 border' : 'bg-slate-100 text-slate-600 border-slate-200 border'}`}>
+                            <span className={`px-2 py-0.5 rounded-full border text-[9px] font-bold uppercase tracking-wider ${isActionable ? 'border-info/30 bg-info-muted text-info' : 'border-border bg-surface-muted text-muted-foreground'}`}>
                               {isActionable ? 'Actionable Control' : 'Audience Insight'}
                             </span>
                           </div>
@@ -1310,16 +1310,16 @@ export function OrganizerAnalyticsPage() {
                               <div className="h-full rounded-full bg-primary" style={{ width: `${factor.strength}%` }} />
                             </div>
                           </div>
-                          {isActive ? <ChevronUp className="h-5 w-5 text-primary" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+                          {isActive ? <ChevronUp className="h-5 w-5 text-primary" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
                         </div>
                       </button>
 
                       {/* Expandable PDP Section */}
                       {isActive && pdpData && (
-                        <div className="border-t border-primary/10 bg-white/50 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                          <div className="mb-4 rounded-lg bg-blue-50/80 border border-blue-100 p-3">
-                            <h5 className="text-[10px] font-bold uppercase tracking-wider text-blue-800 mb-1">Model note</h5>
-                            <p className="text-xs font-medium text-blue-900 leading-relaxed">{factor.insight}</p>
+                        <div className="border-t border-primary/10 bg-surface p-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <div className="mb-4 rounded-lg border border-info/30 bg-info-muted p-3">
+                            <h5 className="mb-1 text-[10px] font-bold uppercase tracking-wider text-info">Model note</h5>
+                            <p className="text-xs font-medium leading-relaxed text-foreground">{factor.insight}</p>
                           </div>
                           
                           <div className="h-48 w-full mt-2">

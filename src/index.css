@@ -69,7 +69,7 @@
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .account-edit-student-form > .grid.grid-cols-2 {
+    .account-edit-student-form .grid.grid-cols-2 {
       grid-template-columns: minmax(0, 1fr);
     }
 
@@ -231,6 +231,19 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* UI headings are titles, so present multi-word titles consistently. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-transform: capitalize;
+  }
+
+  /* Preserve intentional casing for headings that render user-provided text. */
+  [data-title-case="preserve"] {
+    text-transform: none;
   }
 
   html {
@@ -407,6 +420,16 @@
   .plpass-report-format-option-icon { @apply shrink-0 rounded-lg bg-muted p-2 text-muted-foreground transition-colors duration-150; }
   .plpass-report-format-option[data-selected="true"] .plpass-report-format-option-icon { @apply bg-primary/15 text-primary; }
   .plpass-report-format-option-badge { @apply absolute right-2 top-2 inline-flex rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground; }
+
+  @keyframes plpass-data-grid-row-exit { from { opacity: 1; } to { opacity: 0; } }
+  .ag-theme-plpass .ag-row.plpass-data-grid-row-exit { pointer-events: none; animation: plpass-data-grid-row-exit 120ms ease-out both; }
+  .plpass-data-grid-shell .ag-row-animation .ag-row,
+  .plpass-data-grid-shell .ag-row-animation .ag-row.ag-after-created { transition: transform 120ms ease-out, top 120ms ease-out, height 120ms ease-out, opacity 100ms ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .ag-theme-plpass .ag-row.plpass-data-grid-row-exit { animation: none; }
+    .plpass-data-grid-shell .ag-row-animation .ag-row,
+    .plpass-data-grid-shell .ag-row-animation .ag-row.ag-after-created { transition: none; }
+  }
 
   .plpass-select,
   select.plpass-field {
