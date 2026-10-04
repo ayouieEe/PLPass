@@ -15,7 +15,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { Button } from "@/components/ui/button";
 import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useEvent, useEvents, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
+import { useEvent, useEvents, useAuditLogMutations, useOrganizerProfiles, useUsers } from "@/hooks/useRepositoryQueries";
 import { type ObjectiveFeedbackSummary, useAttendanceSummaries, useEventFeedbackSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { dateKey, formatDisplayTime } from "@/lib/utils/date";
 import { APP_ROUTES } from "@/lib/constants/routes";
@@ -77,6 +77,8 @@ type EventRecord = {
   priorityLevel?: PriorityLevel;
   collegeOffice?: string;
   impactScore?: number | null;
+  organizerName?: string;
+  organizerEmail?: string;
 };
 
 type EventObjective = {
@@ -215,6 +217,8 @@ function completedFromRepositoryEvent(event: {
   predictedTurnout: number | null;
   collegeOffice?: string;
   objectives?: Array<EventObjective | string>;
+  organizerName?: string;
+  organizerEmail?: string;
 }): CompletedRecord {
   return {
     id: event.id,
@@ -229,6 +233,8 @@ function completedFromRepositoryEvent(event: {
     endTime: formatDisplayTime(event.endsAt, "05:00 PM"),
     predictedTurnout: event.predictedTurnout !== null ? `${event.predictedTurnout}%` : "N/A",
     collegeOffice: event.collegeOffice,
+    organizerName: event.organizerName,
+    organizerEmail: event.organizerEmail,
     objectives: event.objectives ?? [],
     priorityLevel: event.priorityLevel,
     impactScore: event.impactScore,
@@ -433,11 +439,24 @@ export function EventRecordsPage() {
   );
   const auditLogMutations = useAuditLogMutations(context);
   const eventsQuery = useEvents({ pageSize: 100 }, context);
+  const organizerProfilesQuery = useOrganizerProfiles({ pageSize: 100 }, context);
+  const usersQuery = useUsers({ pageSize: 100 }, context, Boolean(session && session.role !== "organizer"));
   const { isFetching: eventsFetching, isPending: eventsPending, refetch: refetchEvents } = eventsQuery;
   const requestedEventId = new URLSearchParams(location.search).get("event") ?? undefined;
   const requestedEventQuery = useEvent(requestedEventId, context, Boolean(requestedEventId));
   const { data: requestedEvent, isPending: requestedEventPending, isFetching: requestedEventFetching, refetch: refetchRequestedEvent } = requestedEventQuery;
   const [objectivesByEventId, setObjectivesByEventId] = useState<Map<string, EventObjective[]>>(new Map());
+
+  const organizerDetailsById = useMemo(() => {
+    const usersById = new Map((usersQuery.data?.items ?? []).map((user) => [user.id, user]));
+    const details = new Map<string, { organizerName: string; organizerEmail?: string }>();
+    for (const organizer of organizerProfilesQuery.data?.items ?? []) {
+      const user = usersById.get(organizer.userId);
+      const organizerName = user?.displayName ?? (organizer.userId === session?.userId ? session.displayName : undefined);
+      if (organizerName) details.set(organizer.id, { organizerName, organizerEmail: user?.email ?? (organizer.userId === session?.userId ? session.email : undefined) });
+    }
+    return details;
+  }, [organizerProfilesQuery.data?.items, session?.displayName, session?.email, session?.userId, usersQuery.data?.items]);
 
   useEffect(() => {
     const eventIds = postgresUuidValues((eventsQuery.data?.items ?? []).map((event) => event.id));
@@ -492,7 +511,8 @@ export function EventRecordsPage() {
           impactScore: event.impactScore,
           predictedTurnout: event.predictedTurnout,
           collegeOffice: event.collegeOffice,
-          objectives: objectivesByEventId.get(event.id) ?? []
+          objectives: objectivesByEventId.get(event.id) ?? [],
+          ...organizerDetailsById.get(event.organizerId)
         })
       );
     if (requestedEvent?.status === "completed" && !completed.some((event) => event.id === requestedEvent.id)) {
@@ -508,11 +528,12 @@ export function EventRecordsPage() {
         impactScore: requestedEvent.impactScore,
         predictedTurnout: requestedEvent.predictedTurnout,
         collegeOffice: requestedEvent.collegeOffice,
-        objectives: objectivesByEventId.get(requestedEvent.id) ?? []
+        objectives: objectivesByEventId.get(requestedEvent.id) ?? [],
+        ...organizerDetailsById.get(requestedEvent.organizerId)
       }));
     }
     return completed;
-  }, [eventsQuery.data?.items, objectivesByEventId, requestedEvent]);
+  }, [eventsQuery.data?.items, objectivesByEventId, organizerDetailsById, requestedEvent]);
 
   // Real attendance/late/absent/rate + attendee rows for every completed
   // event, fetched in one batched query keyed by event id.
@@ -647,6 +668,8 @@ export function EventRecordsPage() {
       "Event Name": event.name,
       Category: event.category,
       Venue: event.venue,
+      Organizer: event.organizerName ?? "Not available",
+      "Organizer Email": event.organizerEmail ?? "Not available",
       Date: event.date,
       Present: event.present,
       Late: event.late,
@@ -669,7 +692,14 @@ export function EventRecordsPage() {
   function exportAllAttendanceReport(label: string, events = pastEvents) {
     const sections = events.map((event) => ({
       name: `${event.code} — ${event.name}`,
+      header: [
+        `${event.code} — ${event.name}`,
+        `Organizer: ${event.organizerName ?? "Not available"}`,
+        event.organizerEmail ? `Organizer Email: ${event.organizerEmail}` : undefined
+      ].filter(Boolean).join("\n"),
       rows: event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
+        Organizer: event.organizerName ?? "Not available",
+        "Organizer Email": event.organizerEmail ?? "Not available",
         "Student Name": row.studentName,
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
@@ -695,6 +725,8 @@ export function EventRecordsPage() {
   function exportAttendanceReport(label: string, record: CompletedRecord, rows: AttendanceRow[]) {
     const attendanceRows = rows.map((row) => ({
       "Event Code": record.code,
+      Organizer: record.organizerName ?? "Not available",
+      "Organizer Email": record.organizerEmail ?? "Not available",
       "Student Name": row.studentName,
       "Attendance Status": row.attendanceStatus,
       "Check-in Time": row.checkInTime,
@@ -1024,6 +1056,7 @@ export function CompletedEventModal({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{record.name}</h2>
+                  {record.organizerName ? <p className="mt-2 text-sm text-muted-foreground">Organized by <span className="font-medium text-foreground">{record.organizerName}</span>{record.organizerEmail ? <> · {record.organizerEmail}</> : null}</p> : null}
                   <p className="mt-1 text-sm text-muted-foreground">{record.code} · {record.date} · {record.startTime} - {record.endTime}</p>
                 </div>
                 {record.priorityLevel ? <StatusBadge label={record.priorityLevel} tone={priorityTone(record.priorityLevel)} /> : null}
