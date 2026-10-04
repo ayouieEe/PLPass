@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { AuthLayout } from "@/app/layouts/AuthLayout";
 import { PRIVACY_SECTIONS, TERMS_SECTIONS } from "@/lib/legal/policies";
 import { useLegalDocument } from "@/hooks/useRepositoryQueries";
@@ -25,15 +25,11 @@ export function LegalPolicyPage({ document, backTo = "/login", backLabel = "Back
   if (query.isError && import.meta.env.MODE !== "test") return <ErrorState title="Unable to load legal document" message={getErrorMessage(query.error)} />;
 
   const policyContent = (
-    <article className="space-y-6 text-sm leading-7 text-muted-foreground">
-        <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/10 p-4 text-foreground">
-          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
-          <p>This is a student-facing PLPass product draft. The institution and its legal/privacy officers must review and approve it before production adoption.</p>
-        </div>
+    <article className="space-y-8 text-sm leading-7 text-muted-foreground">
         {sections.map(({ heading, body }) => (
           <section key={heading}>
             <h2 className="text-base font-semibold text-foreground">{heading}</h2>
-            <p className="mt-1">{body}</p>
+            <p className="mt-2 text-foreground/80 leading-relaxed">{body}</p>
           </section>
         ))}
     </article>
