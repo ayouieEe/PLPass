@@ -507,7 +507,11 @@
   }
 
   .plpass-status-warning {
-    @apply bg-warning-muted text-warning;
+    @apply bg-warning-muted text-warning-foreground;
+  }
+
+  .dark .plpass-status-warning {
+    @apply text-warning;
   }
 
   .plpass-status-danger {
