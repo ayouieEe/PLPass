@@ -1247,7 +1247,7 @@ export function OrganizerAnalyticsPage() {
                   aria-label="Start date filter"
                   className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
                   value={startDate}
-                  onChange={(event) => handleStartDateChange(event.target.value)}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
                 />
                 <span className="text-xs font-medium text-slate-400">to</span>
                 <input
