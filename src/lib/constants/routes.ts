@@ -25,6 +25,7 @@ export const APP_ROUTES = {
   department: "/department",
   departmentDashboard: "/department/dashboard",
   departmentEvents: "/department/events",
+  departmentEvent: (eventId: string) => `/department/events/${eventId}`,
   departmentCredentials: "/department/credentials",
   departmentRecords: "/department/records",
   departmentStudents: "/department/students",

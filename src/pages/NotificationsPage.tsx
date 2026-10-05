@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useNotifications, useNotificationPreferences } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { categoriesForRole, notificationCategory, notificationCategoryLabels, isNotificationVisibleForRole, type NotificationCategory } from "@/lib/notifications/policy";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
+import { categoriesForRole, notificationCategory, notificationCategoryLabels, type NotificationCategory } from "@/lib/notifications/policy";
 import { formatDateTime } from "@/lib/utils/date";
 import type { Notification } from "@/types/domain";
 
@@ -101,9 +102,11 @@ export function NotificationsPage() {
   const preferences = useNotificationPreferences(context);
 
   const availableCategories = session ? categoriesForRole(session.role) : [];
+  // Supabase RLS already scopes this result to the signed-in recipient. Do not
+  // apply a second role-code allowlist here: legacy and newly-created rows can
+  // use different notification codes while remaining safe recipient-owned data.
   const items = (notifications.data?.items ?? []).filter((notification) =>
-    session && isNotificationVisibleForRole(notification, session.role) &&
-    (categoryFilter === "all" || notificationCategory(notification) === categoryFilter)
+    categoryFilter === "all" || notificationCategory(notification) === categoryFilter
   );
   const unreadCount = items.filter((notification) => notification.status === "unread").length;
   const isEmptyResult = notifications.isError && hasRepositoryCode(notifications.error, "EMPTY_RESULT");
@@ -120,12 +123,24 @@ export function NotificationsPage() {
     navigate(action.to);
   }
 
+  function openNotification(notification: Notification) {
+    const wasUnread = notification.status === "unread";
+    if (wasUnread) notifications.markReadMutation.mutate(notification.id);
+
+    if (isLiveAttendanceNotification(notification, session?.role)) {
+      navigate(trustedActionUrl(notification) ?? APP_ROUTES.notifications);
+      return;
+    }
+
+    setSelectedNotification(wasUnread ? { ...notification, status: "read" } : notification);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Account"
         title="Notifications"
-        description={session ? `Review important updates for your ${session.role} account.` : "Review important account updates."}
+        description={session ? `Review important updates for your ${getUserRoleLabel(session.role).toLowerCase()} account.` : "Review important account updates."}
         actions={
           <>
             <Button type="button" variant="outline" onClick={() => notifications.refetch()}>
@@ -216,7 +231,6 @@ export function NotificationsPage() {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {([
                       ["eventUpdates", "Event updates"],
-                      ["attendanceExceptions", "Attendance exceptions"],
                       ["reports", "Report updates"],
                       ["reminders", "Reminders"]
                     ] as const).map(([key, label]) => (
@@ -300,23 +314,11 @@ export function NotificationsPage() {
                 tabIndex={0}
                 aria-label={`Open notification: ${cleanNotificationText(notification.title)}`}
                 className="min-w-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                onClick={() => {
-                  if (isLiveAttendanceNotification(notification, session?.role)) {
-                    if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
-                    navigate(trustedActionUrl(notification) ?? APP_ROUTES.notifications);
-                    return;
-                  }
-                  setSelectedNotification(notification);
-                }}
+                onClick={() => openNotification(notification)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    if (isLiveAttendanceNotification(notification, session?.role)) {
-                      if (notification.status === "unread") notifications.markReadMutation.mutate(notification.id);
-                      navigate(trustedActionUrl(notification) ?? APP_ROUTES.notifications);
-                    } else {
-                      setSelectedNotification(notification);
-                    }
+                    openNotification(notification);
                   }
                 }}
               >

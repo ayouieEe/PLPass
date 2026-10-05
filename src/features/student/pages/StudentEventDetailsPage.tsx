@@ -11,6 +11,7 @@ import {
   Layers,
   LogIn,
   LogOut,
+  Loader2,
   MapPin,
   MessageSquareText,
   Sparkles,
@@ -23,6 +24,7 @@ import { ModalShell } from "@/components/modals/ModalShell";
 import { Button } from "@/components/ui/button";
 import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvent, useEventObjectives, useEventResources, useLateReasonOptions, useStudentEventFeedback, useStudentFeedbackTasks, useSubmitLateReasonMutation } from "@/hooks/useRepositoryQueries";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
+import { getErrorMessage } from "@/lib/utils/errors";
 import { downloadEventResource } from "@/features/organizer/lib/eventResources";
 import {
   buildStudentEventWorkflow,
@@ -48,6 +50,7 @@ function FeedbackModal({
   onCommentChange,
   onSubmit,
   canSubmit,
+  isSubmitting,
   step,
   onBack,
   eventGoals
@@ -61,6 +64,7 @@ function FeedbackModal({
   onCommentChange: (value: string) => void;
   onSubmit: () => void;
   canSubmit: boolean;
+  isSubmitting: boolean;
   step: number;
   onBack: () => void;
   eventGoals?: string;
@@ -100,6 +104,7 @@ function FeedbackModal({
                           key={val}
                           type="button"
                           onClick={() => onRate(objective.id, val)}
+                          disabled={isSubmitting}
                           aria-label={`Rate ${val} out of 9`}
                           className={`flex h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0 items-center justify-center rounded-lg border text-sm sm:text-base font-semibold transition hover:border-primary hover:bg-primary/10 ${
                             ratings[objective.id] === val
@@ -139,16 +144,17 @@ function FeedbackModal({
             <textarea
               value={comment}
               onChange={(entry) => onCommentChange(entry.target.value)}
+              disabled={isSubmitting}
               className="plpass-field min-h-24 w-full rounded-xl border p-3 text-sm outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
               placeholder="What stood out about this event? How did you feel about it?"
             />
           </div>}
           <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-            <Button type="button" variant="outline" onClick={onBack} disabled={step === 0}>Back</Button>
+            <Button type="button" variant="outline" onClick={onBack} disabled={step === 0 || isSubmitting}>Back</Button>
             {isReview ? (
-              <Button onClick={onSubmit} disabled={!canSubmit} className="w-full sm:w-auto">
-                <MessageSquareText className="mr-2 h-4 w-4" />
-                Submit Feedback
+              <Button onClick={onSubmit} disabled={!canSubmit || isSubmitting} className="w-full sm:w-auto" aria-busy={isSubmitting}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareText className="mr-2 h-4 w-4" />}
+                {isSubmitting ? "Submitting…" : "Submit Feedback"}
               </Button>
             ) : (
               <Button 
@@ -227,6 +233,7 @@ function LateReasonModal({
               type="button"
               aria-pressed={selectedOptionId === reason.id}
               onClick={() => onSelectOption(reason.id)}
+              disabled={isSubmitting}
               className={`rounded-xl border px-4 py-3 text-left text-sm font-semibold transition hover:border-primary ${selectedOptionId === reason.id ? "border-primary bg-primary/10" : "bg-surface"}`}
             >
               {reason.label}
@@ -244,6 +251,7 @@ function LateReasonModal({
               placeholder="Explain why you were late..."
               value={customReason}
               onChange={(event) => onCustomReasonChange(event.target.value)}
+              disabled={isSubmitting}
             />
           </div>
         ) : null}
@@ -331,7 +339,6 @@ export function StudentEventDetailsPage() {
 
   const event = eventQuery.data;
   if (!event) return <ErrorState title="Event unavailable" message="This event was not found or is no longer available." />;
-  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
   const eventSessionIds = new Set(
     (sessionsQuery.data?.items ?? [])
       .filter((session) => session.eventId === event.id)
@@ -339,10 +346,6 @@ export function StudentEventDetailsPage() {
   );
   const hasAttendanceContext = eventSessionIds.size > 0
     || (recordsQuery.data?.items ?? []).some((record) => eventSessionIds.has(record.sessionId));
-  const effectiveEventStatus = event.status === "pending" && eventSession?.status === "completed" ? "completed" : event.status;
-  if (effectiveEventStatus !== "approved" && effectiveEventStatus !== "completed" && !hasAttendanceContext) {
-    return <ErrorState title="Event unavailable" message="This event is not published for students." />;
-  }
   const feedbackObjectives = objectivesQuery.data ?? [];
   const displayObjectives = feedbackObjectives;
   const currentEventId = event.id;
@@ -353,6 +356,12 @@ export function StudentEventDetailsPage() {
     events: [event]
   });
   const currentRecord = repositoryRecords.find((record) => record.eventId === event.id);
+  const eventSession = (sessionsQuery.data?.items ?? []).find((session) => session.id === currentRecord?.sessionId)
+    ?? (sessionsQuery.data?.items ?? []).find((session) => session.eventId === event.id);
+  const effectiveEventStatus = event.status === "pending" && eventSession?.status === "completed" ? "completed" : event.status;
+  if (effectiveEventStatus !== "approved" && effectiveEventStatus !== "completed" && !hasAttendanceContext) {
+    return <ErrorState title="Event unavailable" message="This event is not published for students." />;
+  }
   const correction = (correctionsQuery.data?.items ?? []).find((request) => request.eventId === event.id);
   const feedbackTask = (feedbackTasksQuery.data ?? []).find((task) => task.attendanceRecordId === currentRecord?.id);
   const feedbackSubmitted = feedbackTask?.status === "completed";
@@ -366,8 +375,9 @@ export function StudentEventDetailsPage() {
   const taskObjectives = feedbackTask?.objectives ?? [];
   const allObjectivesRated = taskObjectives.length > 0 && taskObjectives.every((objective) => ratings[objective.id] > 0);
   const feedbackTaskIsActionable = feedbackTask?.status === "pending" && new Date(feedbackTask.dueAt).getTime() > Date.now();
+  const lateReasonDeadlinePassed = Boolean(feedbackTask && !feedbackTaskIsActionable);
   const feedbackReady = feedbackTaskIsActionable && !workflow.requiresLateReason;
-  const lateReasonRequired = workflow.requiresLateReason;
+  const lateReasonRequired = workflow.requiresLateReason && !lateReasonDeadlinePassed;
   const lateReasonLocked = Boolean(currentRecord?.lateReasonSubmittedAt && currentRecord.timeOut
     && new Date(currentRecord.lateReasonSubmittedAt).getTime() > new Date(currentRecord.timeOut).getTime()
     && (currentRecord.lateReason || currentRecord.lateReasonCategory));
@@ -399,8 +409,8 @@ export function StudentEventDetailsPage() {
       setSelectedLateReasonCategory("");
       setCustomLateReason("");
       toast.success("Late reason recorded. You can now complete event feedback.");
-    } catch {
-      toast.error("Unable to submit late reason. Please try again.");
+    } catch (error) {
+      toast.error(getErrorMessage(error));
     }
   }
 
@@ -573,7 +583,7 @@ export function StudentEventDetailsPage() {
 
       <FeedbackModal
         open={feedbackModalOpen}
-        onClose={() => setFeedbackModalOpen(false)}
+        onClose={() => { if (!feedbackQuery.submitMutation.isPending) setFeedbackModalOpen(false); }}
         objectives={taskObjectives}
         ratings={ratings}
         onRate={(objectiveId, value) => { 
@@ -587,13 +597,16 @@ export function StudentEventDetailsPage() {
         onCommentChange={setComment}
         onSubmit={submitFeedback}
         canSubmit={allObjectivesRated && comment.trim().length > 0 && !feedbackQuery.submitMutation.isPending}
+        isSubmitting={feedbackQuery.submitMutation.isPending}
         step={feedbackStep}
         onBack={() => setFeedbackStep((current) => Math.max(0, current - 1))}
         eventGoals={event.description}
       />
       <LateReasonModal
         open={lateReasonModalOpen}
-        onClose={() => setLateReasonModalOpen(false)}
+        onClose={() => {
+          if (!submitLateReasonMutation.isPending) setLateReasonModalOpen(false);
+        }}
         options={lateReasonOptions}
         selectedOptionId={selectedLateReasonCategory}
         customReason={customLateReason}

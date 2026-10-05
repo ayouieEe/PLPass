@@ -15,7 +15,8 @@ describe("student notification actions", () => {
   it("does not render list-level open-action buttons and suppresses account-status actions", () => {
     expect(notificationsPage).toContain("function notificationHasUserAction");
     expect(notificationsPage).toContain('notification.code === "account.status_changed"');
-    expect(notificationsPage).toContain("setSelectedNotification(notification)");
+    expect(notificationsPage).toContain("function openNotification(notification: Notification)");
+    expect(notificationsPage).toContain("notifications.markReadMutation.mutate(notification.id)");
     expect(notificationsPage).not.toContain("{actions.map((action)");
   });
 

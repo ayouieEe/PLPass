@@ -53,6 +53,7 @@ import { generateAccountEmail } from "@/lib/utils/accountEmail";
 import { formatStudentNumber } from "@/lib/utils/studentNumber";
 import { hasCapability } from "@/lib/auth/permissions";
 import { repositories } from "@/services/repositories";
+import { summarizeFinalizedAttendance } from "@/features/organizer/utils/attendanceSummary";
 
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
@@ -104,6 +105,23 @@ type StudentAccount = {
 };
 function normalizeNameFieldValue(key: string, value: string | undefined) {
   return value === undefined || !["firstName", "middleName", "lastName"].includes(key) ? value : capitalizePersonName(value);
+}
+function updateGeneratedAccountEmail<T extends { email: string; firstName: string; middleName?: string; lastName: string; nameExtension?: string }>(current: T, key: keyof T, value: T[typeof key]) {
+  const next = { ...current, [key]: value } as T;
+  if (["firstName", "middleName", "lastName", "nameExtension"].includes(String(key))) {
+    const currentGeneratedEmail = generateAccountEmail(current.lastName, current.firstName, current.middleName, current.nameExtension);
+    if (current.email.trim().toLowerCase() === currentGeneratedEmail.toLowerCase()) {
+      next.email = generateAccountEmail(next.lastName, next.firstName, next.middleName, next.nameExtension);
+    }
+  }
+  return next;
+}
+function splitEditableName(displayName: string, nameExtension?: string) {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (nameExtension && parts.at(-1) === nameExtension) parts.pop();
+  const firstName = parts.shift() ?? "";
+  const lastName = parts.pop() ?? "";
+  return { firstName, middleName: parts.join(" "), lastName };
 }
 function nextEmployeeId(items: Array<{ employeeNumber: string }>, prefix: "O" | "A") {
   const highest = items.reduce((max, item) => {
@@ -874,13 +892,12 @@ function OrganizerDirectoryConsistent({ organizers, users, events, attendanceRec
     return { organizerId: organizer.id, name: user?.displayName ?? "", email: user?.email ?? "", employeeNumber: organizer.employeeNumber, department: collegeName, position: organizer.position, status: organizer.employmentStatus === "active" && user?.isActive !== false ? "Active" : "Inactive", eventsManaged: events.filter((event) => event.organizerId === organizer.id).length };
   });
   const sessionEventMap = new Map(attendanceSessions.filter((session) => session.eventId).map((session) => [session.id, session.eventId as string]));
-  const attendanceByEvent = new Map<string, { total: number; attended: number }>();
+  const attendanceByEvent = new Map<string, Array<{ identity: string; attendanceStatus: AttendanceRecord["status"]; finalizedAt?: string | null }>>();
   attendanceRecords.forEach((record) => {
     const eventId = sessionEventMap.get(record.sessionId);
     if (!eventId) return;
-    const current = attendanceByEvent.get(eventId) ?? { total: 0, attended: 0 };
-    current.total += 1;
-    if (record.status === "present" || record.status === "late") current.attended += 1;
+    const current = attendanceByEvent.get(eventId) ?? [];
+    current.push({ identity: `${record.sessionId}:${record.studentId}`, attendanceStatus: record.status, finalizedAt: record.finalizedAt });
     attendanceByEvent.set(eventId, current);
   });
   const schoolYear = activeSemester?.schoolYear;
@@ -910,7 +927,7 @@ function OrganizerDirectoryConsistent({ organizers, users, events, attendanceRec
       endsAt: formatDateTime(event.endsAt),
       status: event.status,
       priority: event.priorityLevel,
-      attendanceRate: (() => { const stats = attendanceByEvent.get(event.id); return stats?.total ? `${Math.round((stats.attended / stats.total) * 100)}%` : "N/A"; })()
+      attendanceRate: (() => { const stats = summarizeFinalizedAttendance(attendanceByEvent.get(event.id) ?? []); return stats.population ? `${stats.attendanceRate}%` : "N/A"; })()
     }))
   }));
   const colleges = [...new Set(exportRows.map((organizer) => organizer.department).filter(Boolean))];
@@ -926,16 +943,14 @@ function EditAdminModal({ isOpen, onClose, admin, user, departments, mutation, c
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   useEffect(() => {
     if (!isOpen || !admin || !user) return;
-    const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
-    const firstName = parts.shift() ?? "";
-    const lastName = parts.pop() ?? "";
-    const next = { id: admin.id, profileId: admin.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as typeof emptyForm.nameExtension, employeeNumber: admin.employeeNumber, departmentId: admin.departmentId, officeName: user.role === "department_admin" && admin.officeName === "Department Administration" ? "Department Administrator" : admin.officeName, accountStatus: user.isActive ? "active" as const : "inactive" as const };
+    const { firstName, middleName, lastName } = splitEditableName(user.displayName, user.nameExtension);
+    const next = { id: admin.id, profileId: admin.userId, email: user.email, firstName, middleName, lastName, nameExtension: user.nameExtension as typeof emptyForm.nameExtension, employeeNumber: admin.employeeNumber, departmentId: admin.departmentId, officeName: user.role === "department_admin" && admin.officeName === "Department Administration" ? "Department Administrator" : admin.officeName, accountStatus: user.isActive ? "active" as const : "inactive" as const };
     setForm(next); setInitialForm(next);
   }, [admin, emptyForm, isOpen, user]);
   if (!isOpen || !admin || !user) return null;
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
-  const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value) }));
+  const update = (key: keyof typeof form, value: string) => setForm((current) => updateGeneratedAccountEmail(current, key, normalizeNameFieldValue(String(key), value)));
   const submit = (event: React.FormEvent) => { event.preventDefault(); setSaveConfirmOpen(true); };
   const confirmSubmit = async () => { if (!admin || !user || form.id !== admin.id || form.profileId !== user.id) { setSaveConfirmOpen(false); toast.error("This administrator record changed. Refresh and try again."); return; } try { await mutation.mutateAsync(form); setInitialForm(form); setSaveConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
   return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-admin-title" className="account-edit-dialog w-full max-w-5xl overflow-hidden rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Administrator account</p><h2 id="edit-admin-title" className="text-2xl font-semibold">Edit admin</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit admin dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value)} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Admin ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={form.employeeNumber} /></label><label className="text-sm font-medium">{user.role === "department_admin" ? "Position" : "Office / unit"}<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.officeName} onChange={(event) => update("officeName", event.target.value)} /></label><label className="text-sm font-medium">Department<select required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard admin changes?" description="Your unsaved admin profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /><ConfirmModal open={saveConfirmOpen} title="Save administrator changes?" description="The administrator profile and account access settings will be updated." confirmLabel="Save changes" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setSaveConfirmOpen(false)} /></>, document.body);
@@ -1021,10 +1036,8 @@ function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mut
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
   useEffect(() => {
     if (!isOpen || !organizer || !user) return;
-    const parts = user.displayName.trim().split(/\s+/).filter(Boolean);
-    const firstName = parts.shift() ?? "";
-    const lastName = parts.pop() ?? "";
-    const next = { id: organizer.id, profileId: organizer.userId, email: user.email, firstName, middleName: parts.join(" "), lastName, nameExtension: user.nameExtension as UpdateOrganizerInput["nameExtension"], departmentId: organizer.departmentId ?? "", organizationName: organizer.organizationName, position: organizer.position, accountStatus: user.isActive ? "active" as const : "inactive" as const, employmentStatus: organizer.employmentStatus === "part_time" ? "part_time" as const : "active" as const };
+    const { firstName, middleName, lastName } = splitEditableName(user.displayName, user.nameExtension);
+    const next = { id: organizer.id, profileId: organizer.userId, email: user.email, firstName, middleName, lastName, nameExtension: user.nameExtension as UpdateOrganizerInput["nameExtension"], departmentId: organizer.departmentId ?? "", organizationName: organizer.organizationName, position: organizer.position, accountStatus: user.isActive ? "active" as const : "inactive" as const, employmentStatus: organizer.employmentStatus === "part_time" ? "part_time" as const : "active" as const };
     setForm(next); setInitialForm(next);
   }, [isOpen, organizer, user]);
   useEffect(() => {
@@ -1035,7 +1048,7 @@ function EditOrganizerModal({ isOpen, onClose, organizer, user, departments, mut
   if (!isOpen || !organizer || !user) return null;
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   const requestClose = () => { if (mutation.isPending) return; if (dirty) setConfirmOpen(true); else onClose(); };
-  const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
+  const update = <Key extends keyof UpdateOrganizerInput>(key: Key, value: UpdateOrganizerInput[Key]) => setForm((current) => updateGeneratedAccountEmail(current, key, normalizeNameFieldValue(String(key), value as string | undefined)));
   const submit = (event: React.FormEvent) => { event.preventDefault(); setSaveConfirmOpen(true); };
   const confirmSubmit = async () => { if (!organizer || !user || form.id !== organizer.id || form.profileId !== user.id) { setSaveConfirmOpen(false); toast.error("This organizer record changed. Refresh and try again."); return; } try { await mutation.mutateAsync({ ...form, organizationName: organizer.organizationName }); setInitialForm(form); setSaveConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
   return createPortal(<><div className="account-edit-overlay fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-3 sm:p-6" onClick={requestClose}><div role="dialog" aria-modal="true" aria-labelledby="edit-organizer-title" className="account-edit-dialog w-full max-w-5xl rounded-3xl border bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b px-6 py-5 sm:px-9"><div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Organizer account</p><h2 id="edit-organizer-title" className="text-2xl font-semibold">Edit organizer</h2></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-sm font-semibold ${form.accountStatus === "active" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>{form.accountStatus === "active" ? "Active" : "Inactive"}</span><button type="button" onClick={requestClose} aria-label="Close edit organizer dialog" className="grid h-11 w-11 place-items-center rounded-full border"><X className="h-5 w-5" /></button></div></div><form onSubmit={(event) => void submit(event)} className="account-edit-form grid gap-x-5 gap-y-4 overflow-y-auto p-6 sm:grid-cols-3 sm:px-9 sm:py-7"><h3 className="sm:col-span-3 text-base font-semibold">Personal information</h3><label className="text-sm font-medium">First name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.firstName} onChange={(event) => update("firstName", event.target.value)} /></label><label className="text-sm font-medium">Middle name<input className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label><label className="text-sm font-medium">Last name<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label><label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} /></label><NameExtensionSelect id="edit-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as UpdateOrganizerInput["nameExtension"])} /><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Employment</h3><label className="text-sm font-medium">Employee ID<input readOnly className="mt-1.5 h-11 w-full rounded-lg border bg-muted px-3 text-muted-foreground" value={organizer.employeeNumber} /></label><label className="text-sm font-medium">Position<input required className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.position} onChange={(event) => update("position", event.target.value)} /></label><label className="text-sm font-medium">Department<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">No linked department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label><label className="text-sm font-medium">Employment status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.employmentStatus} onChange={(event) => update("employmentStatus", event.target.value as UpdateOrganizerInput["employmentStatus"])}><option value="active">Full-Time</option><option value="part_time">Part-Time</option></select></label><h3 className="sm:col-span-3 border-t pt-5 text-base font-semibold">Account</h3><div className="account-edit-actions sm:col-span-3"><label className="text-sm font-medium">Account status<select className="mt-1.5 h-11 w-full rounded-lg border bg-background px-3" value={form.accountStatus} onChange={(event) => update("accountStatus", event.target.value as UpdateOrganizerInput["accountStatus"])}><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button type="button" onClick={() => setResendConfirmOpen(true)} className="rounded-lg border border-border px-4 py-3 text-sm font-semibold hover:bg-muted">Resend invitation</button>{canRevokeSessions ? <button type="button" onClick={() => onRevokeSessions(user.id, user.displayName)} className="rounded-lg border border-red-500/40 px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-500/10 dark:text-red-400">Revoke all sessions</button> : null}</div><div className="account-edit-footer sm:col-span-3"><button type="button" onClick={requestClose} className="rounded-lg border px-5 py-3 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending} className="rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Saving…" : "Save changes"}</button></div></form></div></div><ConfirmModal open={resendConfirmOpen} title="Resend activation email?" description="This will send an activation email only when the account is still unactivated. No duplicate account will be created." confirmLabel="Resend invitation" onConfirm={() => { setResendConfirmOpen(false); void onResendInvitation(user.id, user.displayName); }} onCancel={() => setResendConfirmOpen(false)} /><ConfirmModal open={confirmOpen} title="Discard organizer changes?" description="Your unsaved organizer profile changes will not be saved." confirmLabel="Discard changes" cancelLabel="Keep editing" tone="danger" onConfirm={() => { setConfirmOpen(false); onClose(); }} onCancel={() => setConfirmOpen(false)} /><ConfirmModal open={saveConfirmOpen} title="Save organizer changes?" description="The organizer profile and account access settings will be updated." confirmLabel="Save changes" confirmDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setSaveConfirmOpen(false)} /></>, document.body);
@@ -1236,6 +1249,8 @@ function EditStudentModal({
     else onClose();
   };
 
+  const update = <Key extends keyof UpdateStudentInput>(key: Key, value: UpdateStudentInput[Key]) => setFormData((current) => updateGeneratedAccountEmail(current, key, value));
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitConfirmOpen(true);
@@ -1278,21 +1293,21 @@ function EditStudentModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-foreground">First name</label>
-                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: capitalizePersonName(e.target.value) })} />
+                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.firstName} onChange={(e) => update("firstName", capitalizePersonName(e.target.value))} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-foreground">Last name</label>
-                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: capitalizePersonName(e.target.value) })} />
+                <input required type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.lastName} onChange={(e) => update("lastName", capitalizePersonName(e.target.value))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="mb-1 block text-sm font-medium text-foreground">Middle name (optional)</label>
-                <input type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.middleName} onChange={(e) => setFormData({ ...formData, middleName: capitalizePersonName(e.target.value) })} />
+                <input type="text" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.middleName} onChange={(e) => update("middleName", capitalizePersonName(e.target.value))} />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-foreground" htmlFor="edit-student-name-extension">Extension name (optional)</label>
-                <select id="edit-student-name-extension" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.nameExtension ?? ""} onChange={(e) => setFormData({ ...formData, nameExtension: (e.target.value || undefined) as UpdateStudentInput["nameExtension"] })}>
+                <select id="edit-student-name-extension" className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground" value={formData.nameExtension ?? ""} onChange={(e) => update("nameExtension", (e.target.value || undefined) as UpdateStudentInput["nameExtension"])}>
                   <option value="">No extension</option>
                   {studentNameExtensions.map((extension) => <option key={extension} value={extension}>{extension}</option>)}
                 </select>
@@ -1562,7 +1577,7 @@ export function OrganizerUserManagementPage() {
       : undefined,
     [isDepartmentAdmin, session?.departmentId, studentsQuery.data?.items]
   );
-  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 100 }, scope.context);
+  const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
   const attendanceSessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const credentialStatusesQuery = useStudentCredentialStatuses(scope.context, departmentStudentIds);
   const auditLogMutations = useAuditLogMutations(scope.context);
@@ -1663,8 +1678,13 @@ export function OrganizerUserManagementPage() {
 
     const dbAccounts = rawStudents.map((student) => {
       const studentRecords = (attendanceRecordsQuery.data?.items ?? []).filter((r) => r.studentId === student.id);
-      const attendedCount = studentRecords.filter((r) => r.status === "present" || r.status === "late").length;
-      const rate = studentRecords.length > 0 ? Math.round((attendedCount / studentRecords.length) * 100) : null;
+      const attendanceSummary = summarizeFinalizedAttendance(studentRecords.map((record) => ({
+        identity: record.sessionId,
+        attendanceStatus: record.status,
+        finalizedAt: record.finalizedAt
+      })));
+      const attendedCount = attendanceSummary.present + attendanceSummary.late;
+      const rate = attendanceSummary.population > 0 ? attendanceSummary.attendanceRate : null;
 
       const programCode = student.programCode || programsMap.get(student.programId) || "BSIT";
       const credentials = credentialMap.get(student.id);

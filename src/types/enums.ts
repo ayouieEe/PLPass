@@ -1,13 +1,11 @@
-// faculty remains only as compatibility scaffolding for retired local fixtures.
-// It is not an active login role and has no capabilities.
-export const USER_ROLES = ["admin", "department_admin", "faculty", "organizer", "student"] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+export const USER_ROLES = ["admin", "department_admin", "organizer", "student"] as const;
+export type UserRole = (typeof USER_ROLES)[number] | "faculty";
 
 export const STUDENT_STATUSES = ["enrolled", "loa", "dropped", "archived"] as const;
 export type StudentStatus = (typeof STUDENT_STATUSES)[number];
 
-export const FACULTY_EMPLOYMENT_STATUSES = ["active", "part_time", "on_leave", "separated"] as const;
-export type FacultyEmploymentStatus = (typeof FACULTY_EMPLOYMENT_STATUSES)[number];
+export const EMPLOYMENT_STATUSES = ["active", "part_time", "on_leave", "separated"] as const;
+export type EmploymentStatus = (typeof EMPLOYMENT_STATUSES)[number];
 
 export const ATTENDANCE_STATUSES = ["present", "late", "absent"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];

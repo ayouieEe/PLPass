@@ -143,13 +143,11 @@ export function AdminSystemHealthPage() {
 
   if (!session) return null;
   async function refreshChecks() {
-    if (await loadSnapshot()) toast.success("System Health checks refreshed.");
-    else toast.error("System Health checks could not be refreshed.");
+    if (!(await loadSnapshot())) toast.error("System Health checks could not be refreshed.");
   }
   async function refreshWorkspace() {
     try {
       await workspaceRefresh.refresh();
-      toast.success("Administrator workspace data refreshed.");
     } catch {
       toast.error("Administrator workspace data could not be refreshed.");
     }
@@ -173,7 +171,7 @@ export function AdminSystemHealthPage() {
   const visibleNotifications = snapshot?.failedNotifications.slice(notificationPage * ITEMS_PER_PAGE, (notificationPage + 1) * ITEMS_PER_PAGE) ?? [];
   const visibleSessions = snapshot?.stuckSessions.slice(sessionPage * ITEMS_PER_PAGE, (sessionPage + 1) * ITEMS_PER_PAGE) ?? [];
   return <div className="mx-auto max-w-6xl space-y-6">
-    <PageHeader eyebrow="Administration" title="System Health" description="Inspect service availability and recover supported operational failures safely." actions={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => void refreshChecks()} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold"><RefreshCw className="mr-2 h-4 w-4" />Refresh checks</button>{canRefreshWorkspace ? <button type="button" onClick={() => void refreshWorkspace()} disabled={workspaceRefresh.isRefreshing} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`mr-2 h-4 w-4 ${workspaceRefresh.isRefreshing ? "animate-spin" : ""}`} />{workspaceRefresh.isRefreshing ? "Refreshing…" : "Refresh workspace data"}</button> : null}</div>} />
+    <PageHeader eyebrow="Administration" title="System Health" description="Inspect service availability and recover supported operational failures safely." actions={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => void refreshChecks()} disabled={loading} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />{loading ? "Refreshing…" : "Refresh checks"}</button>{canRefreshWorkspace ? <button type="button" onClick={() => void refreshWorkspace()} disabled={workspaceRefresh.isRefreshing} className="inline-flex items-center rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`mr-2 h-4 w-4 ${workspaceRefresh.isRefreshing ? "animate-spin" : ""}`} />{workspaceRefresh.isRefreshing ? "Refreshing…" : "Refresh workspace data"}</button> : null}</div>} />
     {message ? <div role="alert" className="rounded-xl border border-border bg-surface p-3 text-sm">{message}</div> : null}
     {loading ? <div className="rounded-2xl border border-border bg-surface p-8 text-center text-sm text-muted-foreground">Loading system health…</div> : snapshot ? <>
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{snapshot.checks.map((check) => <div key={check.key} className={`rounded-2xl border p-4 ${statusStyles[check.status]}`}><div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold">{check.label}</p>{check.status === "healthy" ? <CheckCircle2 className="h-5 w-5" aria-hidden="true" /> : <Activity className="h-5 w-5" aria-hidden="true" />}</div><p className="mt-2 text-xs">{check.message}</p></div>)}</section>

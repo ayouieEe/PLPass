@@ -2559,6 +2559,38 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      get_next_event_code: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      get_event_participant_schedule_conflicts: {
+        Args: {
+          p_ends_at: string
+          p_starts_at: string
+          p_student_ids: string[]
+        }
+        Returns: {
+          ends_at: string
+          event_code: string
+          event_title: string
+          starts_at: string
+          student_id: string
+        }[]
+      }
+      add_organizer_event_participants: {
+        Args: {
+          p_event_id: string
+          p_student_ids: string[]
+        }
+        Returns: {
+          created_at: string
+          event_id: string
+          id: string
+          participant_status: string
+          student_id: string
+          updated_at: string
+        }[]
+      }
       create_organizer_event_with_metadata: {
         Args: {
           p_category_id: string

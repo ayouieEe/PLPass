@@ -59,39 +59,45 @@ Deno.serve(async (req) => {
 
     // Call Hugging Face API if there is a comment
     if (payload.comment && payload.comment.trim() !== "" && HF_API_TOKEN) {
-      const hfResponse = await fetch(HF_MODEL_URL, {
-        headers: {
-          Authorization: `Bearer ${HF_API_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-        body: JSON.stringify({ inputs: payload.comment }),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8_000);
+      try {
+        const hfResponse = await fetch(HF_MODEL_URL, {
+          headers: {
+            Authorization: `Bearer ${HF_API_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          body: JSON.stringify({ inputs: payload.comment }),
+          signal: controller.signal,
+        });
 
-      if (hfResponse.ok) {
-        const result = await hfResponse.json();
-        // The result is usually [[{ label: 'positive', score: 0.9 }, ...]]
-        if (Array.isArray(result) && Array.isArray(result[0])) {
-          const classifications = result[0];
-          // Get argmax (highest score)
-          let bestClass = classifications[0];
-          for (const cls of classifications) {
-            if (cls.score > bestClass.score) {
-              bestClass = cls;
+        if (hfResponse.ok) {
+          const result = await hfResponse.json();
+          // The result is usually [[{ label: 'positive', score: 0.9 }, ...]]
+          if (Array.isArray(result) && Array.isArray(result[0])) {
+            const classifications = result[0];
+            // Get argmax (highest score)
+            let bestClass = classifications[0];
+            for (const cls of classifications) {
+              if (cls.score > bestClass.score) {
+                bestClass = cls;
+              }
             }
+            sentimentScore = bestClass.score;
+            const rawLabel = bestClass.label.toLowerCase();
+
+            if (rawLabel.includes("positive") || rawLabel.includes("pos")) sentimentLabel = "positive";
+            else if (rawLabel.includes("negative") || rawLabel.includes("neg")) sentimentLabel = "negative";
+            else sentimentLabel = "neutral";
           }
-          
-          sentimentScore = bestClass.score;
-          const rawLabel = bestClass.label.toLowerCase();
-          
-          if (rawLabel.includes("positive") || rawLabel.includes("pos")) sentimentLabel = "positive";
-          else if (rawLabel.includes("negative") || rawLabel.includes("neg")) sentimentLabel = "negative";
-          else sentimentLabel = "neutral";
+        } else {
+          console.error("Hugging Face API Error:", await hfResponse.text());
         }
-      } else {
-        console.error("Hugging Face API Error:", await hfResponse.text());
-        // If HF fails, we can either throw or proceed with null sentiment. 
-        // We'll proceed with neutral as fallback.
+      } catch (error) {
+        console.warn("Sentiment analysis unavailable; submitting feedback with neutral sentiment.", error);
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 

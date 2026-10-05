@@ -22,6 +22,8 @@ export function getWorkspaceRoute(pathname: string, organizerRoute: string, admi
       ["/organizer/profile", "/department/profile"],
       ["/organizer/users", "/department/users"]
     ];
+    const eventDetailMatch = [organizerRoute, adminRoute].find((route) => route.startsWith("/organizer/events/") || route.startsWith("/admin/events/"));
+    if (eventDetailMatch) return eventDetailMatch.replace(/^\/organizer\/events\//, "/department/events/").replace(/^\/admin\/events\//, "/department/events/");
     const match = mappings.find(([source]) => source === adminRoute || source === organizerRoute);
     return match?.[1] ?? "/department/events";
   }

@@ -17,16 +17,6 @@ export const studentTwoTestContext: RepositoryContext = {
   actorRole: "student"
 };
 
-export const facultyTestContext: RepositoryContext = {
-  actorUserId: "user-faculty-1",
-  actorRole: "faculty"
-};
-
-export const facultyTwoTestContext: RepositoryContext = {
-  actorUserId: "user-faculty-2",
-  actorRole: "faculty"
-};
-
 export const organizerTestContext: RepositoryContext = {
   actorUserId: "user-organizer-1",
   actorRole: "organizer"

@@ -36,6 +36,9 @@ describe("role notification policy", () => {
     expect(isNotificationVisibleForRole(notification({ type: "system", code: "credential.request_rejected" }), "admin")).toBe(false);
     expect(isNotificationVisibleForRole(notification({ type: "system", code: "event.started" }), "admin")).toBe(true);
     expect(isNotificationVisibleForRole(notification({ type: "system", code: "attendance.finalized" }), "department_admin")).toBe(false);
+    expect(isNotificationVisibleForRole(notification({ type: "attendance", code: "attendance.finalized" }), "student")).toBe(true);
+    expect(isNotificationVisibleForRole(notification({ type: "attendance", code: "attendance.feedback_required" }), "student")).toBe(true);
+    expect(isNotificationVisibleForRole(notification({ type: "system", code: "event.invited" }), "student")).toBe(true);
     expect(isNotificationVisibleForRole(notification({ type: "system", code: "event.rescheduled" }), "organizer")).toBe(false);
     expect(isNotificationVisibleForRole(notification({ type: "correction", code: "correction.review_requested" }), "organizer")).toBe(true);
     expect(isNotificationVisibleForRole(notification({ type: "system", code: "account.status_changed" }), "organizer")).toBe(true);

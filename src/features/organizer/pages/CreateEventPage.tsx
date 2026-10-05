@@ -52,9 +52,10 @@ import {
   useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { repositories } from "@/services/repositories";
+import { summarizeFinalizedAttendance } from "@/features/organizer/utils/attendanceSummary";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { EVENT_CATEGORY_OPTIONS as CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS as VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
-import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
+import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, manilaDateTimeToIso } from "@/lib/utils/date";
 import {
   formatResourceFileSize,
   eventResourceErrorMessage,
@@ -417,6 +418,8 @@ export function CreateEventPage() {
   const [yearLevel, setYearLevel] = useState("");
   const [section, setSection] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [eventCodeError, setEventCodeError] = useState("");
+  const [blockedParticipants, setBlockedParticipants] = useState<Record<string, { eventCode: string; eventTitle: string }>>({});
   const [participantPage, setParticipantPage] = useState(1);
   const [isSelectedParticipantsOpen, setIsSelectedParticipantsOpen] = useState(false);
   const [selectedParticipantSearch, setSelectedParticipantSearch] = useState("");
@@ -478,14 +481,14 @@ export function CreateEventPage() {
       try {
         const nextCode = await repositories.eventManagement.generateNextEventCode(scope.context);
         if (isMounted) {
+          setEventCodeError("");
           form.setValue("code", nextCode, { shouldValidate: true, shouldDirty: false });
         }
       } catch (error) {
         console.error("Failed to generate event code:", error);
-        // Set a fallback code if generation fails
         if (isMounted) {
-          const fallbackCode = `EVT-${new Date().getFullYear()}-001`;
-          form.setValue("code", fallbackCode, { shouldValidate: true, shouldDirty: false });
+          setEventCodeError("The next event code could not be generated. Refresh this page before continuing.");
+          form.setValue("code", "", { shouldValidate: true, shouldDirty: false });
         }
       }
     }
@@ -598,6 +601,28 @@ export function CreateEventPage() {
   const watchedStartTime = form.watch("startTime");
   const watchedEndTime = form.watch("endTime");
   const reviewValues = form.watch();
+  const studentIdsForConflictCheck = (studentsQuery.data?.items ?? []).map((student) => student.id).join(",");
+  useEffect(() => {
+    let active = true;
+    if (!watchedDate || !watchedStartTime || !watchedEndTime || watchedEndTime <= watchedStartTime || !studentIdsForConflictCheck) {
+      setBlockedParticipants({});
+      return () => { active = false; };
+    }
+    void repositories.eventManagement.findEventParticipantScheduleConflicts({
+      startsAt: manilaDateTimeToIso(watchedDate, watchedStartTime),
+      endsAt: manilaDateTimeToIso(watchedDate, watchedEndTime),
+      studentIds: studentIdsForConflictCheck.split(",")
+    }, scope.context).then((conflicts) => {
+      if (!active) return;
+      const next = Object.fromEntries(conflicts.map((conflict) => [conflict.studentId, conflict]));
+      setBlockedParticipants(next);
+      setSelectedIds((current) => current.filter((studentId) => !next[studentId]));
+      if (Object.keys(next).length) setParticipantError("Some students are already invited to another event during this time. Review the disabled students below.");
+    }).catch(() => {
+      if (active) setBlockedParticipants({});
+    });
+    return () => { active = false; };
+  }, [scope.context, studentIdsForConflictCheck, watchedDate, watchedEndTime, watchedStartTime]);
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
     return shellState;
@@ -625,8 +650,9 @@ export function CreateEventPage() {
   const participantPageSize = 8;
   const participantPageCount = Math.max(1, Math.ceil(filteredStudents.length / participantPageSize));
   const visibleStudents = filteredStudents.slice((participantPage - 1) * participantPageSize, participantPage * participantPageSize);
-  const matchingSelectedCount = filteredStudents.filter((student) => selectedIds.includes(student.id)).length;
-  const allMatchingSelected = filteredStudents.length > 0 && matchingSelectedCount === filteredStudents.length;
+  const eligibleFilteredStudents = filteredStudents.filter((student) => !blockedParticipants[student.id]);
+  const matchingSelectedCount = eligibleFilteredStudents.filter((student) => selectedIds.includes(student.id)).length;
+  const allMatchingSelected = eligibleFilteredStudents.length > 0 && matchingSelectedCount === eligibleFilteredStudents.length;
   const someMatchingSelected = matchingSelectedCount > 0 && !allMatchingSelected;
   const selectedStudents = selectedIds.map((id) => studentsQuery.data?.items.find((student) => student.id === id)).filter((student): student is Student => Boolean(student));
   const attendanceOutlookFactors = (() => {
@@ -634,8 +660,12 @@ export function CreateEventPage() {
 
     const selectedStudentIds = new Set(selectedStudents.map((student) => student.id));
     const historicalRecords = (attendanceRecordsQuery.data?.items ?? []).filter((record) => selectedStudentIds.has(record.studentId));
-    const attendedRecords = historicalRecords.filter((record) => record.finalizedAt && (record.status === "present" || record.status === "late"));
-    const studentsWithHistory = new Set(historicalRecords.map((record) => record.studentId));
+    const attendanceSummary = summarizeFinalizedAttendance(historicalRecords.map((record) => ({
+      identity: `${record.studentId}:${record.sessionId}`,
+      attendanceStatus: record.status,
+      finalizedAt: record.finalizedAt
+    })));
+    const studentsWithHistory = new Set(historicalRecords.filter((record) => record.finalizedAt).map((record) => record.studentId));
     const yearLevelCounts = selectedStudents.reduce((counts, student) => {
       counts.set(student.yearLevel, (counts.get(student.yearLevel) ?? 0) + 1);
       return counts;
@@ -643,9 +673,7 @@ export function CreateEventPage() {
     const [largestYearLevel, largestYearLevelCount] = [...yearLevelCounts.entries()]
       .sort(([, leftCount], [, rightCount]) => rightCount - leftCount)[0] ?? [0, 0];
 
-    const attendanceRate = historicalRecords.length
-      ? Math.round((attendedRecords.length / historicalRecords.length) * 100)
-      : null;
+    const attendanceRate = attendanceSummary.population ? attendanceSummary.attendanceRate : null;
     const participationRate = studentsWithHistory.size
       ? Math.round((studentsWithHistory.size / selectedStudents.length) * 100)
       : null;
@@ -716,6 +744,7 @@ export function CreateEventPage() {
     window.location.assign(destination);
   }
   function toggleStudent(studentId: string) {
+    if (blockedParticipants[studentId]) return;
     setHasOrganizerInteracted(true);
     setSelectedIds((current) => current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]);
     setParticipantError("");
@@ -724,10 +753,10 @@ export function CreateEventPage() {
     setHasOrganizerInteracted(true);
     setSelectedIds((current) => {
       if (allMatchingSelected) {
-        const matchingIds = new Set(filteredStudents.map((student) => student.id));
+        const matchingIds = new Set(eligibleFilteredStudents.map((student) => student.id));
         return current.filter((id) => !matchingIds.has(id));
       }
-      return [...new Set([...current, ...filteredStudents.map((student) => student.id)])];
+      return [...new Set([...current, ...eligibleFilteredStudents.map((student) => student.id)])];
     });
     setParticipantError("");
   }
@@ -966,7 +995,10 @@ export function CreateEventPage() {
             <section className="space-y-4">
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Event Identification</h3>
               <div className="grid gap-4 md:grid-cols-2">
-                <TextField control={form.control} name="code" label="Event Code" placeholder="e.g. EVT-2026-021" readOnly={true} required />
+                <div>
+                  <TextField control={form.control} name="code" label="Event Code" placeholder="Generating event code…" readOnly={true} required />
+                  {eventCodeError ? <p role="alert" className="mt-1 text-sm text-danger">{eventCodeError}</p> : null}
+                </div>
                 <TextField control={form.control} name="title" label="Event Name" placeholder="e.g. Hospitality Career Fair" required />
               </div>
             </section>
@@ -1164,7 +1196,7 @@ export function CreateEventPage() {
                             type="checkbox"
                             checked={allMatchingSelected}
                             onChange={toggleAllFiltered}
-                            disabled={filteredStudents.length === 0}
+                            disabled={eligibleFilteredStudents.length === 0}
                             aria-label="Select all matching students"
                             className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                           />
@@ -1179,12 +1211,13 @@ export function CreateEventPage() {
                     <tbody className="divide-y">
                       {visibleStudents.map((student) => {
                         const isSelected = selectedIds.includes(student.id);
+                        const conflict = blockedParticipants[student.id];
                         return (
-                          <tr key={student.id} className={isSelected ? "bg-primary/5" : "hover:bg-muted/30"}>
+                          <tr key={student.id} className={conflict ? "bg-muted/30 opacity-70" : isSelected ? "bg-primary/5" : "hover:bg-muted/30"}>
                             <td className="px-4 py-3 align-middle">
-                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2" />
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} disabled={Boolean(conflict)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
                             </td>
-                            <th scope="row" className="px-3 py-3 font-medium text-foreground">{student.fullName ?? student.studentNumber}</th>
+                            <th scope="row" className="px-3 py-3 font-medium text-foreground">{student.fullName ?? student.studentNumber}{conflict ? <span className="ml-2 text-xs font-normal text-danger">Unavailable: already invited to {conflict.eventCode}</span> : null}</th>
                             <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
                             <td className="px-3 py-3 text-muted-foreground">{programById.get(student.programId) ?? student.programId}</td>
                             <td className="px-3 py-3 text-muted-foreground">Year {student.yearLevel}</td>

@@ -47,7 +47,6 @@ describe("bounded authentication and dashboard requests", () => {
         error: null
       }),
       readStudentRecord: vi.fn().mockResolvedValue({ data: null, error: null }),
-      readFacultyRecord: vi.fn().mockResolvedValue({ data: null, error: null }),
       readOrganizerRecord: vi.fn().mockResolvedValue({ data: { id: "organizer-1", profile_id: "user-1" }, error: null }),
       readDeanAssignments: vi.fn().mockResolvedValue({ data: [], error: null })
     };

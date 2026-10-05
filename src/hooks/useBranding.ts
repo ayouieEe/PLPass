@@ -1,9 +1,10 @@
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useOrganizerBranding, useOrganizerProfiles } from "@/hooks/useRepositoryQueries";
+import { DEFAULT_INSTITUTION_NAME } from "@/lib/constants/branding";
 
 export const DEFAULT_BRANDING = {
   plpLogoUrl: "/plp-logo.png",
-  collegeName: "Pamantasan ng Lungsod ng Pasig",
+  collegeName: DEFAULT_INSTITUTION_NAME,
   collegeLogoUrl: undefined,
   systemName: "PLPass"
 } as const;

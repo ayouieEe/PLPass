@@ -1133,7 +1133,7 @@ export function CompletedEventModal({
                   <p className="text-sm font-medium">{objectiveText(objective)}</p>
                   {record.objectiveResults?.[objectiveKey(objective, index)] ? (
                     <>
-                      <p className="mt-2 text-sm text-muted-foreground">Average rating: <span className="font-semibold text-foreground">{record.objectiveResults[objectiveKey(objective, index)].averageRating}/5</span></p>
+                        <p className="mt-2 text-sm text-muted-foreground">Average rating: <span className="font-semibold text-foreground">{record.objectiveResults[objectiveKey(objective, index)].averageRating}/9</span></p>
                       <p className="text-sm text-muted-foreground">Responses: <span className="font-semibold text-foreground">{record.objectiveResults[objectiveKey(objective, index)].responseCount}</span></p>
                     </>
                   ) : <p className="mt-2 text-sm text-muted-foreground">No ratings received.</p>}

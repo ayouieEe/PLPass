@@ -13,7 +13,7 @@ describe("linked Supabase session schema usage", () => {
     expect(repository).toContain('builder.in("event_session_id", sessionIds)');
     expect(repository).not.toContain('client.from("attendance_sessions")');
     expect(provider).toContain('table: "notifications"');
-    expect(provider).not.toContain('table: "event_sessions"');
+    expect(provider).toContain('table: "event_sessions"');
     expect(provider).not.toContain("attendance_sessions:");
   });
 

@@ -24,6 +24,17 @@ describe("organizer account editing", () => {
     expect(userManager).toContain('"user.organizer_updated"');
   });
 
+  it("regenerates institution emails when a generated account gets an extension", () => {
+    expect(userManager).toContain("function resolveEditedAccountEmail");
+    expect(userManager).toContain("const nextEmail = resolveEditedAccountEmail(existingProfile, email, { firstName, middleName, lastName, nameExtension });");
+    expect(userManager).toContain("email: nextEmail");
+    expect(userManager).toContain("resolveAccountEmail({ firstName, middleName, lastName, nameExtension })");
+    expect(page).toContain("function splitEditableName(displayName: string, nameExtension?: string)");
+    expect(page).toContain("splitEditableName(user.displayName, user.nameExtension)");
+    expect(page).toContain('id="edit-organizer-name-extension"');
+    expect(page).toContain('id="edit-admin-name-extension"');
+  });
+
   it("shows generated organizer IDs instead of accepting manual IDs", () => {
     expect(page).toContain('value={generatedEmployeeId}');
     expect(page).toContain('employeeNumber: ""');

@@ -16,6 +16,13 @@ describe("Realtime subscription boundaries", () => {
     expect(provider).not.toContain('event: "*"');
   });
 
+  it("refreshes student event views when invitations or schedules change", () => {
+    expect(provider).toContain('table: "events"');
+    expect(provider).toContain('table: "event_sessions"');
+    expect(provider).toContain('table: "event_participants"');
+    expect(provider).toContain('scheduleInvalidation(["events"])');
+  });
+
   it("scopes live attendance subscriptions to the active session", () => {
     expect(attendance).toContain("plpass-attendance-${sessionId}-");
     expect(attendance).toContain("filter: `event_session_id=eq.${sessionId}`");

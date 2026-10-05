@@ -14,7 +14,7 @@ type AuthLayoutProps = {
 const FEATURES = [
   {
     title: "Effortless Attendance",
-    description: "Streamline student and faculty check-ins with our fast, modern, and reliable tracking system.",
+    description: "Streamline student check-ins with our fast, modern, and reliable tracking system.",
     icon: CalendarClock,
   },
   {
@@ -50,30 +50,30 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
   }, []);
 
   return (
-    <main className={`plpass-auth-scene relative flex min-h-[100dvh] w-full ${legal ? "plpass-auth-legal h-[100dvh] overflow-hidden" : "overflow-x-hidden overflow-y-auto"}`}>
+    <main className={`plpass-auth-scene relative flex h-[100dvh] min-h-0 w-full ${legal ? "overflow-hidden plpass-auth-legal" : "overflow-x-hidden overflow-y-auto plpass-auth-login"}`}>
       {/* Decorative Background for the entire view */}
       <div className="plpass-auth-grid absolute inset-0 z-0" aria-hidden="true" />
       <div className="plpass-auth-ribbons absolute inset-0 z-0" aria-hidden="true" />
       <div className="plpass-auth-ambient absolute inset-0 z-0" aria-hidden="true" />
 
       {/* Left Pane - visible on lg and up */}
-      <section className="relative z-10 hidden w-full max-w-lg flex-1 flex-col justify-between p-8 lg:flex lg:max-w-xl xl:max-w-2xl xl:p-12 2xl:max-w-3xl">
+      <section className="plpass-auth-curtain-left relative z-10 hidden w-full max-w-lg flex-1 flex-col justify-between p-8 lg:flex lg:max-w-xl xl:max-w-2xl xl:p-12 2xl:max-w-3xl">
         {/* Top Content */}
         <div className="flex flex-col items-start pt-4">
-          <div className="flex items-center gap-3">
+          <div className="plpass-auth-brand flex items-center gap-3">
             <div className="flex h-10 items-center justify-center">
               <img src="/plp-logo.png" alt="PLPass logo" className="h-full w-auto object-contain" />
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">PLPass</span>
           </div>
-          <h1 className="mt-16 text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl lg:leading-[1.1]">
+          <h1 className="plpass-auth-hero mt-16 text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl lg:leading-[1.1]">
             Simplify Attendance.<br />
             <span className="text-primary/90">Elevate Events.</span>
           </h1>
         </div>
 
         {/* Bottom Carousel Content */}
-        <div className="mt-auto pb-8">
+        <div className="plpass-auth-carousel mt-auto pb-8">
            <div className="relative h-[160px] w-full">
              {FEATURES.map((feature, i) => {
                const Icon = feature.icon;
@@ -111,7 +111,7 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
       </section>
 
       {/* Right Pane */}
-      <section className={`relative z-10 flex w-full flex-col justify-center px-4 py-8 sm:px-6 lg:flex-1 lg:px-12 xl:px-24 ${legal ? "min-h-0 flex-1" : "overflow-y-auto"}`}>
+      <section className={`plpass-auth-curtain-right relative z-10 flex min-h-0 w-full flex-col justify-center px-4 py-8 sm:px-6 lg:flex-1 lg:px-12 xl:px-24 ${legal ? "overflow-hidden" : "overflow-y-auto"}`}>
         
         {/* Mobile Header (hidden on lg and up) */}
         <div className="mb-8 flex flex-col items-center text-center lg:hidden">
@@ -122,7 +122,7 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
           <p className="mt-1 text-sm text-muted-foreground">Event attendance workspace</p>
         </div>
 
-        <div className={`mx-auto w-full ${wide ? "max-w-3xl" : "max-w-[440px]"} ${legal ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+        <div className={`mx-auto w-full ${wide ? "max-w-3xl" : "max-w-[440px]"} ${legal ? "flex h-full min-h-0 flex-1 flex-col" : ""}`}>
           
           <div className={`plpass-auth-card relative rounded-[2rem] border border-border/40 p-6 sm:p-8 md:p-10 ${legal ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface/95" : "bg-surface/95 backdrop-blur-xl shadow-2xl shadow-primary/10"}`}>
             {headerAction ? <div className={`mb-4 ${legal ? "self-start" : ""}`}>{headerAction}</div> : null}
@@ -131,12 +131,12 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
               {description ? <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
             </div>
 
-            <div className={`${legal ? "min-h-0 flex-1 overflow-y-auto pr-2" : ""}`}>
+            <div className={`plpass-auth-content ${legal ? "min-h-0 flex flex-1 flex-col pr-2" : ""}`}>
               {children}
             </div>
           </div>
 
-          <footer className="mt-8 flex justify-center gap-6 text-sm font-medium text-foreground/70 lg:justify-start">
+          <footer className="mt-3 flex shrink-0 justify-center gap-6 text-xs font-medium text-foreground/70">
             <Link to="/terms" className="hover:text-primary hover:underline transition-colors">Terms of Use</Link>
             <Link to="/privacy" className="hover:text-primary hover:underline transition-colors">Privacy Policy</Link>
           </footer>

@@ -68,7 +68,9 @@ export function LegalPolicyPage({ document, backTo = "/login", backLabel = "Back
       wide
       legal
     >
-      {policyContent}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-2">
+        {policyContent}
+      </div>
     </AuthLayout>
   );
 }

@@ -19,8 +19,14 @@ describe("automatic turnout forecast workflow", () => {
   });
 
   it("runs automatically on both organizer surfaces", () => {
-    expect(source("src/features/organizer/pages/OrganizerDashboardPage.tsx")).toContain("useAutomaticForecasts(");
+    const dashboard = source("src/features/organizer/pages/OrganizerDashboardPage.tsx");
+    expect(dashboard).toContain("useAutomaticForecasts(");
+    expect(dashboard).toContain('session?.role === "organizer"');
     expect(source("src/features/organizer/pages/OrganizerAnalyticsPage.tsx")).toContain("useAutomaticForecasts(");
+  });
+
+  it("does not start organizer-only generation from admin workspaces", () => {
+    expect(source("src/features/organizer/hooks/useAutomaticForecasts.ts")).toContain('context.actorRole !== "organizer"');
   });
 
   it("uses the signed-in organizer token for ML data reads", () => {
@@ -32,6 +38,8 @@ describe("automatic turnout forecast workflow", () => {
     expect(api).toContain("An authenticated organizer session is required.");
     expect(api).toContain("get_event_features(req.event_id, access_token)");
     expect(supabase).toContain("client.postgrest.auth(access_token)");
+    expect(supabase).toContain(".env.development.local");
+    expect(supabase).toContain("VITE_SUPABASE_PUBLISHABLE_KEY");
     expect(supabase).not.toContain('SUPABASE_SERVICE_KEY');
   });
 
@@ -41,6 +49,13 @@ describe("automatic turnout forecast workflow", () => {
 
     expect(client).toContain('"http://127.0.0.1:8000"');
     expect(electron).toContain('"--host", "127.0.0.1", "--port", "8000"');
+  });
+
+  it("does not leave desktop forecast requests or service startup permanently pending", () => {
+    expect(source("src/services/api/mlClient.ts")).toContain("REQUEST_TIMEOUT_MS = 30_000");
+    expect(source("src/services/api/mlClient.ts")).toContain("controller.abort()");
+    expect(source("electron/main.ts")).toContain("facialServiceStartPromise");
+    expect(source("electron/main.ts")).toContain("controller.abort()");
   });
 
   it("creates a missing local prediction artifact without blocking startup on facial loading", () => {

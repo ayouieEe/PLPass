@@ -82,7 +82,6 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
       const scannerStatus = await api.startScannerStations(eventId, sessionId, capturePhase, organizerProfileId);
       setStatus(scannerStatus);
       setCertificateStatus({ configured: Boolean(scannerStatus.certificateFingerprint), fingerprint: scannerStatus.certificateFingerprint, expiresAt: scannerStatus.certificateExpiresAt });
-      toast.success("Scanner connection QR refreshed. Reconnect phones using the new QR code.");
     } catch (error) {
       toast.error(getErrorMessage(error) || "The scanner connection QR could not be refreshed.");
     } finally {

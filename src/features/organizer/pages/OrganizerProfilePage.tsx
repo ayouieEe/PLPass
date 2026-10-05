@@ -3,6 +3,7 @@ import { Camera, Key, Mail, ShieldAlert, User } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -38,6 +39,7 @@ function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
 
 export function OrganizerProfilePage() {
   const { session } = useDevelopmentSession();
+  const roleLabel = getUserRoleLabel(session?.role ?? "organizer");
   const queryClient = useQueryClient();
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const userQuery = useUser(session?.userId, context);
@@ -193,7 +195,7 @@ export function OrganizerProfilePage() {
 
           <div className="w-full border-t border-border pt-4">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
-              Organizer Role
+              {roleLabel}
             </span>
           </div>
         </div>

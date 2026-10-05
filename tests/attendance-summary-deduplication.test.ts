@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeOrganizerAttendanceRows, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
+import { mergeOrganizerAttendanceRows, summarizeFinalizedAttendance, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 
 describe("organizer attendance summary identity counting", () => {
   it("prefers the verified attendance row when the same durable scan exists in both sources", () => {
@@ -39,5 +39,16 @@ describe("organizer attendance summary identity counting", () => {
 
     expect(active).toMatchObject({ present: 1, late: 0, absent: 0, population: 2 });
     expect(completed).toMatchObject({ present: 1, late: 0, absent: 1, population: 2, attendanceRate: 50 });
+  });
+
+  it("uses only finalized session identities for student rates", () => {
+    const result = summarizeFinalizedAttendance([
+      { identity: "student-1:session-1", attendanceStatus: "absent", finalizedAt: "2026-10-01T00:00:00Z" },
+      { identity: "student-1:session-1", attendanceStatus: "present", finalizedAt: "2026-10-01T00:00:00Z" },
+      { identity: "student-1:session-2", attendanceStatus: "present" },
+      { identity: "student-1:session-3", attendanceStatus: "late", finalizedAt: "2026-10-03T00:00:00Z" }
+    ]);
+
+    expect(result).toMatchObject({ present: 1, late: 1, absent: 0, population: 2, attendanceRate: 100 });
   });
 });

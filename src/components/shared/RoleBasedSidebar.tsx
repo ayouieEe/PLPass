@@ -4,6 +4,7 @@ import { MoreHorizontal, UserCircle } from "lucide-react";
 import { ROLE_NAVIGATION } from "@/lib/constants/navigation";
 import { hasAnyCapability, type Capability } from "@/lib/auth/permissions";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { cn } from "@/lib/utils/cn";
 import type { NavigationItem } from "@/types/navigation";
 import type { UserRole } from "@/types/roles";
@@ -11,6 +12,7 @@ import type { UserRole } from "@/types/roles";
 type RoleBasedSidebarProps = {
   role: UserRole;
   userLabel?: string;
+  avatarUrl?: string;
   className?: string;
   collapsed?: boolean;
   headerAction?: ReactNode;
@@ -38,6 +40,7 @@ function initialsFromName(name: string) {
 export function RoleBasedSidebar({
   role,
   userLabel = "Development User",
+  avatarUrl,
   className,
   collapsed = false,
   headerAction,
@@ -53,6 +56,13 @@ export function RoleBasedSidebar({
   const userInitials = initialsFromName(userLabel) || "PL";
   const navigate = useNavigate();
   const location = useLocation();
+  const dashboardPath = role === "admin"
+    ? APP_ROUTES.adminDashboard
+    : role === "department_admin"
+      ? APP_ROUTES.departmentDashboard
+      : role === "organizer"
+        ? APP_ROUTES.organizerDashboard
+        : APP_ROUTES.studentDashboard;
   const workspaceLabel = role === "admin" ? "University Admin Workspace" : role === "department_admin" ? "Department Admin Workspace" : role === "organizer" ? "Organizer Workspace" : role === "student" ? "Student Workspace" : `${role} Workspace`;
 
   return (
@@ -67,15 +77,22 @@ export function RoleBasedSidebar({
     >
       <div className={cn("flex h-[72px] shrink-0 items-center border-b border-border px-4", collapsed && "justify-center px-2.5")}>
         <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-primary/20">
-            <img src="/plp-logo.png" alt="PLPass logo" className="h-full w-full object-cover" />
-          </div>
-          {!collapsed ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground">{workspaceLabel}</p>
+          <NavLink
+            to={dashboardPath}
+            aria-label="Go to dashboard"
+            title={collapsed ? "Go to dashboard" : undefined}
+            className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-primary/20">
+              <img src="/plp-logo.png" alt="PLPass logo" className="h-full w-full object-cover" />
             </div>
-          ) : null}
+            {!collapsed ? (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{workspaceLabel}</p>
+              </div>
+            ) : null}
+          </NavLink>
           {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
         </div>
       </div>
@@ -163,7 +180,7 @@ export function RoleBasedSidebar({
             )}
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
-              {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
+              {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full rounded-full object-cover" /> : collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
             </span>
             {!collapsed ? (
               <span className="min-w-0 flex-1">
@@ -188,13 +205,13 @@ export function RoleBasedSidebar({
             )}
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sidebar-active text-xs font-semibold text-sidebar-active-foreground ring-1 ring-primary/10">
-              {collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
+              {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full rounded-full object-cover" /> : collapsed ? <UserCircle className="h-4 w-4" aria-hidden="true" /> : userInitials}
             </span>
             {!collapsed ? (
               <>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-sidebar-foreground">{userLabel}</span>
-                  <span className="block truncate text-xs capitalize text-muted-foreground">{role}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{getUserRoleLabel(role)}</span>
                 </span>
                 <MoreHorizontal className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               </>

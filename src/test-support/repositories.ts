@@ -9,7 +9,6 @@ import {
   departmentFixtures,
   eventFixtures,
   eventParticipantFixtures,
-  facultyProfileFixtures,
   mlPredictionFixtures,
   notificationFixtures,
   organizerProfileFixtures,
@@ -152,16 +151,15 @@ function filterClasses(query?: ListQuery): Class[] {
   );
 }
 
-function getFacultyProfileForContext(context: RepositoryContext) {
-  return facultyProfileFixtures.find((profile) => profile.userId === context.actorUserId);
+function facultyClassIds(context: RepositoryContext): string[] {
+  void context;
+  return [];
 }
 
-function facultyClassIds(context: RepositoryContext) {
-  const profile = getFacultyProfileForContext(context);
-  if (!profile) {
-    return [];
-  }
-  return classFixtures.filter((classRecord) => classRecord.facultyId === profile.id).map((classRecord) => classRecord.id);
+function isSessionInFacultyScope(session: AttendanceSession, context: RepositoryContext) {
+  void session;
+  void context;
+  return true;
 }
 
 function getStudentForContext(context: RepositoryContext) {
@@ -199,13 +197,6 @@ function organizerEventIds(context: RepositoryContext) {
 function organizerStudentIds(context: RepositoryContext) {
   const ownedEvents = new Set(organizerEventIds(context));
   return new Set(eventParticipantState.filter((entry) => ownedEvents.has(entry.eventId)).map((entry) => entry.studentId));
-}
-
-function isSessionInFacultyScope(session: AttendanceSession, context: RepositoryContext) {
-  if (context.actorRole !== "faculty") {
-    return true;
-  }
-  return Boolean(session.classId && facultyClassIds(context).includes(session.classId));
 }
 
 function isEventInOrganizerScope(event: Event, context: RepositoryContext) {
@@ -698,9 +689,13 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
   async updateStudent(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
     const existing = getOrThrow(studentFixtures, input.id, "Student");
+    const generatedEmail = generateAccountEmail(existing.lastName ?? "", existing.firstName ?? "", existing.middleName, existing.nameExtension);
+    const email = input.email.trim().toLowerCase() === generatedEmail.toLowerCase()
+      ? generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension)
+      : input.email;
     const updated: Student = {
       ...existing,
-      email: input.email,
+      email,
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
@@ -714,6 +709,16 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const index = studentFixtures.findIndex(s => s.id === input.id);
     if (index !== -1) {
       studentFixtures[index] = updated;
+    }
+    const userIndex = userFixtures.findIndex((user) => user.id === input.profileId);
+    if (userIndex !== -1) {
+      userFixtures[userIndex] = {
+        ...userFixtures[userIndex],
+        email,
+        displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "),
+        nameExtension: input.nameExtension,
+        isActive: input.accountStatus !== "inactive"
+      };
     }
     return updated;
   },
@@ -750,28 +755,6 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       success++;
     }
     return { success, failed: errors.length, errors };
-  },
-  async listFacultyProfiles(query, context) {
-    await beforeRead("userManagement", context, ["admin", "faculty", "student"]);
-    const currentContext = contextOrDefault(context);
-    const facultyIdsForStudent =
-      currentContext.actorRole === "student"
-        ? new Set(classFixtures.filter((classRecord) => studentClassIds(currentContext).includes(classRecord.id)).map((classRecord) => classRecord.facultyId))
-        : undefined;
-    const items = facultyProfileFixtures.filter(
-      (profile) =>
-        matchesSearch([profile.employeeNumber, profile.title], query?.search) &&
-        (currentContext.actorRole === "admin" ||
-          profile.userId === currentContext.actorUserId ||
-          Boolean(facultyIdsForStudent?.has(profile.id)))
-    ).map((profile) => {
-      const user = userFixtures.find((u) => u.id === profile.userId);
-      return {
-        ...profile,
-        displayName: user?.displayName
-      };
-    });
-    return currentContext.actorRole === "student" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
   },
   async listOrganizerProfiles(query, context) {
     await beforeRead("userManagement", context, ["admin", "department_admin", "organizer", "student"]);
@@ -811,7 +794,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       id: userId,
       role: "organizer",
       email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
-      displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
+      displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "),
+      nameExtension: input.nameExtension,
       isActive: true,
       createdAt: new Date().toISOString()
     });
@@ -825,6 +809,13 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "organizer");
     if (userIndex === -1) throw new RepositoryError("Organizer user profile not found.", "NOT_FOUND");
     const organizer = organizerProfileFixtures[organizerIndex];
+    const existingUser = userFixtures[userIndex];
+    const existingNameParts = existingUser.displayName.split(" ").filter(Boolean);
+    if (existingUser.nameExtension && existingNameParts.at(-1) === existingUser.nameExtension) existingNameParts.pop();
+    const generatedEmail = generateAccountEmail(existingNameParts.at(-1) ?? "", existingNameParts[0] ?? "", existingNameParts.slice(1, -1).join(" "), existingUser.nameExtension);
+    const email = input.email.trim().toLowerCase() === generatedEmail.toLowerCase()
+      ? generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension)
+      : input.email;
     const updatedOrganizer = {
       ...organizer,
       departmentId: input.departmentId || undefined,
@@ -835,8 +826,9 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     organizerProfileFixtures[organizerIndex] = updatedOrganizer;
     userFixtures[userIndex] = {
       ...userFixtures[userIndex],
-      email: input.email,
-      displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "),
+      email,
+      displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "),
+      nameExtension: input.nameExtension,
       isActive: input.accountStatus === "active"
     };
     return updatedOrganizer;
@@ -847,7 +839,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const userId = `admin-user-${stamp}`;
     const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^A-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
     const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `A-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
-    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName].filter(Boolean).join(" "), isActive: true, createdAt: new Date().toISOString() });
+    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: true, createdAt: new Date().toISOString() });
     adminProfileFixtures.push(profile);
     return profile;
   },
@@ -858,7 +850,14 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     if (adminIndex === -1 || userIndex === -1) throw new RepositoryError("Admin account not found.", "NOT_FOUND");
     const updated = { ...adminProfileFixtures[adminIndex], departmentId: input.departmentId, officeName: input.officeName };
     adminProfileFixtures[adminIndex] = updated;
-    userFixtures[userIndex] = { ...userFixtures[userIndex], email: input.email, displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: input.accountStatus === "active" };
+    const existingUser = userFixtures[userIndex];
+    const existingNameParts = existingUser.displayName.split(" ").filter(Boolean);
+    if (existingUser.nameExtension && existingNameParts.at(-1) === existingUser.nameExtension) existingNameParts.pop();
+    const generatedEmail = generateAccountEmail(existingNameParts.at(-1) ?? "", existingNameParts[0] ?? "", existingNameParts.slice(1, -1).join(" "), existingUser.nameExtension);
+    const email = input.email.trim().toLowerCase() === generatedEmail.toLowerCase()
+      ? generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension)
+      : input.email;
+    userFixtures[userIndex] = { ...existingUser, email, displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: input.accountStatus === "active" };
     return updated;
   },
   async revokeUserSessions(input, context) {
@@ -1176,6 +1175,41 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
       throw new RepositoryError("Organizers can only manage resources for their own events.", "PERMISSION_DENIED");
     }
     eventResourceState = eventResourceState.filter((entry) => entry.id !== resourceId);
+  },
+  async findEventParticipantScheduleConflicts(input, context) {
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
+    const requestedIds = new Set(input.studentIds);
+    return eventState.flatMap((event) => {
+      const overlaps = event.startsAt < input.endsAt && event.endsAt > input.startsAt;
+      if (!overlaps || event.status === "completed" || event.status === "cancelled") return [];
+      const studentId = eventParticipantState.find((participant) => participant.eventId === event.id && requestedIds.has(participant.studentId))?.studentId;
+      return studentId ? [{ studentId, eventCode: event.code, eventTitle: event.title, startsAt: event.startsAt, endsAt: event.endsAt }] : [];
+    });
+  },
+  async addEventParticipants(input, context) {
+    await beforeRead("eventManagement", context, ["organizer", "admin"]);
+    const currentContext = contextOrDefault(context);
+    const event = getOrThrow(eventState, input.eventId, "Event");
+    if (!isEventInOrganizerScope(event, currentContext)) throw new RepositoryError("Organizers can only manage their own events.", "PERMISSION_DENIED");
+    const startsAt = event.startsAt;
+    const endsAt = event.endsAt;
+    const requestedIds = new Set(input.studentIds);
+    const conflicts = eventState.flatMap((otherEvent) => {
+      if (otherEvent.id === event.id || otherEvent.startsAt >= endsAt || otherEvent.endsAt <= startsAt || otherEvent.status === "completed" || otherEvent.status === "cancelled") return [];
+      const studentId = eventParticipantState.find((participant) => participant.eventId === otherEvent.id && requestedIds.has(participant.studentId))?.studentId;
+      return studentId ? [{ studentId, eventCode: otherEvent.code }] : [];
+    });
+    const ownParticipantIds = new Set(eventParticipantState.filter((participant) => participant.eventId === event.id).map((participant) => participant.studentId));
+    const blocked = conflicts.find((conflict) => !ownParticipantIds.has(conflict.studentId));
+    if (blocked) throw new RepositoryError(`${blocked.studentId} is already invited to ${blocked.eventCode} during this time.`, "VALIDATION_ERROR");
+    const added = input.studentIds.map((studentId) => ({
+      id: `participant-${event.id}-${studentId}`,
+      eventId: event.id,
+      studentId,
+      registeredAt: new Date().toISOString()
+    }));
+    eventParticipantState = [...added, ...eventParticipantState.filter((participant) => !(participant.eventId === event.id && input.studentIds.includes(participant.studentId)))];
+    return added;
   },
   async generateNextEventCode(context) {
     await beforeRead("eventManagement", context, ["organizer", "admin"]);
@@ -2000,7 +2034,7 @@ export const simulatedReportRepository: ReportRepository = {
 
 export const simulatedNotificationRepository: NotificationRepository = {
   async listNotifications(query, context) {
-    await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("notifications", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     return paginateList(
       notificationState.filter(
@@ -2014,7 +2048,7 @@ export const simulatedNotificationRepository: NotificationRepository = {
     );
   },
   async markNotificationRead(notificationId, context) {
-    await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("notifications", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     const notification = notificationState.find((entry) => entry.id === notificationId);
     if (!notification) {
@@ -2029,7 +2063,7 @@ export const simulatedNotificationRepository: NotificationRepository = {
     return getOrThrow(notificationState, notificationId, "Notification");
   },
   async markAllNotificationsRead(context) {
-    await beforeRead("notifications", context, ["admin", "faculty", "organizer", "student"]);
+    await beforeRead("notifications", context, ["admin", "department_admin", "faculty", "organizer", "student"]);
     const currentContext = contextOrDefault(context);
     notificationState = notificationState.map((entry) =>
       entry.userId === currentContext.actorUserId ? { ...entry, status: "read" } : entry
@@ -2041,8 +2075,7 @@ export const simulatedNotificationRepository: NotificationRepository = {
     return notificationPreferencesState[currentContext.actorUserId] ?? {
       reminders: true,
       eventUpdates: true,
-      reports: true,
-      attendanceExceptions: true
+      reports: true
     };
   },
   async updatePreferences(input, context) {
