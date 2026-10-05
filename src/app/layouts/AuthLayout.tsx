@@ -50,7 +50,7 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
   }, []);
 
   return (
-    <main className={`plpass-auth-scene relative flex h-[100dvh] min-h-0 w-full overflow-hidden ${legal ? "plpass-auth-legal" : "plpass-auth-login"}`}>
+    <main className={`plpass-auth-scene relative flex h-[100dvh] min-h-0 w-full ${legal ? "overflow-hidden plpass-auth-legal" : "overflow-x-hidden overflow-y-auto plpass-auth-login"}`}>
       {/* Decorative Background for the entire view */}
       <div className="plpass-auth-grid absolute inset-0 z-0" aria-hidden="true" />
       <div className="plpass-auth-ribbons absolute inset-0 z-0" aria-hidden="true" />
@@ -111,7 +111,7 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
       </section>
 
       {/* Right Pane */}
-      <section className="plpass-auth-curtain-right relative z-10 flex min-h-0 w-full flex-col justify-center overflow-hidden px-4 py-8 sm:px-6 lg:flex-1 lg:px-12 xl:px-24">
+      <section className={`plpass-auth-curtain-right relative z-10 flex min-h-0 w-full flex-col justify-center px-4 py-8 sm:px-6 lg:flex-1 lg:px-12 xl:px-24 ${legal ? "overflow-hidden" : "overflow-y-auto"}`}>
         
         {/* Mobile Header (hidden on lg and up) */}
         <div className="mb-8 flex flex-col items-center text-center lg:hidden">
