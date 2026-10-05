@@ -454,6 +454,17 @@
     @apply border-input bg-surface text-foreground placeholder:text-muted-foreground disabled:bg-disabled focus-visible:border-primary-hover focus-visible:ring-2 focus-visible:ring-ring;
   }
 
+  /* Let Chromium render native calendar and clock controls for the active theme. */
+  input.plpass-field[type="date"],
+  input.plpass-field[type="time"] {
+    color-scheme: light;
+  }
+
+  .dark input.plpass-field[type="date"],
+  .dark input.plpass-field[type="time"] {
+    color-scheme: dark;
+  }
+
   .plpass-report-format-option {
     @apply relative flex min-h-20 items-center gap-3 rounded-xl border border-border bg-surface p-3 text-left text-foreground shadow-sm outline-none;
     transition: border-color 160ms ease-out, background-color 160ms ease-out, box-shadow 160ms ease-out, transform 160ms ease-out;
@@ -542,6 +553,10 @@
 
   .plpass-status-warning {
     @apply bg-warning-muted text-warning-foreground;
+  }
+
+  .dark .plpass-status-warning {
+    @apply text-warning;
   }
 
   .plpass-status-danger {
