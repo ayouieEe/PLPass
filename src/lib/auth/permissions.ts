@@ -42,13 +42,11 @@ const departmentAdminCapabilities = [
   "profile.manage.own", "notifications.read.own"
 ] as const satisfies readonly Capability[];
 
-export const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
+export const ROLE_CAPABILITIES: Partial<Record<UserRole, readonly Capability[]>> = {
   student: [],
   organizer: organizerCapabilities,
   admin: adminCapabilities,
-  department_admin: departmentAdminCapabilities,
-  // Legacy data may still contain faculty rows, but faculty is not a supported login role.
-  faculty: []
+  department_admin: departmentAdminCapabilities
 };
 
 export function hasCapability(role: UserRole, capability: Capability) {

@@ -100,6 +100,15 @@ describe("mock authentication flow", () => {
     expect(screen.queryByRole("button", { name: /create|approve|start attendance/i })).not.toBeInTheDocument();
   });
 
+  it("shows notifications for the signed-in department admin", async () => {
+    storeSession("department_admin");
+    setRoute("/notifications");
+    render(<App />);
+
+    expect(await screen.findByText("Mock system notice")).toBeInTheDocument();
+    expect(screen.getByText("1 unread")).toBeInTheDocument();
+  });
+
   it("does not expose correction requests to an admin", async () => {
     storeSession("admin");
     setRoute("/admin/corrections");
@@ -251,7 +260,7 @@ describe("shared user pages", () => {
     setRoute("/notifications");
     render(<App />);
 
-    await screen.findByText("Attendance needs attention");
+    await screen.findByText("Event invitation");
     expect(screen.queryByText("Correction request")).not.toBeInTheDocument();
     await user.click(screen.getAllByRole("button", { name: /mark read/i })[0]);
     await waitFor(() => expect(screen.getByText("read")).toBeInTheDocument());
@@ -268,13 +277,13 @@ describe("shared user pages", () => {
     await waitFor(() => expect(screen.getByText("0 unread")).toBeInTheDocument());
   });
 
-  it("does not expose a generic action for a non-feedback student notification", async () => {
+  it("does not expose an attendance action for an event invitation", async () => {
     const user = userEvent.setup();
     storeSession("student");
     setRoute("/notifications");
     render(<App />);
 
-    await user.click(await screen.findByText("Attendance needs attention"));
+    await user.click(await screen.findByText("Event invitation"));
     const notificationDialog = await screen.findByRole("dialog");
     expect(within(notificationDialog).queryByRole("button", { name: "Open attendance" })).not.toBeInTheDocument();
     await user.click(within(notificationDialog).getByRole("button", { name: "Close" }));

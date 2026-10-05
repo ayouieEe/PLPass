@@ -31,7 +31,7 @@ import type {
   UpdateOrganizerBrandingInput
 } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
-import type { AttendanceAttempt, AttendanceRecord } from "@/types/domain";
+import type { AttendanceAttempt, AttendanceRecord, Notification } from "@/types/domain";
 import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
 import { isNotificationVisibleForRole } from "@/lib/notifications/policy";
@@ -103,8 +103,8 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
 
 export function useStudentMutations(context?: RepositoryContext) {
   const queryClient = useQueryClient();
-  const invalidateStudents = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["students"] });
+  const invalidateStudents = () => {
+    void queryClient.invalidateQueries({ queryKey: ["students"] });
   };
   
   return {
@@ -127,15 +127,6 @@ export function useStudentMutations(context?: RepositoryContext) {
       }
     })
   };
-}
-
-export function useFacultyProfiles(query?: Partial<ListQuery>, context?: RepositoryContext) {
-  const listQuery = queryWithDefaults(query);
-  return useQuery({
-    queryKey: ["facultyProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listFacultyProfiles(listQuery, context),
-    enabled: Boolean(context)
-  });
 }
 
 export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
@@ -561,7 +552,11 @@ export function useAttendanceSubmissionMutations(context?: RepositoryContext) {
 export function useSubmitLateReasonMutation(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: SubmitLateReasonInput) => repositories.attendanceRecords.submitLateReason(input, context),
+    mutationFn: (input: SubmitLateReasonInput) => withRequestTimeout(
+      repositories.attendanceRecords.submitLateReason(input, context),
+      attendanceMutationDeadlineMs,
+      "Submitting the late reason took too long. Check the connection and try again."
+    ),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
@@ -765,6 +760,8 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
     onSuccess: async (_feedback, input) => {
       await queryClient.invalidateQueries({ queryKey: ["studentEventFeedback"] });
       await queryClient.invalidateQueries({ queryKey: ["studentFeedbackTasks"] });
+      await queryClient.invalidateQueries({ queryKey: ["studentDashboardSummary"] });
+      await queryClient.invalidateQueries({ queryKey: ["finalizedEventYears"] });
       await queryClient.invalidateQueries({ queryKey: ["eventObjectives", input.eventId] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] });
     }
@@ -829,6 +826,7 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
   const listQuery = queryWithDefaults(query);
   const queryClient = useQueryClient();
   const queryKey = ["notifications", listQuery, context] as const;
+  const unreadCountQueryKey = ["notifications", "unreadCount", context] as const;
   const listQueryResult = useQuery({
     queryKey,
     queryFn: () => repositories.notifications.listNotifications(listQuery, context)
@@ -837,8 +835,9 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
     mutationFn: (notificationId: string) => repositories.notifications.markNotificationRead(notificationId, context),
     onMutate: async (notificationId) => {
       await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData(queryKey);
-      queryClient.setQueryData(queryKey, (current: typeof listQueryResult.data) =>
+      const previous = queryClient.getQueryData<PaginatedResult<Notification>>(queryKey);
+      const currentNotification = previous?.items.find((notification) => notification.id === notificationId);
+      queryClient.setQueryData<PaginatedResult<Notification> | undefined>(queryKey, (current) =>
         current
           ? {
               ...current,
@@ -848,11 +847,29 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
             }
           : current
       );
-      return { previous };
+      // Keep the dashboard badge in sync with the same optimistic read. The
+      // unread-count observer stores the paginated result in the cache and
+      // applies its numeric select afterward, so remove this row there too.
+      if (currentNotification?.status === "unread") {
+        queryClient.setQueryData<PaginatedResult<Notification>>(unreadCountQueryKey, (current) =>
+          current
+            ? { ...current, items: current.items.filter((notification) => notification.id !== notificationId), total: Math.max(0, current.total - 1) }
+            : current
+        );
+      }
+      return { previous, currentNotification };
     },
     onError: (_error, _variables, mutationContext) => {
       if (mutationContext?.previous) {
         queryClient.setQueryData(queryKey, mutationContext.previous);
+      }
+      if (mutationContext?.currentNotification?.status === "unread") {
+        const notification = mutationContext.currentNotification;
+        queryClient.setQueryData<PaginatedResult<Notification>>(unreadCountQueryKey, (current) =>
+          current && !current.items.some((item) => item.id === notification.id)
+            ? { ...current, items: [...current.items, notification], total: current.total + 1 }
+            : current
+        );
       }
       toast.error("Failed to mark notification as read");
     },
@@ -905,8 +922,8 @@ export function useUpdateOrganizerAccountMutation(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateOrganizerInput) => repositories.userManagement.updateOrganizer(input, context),
-    onSuccess: async () => {
-      await Promise.all([
+    onSuccess: () => {
+      void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] }),
         queryClient.invalidateQueries({ queryKey: ["users"] })
       ]);
@@ -933,8 +950,8 @@ export function useUpdateAdminAccountMutation(context?: RepositoryContext) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UpdateAdminInput) => repositories.userManagement.updateAdmin(input, context),
-    onSuccess: async () => {
-      await Promise.all([
+    onSuccess: () => {
+      void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["users"] }),
         queryClient.invalidateQueries({ queryKey: ["adminProfiles"] })
       ]);

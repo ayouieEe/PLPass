@@ -12,6 +12,7 @@ import { useNotificationUnreadCount } from "@/hooks/useRepositoryQueries";
 import { useTheme } from "@/hooks/useTheme";
 import { getRouteHeaderMeta } from "@/lib/constants/routeMetadata";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { cn } from "@/lib/utils/cn";
 import type { UserRole } from "@/types/roles";
 
@@ -20,6 +21,7 @@ const sidebarStorageKey = "plpass-sidebar-collapsed";
 type DashboardLayoutProps = {
   role: UserRole;
   userLabel?: string;
+  avatarUrl?: string;
   title?: string;
   description?: string;
   breadcrumbs?: string[];
@@ -40,6 +42,7 @@ function readCollapsedState() {
 export function DashboardLayout({
   role,
   userLabel,
+  avatarUrl,
   description,
   primaryAction,
   filters,
@@ -167,6 +170,7 @@ export function DashboardLayout({
         role={role}
         offlineMode={isOfflineMode}
         userLabel={userLabel}
+        avatarUrl={avatarUrl}
         collapsed={collapsed}
         className="fixed inset-y-0 left-0 z-30 hidden md:flex"
       />
@@ -187,6 +191,7 @@ export function DashboardLayout({
               role={role}
               offlineMode={isOfflineMode}
               userLabel={userLabel}
+              avatarUrl={avatarUrl}
               onNavigate={() => closeDrawer({ restoreFocus: false })}
               className={cn(
                 role === "student" && "student-glass-sidebar"
@@ -210,7 +215,7 @@ export function DashboardLayout({
       ) : null}
 
       <div className={cn("flex h-full min-w-0 flex-1 flex-col overflow-hidden transition-[padding] duration-200 motion-reduce:transition-none", collapsed ? "md:pl-[60px]" : "md:pl-[280px]")}>
-        <header className="z-30 shrink-0 border-b bg-surface/95 shadow-sm backdrop-blur">
+        <header className="z-30 shrink-0 border-b border-primary/15 bg-gradient-to-r from-surface via-primary/[0.035] to-primary/[0.09] shadow-[0_4px_18px_hsl(var(--primary)/0.08)] backdrop-blur">
           <PageContainer className="flex h-[72px] min-w-0 items-center justify-between gap-3 py-0">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <Button ref={openDrawerRef} type="button" variant="outline" size="icon" className="h-9 w-9 rounded-full md:hidden" aria-label="Open navigation menu" onClick={() => setDrawerOpen(true)}>
@@ -312,7 +317,7 @@ export function DashboardLayout({
                 <div role="menu" aria-label="Account actions" className="absolute right-0 z-30 mt-2 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-lg">
                   <div className="border-b px-3 py-2">
                     <p className="font-medium">{userLabel}</p>
-                    <p className="text-xs capitalize text-muted-foreground">{role}</p>
+                    <p className="text-xs text-muted-foreground">{getUserRoleLabel(role)}</p>
                   </div>
                     {!isOfflineMode ? <NavLink
                       role="menuitem"

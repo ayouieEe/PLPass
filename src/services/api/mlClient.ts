@@ -10,6 +10,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 // `localhost` here can resolve to IPv6 first on Windows and silently miss the
 // service, leaving automatic forecasts perpetually unavailable.
 const API_BASE = import.meta.env.VITE_ML_API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface MlPredictionInsights {
   feature_importance: Array<{
@@ -45,17 +46,23 @@ export interface BatchPredictionResponse {
 }
 
 export async function fetchModelInsights(): Promise<MlPredictionInsights | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE}/model/insights`);
+    const response = await fetch(`${API_BASE}/model/insights`, { signal: controller.signal });
     if (!response.ok) return null;
     return await response.json();
   } catch {
     // Return null cleanly when the FastAPI ML server on port 8000 is offline/unreachable
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     // The local ML API reads only through the signed-in organizer's RLS scope.
     // It must never fall back to anonymous access or a privileged server
@@ -69,12 +76,15 @@ export async function fetchBatchPrediction(request: BatchPredictionRequest): Pro
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(request)
+      body: JSON.stringify(request),
+      signal: controller.signal
     });
     if (!response.ok) return null;
     return await response.json();
   } catch {
     // Return null cleanly when the FastAPI ML server on port 8000 is offline/unreachable
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }

@@ -3,6 +3,7 @@ import autoTable from "jspdf-autotable";
 import type { Worksheet } from "exceljs";
 import { repositories } from "@/services/repositories";
 import type { RepositoryContext } from "@/services/repositoryUtils";
+import { DEFAULT_INSTITUTION_NAME } from "@/lib/constants/branding";
 
 export type ReportExportScope = { type: "event"; eventId: string } | { type: "organizer"; organizerId: string } | { type: "department"; departmentId: string } | { type: "global" };
 export type ReportExportRow = Record<string, string | number | boolean | null | undefined>;
@@ -301,7 +302,10 @@ function institutionHeader(branding: ExportBranding, institution?: ReportExportO
   // optional institution value is a report hint and must not overwrite a
   // department's configured presentation name.
   const college = branding.collegeName || institution?.collegeName || "ALL PARTICIPATING COLLEGES";
-  return ["PAMANTASAN NG LUNGSOD NG PASIG", `COLLEGE OF ${college.replace(/^college of\s+/i, "")}`.toUpperCase(), `SCHOOL YEAR ${institution?.schoolYear || "CURRENT SCHOOL YEAR"}`];
+  const lines = ["PAMANTASAN NG LUNGSOD NG PASIG"];
+  if (college.trim().toLowerCase() !== DEFAULT_INSTITUTION_NAME.toLowerCase()) lines.push(`COLLEGE OF ${college.replace(/^college of\s+/i, "")}`.toUpperCase());
+  lines.push(`SCHOOL YEAR ${institution?.schoolYear || "CURRENT SCHOOL YEAR"}`);
+  return lines;
 }
 
 /**

@@ -1053,13 +1053,11 @@ export function OrganizerAnalyticsPage() {
               variant="outline"
               size="sm"
               className="h-8"
-              onClick={() => {
-                void eventsQuery.refetch();
-                toast.success("Analytics refreshed");
-              }}
+              onClick={() => void eventsQuery.refetch()}
+              disabled={eventsQuery.isFetching}
             >
-              <RotateCcw className="mr-2 h-3.5 w-3.5" />
-              Refresh
+              <RotateCcw className={`mr-2 h-3.5 w-3.5 ${eventsQuery.isFetching ? "animate-spin" : ""}`} />
+              {eventsQuery.isFetching ? "Refreshing…" : "Refresh"}
             </Button>
             <button
               type="button"

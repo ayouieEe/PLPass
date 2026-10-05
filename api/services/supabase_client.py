@@ -12,22 +12,25 @@ through event_sessions. See hand-off_file.md, Section 7.
 import os
 
 import pandas as pd
+from dotenv import load_dotenv
 from supabase import create_client
 
-# Load variables from .env if present
-env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-if os.path.exists(env_path):
-    with open(env_path, "r") as f:
-        for line in f:
-            if "=" in line and not line.startswith("#"):
-                k, v = line.strip().split("=", 1)
-                os.environ.setdefault(k, v)
+# Match the desktop frontend's local environment resolution. The previous
+# loader only read .env and therefore left the ML process without the
+# Supabase URL/key used by .env.development.local.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+for env_name in (".env", ".env.local", ".env.development.local", ".env.production.local", ".env.current.local"):
+    load_dotenv(os.path.join(project_root, env_name), override=False)
 
 supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL", "")
 # Forecast reads are always made as the signed-in organizer below. Deliberately
 # use the public anon key here; a local desktop ML process must never inherit a
 # service-role key that could bypass event ownership and RLS policies.
-supabase_key = os.environ.get("VITE_SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_ANON_KEY", "")
+supabase_key = (
+    os.environ.get("VITE_SUPABASE_ANON_KEY")
+    or os.environ.get("VITE_SUPABASE_PUBLISHABLE_KEY")
+    or os.environ.get("SUPABASE_ANON_KEY", "")
+)
 
 def _scoped_supabase(access_token: str):
     """Create a short-lived client that enforces the caller's RLS scope."""

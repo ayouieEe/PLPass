@@ -10,7 +10,6 @@ import type {
   Department,
   Event,
   EventParticipant,
-  FacultyProfile,
   MlPrediction,
   Notification,
   OrganizerProfile,
@@ -27,8 +26,6 @@ const now = "2026-06-26T08:00:00.000Z";
 
 export const userFixtures: User[] = [
   { id: "user-admin-1", role: "admin", email: "admin.one@plpass.test", displayName: "Admin One", isActive: true, createdAt: now },
-  { id: "user-faculty-1", role: "faculty", email: "faculty.one@plpass.test", displayName: "Faculty One", isActive: true, createdAt: now },
-  { id: "user-faculty-2", role: "faculty", email: "faculty.two@plpass.test", displayName: "Faculty Two", isActive: true, createdAt: now },
   { id: "user-organizer-1", role: "organizer", email: "organizer.one@plpass.test", displayName: "Organizer One", isActive: true, createdAt: now },
   { id: "user-organizer-2", role: "organizer", email: "organizer.two@plpass.test", displayName: "Organizer Two", isActive: true, createdAt: now },
   ...Array.from({ length: 12 }, (_, index) => {
@@ -93,11 +90,6 @@ export const studentFixtures: Student[] = Array.from({ length: 12 }, (_, index) 
   };
 });
 
-export const facultyProfileFixtures: FacultyProfile[] = [
-  { id: "faculty-1", userId: "user-faculty-1", employeeNumber: "F-1001", departmentId: "dept-ccs", employmentStatus: "active", title: "Assistant Professor" },
-  { id: "faculty-2", userId: "user-faculty-2", employeeNumber: "F-1002", departmentId: "dept-cba", employmentStatus: "part_time", title: "Lecturer" }
-];
-
 export const organizerProfileFixtures: OrganizerProfile[] = [
   { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
   { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
@@ -108,10 +100,10 @@ export const adminProfileFixtures: AdminProfile[] = [
 ];
 
 export const classFixtures: Class[] = [
-  { id: "class-1", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 204", subjectTitle: "Event Driven Programming", room: "Room 302", section: "A", yearLevel: 2, scheduleLabel: "MWF 08:00-09:00", status: "active", rosterId: "roster-class-1" },
-  { id: "class-2", facultyId: "faculty-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 301", subjectTitle: "Systems Integration", room: "Room 305", section: "B", yearLevel: 3, scheduleLabel: "TTh 10:00-11:30", status: "active", rosterId: "roster-class-2" },
-  { id: "class-3", facultyId: "faculty-2", programId: "program-bsa", departmentId: "dept-cba", semesterId: "sem-2026-1", subjectCode: "ACC 101", subjectTitle: "Fundamentals of Accounting", room: "Room 201", section: "A", yearLevel: 1, scheduleLabel: "MWF 13:00-14:00", status: "active", rosterId: "roster-class-3" },
-  { id: "class-4", facultyId: "faculty-2", programId: "program-bsed", departmentId: "dept-cte", semesterId: "sem-2026-2", subjectCode: "ED 210", subjectTitle: "Assessment of Learning", room: "Room 110", section: "B", yearLevel: 2, scheduleLabel: "TTh 14:00-15:30", status: "archived", rosterId: "roster-class-4" }
+  { id: "class-1", instructorId: "user-organizer-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 204", subjectTitle: "Event Driven Programming", room: "Room 302", section: "A", yearLevel: 2, scheduleLabel: "MWF 08:00-09:00", status: "active", rosterId: "roster-class-1" },
+  { id: "class-2", instructorId: "user-organizer-1", programId: "program-bsit", departmentId: "dept-ccs", semesterId: "sem-2026-1", subjectCode: "IT 301", subjectTitle: "Systems Integration", room: "Room 305", section: "B", yearLevel: 3, scheduleLabel: "TTh 10:00-11:30", status: "active", rosterId: "roster-class-2" },
+  { id: "class-3", instructorId: "user-organizer-2", programId: "program-bsa", departmentId: "dept-cba", semesterId: "sem-2026-1", subjectCode: "ACC 101", subjectTitle: "Fundamentals of Accounting", room: "Room 201", section: "A", yearLevel: 1, scheduleLabel: "MWF 13:00-14:00", status: "active", rosterId: "roster-class-3" },
+  { id: "class-4", instructorId: "user-organizer-2", programId: "program-bsed", departmentId: "dept-cte", semesterId: "sem-2026-2", subjectCode: "ED 210", subjectTitle: "Assessment of Learning", room: "Room 110", section: "B", yearLevel: 2, scheduleLabel: "TTh 14:00-15:30", status: "archived", rosterId: "roster-class-4" }
 ];
 
 export const classRosterFixtures: ClassRoster[] = [
@@ -160,8 +152,8 @@ export const eventParticipantFixtures: EventParticipant[] = [
 );
 
 export const attendanceSessionFixtures: AttendanceSession[] = [
-  { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", lateCutoffAt: "2026-06-24T00:15:00.000Z", attendanceWindowStartAt: "2026-06-23T23:55:00.000Z", attendanceWindowEndAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-faculty-1" },
-  { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", endsAt: "2026-06-26T01:30:00.000Z", lateCutoffAt: "2026-06-26T00:15:00.000Z", attendanceWindowStartAt: "2026-06-25T23:55:00.000Z", attendanceWindowEndAt: "2026-06-26T01:30:00.000Z", createdByUserId: "user-faculty-1" },
+  { id: "session-1", type: "class", classId: "class-1", title: "IT 204 Week 1", mode: "required", status: "completed", startsAt: "2026-06-24T00:00:00.000Z", endsAt: "2026-06-24T01:00:00.000Z", lateCutoffAt: "2026-06-24T00:15:00.000Z", attendanceWindowStartAt: "2026-06-23T23:55:00.000Z", attendanceWindowEndAt: "2026-06-24T01:00:00.000Z", createdByUserId: "user-organizer-1" },
+  { id: "session-2", type: "class", classId: "class-2", title: "IT 301 Live Session", mode: "required", status: "active", startsAt: "2026-06-26T00:00:00.000Z", endsAt: "2026-06-26T01:30:00.000Z", lateCutoffAt: "2026-06-26T00:15:00.000Z", attendanceWindowStartAt: "2026-06-25T23:55:00.000Z", attendanceWindowEndAt: "2026-06-26T01:30:00.000Z", createdByUserId: "user-organizer-1" },
   { id: "session-3", type: "event", eventId: "event-1", title: "CCS Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-02-10T00:00:00.000Z", endsAt: "2026-02-10T04:00:00.000Z", lateCutoffAt: "2026-02-10T00:15:00.000Z", attendanceWindowStartAt: "2026-02-09T23:55:00.000Z", attendanceWindowEndAt: "2026-02-10T04:00:00.000Z", createdByUserId: "user-organizer-1" },
   { id: "session-4", type: "event", eventId: "event-2", title: "Business Forum Attendance", mode: "required", status: "completed", startsAt: "2026-02-24T05:00:00.000Z", endsAt: "2026-02-24T09:00:00.000Z", lateCutoffAt: "2026-02-24T05:15:00.000Z", attendanceWindowStartAt: "2026-02-24T04:55:00.000Z", attendanceWindowEndAt: "2026-02-24T09:00:00.000Z", createdByUserId: "user-organizer-1" },
   { id: "session-5", type: "event", eventId: "event-3", title: "PLP Student General Assembly & Orientation Attendance", mode: "required", status: "completed", startsAt: "2026-03-05T01:00:00.000Z", endsAt: "2026-03-05T03:00:00.000Z", lateCutoffAt: "2026-03-05T01:15:00.000Z", attendanceWindowStartAt: "2026-03-05T00:55:00.000Z", attendanceWindowEndAt: "2026-03-05T03:00:00.000Z", createdByUserId: "user-organizer-1" },
@@ -199,35 +191,35 @@ export const attendanceAttemptFixtures: AttendanceAttempt[] = [
 
 export const correctionRequestFixtures: CorrectionRequest[] = [
   { id: "correction-1", studentId: "student-2", attendanceRecordId: "record-2", classId: "class-1", requestedStatus: "present", reason: "Tapped before grace period ended.", status: "pending", requestedAt: now },
-  { id: "correction-2", studentId: "student-3", attendanceRecordId: "record-3", classId: "class-1", requestedStatus: "absent", reason: "Medical appointment.", status: "approved", requestedAt: now, reviewedByUserId: "user-faculty-1", reviewedAt: now },
+  { id: "correction-2", studentId: "student-3", attendanceRecordId: "record-3", classId: "class-1", requestedStatus: "absent", reason: "Medical appointment.", status: "approved", requestedAt: now, reviewedByUserId: "user-organizer-1", reviewedAt: now },
   { id: "correction-3", studentId: "student-7", attendanceRecordId: "record-12", eventId: "event-3", requestedStatus: "late", reason: "Wrong event time.", status: "rejected", requestedAt: now, reviewedByUserId: "user-organizer-1", reviewedAt: now },
   { id: "correction-4", studentId: "student-1", attendanceRecordId: "record-1", eventId: "event-1", requestedStatus: "present", reason: "Class conflict during check-in.", status: "pending", requestedAt: now }
 ];
 
 export const reportFixtures: Report[] = [
-  { id: "report-1", title: "Weekly Attendance", scope: "class-1", status: "ready", requestedByUserId: "user-faculty-1", generatedAt: now },
+  { id: "report-1", title: "Weekly Attendance", scope: "class-1", status: "ready", requestedByUserId: "user-organizer-1", generatedAt: now },
   { id: "report-2", title: "Event Participation", scope: "event-1", status: "processing", requestedByUserId: "user-organizer-1" },
   { id: "report-3", title: "Dean Summary", scope: "dept-ccs", status: "failed", requestedByUserId: "user-admin-1" },
   { id: "report-4", title: "Student Attendance History", scope: "student-1", status: "ready", requestedByUserId: "user-student-1", generatedAt: now }
 ];
 
 export const notificationFixtures: Notification[] = [
-  { id: "notification-1", userId: "user-student-1", type: "attendance", code: "attendance.exception.verification_failed", severity: "warning", requiresAction: true, title: "Attendance needs attention", body: "Your attendance verification needs review.", status: "unread", createdAt: now },
-  { id: "notification-2", userId: "user-faculty-1", type: "correction", code: "correction.review_requested", requiresAction: true, title: "Correction request", body: "A student submitted a correction.", status: "read", createdAt: now },
+  { id: "notification-1", userId: "user-student-1", type: "system", code: "event.invited", requiresAction: false, title: "Event invitation", body: "You have been invited to an event.", status: "unread", createdAt: now },
   { id: "notification-3", userId: "user-admin-1", type: "system", code: "system.exception.mock_notice", severity: "warning", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
+  { id: "notification-department-admin-1", userId: "department-admin-ccs", type: "system", code: "system.exception.mock_notice", severity: "warning", title: "Mock system notice", body: "Development repository layer is active.", status: "unread", createdAt: now },
   { id: "notification-4", userId: "user-organizer-1", type: "correction", code: "correction.review_requested", requiresAction: true, title: "Correction request", body: "A student submitted a correction for an event you manage.", status: "unread", createdAt: now },
   { id: "notification-5", userId: "user-student-1", type: "system", code: "reminder.feedback_required", requiresAction: true, title: "Feedback required", body: "Review your latest attendance record.", status: "unread", createdAt: now }
 ];
 
 export const auditLogFixtures: AuditLog[] = [
-  { id: "audit-1", actorUserId: "user-admin-1", action: "user.invited", targetType: "user", targetId: "user-faculty-1", timestamp: "2026-06-26T08:00:00.000Z", metadata: { role: "faculty", userName: "Faculty One" } },
-  { id: "audit-2", actorUserId: "user-faculty-1", action: "session.completed", targetType: "attendance_session", targetId: "session-1", timestamp: "2026-06-25T10:30:00.000Z", metadata: { records: 4, sessionTitle: "IT 204 Week 1" } },
+  { id: "audit-1", actorUserId: "user-admin-1", action: "user.invited", targetType: "user", targetId: "user-organizer-1", timestamp: "2026-06-26T08:00:00.000Z", metadata: { role: "organizer", userName: "Organizer One" } },
+  { id: "audit-2", actorUserId: "user-organizer-1", action: "session.completed", targetType: "attendance_session", targetId: "session-1", timestamp: "2026-06-25T10:30:00.000Z", metadata: { records: 4, sessionTitle: "IT 204 Week 1" } },
   { id: "audit-3", actorUserId: "user-organizer-1", action: "event.approved", targetType: "event", targetId: "event-1", timestamp: "2026-06-24T14:15:00.000Z", metadata: { venue: "PLP Pasig Gymnasium", eventTitle: "CCS Orientation" } },
   { id: "audit-4", actorUserId: "user-organizer-1", action: "Credential.qr Issued", targetType: "qr_credential", targetId: "student-1", timestamp: "2026-06-24T11:00:00.000Z", metadata: { studentName: "Student 01", studentNumber: "2026-0001", method: "qr" } },
   { id: "audit-5", actorUserId: "user-organizer-1", action: "credential.facial.enrolled", targetType: "facial_profile", targetId: "student-6", timestamp: "2026-06-23T16:45:00.000Z", metadata: { studentName: "Student 06", studentNumber: "2026-0006" } },
   { id: "audit-6", actorUserId: "user-organizer-2", action: "event.created", targetType: "event", targetId: "event-2", timestamp: "2026-06-22T09:20:00.000Z", metadata: { eventTitle: "Business Forum", category: "Skills Training" } },
   { id: "audit-7", actorUserId: "user-organizer-1", action: "correction_request.approved", targetType: "correction_request", targetId: "correction-3", timestamp: "2026-06-21T13:10:00.000Z", metadata: { studentName: "Student 07", eventTitle: "PLP Student General Assembly", requestedStatus: "late" } },
-  { id: "audit-8", actorUserId: "user-faculty-1", action: "qr_attendance.recorded", targetType: "attendance_record", targetId: "record-1", timestamp: "2026-06-20T08:01:00.000Z", metadata: { studentName: "Student 01", status: "present" } }
+  { id: "audit-8", actorUserId: "user-organizer-1", action: "qr_attendance.recorded", targetType: "attendance_record", targetId: "record-1", timestamp: "2026-06-20T08:01:00.000Z", metadata: { studentName: "Student 01", status: "present" } }
 ];
 
 export const mlPredictionFixtures: MlPrediction[] = [
@@ -263,7 +255,6 @@ export const systemSettingsFixture: SystemSettings = {
 export const plpassFixtures = {
   users: userFixtures,
   students: studentFixtures,
-  facultyProfiles: facultyProfileFixtures,
   organizerProfiles: organizerProfileFixtures,
   adminProfiles: adminProfileFixtures,
   departments: departmentFixtures,

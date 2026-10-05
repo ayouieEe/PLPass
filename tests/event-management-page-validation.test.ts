@@ -469,9 +469,16 @@ describe("event page validation helpers", () => {
     expect(eventDetailsPage).toContain("const offlinePackage = isOfflineMode ? offline.preparedEvent : null;");
     expect(eventDetailsPage).toContain("const useRemoteData = !isOfflineMode;");
     expect(eventDetailsPage).toContain("offlineEventFromPackage");
-    expect(eventDetailsPage).toContain("useOrganizerProfiles({ pageSize: 1 }, context, !isOfflineMode)");
+    expect(eventDetailsPage).toContain("useOrganizerProfiles({ pageSize: 1 }, context, !isOfflineMode && canUseOrganizerScope)");
     expect(eventDetailsPage).toContain("Never issue remote queries while offline");
     expect(eventManagementPage).not.toContain("OfflinePreparedEventsPanel");
+  });
+
+  it("uses the selected student's finalized history in the event-details modal", () => {
+    expect(eventDetailsPage).toContain("const studentAttendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context, useRemoteData);");
+    expect(eventDetailsPage).toContain("const selectedStudentAttendanceRate = selectedStudent");
+    expect(eventDetailsPage).toContain("studentAttendanceRecordsQuery.isLoading ? \"Loading…\" : `${selectedStudentAttendanceRate}%`");
+    expect(eventDetailsPage).not.toContain("{effectiveAttendanceRate}%</span>");
   });
 
   it("starts a verified prepared package locally when the organizer is offline", () => {

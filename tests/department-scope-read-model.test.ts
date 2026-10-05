@@ -20,6 +20,7 @@ describe("department read-model coverage", () => {
     const routes = read("src/app/router/AppRouter.tsx");
     expect(routes).toContain('path={APP_ROUTES.departmentDashboard} element={<OrganizerDashboardPage workspace="department" />}');
     expect(routes).toContain('path={APP_ROUTES.departmentEvents} element={<EventManagementPage />}');
+    expect(routes).toContain('path={APP_ROUTES.departmentEvents + "/:eventId"} element={<EventDetailsPage />}');
     expect(routes).toContain('path={APP_ROUTES.departmentCredentials} element={<DepartmentAuthenticationMethodsPage />}');
     expect(routes).toContain('path={APP_ROUTES.departmentRecords} element={<EventRecordsPage />}');
     expect(routes).toContain('path={APP_ROUTES.departmentAnalytics} element={<OrganizerAnalyticsPage />}');
@@ -81,6 +82,7 @@ describe("department read-model coverage", () => {
   it("stamps organizer events with their department and keeps department monitoring read-only", () => {
     const migration = read("supabase/migrations/20260921062223_department_event_read_scope_and_admin_monitor.sql");
     const eventPage = read("src/features/organizer/pages/EventManagementPage.tsx");
+    const eventDetailsPage = read("src/features/organizer/pages/EventDetailsPage.tsx");
     const adminHealth = read("src/features/admin/pages/AdminSystemHealthPage.tsx");
     const permissions = read("src/lib/auth/permissions.ts");
 
@@ -98,6 +100,8 @@ describe("department read-model coverage", () => {
     expect(eventPage).toContain("if (!isReadOnlyMonitor || !resolvedLiveSessionId) return");
     expect(eventPage).toContain('const isReadOnlyMonitor = isAdmin || isDepartmentAdmin');
     expect(eventPage).toContain("APP_ROUTES.departmentEvents : APP_ROUTES.adminEvents");
+    expect(eventDetailsPage).toContain("departmentId: session.departmentId");
+    expect(eventDetailsPage).toContain('["admin", "department_admin"].includes(scope.context.actorRole)');
     expect(eventPage).toContain("if (!canManageOwnedEvents) {");
     expect(eventPage).toContain("Refresh monitor");
     const adminCapabilities = permissions.slice(permissions.indexOf("const adminCapabilities"), permissions.indexOf("const departmentAdminCapabilities"));

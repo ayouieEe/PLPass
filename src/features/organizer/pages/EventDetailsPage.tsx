@@ -39,7 +39,7 @@ import { QRFallbackPanel } from "@/features/attendance/QRFallbackPanel";
 import { SessionSummaryCards } from "@/features/attendance/SessionSummaryCards";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
+import { summarizeFinalizedAttendance, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -78,6 +78,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, manilaDateTimeToIso } from "@/lib/utils/date";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
+import { repositories } from "@/services/repositories";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
   AttendanceRecord,
@@ -154,17 +155,18 @@ type SessionFormValues = z.infer<typeof sessionFormSchema>;
 function useOrganizerScope(): OrganizerScope {
   const { session, isOfflineMode } = useDevelopmentSession();
   const context = useMemo(
-    () => (session ? { actorUserId: session.userId, actorRole: session.role } : undefined),
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
     [session]
   );
-  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, !isOfflineMode);
+  const canUseOrganizerScope = session?.role === "organizer" || session?.role === "admin";
+  const organizerQuery = useOrganizerProfiles({ pageSize: 1 }, context, !isOfflineMode && canUseOrganizerScope);
   const isAdmin = session?.role === "admin";
   return {
     context: context ?? { actorUserId: "", actorRole: "organizer" },
     organizerId: organizerQuery.data?.items[0]?.id ?? (isAdmin ? "admin-global" : isOfflineMode ? session?.userId : undefined),
     organizerName: session?.displayName ?? "Organizer",
-    isLoading: !isOfflineMode && organizerQuery.isLoading,
-    isError: !isOfflineMode && !isAdmin && organizerQuery.isError
+    isLoading: !isOfflineMode && canUseOrganizerScope && organizerQuery.isLoading,
+    isError: !isOfflineMode && canUseOrganizerScope && !isAdmin && organizerQuery.isError
   };
 }
 
@@ -199,7 +201,11 @@ function attendanceCounts(records: AttendanceRecord[]) {
 }
 
 function attendanceRate(records: AttendanceRecord[]) {
-  return summarizeUniqueAttendance(records.map((record) => ({ identity: record.studentId, attendanceStatus: record.status })), 0).attendanceRate;
+  return summarizeFinalizedAttendance(records.map((record) => ({
+    identity: record.studentId,
+    attendanceStatus: record.status,
+    finalizedAt: record.finalizedAt
+  }))).attendanceRate;
 }
 
 function eventLabel(event: Event | undefined) {
@@ -299,7 +305,7 @@ function ShellState({ scope }: { scope: OrganizerScope }) {
   if (scope.isLoading) {
     return <LoadingState label="Loading organizer workspace" />;
   }
-  if (scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
+  if (scope.isError || (!scope.organizerId && !["admin", "department_admin"].includes(scope.context.actorRole))) {
     return <ErrorState title="Organizer profile unavailable" message="The signed-in account does not have an organizer profile record." />;
   }
   return null;
@@ -393,6 +399,7 @@ export function EventDetailsPage() {
   const [participantStudentNumber, setParticipantStudentNumber] = useState("");
   const [isParticipantPickerOpen, setIsParticipantPickerOpen] = useState(false);
   const [participantPickerSelectedIds, setParticipantPickerSelectedIds] = useState<string[]>([]);
+  const [participantPickerConflicts, setParticipantPickerConflicts] = useState<Record<string, { eventCode: string; eventTitle: string }>>({});
   const [participantPickerSearch, setParticipantPickerSearch] = useState("");
   const [participantPickerProgramId, setParticipantPickerProgramId] = useState("");
   const [participantPickerYearLevel, setParticipantPickerYearLevel] = useState("");
@@ -440,6 +447,7 @@ export function EventDetailsPage() {
   const participantsQuery = useEventParticipants(eventId ?? "", { pageSize: 500 }, scope.context, useRemoteData);
   const sessionsQuery = useAttendanceSessions({ pageSize: 100, eventId, sortBy: "actual_start", sortDirection: "desc" }, scope.context, useRemoteData);
   const recordsQuery = useAttendanceRecords({ pageSize: 500, eventId }, scope.context, useRemoteData);
+  const studentAttendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context, useRemoteData);
   const attendanceSummaryQuery = useAttendanceSummaries(eventId ? [eventId] : [], useRemoteData);
   const studentsQuery = useStudents({ pageSize: 500 }, scope.context, useRemoteData);
   const participantCredentialIds = [...new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId))].sort();
@@ -468,6 +476,31 @@ export function EventDetailsPage() {
       reason: ""
     });
   }, [selectedEvent]);
+
+  useEffect(() => {
+    let active = true;
+    const currentParticipantIds = new Set((participantsQuery.data?.items ?? []).map((participant) => participant.studentId));
+    const candidateIds = (studentsQuery.data?.items ?? [])
+      .filter((student) => student.status === "enrolled" && !currentParticipantIds.has(student.id))
+      .map((student) => student.id);
+    if (isOfflineMode || !selectedEvent || !canManageOwnedEvents || !candidateIds.length) {
+      setParticipantPickerConflicts({});
+      return () => { active = false; };
+    }
+    void repositories.eventManagement.findEventParticipantScheduleConflicts({
+      startsAt: selectedEvent.startsAt,
+      endsAt: selectedEvent.endsAt,
+      studentIds: candidateIds
+    }, scope.context).then((conflicts) => {
+      if (!active) return;
+      const next = Object.fromEntries(conflicts.map((conflict) => [conflict.studentId, conflict]));
+      setParticipantPickerConflicts(next);
+      setParticipantPickerSelectedIds((current) => current.filter((studentId) => !next[studentId]));
+    }).catch(() => {
+      if (active) setParticipantPickerConflicts({});
+    });
+    return () => { active = false; };
+  }, [canManageOwnedEvents, isOfflineMode, participantsQuery.data?.items, scope.context, selectedEvent, studentsQuery.data?.items]);
 
   useEffect(() => {
     if (isOfflineMode || !selectedEvent || !canManageOwnedEvents || ["completed", "cancelled"].includes(selectedEvent.status)) return;
@@ -583,7 +616,7 @@ export function EventDetailsPage() {
   }, [eventId, invitationStatusRefreshKey, isOfflineMode, scope.organizerId, selectedEvent]);
 
   const shellState = <ShellState scope={scope} />;
-  if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
+  if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && !["admin", "department_admin"].includes(scope.context.actorRole))) {
     return shellState;
   }
   if ((isOfflineMode && offline.isLoading) || (!isOfflineMode && eventQuery.isLoading)) {
@@ -636,8 +669,9 @@ export function EventDetailsPage() {
       && (!participantPickerYearLevel || student.yearLevel === Number(participantPickerYearLevel))
       && (!participantPickerSection || student.section === participantPickerSection);
   });
-  const allFilteredAvailableSelected = filteredAvailableStudents.length > 0
-    && filteredAvailableStudents.every((student) => participantPickerSelectedIds.includes(student.id));
+  const eligibleFilteredAvailableStudents = filteredAvailableStudents.filter((student) => !participantPickerConflicts[student.id]);
+  const allFilteredAvailableSelected = eligibleFilteredAvailableStudents.length > 0
+    && eligibleFilteredAvailableStudents.every((student) => participantPickerSelectedIds.includes(student.id));
   const participantPendingRemovalStudent = participantPendingRemoval
     ? participantList.find((student) => student.id === participantPendingRemoval)
     : undefined;
@@ -663,6 +697,13 @@ export function EventDetailsPage() {
   const attendanceSummary = eventId ? attendanceSummaryQuery.data?.[eventId] : undefined;
   const attendanceRowByStudentId = new Map((attendanceSummary?.rows ?? []).map((row) => [row.studentId, row]));
   const effectiveAttendanceRate = attendanceSummary?.attendanceRate ?? attendanceRate(records);
+  const selectedStudentAttendanceRate = selectedStudent
+    ? summarizeFinalizedAttendance(
+      (studentAttendanceRecordsQuery.data?.items ?? [])
+        .filter((record) => record.studentId === selectedStudent.id)
+        .map((record) => ({ identity: record.sessionId, attendanceStatus: record.status, finalizedAt: record.finalizedAt }))
+    ).attendanceRate
+    : 0;
   const flagged = predictionsQuery.data?.items.filter((prediction) => prediction.riskLevel === "high" || prediction.riskLevel === "critical") ?? [];
 
   async function rescheduleEvent() {
@@ -1022,14 +1063,7 @@ export function EventDetailsPage() {
 
     setIsUpdatingParticipants(true);
     try {
-      const client = getSupabaseBrowserClient();
-      const { error } = await client
-        .from("event_participants")
-        .upsert(
-          { event_id: event.id, student_id: student.id, participant_status: "confirmed" },
-          { onConflict: "event_id,student_id" }
-        );
-      if (error) throw error;
+      await repositories.eventManagement.addEventParticipants({ eventId: event.id, studentIds: [student.id] }, scope.context);
 
       await participantsQuery.refetch();
       await refreshOfflineResourcesAfterChange();
@@ -1052,11 +1086,7 @@ export function EventDetailsPage() {
     }
     setIsUpdatingParticipants(true);
     try {
-      const rows = participantPickerSelectedIds.map((studentId) => ({ event_id: event.id, student_id: studentId, participant_status: "confirmed" }));
-      const { error } = await getSupabaseBrowserClient()
-        .from("event_participants")
-        .upsert(rows, { onConflict: "event_id,student_id" });
-      if (error) throw error;
+      await repositories.eventManagement.addEventParticipants({ eventId: event.id, studentIds: participantPickerSelectedIds }, scope.context);
 
       const addedCount = participantPickerSelectedIds.length;
       await participantsQuery.refetch();
@@ -1759,8 +1789,8 @@ export function EventDetailsPage() {
             </select>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5 text-sm">
-            <span className="text-muted-foreground">{filteredAvailableStudents.length} enrolled student{filteredAvailableStudents.length === 1 ? "" : "s"} available · {participantPickerSelectedIds.length} selected</span>
-            <Button type="button" variant="outline" size="sm" onClick={() => setParticipantPickerSelectedIds(allFilteredAvailableSelected ? [] : [...new Set([...participantPickerSelectedIds, ...filteredAvailableStudents.map((student) => student.id)])])} disabled={!filteredAvailableStudents.length}>
+            <span className="text-muted-foreground">{eligibleFilteredAvailableStudents.length} eligible student{eligibleFilteredAvailableStudents.length === 1 ? "" : "s"} available{filteredAvailableStudents.length !== eligibleFilteredAvailableStudents.length ? ` · ${filteredAvailableStudents.length - eligibleFilteredAvailableStudents.length} unavailable` : ""} · {participantPickerSelectedIds.length} selected</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => setParticipantPickerSelectedIds(allFilteredAvailableSelected ? [] : [...new Set([...participantPickerSelectedIds, ...eligibleFilteredAvailableStudents.map((student) => student.id)])])} disabled={!eligibleFilteredAvailableStudents.length}>
               {allFilteredAvailableSelected ? "Clear visible selection" : "Select all visible"}
             </Button>
           </div>
@@ -1773,9 +1803,10 @@ export function EventDetailsPage() {
                 <tbody className="divide-y">
                   {filteredAvailableStudents.map((student) => {
                     const selected = participantPickerSelectedIds.includes(student.id);
-                    return <tr key={student.id} className={selected ? "bg-primary/5" : "hover:bg-muted/30"}>
-                      <td className="px-4 py-3"><input type="checkbox" checked={selected} onChange={() => setParticipantPickerSelectedIds((current) => selected ? current.filter((id) => id !== student.id) : [...current, student.id])} aria-label={`Select ${studentName(student)}`} className="h-5 w-5 accent-primary" /></td>
-                      <th scope="row" className="px-3 py-3 font-medium text-foreground">{studentName(student)}</th>
+                    const conflict = participantPickerConflicts[student.id];
+                    return <tr key={student.id} className={conflict ? "bg-muted/30 opacity-70" : selected ? "bg-primary/5" : "hover:bg-muted/30"}>
+                      <td className="px-4 py-3"><input type="checkbox" checked={selected} disabled={Boolean(conflict)} onChange={() => setParticipantPickerSelectedIds((current) => selected ? current.filter((id) => id !== student.id) : [...current, student.id])} aria-label={`Select ${studentName(student)}`} className="h-5 w-5 accent-primary disabled:cursor-not-allowed disabled:opacity-50" /></td>
+                      <th scope="row" className="px-3 py-3 font-medium text-foreground">{studentName(student)}{conflict ? <span className="ml-2 text-xs font-normal text-danger">Unavailable: already invited to {conflict.eventCode}</span> : null}</th>
                       <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
                       <td className="px-3 py-3 text-muted-foreground">{programById.get(student.programId) ?? student.programId}</td>
                       <td className="px-3 py-3 text-muted-foreground">Year {student.yearLevel}</td>
@@ -1842,7 +1873,7 @@ export function EventDetailsPage() {
               <p className="text-sm font-medium text-foreground">Participation summary</p>
               <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
                 <span>Attendance rate</span>
-                <span className="font-semibold text-foreground">{effectiveAttendanceRate}%</span>
+                <span className="font-semibold text-foreground">{studentAttendanceRecordsQuery.isLoading ? "Loading…" : `${selectedStudentAttendanceRate}%`}</span>
               </div>
               <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
                 <span>Risk status</span>

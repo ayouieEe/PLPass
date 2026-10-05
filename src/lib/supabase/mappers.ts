@@ -13,7 +13,6 @@ import type {
   EventSummarySnapshot,
   LateReasonOption,
   FacialProfile,
-  FacultyProfile,
   Notification,
   OrganizerProfile,
   QrCredential,
@@ -105,7 +104,7 @@ function auditActorDisplayName(row: Row) {
   return profileDisplayName(row);
 }
 
-function mapEmploymentStatus(value: string): FacultyProfile["employmentStatus"] {
+function mapEmploymentStatus(value: string): OrganizerProfile["employmentStatus"] {
   if (value === "part_time" || value === "on_leave") {
     return value;
   }
@@ -217,17 +216,6 @@ export function mapStudent(row: Row): Student {
     email: profile ? optionalString(profile, ["email"]) : undefined
   };
   return base as Student;
-}
-
-export function mapFaculty(row: Row): FacultyProfile {
-  return {
-    id: stringValue(row, ["id", "faculty_id"]),
-    userId: stringValue(row, ["profile_id", "user_id"]),
-    employeeNumber: stringValue(row, ["employee_number", "faculty_number", "employee_id", "id"]),
-    departmentId: stringValue(row, ["department_id", "college_id"]),
-    employmentStatus: mapEmploymentStatus(stringValue(row, ["employment_status", "faculty_status", "status"], "active")),
-    title: stringValue(row, ["title", "position", "employment_type"], "Faculty")
-  };
 }
 
 export function mapOrganizer(row: Row): OrganizerProfile {

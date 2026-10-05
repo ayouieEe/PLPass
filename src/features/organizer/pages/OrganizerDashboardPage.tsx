@@ -86,7 +86,7 @@ export function OrganizerDashboardPage({ workspace = "organizer" }: { workspace?
   const correctionRequestsQuery = useCorrectionRequests({ pageSize: 100 }, context, !isAdminWorkspace && !isDepartmentWorkspace);
   const events = useMemo(() => eventsQuery.data?.items ?? [], [eventsQuery.data?.items]);
   const totalEventCount = eventsQuery.data?.total ?? events.length;
-  const automaticForecasts = useAutomaticForecasts(events, context ?? { actorUserId: "", actorRole: "organizer" }, !!session);
+  const automaticForecasts = useAutomaticForecasts(events, context ?? { actorUserId: "", actorRole: "organizer" }, session?.role === "organizer");
   const analyticsQuery = useOrganizerDashboardAnalytics(events.map(({ id, code, startsAt }) => ({ id, code, startsAt })));
   const today = useMemo(() => new Date(), []);
   const activeEvents = useMemo(() => events.filter((event) => event.status !== "rejected" && event.status !== "cancelled" && event.status !== "completed"), [events]);

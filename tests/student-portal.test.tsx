@@ -59,12 +59,12 @@ describe("student route access", () => {
     expect(screen.queryByRole("navigation", { name: "admin navigation" })).not.toBeInTheDocument();
   });
 
-  it("does not restore unsupported legacy faculty sessions on student routes", async () => {
+  it("does not restore unsupported legacy sessions on student routes", async () => {
     storeSession(JSON.stringify({
-      userId: "user-faculty-1",
-      role: "faculty",
-      displayName: "Faculty One",
-      email: "faculty.one@plpass.test",
+      userId: "user-legacy-1",
+      role: "legacy",
+      displayName: "Legacy User",
+      email: "legacy@plpass.test",
       isAuthenticated: true
     }));
     setRoute("/student/attendance");

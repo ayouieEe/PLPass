@@ -10,6 +10,7 @@ import type {
   CorrectionRequestRepository,
   CredentialRequestRepository,
   EndAttendanceSessionInput,
+  EventParticipantScheduleConflict,
   EventFeedbackRepository,
   EventManagementRepository,
   NotificationRepository,
@@ -72,7 +73,6 @@ import type {
   Class,
   ClassRoster,
   Department,
-  FacultyProfile,
   MlPrediction,
   Program,
   Report,
@@ -554,12 +554,6 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       errors: Array.isArray(data?.errors) ? data.errors : []
     };
   },
-  async listFacultyProfiles(query) {
-    // The regular-class/faculty subsystem was intentionally removed from
-    // PLPass Current. Keep the contract as an empty compatibility read rather
-    // than querying a table that no longer exists in production.
-    return emptyPage<FacultyProfile>(query);
-  },
   async listOrganizerProfiles(query, context) {
     const rows = context?.actorRole === "department_admin"
       ? context.departmentId
@@ -915,23 +909,36 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     );
     return pageResult(eventParticipants.map(mapEventParticipant), eventParticipants.length, query);
   },
-  async generateNextEventCode() {
-    const client = getSupabaseBrowserClient();
-    const currentYear = new Date().getFullYear();
-    
-    const { data: events, error } = await client
-      .from("events")
-      .select("event_code");
-    
+  async findEventParticipantScheduleConflicts(input) {
+    if (!input.studentIds.length) return [];
+    const { data, error } = await getSupabaseBrowserClient().rpc("get_event_participant_schedule_conflicts", {
+      p_starts_at: input.startsAt,
+      p_ends_at: input.endsAt,
+      p_student_ids: input.studentIds
+    });
     throwIfSupabaseError(error);
-    
-    let nextNumber = 1;
-    for (const event of events ?? []) {
-      const match = String(event.event_code ?? "").match(new RegExp(`^EVT-${currentYear}-(\\d+)$`, "i"));
-      if (match) nextNumber = Math.max(nextNumber, Number.parseInt(match[1], 10) + 1);
-    }
-    
-    return `EVT-${currentYear}-${String(nextNumber).padStart(3, "0")}`;
+    return ((data ?? []) as unknown as Row[]).map((row): EventParticipantScheduleConflict => ({
+      studentId: String(row.student_id ?? ""),
+      eventCode: String(row.event_code ?? ""),
+      eventTitle: String(row.event_title ?? ""),
+      startsAt: String(row.starts_at ?? ""),
+      endsAt: String(row.ends_at ?? "")
+    }));
+  },
+  async addEventParticipants(input) {
+    if (!input.studentIds.length) return [];
+    const { data, error } = await getSupabaseBrowserClient().rpc("add_organizer_event_participants", {
+      p_event_id: input.eventId,
+      p_student_ids: input.studentIds
+    });
+    throwIfSupabaseError(error);
+    return ((data ?? []) as unknown as Row[]).map(mapEventParticipant);
+  },
+  async generateNextEventCode() {
+    const { data, error } = await getSupabaseBrowserClient().rpc("get_next_event_code");
+    throwIfSupabaseError(error);
+    if (typeof data !== "string" || !data) throw new RepositoryError("The next event code could not be generated.", "SERVER_ERROR");
+    return data;
   },
   async createEvent(input) {
     const client = getSupabaseBrowserClient();
@@ -945,8 +952,8 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
       throw new RepositoryError("Select an event category that exists in Supabase.", "VALIDATION_ERROR");
     }
 
-    const scheduledStart = new Date(`${input.date}T${input.startTime}:00`).toISOString();
-    const scheduledEnd = new Date(`${input.date}T${input.endTime}:00`).toISOString();
+    const scheduledStart = manilaDateTimeToIso(input.date, input.startTime);
+    const scheduledEnd = manilaDateTimeToIso(input.date, input.endTime);
     const trimmedObjectives = (input.objectives ?? [])
       .map((objective) => objective.trim())
       .filter((objective) => objective.length > 0);
@@ -2226,10 +2233,10 @@ export const supabaseEventFeedbackRepository: EventFeedbackRepository = {
     if (input.ratings.length > 0) {
       const objectiveIds = input.ratings.map((rating) => rating.objectiveId);
       if (
-        input.ratings.some((rating) => !Number.isInteger(rating.rating) || rating.rating < 1 || rating.rating > 5) ||
+        input.ratings.some((rating) => !Number.isInteger(rating.rating) || rating.rating < 1 || rating.rating > 9) ||
         new Set(objectiveIds).size !== objectiveIds.length
       ) {
-        throw new RepositoryError("Feedback ratings must be unique whole numbers from 1 to 5.", "VALIDATION_ERROR");
+        throw new RepositoryError("Feedback ratings must be unique whole numbers from 1 to 9.", "VALIDATION_ERROR");
       }
 
       const { data: objectives, error: objectivesError } = await client
@@ -2362,8 +2369,7 @@ export const supabaseNotificationRepository: NotificationRepository = {
     return {
       reminders: preferences.reminders !== false,
       eventUpdates: preferences.eventUpdates !== false,
-      reports: preferences.reports !== false,
-      attendanceExceptions: preferences.attendanceExceptions !== false
+      reports: preferences.reports !== false
     };
   },
   async updatePreferences(input, context) {

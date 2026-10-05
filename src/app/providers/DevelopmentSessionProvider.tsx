@@ -592,6 +592,49 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         // a valid recipient_id filter and silently disable notifications.
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications" }, () => scheduleInvalidation(["notifications"]))
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "notifications" }, () => scheduleInvalidation(["notifications"]))
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "events" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["notifications"]);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "events" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+          scheduleInvalidation(["notifications"]);
+        })
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "events" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+          scheduleInvalidation(["notifications"]);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "event_sessions" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["attendanceRecords"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+        })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "event_participants" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["attendanceRecords"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+          scheduleInvalidation(["notifications"]);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "event_participants" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["attendanceRecords"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+          scheduleInvalidation(["notifications"]);
+        })
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "event_participants" }, () => {
+          scheduleInvalidation(["events"]);
+          scheduleInvalidation(["attendanceSessions"]);
+          scheduleInvalidation(["attendanceRecords"]);
+          scheduleInvalidation(["studentFeedbackTasks"]);
+          scheduleInvalidation(["notifications"]);
+        })
         .subscribe((status) => {
           if (status === "SUBSCRIBED") {
             retryAttempt = 0;

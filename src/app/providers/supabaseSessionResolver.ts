@@ -12,7 +12,6 @@ export type SupabaseAuthFailureCode =
   | "ACCOUNT_INACTIVE"
   | "UNSUPPORTED_ROLE"
   | "STUDENT_RECORD_MISSING"
-  | "FACULTY_RECORD_MISSING"
   | "ORGANIZER_RECORD_MISSING"
   | "ADMIN_RECORD_MISSING"
   | "DEPARTMENT_ADMIN_RECORD_MISSING"
@@ -49,7 +48,6 @@ type RoleRecord = {
   profile_id?: string | null;
   employee_id?: string | null;
   department_id?: string | null;
-  faculty_status?: string | null;
   organizer_status?: string | null;
   student_id?: string | null;
   student_status?: string | null;
@@ -64,7 +62,6 @@ type DeanAssignmentRecord = {
 export type SupabaseSessionReader = {
   readProfile: (userId: string) => Promise<SupabaseQueryResult<Record<string, unknown>>>;
   readStudentRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
-  readFacultyRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readOrganizerRecord: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readAdminRecord?: (userId: string) => Promise<SupabaseQueryResult<RoleRecord>>;
   readDeanAssignments: (userId: string) => Promise<SupabaseQueryResult<DeanAssignmentRecord[]>>;
@@ -225,10 +222,6 @@ export function createSupabaseSessionReader(supabase: SupabaseClient<Database>):
         .eq("profile_id", userId)
         .maybeSingle();
       return { data, error };
-    },
-    async readFacultyRecord(userId) {
-      void userId;
-      return { data: null, error: null };
     },
     async readOrganizerRecord(userId) {
       const { data, error } = await supabase

@@ -13,12 +13,11 @@ export const notificationCategoryLabels: Record<NotificationCategory, string> = 
   system: "System"
 };
 
-const roleNotificationCodePrefixes: Record<UserRole, readonly string[]> = {
-  student: ["event.invited.", "event.rescheduled.", "event.cancelled.", "attendance.exception.", "correction.", "credential.", "reminder.", "account.status_changed", "security."],
+const roleNotificationCodePrefixes: Partial<Record<UserRole, readonly string[]>> = {
+  student: ["event.invited", "event.invited.", "event.rescheduled", "event.rescheduled.", "event.cancelled", "event.cancelled.", "attendance.finalized", "attendance.feedback_required", "correction.", "credential.", "reminder.", "account.status_changed", "security."],
   organizer: ["correction.review_requested", "event.lifecycle.unstarted", "account.status_changed", "security."],
   admin: ["event.started", "system.exception.", "system.settings.", "account.status_changed", "security."],
-  department_admin: ["event.started", "system.exception.", "system.settings.", "account.status_changed", "security."],
-  faculty: ["account.status_changed", "security."]
+  department_admin: ["event.started", "system.exception.", "system.settings.", "account.status_changed", "security."]
 };
 
 function matchesNotificationCode(code: string, allowedPrefix: string) {
@@ -46,5 +45,5 @@ export function categoriesForRole(role: UserRole): NotificationCategory[] {
 
 export function isNotificationVisibleForRole(notification: Notification, role: UserRole) {
   const code = notification.code ?? "";
-  return roleNotificationCodePrefixes[role].some((prefix) => matchesNotificationCode(code, prefix));
+  return (roleNotificationCodePrefixes[role] ?? []).some((prefix) => matchesNotificationCode(code, prefix));
 }

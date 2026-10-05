@@ -73,6 +73,17 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("v_session.actual_end + interval '24 hours' <= now()");
   });
 
+  it("keeps the feedback rating scale at 1 through 9 across the database contract", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261004120000_expand_feedback_ratings_to_nine.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("check (rating between 1 and 9)");
+    expect(migration).toContain("rating.rating not between 1 and 9");
+    expect(migration).toContain("use values from 1 to 9");
+  });
+
   it("keeps pre-session attendance neutral and keeps recorded outcomes independent of feedback", () => {
     const cutoff = "2026-09-22T08:00:00.000Z";
     expect(resolveOrganizerAttendanceStatus({ timeIn: null, timeOut: null, attendanceSessionStatus: null, lateCutoffAt: cutoff })).toBeNull();
@@ -95,6 +106,19 @@ describe("completion-gated event attendance", () => {
     expect(migration).toContain("new.attendance_status := 'present'");
     expect(migration).toContain("task_status = 'expired'");
     expect(migration).not.toContain("attendance_status = 'pending'");
+  });
+
+  it("keeps pending feedback out of finalized records until completion or expiry", () => {
+    const migration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261004155953_enforce_feedback_completion_boundary.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("private.prevent_pending_feedback_finalization");
+    expect(migration).toContain("new.finalized_at := null");
+    expect(migration).toContain("task.task_status = 'pending'");
+    expect(migration).toContain("set attendance_status = 'absent'");
+    expect(migration).toContain("Do not finalize complete pairs here");
   });
 
   it("preserves explicit corrections when attendance facts did not change", () => {

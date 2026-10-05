@@ -855,7 +855,13 @@ export function EventManagementPage() {
         if (adminRoute.startsWith(`${APP_ROUTES.adminEvents}?`)) {
           return adminRoute.replace(APP_ROUTES.adminEvents, APP_ROUTES.departmentEvents);
         }
+        if (adminRoute.startsWith(`${APP_ROUTES.adminEvents}/`)) {
+          return adminRoute.replace(APP_ROUTES.adminEvents, APP_ROUTES.departmentEvents);
+        }
         if (organizerRoute.startsWith(`${APP_ROUTES.organizerEvents}?`)) {
+          return organizerRoute.replace(APP_ROUTES.organizerEvents, APP_ROUTES.departmentEvents);
+        }
+        if (organizerRoute.startsWith(`${APP_ROUTES.organizerEvents}/`)) {
           return organizerRoute.replace(APP_ROUTES.organizerEvents, APP_ROUTES.departmentEvents);
         }
         return APP_ROUTES.departmentEvents;

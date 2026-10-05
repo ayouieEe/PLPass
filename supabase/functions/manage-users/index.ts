@@ -51,6 +51,16 @@ function resolveAccountEmail(account: Record<string, unknown>) {
   return generatedAccountEmail(account.lastName, account.firstName, account.middleName, account.nameExtension);
 }
 
+function resolveEditedAccountEmail(existingProfile: Record<string, unknown>, submittedEmail: unknown, nextAccount: Record<string, unknown>) {
+  const email = typeof submittedEmail === "string" ? submittedEmail.trim() : "";
+  try {
+    const previousGeneratedEmail = resolveAccountEmail(existingProfile).toLowerCase();
+    return email.toLowerCase() === previousGeneratedEmail ? resolveAccountEmail(nextAccount) : email;
+  } catch {
+    return email;
+  }
+}
+
 function normalizeStudentNumber(value: unknown) {
   const digits = (typeof value === "string" ? value : "").replace(/\D/g, "");
   if (digits.length !== 7) throw new Error("Student number must use the format 00-00000.");
@@ -338,7 +348,7 @@ Deno.serve(async (request) => {
     const admin = requestBody.admin;
     if (!admin) return json({ error: "No admin provided." }, 400);
     const { firstName, middleName, lastName, nameExtension, departmentId, officeName, adminRole = "admin" } = admin;
-    const email = resolveAccountEmail({ firstName, middleName, lastName });
+    const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
     const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     const normalizedOfficeName = typeof officeName === "string" ? officeName.trim() : "";
     if (!firstName || !lastName || !departmentId) return json({ error: "Please complete all required admin information." }, 400);
@@ -379,17 +389,18 @@ Deno.serve(async (request) => {
       if (adminLoadError || !existingAdmin) return json({ error: "The administrator account could not be found." }, 404);
       if (profileId === authData.user.id && accountStatus !== "active") return json({ error: "Administrators cannot deactivate their own account." }, 400);
 
-      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      const nextEmail = resolveEditedAccountEmail(existingProfile, email, { firstName, middleName, lastName, nameExtension });
+      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== nextEmail.toLowerCase();
       try {
         if (emailChanged) {
-          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email: nextEmail });
           if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
         }
-        const { error: profileUpdateError } = await supabase.from("profiles").update({ email, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus }).eq("id", profileId).in("role", ["admin", "department_admin"]);
+        const { error: profileUpdateError } = await supabase.from("profiles").update({ email: nextEmail, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus }).eq("id", profileId).in("role", ["admin", "department_admin"]);
         if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
         const { error: adminUpdateError } = await supabase.from("admin_profiles").update({ department_id: departmentId, office_name: officeName }).eq("id", id).eq("profile_id", profileId);
         if (adminUpdateError) throw new Error(`Admin update failed: ${adminUpdateError.message}`);
-        await recordAdminAudit(supabase, authData.user.id, profileId, "user.admin_updated", { email, adminId: id, accountStatus }, "admin_profile");
+        await recordAdminAudit(supabase, authData.user.id, profileId, "user.admin_updated", { email: nextEmail, adminId: id, accountStatus }, "admin_profile");
         if (accountStatus === "inactive") {
           // The status row remains authoritative even if Auth is temporarily
           // unavailable; do not roll a deactivation back because session
@@ -441,21 +452,22 @@ Deno.serve(async (request) => {
       if (isDepartmentAdmin && (!departmentMatches(existingOrganizer.department_id) || (departmentId && !departmentMatches(departmentId)))) return json({ error: "You can only manage organizers in your department." }, 403);
       const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : (departmentId || null);
 
-      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+      const nextEmail = resolveEditedAccountEmail(existingProfile, email, { firstName, middleName, lastName, nameExtension });
+      const emailChanged = String(existingProfile.email ?? "").trim().toLowerCase() !== nextEmail.toLowerCase();
       try {
         if (emailChanged) {
-          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email });
+          const { error: authUpdateError } = await supabase.auth.admin.updateUserById(profileId, { email: nextEmail });
           if (authUpdateError) throw new Error(`Auth update failed: ${authUpdateError.message}`);
         }
         const { error: profileUpdateError } = await supabase.from("profiles").update({
-          email, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus
+          email: nextEmail, first_name: firstName, middle_name: middleName || null, last_name: lastName, name_extension: normalizedNameExtension || null, account_status: accountStatus
         }).eq("id", profileId).eq("role", "organizer");
         if (profileUpdateError) throw new Error(`Profile update failed: ${profileUpdateError.message}`);
         const { error: organizerUpdateError } = await supabase.from("organizers").update({
           department_id: effectiveDepartmentId, organization_name: organizationName, position, organizer_status: employmentStatus
         }).eq("id", id).eq("profile_id", profileId);
         if (organizerUpdateError) throw new Error(`Organizer update failed: ${organizerUpdateError.message}`);
-        await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email, organizerId: id, accountStatus, employmentStatus }, "organizer_profile");
+        await recordAdminAudit(supabase, authData.user.id, profileId, "user.organizer_updated", { email: nextEmail, organizerId: id, accountStatus, employmentStatus }, "organizer_profile");
         if (accountStatus === "inactive") {
           // See the equivalent admin-account safeguard above.
           try { await supabase.auth.admin.signOut(profileId, "global"); } catch { /* status enforcement still applies */ }
@@ -516,15 +528,16 @@ Deno.serve(async (request) => {
       if (accountStatus && !["active", "inactive", "suspended"].includes(accountStatus)) {
         return json({ error: "The selected account status is not valid." }, 400);
       }
-      
-      const emailChanged = String(previousProfile.email ?? "").trim().toLowerCase() !== email.trim().toLowerCase();
+
+      const nextEmail = resolveEditedAccountEmail(previousProfile, email, { firstName, middleName, lastName, nameExtension });
+      const emailChanged = String(previousProfile.email ?? "").trim().toLowerCase() !== nextEmail.toLowerCase();
       if (emailChanged) {
-        const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, { email });
+        const { error: updateAuthError } = await supabase.auth.admin.updateUserById(profileId, { email: nextEmail });
         if (updateAuthError) throw new Error(`Auth update failed: ${updateAuthError.message}`);
       }
       
       const { error: profileUpdateError } = await supabase.from("profiles").update({
-        email: email,
+        email: nextEmail,
         first_name: firstName,
         middle_name: middleName,
         last_name: lastName,

@@ -33,6 +33,7 @@ import {
   eventFromStudentRecord,
   getCorrectionRequestTypes,
   getStudentEventRecords,
+  sortStudentEventRecords,
   statusTone,
   studentVisibleEvents,
   StudentEventRecord,
@@ -45,6 +46,7 @@ const timeOnlyPattern = /^\d{1,2}:\d{2}(:\d{2})?\s?(AM|PM)?$/i;
 const correctionProofMaxBytes = 5 * 1024 * 1024;
 const acceptedCorrectionProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
 const correctionProofImageTypes = ["image/png", "image/jpeg", "image/webp"];
+const studentRecordsPageSize = 25;
 
 function CardAccent() {
   return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
@@ -78,11 +80,10 @@ function getDefaultRequestType(status: StudentEventRecord["status"]) {
 
 function formatAttendanceMethod(method: string) {
   const normalized = method.toLowerCase();
-  if (normalized === "qr") return "QR scan";
-  if (normalized === "facial") return "Facial verification";
-  if (normalized === "manual") return "Manual organizer entry";
-  if (normalized === "online") return "Online attendance";
-  return method;
+  if (normalized === "qr" || normalized === "qr code") return "QR Code";
+  if (normalized === "facial" || normalized === "facial recognition") return "Facial Recognition";
+  if (normalized === "manual") return "Manual";
+  return "Manual";
 }
 
 function formatFileSize(bytes: number) {
@@ -101,11 +102,10 @@ export function MyAttendancePage() {
   const attendanceStatusFilter = ["present", "late", "absent"].includes(statusFilter)
     ? statusFilter as "present" | "late" | "absent"
     : undefined;
-  const eventsQuery = useEvents({ pageSize: 25 }, scope.context);
-  const sessionsQuery = useAttendanceSessions({ pageSize: 25 }, scope.context);
+  const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
+  const sessionsQuery = useAttendanceSessions({ pageSize: 500 }, scope.context);
   const recordsQuery = useAttendanceRecords({
-    pageIndex: recordsPage,
-    pageSize: 25,
+    pageSize: 500,
     attendanceStatus: attendanceStatusFilter,
     dateFrom: yearFilter ? `${yearFilter}-01-01T00:00:00+08:00` : undefined,
     dateTo: yearFilter ? `${Number(yearFilter) + 1}-01-01T00:00:00+08:00` : undefined
@@ -195,19 +195,21 @@ export function MyAttendancePage() {
   );
   const attendanceTasks = (summaryQuery.data?.tasks ?? [])
     .filter((task) => task.kind === "late_reason" || task.kind === "feedback");
-  const finalizedRecords = records.filter((record) => record.finalized === true && (
+  const finalizedRecords = records.filter((record) => record.finalized === true && !isTaskActionable(record) && (
     record.status === "absent" || isCompletedAttendedRecord(record)
   ));
   const pendingTaskCount = attendanceTasks.length;
   const yearOptions = (finalizedEventYearsQuery.data ?? []).map(String);
-  const visibleRecords = finalizedRecords.filter((record) => {
+  const visibleRecords = sortStudentEventRecords(finalizedRecords.filter((record) => {
     const term = search.trim().toLowerCase();
     const matchesSearch = !term || [record.eventName, record.eventCode, record.category, record.venue].some((value) => value.toLowerCase().includes(term));
     const matchesYear = !yearFilter || getRecordYear(record) === yearFilter;
     const matchesStatus = !statusFilter || record.status === statusFilter;
     return matchesSearch && matchesYear && matchesStatus;
-  });
-  const recordsByYear = visibleRecords.reduce<Array<{ year: string; records: StudentEventRecord[] }>>((groups, record) => {
+  }));
+  const recordsPageCount = Math.max(1, Math.ceil(visibleRecords.length / studentRecordsPageSize));
+  const pagedRecords = visibleRecords.slice(recordsPage * studentRecordsPageSize, (recordsPage + 1) * studentRecordsPageSize);
+  const recordsByYear = pagedRecords.reduce<Array<{ year: string; records: StudentEventRecord[] }>>((groups, record) => {
     const year = getRecordYear(record);
     const existingGroup = groups.find((group) => group.year === year);
     if (existingGroup) {
@@ -217,11 +219,19 @@ export function MyAttendancePage() {
     }
     return groups;
   }, []);
+  const recordCountByYear = visibleRecords.reduce<Record<string, number>>((counts, record) => {
+    const year = getRecordYear(record);
+    counts[year] = (counts[year] ?? 0) + 1;
+    return counts;
+  }, {});
   const selectedCorrection = selectedRecord ? corrections.find((request) => request.eventId === selectedRecord.eventId) : undefined;
   const selectedFeedbackTask = taskForRecord(selectedRecord);
   const selectedFeedbackSubmitted = selectedFeedbackTask?.status === "completed";
   const selectedEvent = selectedRecord ? events.find((entry) => entry.id === selectedRecord.eventId) ?? eventFromStudentRecord(selectedRecord) : undefined;
-  const selectedSession = selectedRecord ? sessions.find((entry) => entry.eventId === selectedRecord.eventId) : undefined;
+  const selectedSession = selectedRecord
+    ? sessions.find((entry) => entry.id === selectedRecord.sessionId)
+      ?? sessions.find((entry) => entry.eventId === selectedRecord.eventId)
+    : undefined;
   const selectedRequestTypes = selectedRecord ? getCorrectionRequestTypes(selectedRecord.status) : [];
   const selectedWorkflow = selectedEvent && selectedRecord ? buildStudentEventWorkflow({
     event: selectedEvent,
@@ -424,7 +434,7 @@ export function MyAttendancePage() {
                       <h3 className="text-2xl font-semibold tracking-tight">{group.year}</h3>
                     </div>
                     <StatusBadge
-                      label={`${group.records.length} event${group.records.length === 1 ? "" : "s"}`}
+                      label={`${recordCountByYear[group.year]} event${recordCountByYear[group.year] === 1 ? "" : "s"}`}
                       tone="info"
                     />
                   </div>
@@ -516,10 +526,10 @@ export function MyAttendancePage() {
         </div>
         <div className="mt-5 border-t pt-4">
           <PaginationControls
-            pageIndex={recordsQuery.data?.pageIndex ?? recordsPage}
-            pageCount={recordsQuery.data?.pageCount ?? 0}
+            pageIndex={recordsPage}
+            pageCount={recordsPageCount}
             canPreviousPage={recordsPage > 0}
-            canNextPage={recordsPage + 1 < (recordsQuery.data?.pageCount ?? 0)}
+            canNextPage={recordsPage + 1 < recordsPageCount}
             onPreviousPage={() => setRecordsPage((page) => Math.max(0, page - 1))}
             onNextPage={() => setRecordsPage((page) => page + 1)}
           />
@@ -630,10 +640,12 @@ export function MyAttendancePage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Time Out</p>
                 <p className="mt-1 font-semibold">{selectedWorkflow?.timeOutLabel ?? "Not recorded"}</p>
               </div>
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">How it was recorded</p>
-                <p className="mt-1 font-semibold">{formatAttendanceMethod(selectedRecord.method)}</p>
-              </div>
+              {selectedRecord.timeIn && selectedRecord.timeOut ? (
+                <div className="rounded-xl border bg-background p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">How it was recorded</p>
+                  <p className="mt-1 font-semibold">{formatAttendanceMethod(selectedRecord.method)}</p>
+                </div>
+              ) : null}
               <div className="rounded-xl border bg-background p-4 sm:col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Session Information</p>
                 <p className="mt-1 font-semibold">{formatDisplayDate(selectedRecord.startsAt)} {formatDisplayTime(selectedRecord.startsAt)} - {formatDisplayTime(selectedRecord.endsAt)}</p>

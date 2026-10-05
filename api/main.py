@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import threading
+import types
 from contextlib import suppress
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
@@ -38,6 +39,30 @@ prediction_model_lock = threading.Lock()
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "attendance_model.pkl")
 INSIGHTS_PATH = os.path.join(os.path.dirname(__file__), "models", "model_insights.json")
 
+def install_prediction_runtime_compatibility() -> None:
+    """Avoid importing an unused native sklearn polynomial extension.
+
+    The served attendance pipeline uses OneHotEncoder and RandomForest, not
+    PolynomialFeatures. Some Windows Application Control policies block the
+    unsigned optional polynomial wheel before sklearn can import any
+    preprocessing class, so provide only the import-time symbols required by
+    sklearn. If polynomial features are ever added to this service, this
+    deliberate ponytail shortcut must be removed and the native dependency
+    restored or signed.
+    """
+    module_name = "sklearn.preprocessing._csr_polynomial_expansion"
+    if module_name in sys.modules:
+        return
+
+    def unused_native_operation(*_args, **_kwargs):
+        raise RuntimeError("Polynomial preprocessing is not part of the PLPass attendance model.")
+
+    compatibility_module = types.ModuleType(module_name)
+    compatibility_module._calc_expanded_nnz = unused_native_operation
+    compatibility_module._calc_total_nnz = unused_native_operation
+    compatibility_module._csr_polynomial_expansion = unused_native_operation
+    sys.modules[module_name] = compatibility_module
+
 async def warm_facial_model_in_background():
     """Keep optional facial initialization off the forecast API startup path."""
     try:
@@ -51,6 +76,7 @@ async def warm_facial_model_in_background():
 
 def load_or_train_prediction_pipeline():
     """Return the served pipeline, creating the missing local artifact once."""
+    install_prediction_runtime_compatibility()
     import joblib
 
     with prediction_model_lock:

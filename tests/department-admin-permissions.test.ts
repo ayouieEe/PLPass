@@ -78,7 +78,7 @@ describe("department-admin permission contract", () => {
 
     expect(page).toContain("const departmentStudentIds = useMemo(");
     expect(page).toContain("student.departmentId === session?.departmentId");
-    expect(page).toContain("useAttendanceRecords({ pageSize: 100 }, scope.context)");
+    expect(page).toContain("useAttendanceRecords({ pageSize: 500 }, scope.context)");
     expect(page).toContain("useStudentCredentialStatuses(scope.context, departmentStudentIds)");
     expect(page).not.toContain("useAttendanceRecords({ pageSize: 100 }, scope.context, !isDepartmentAdmin)");
     expect(page).not.toContain("useStudentCredentialStatuses(scope.context, undefined, !isDepartmentAdmin)");

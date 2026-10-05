@@ -16,6 +16,7 @@ export type StudentScope = {
 
 export type StudentEventRecord = {
   id: string;
+  sessionId?: string;
   eventId: string;
   eventCode: string;
   eventName: string;
@@ -24,7 +25,7 @@ export type StudentEventRecord = {
   startsAt: string;
   endsAt?: string;
   status: AttendanceStatus | "correction-pending";
-  method: "QR" | "Facial" | "Manual" | "Online";
+  method: "QR" | "QR Code" | "Facial" | "Facial Recognition" | "Manual" | "Online";
   recordedAt: string;
   lateReasonCategory?: string;
   lateReason?: string;
@@ -277,9 +278,8 @@ export function getStudentDashboardEvents(
 }
 
 export function studentAttendanceMethodLabel(method: AttendanceRecord["verificationMethod"]): StudentEventRecord["method"] {
-  if (method === "qr") return "QR";
-  if (method === "facial") return "Facial";
-  if (method === "online") return "Online";
+  if (method === "qr") return "QR Code";
+  if (method === "facial") return "Facial Recognition";
   return "Manual";
 }
 
@@ -299,6 +299,7 @@ export function recordsForStudentEvents(input: {
       if (!session || !event) return [];
       return [{
         id: record.id,
+        sessionId: record.sessionId,
         eventId: event.id,
         eventCode: event.code,
         eventName: event.title,

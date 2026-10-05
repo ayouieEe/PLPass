@@ -5,7 +5,7 @@ import type {
   CredentialRequestStatus,
   CorrectionRequestStatus,
   EventStatus,
-  FacultyEmploymentStatus,
+  EmploymentStatus,
   MlPredictionType,
   NotificationStatus,
   NotificationSeverity,
@@ -54,16 +54,6 @@ export type Student = {
   createdAt: ISODateString;
 };
 
-export type FacultyProfile = {
-  id: ID;
-  userId: ID;
-  employeeNumber: string;
-  departmentId: ID;
-  employmentStatus: FacultyEmploymentStatus;
-  title: string;
-  displayName?: string;
-};
-
 export type OrganizerProfile = {
   id: ID;
   userId: ID;
@@ -72,7 +62,7 @@ export type OrganizerProfile = {
   collegeLogoPath?: string;
   departmentId?: ID;
   position: string;
-  employmentStatus: FacultyEmploymentStatus;
+  employmentStatus: EmploymentStatus;
 };
 
 export type AdminProfile = {
@@ -135,7 +125,7 @@ export type Semester = {
 
 export type Class = {
   id: ID;
-  facultyId: ID;
+  instructorId: ID;
   programId: ID;
   departmentId: ID;
   semesterId: ID;
@@ -428,7 +418,6 @@ export type NotificationPreferences = {
   reminders: boolean;
   eventUpdates: boolean;
   reports: boolean;
-  attendanceExceptions: boolean;
 };
 
 export type AuditLog = {

@@ -11,6 +11,7 @@ import { repositories } from "@/services/repositories";
 import type { FailedNotificationJob, SystemHealthSnapshot } from "@/services/contracts";
 import { toast } from "sonner";
 import { formatDateTime } from "@/lib/utils/date";
+import { DEFAULT_DEPARTMENT_BRANDING } from "@/lib/constants/branding";
 
 function useDepartmentContext() {
   const { session } = useDevelopmentSession();
@@ -68,6 +69,15 @@ export function DepartmentBrandingPage() {
     setLogoError("");
   }
 
+  function resetToDefaultBranding() {
+    setDisplayName(DEFAULT_DEPARTMENT_BRANDING.displayName);
+    setPrimaryColor(DEFAULT_DEPARTMENT_BRANDING.primaryColor);
+    setSecondaryColor(DEFAULT_DEPARTMENT_BRANDING.secondaryColor);
+    setLogo(null);
+    setRemoveLogo(Boolean(saved?.logoPath));
+    setLogoError("");
+  }
+
   if (branding.isLoading) return <LoadingState label="Loading department branding…" />;
   if (branding.isError || !saved) return <ErrorState title="Department settings could not be loaded" message="Brand settings are unavailable right now. No settings were changed." />;
 
@@ -80,7 +90,7 @@ export function DepartmentBrandingPage() {
         <label className="text-sm font-medium">Department logo<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0] ?? null; if (file && (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024)) { setLogoError("Choose a JPG, PNG, or WebP image up to 2 MB."); setLogo(null); event.target.value = ""; return; } setLogoError(""); setLogo(file); setRemoveLogo(false); }} className="mt-1 block w-full rounded-xl border border-border bg-background p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5" /><span className="mt-1 block text-xs font-normal text-muted-foreground">JPG, PNG, or WebP · maximum 2 MB</span></label>
         {logoError ? <p role="alert" className="-mt-3 text-sm text-destructive">{logoError}</p> : null}
         {saved.logoPath ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-3"><div className="flex items-center gap-3">{selectedLogoUrl ? <img src={selectedLogoUrl} alt="Department logo preview" className="h-12 w-12 rounded-lg border object-contain" /> : <div className="grid h-12 w-12 place-items-center rounded-lg bg-muted text-sm font-semibold">{logoInitials}</div>}<div><p className="text-sm font-medium">{logo ? "New logo selected" : removeLogo ? "Logo will be removed" : "Current department logo"}</p><p className="text-xs text-muted-foreground">{logo ? logo.name : "Visible in department-scoped presentation"}</p></div></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={removeLogo} disabled={Boolean(logo)} onChange={(event) => setRemoveLogo(event.target.checked)} />Remove logo</label></div> : logo ? <div className="flex items-center gap-3 rounded-xl border border-border bg-background p-3"><img src={logoPreviewUrl} alt="New department logo preview" className="h-12 w-12 rounded-lg border object-contain" /><span className="text-sm">Preview: {logo.name}</span><button type="button" className="ml-auto text-sm text-muted-foreground underline" onClick={() => setLogo(null)}>Remove selection</button></div> : null}
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4"><Button type="submit" disabled={branding.updateMutation.isPending || !session?.departmentId || !hasChanges || Boolean(logoError)}><Save className="mr-2 h-4 w-4" />{branding.updateMutation.isPending ? "Saving…" : "Save branding"}</Button><Button type="button" variant="outline" onClick={resetChanges} disabled={!hasChanges || branding.updateMutation.isPending}>Discard changes</Button><span className="text-xs text-muted-foreground">{hasChanges ? "Unsaved changes" : saved.updatedAt ? `Last saved ${formatDateTime(saved.updatedAt)}` : "No unsaved changes"}</span></div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4"><Button type="submit" disabled={branding.updateMutation.isPending || !session?.departmentId || !hasChanges || Boolean(logoError)}><Save className="mr-2 h-4 w-4" />{branding.updateMutation.isPending ? "Saving…" : "Save branding"}</Button><Button type="button" variant="outline" onClick={resetChanges} disabled={!hasChanges || branding.updateMutation.isPending}>Discard changes</Button><Button type="button" variant="ghost" onClick={resetToDefaultBranding} disabled={branding.updateMutation.isPending}>Back to default branding</Button><span className="text-xs text-muted-foreground">{hasChanges ? "Unsaved changes" : saved.updatedAt ? `Last saved ${formatDateTime(saved.updatedAt)}` : "No unsaved changes"}</span></div>
       </form>
     </section>
     <aside className="space-y-4">

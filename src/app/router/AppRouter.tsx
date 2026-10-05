@@ -185,6 +185,7 @@ export function AppRouter() {
               </Route>
               <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="events.read.department" />}>
                 <Route path={APP_ROUTES.departmentEvents} element={<EventManagementPage />} />
+                <Route path={APP_ROUTES.departmentEvents + "/:eventId"} element={<EventDetailsPage />} />
               </Route>
               <Route element={<RoleRoute allowedRoles={["department_admin"]} permission="credentials.read.department" />}>
                 <Route path={APP_ROUTES.departmentCredentials} element={<DepartmentAuthenticationMethodsPage />} />

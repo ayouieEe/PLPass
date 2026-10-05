@@ -35,6 +35,7 @@ import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import {
   ensureStudentIdentityReadiness,
@@ -72,6 +73,7 @@ function ProfileField({ label, value, icon: Icon }: ProfileFieldProps) {
 
 export function StudentProfilePage() {
   const { session, logout } = useDevelopmentSession();
+  const roleLabel = getUserRoleLabel(session?.role ?? "student");
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -248,7 +250,7 @@ export function StudentProfilePage() {
 
             <div className="w-full border-t border-border pt-4">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
-                Student Role
+                {roleLabel}
               </span>
             </div>
           </div>

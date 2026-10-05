@@ -13,6 +13,7 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
 let facialService: ChildProcess | undefined;
+let facialServiceStartPromise: Promise<void> | undefined;
 const syncWakeTimers = new Map<string, NodeJS.Timeout>();
 
 function publishOfflineSyncDue(organizerProfileId: string) {
@@ -91,11 +92,15 @@ if (!hasSingleInstanceLock) {
 }
 
 async function facialServiceReady() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
   try {
-    const response = await fetch(`${facialApiBaseUrl}/openapi.json`);
+    const response = await fetch(`${facialApiBaseUrl}/openapi.json`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -118,26 +123,39 @@ function localPythonWindowlessPath() {
 
 async function ensureLocalFacialService() {
   if (await facialServiceReady()) return;
-  const python = localPythonPath();
-  if (!python) {
-    throw new Error("Offline facial recognition needs the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
-  }
-  if (!facialService || facialService.exitCode !== null) {
-    facialService = spawn(localPythonWindowlessPath() ?? python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
-      cwd: workspaceRoot,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true
-    });
-    facialService.unref();
-  }
-  // The first ArcFace/RetinaFace initialization can take about a minute on a
-  // fresh desktop, while later launches use the cached models.
-  for (let attempt = 0; attempt < 90; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+  if (facialServiceStartPromise) return facialServiceStartPromise;
+
+  facialServiceStartPromise = (async () => {
     if (await facialServiceReady()) return;
+    const python = localPythonPath();
+    if (!python) {
+      throw new Error("Offline facial recognition needs the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
+    }
+    let spawnError: Error | undefined;
+    if (!facialService || facialService.exitCode !== null) {
+      facialService = spawn(localPythonWindowlessPath() ?? python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+        cwd: workspaceRoot,
+        stdio: "ignore",
+        windowsHide: true
+      });
+      facialService.once("error", (error) => { spawnError = error; });
+    }
+    // The first ArcFace/RetinaFace initialization can take about a minute on a
+    // fresh desktop, while later launches use the cached models.
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (await facialServiceReady()) return;
+      if (spawnError) throw new Error(`The local PLPass model service could not start: ${spawnError.message}`);
+      if (facialService?.exitCode !== null) throw new Error("The local PLPass model service exited before becoming ready.");
+    }
+    throw new Error("The local PLPass model service did not start. Check the configured Python runtime and try again.");
+  })();
+
+  try {
+    await facialServiceStartPromise;
+  } finally {
+    facialServiceStartPromise = undefined;
   }
-  throw new Error("The local PLPass model service did not start. Check the configured Python runtime and try again.");
 }
 
 async function identifyOfflineFace(eventId: string, capture: number[]) {
@@ -321,5 +339,5 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   });
 });
 
-app.on("before-quit", () => { void scannerCoordinator?.stop(); facialService?.kill(); });
+app.on("before-quit", () => { void scannerCoordinator?.stop(); facialService?.kill(); facialService = undefined; });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

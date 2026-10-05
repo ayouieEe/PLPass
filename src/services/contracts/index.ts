@@ -12,7 +12,6 @@ import type {
   DepartmentBranding,
   Event,
   EventParticipant,
-  FacultyProfile,
   MlPrediction,
   AttendanceAttempt,
   Notification,
@@ -197,6 +196,14 @@ export type RescheduleEventInput = {
   startTime?: string;
   endTime?: string;
   reason?: string;
+};
+
+export type EventParticipantScheduleConflict = {
+  studentId: string;
+  eventCode: string;
+  eventTitle: string;
+  startsAt: string;
+  endsAt: string;
 };
 
 export type CreateEventSessionInput = {
@@ -408,7 +415,6 @@ export interface UserManagementRepository {
   resendUserInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
   resendAdminInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
   bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
-  listFacultyProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<FacultyProfile>>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
   listAdminProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AdminProfile>>;
   getOrganizerBranding(organizerId: string, context?: RepositoryContext): Promise<OrganizerBranding>;
@@ -443,6 +449,8 @@ export interface EventManagementRepository {
   listEvents(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<Event>>;
   getEventById(eventId: string, context?: RepositoryContext): Promise<Event>;
   listEventParticipants(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventParticipant>>;
+  findEventParticipantScheduleConflicts(input: { startsAt: string; endsAt: string; studentIds: string[] }, context?: RepositoryContext): Promise<EventParticipantScheduleConflict[]>;
+  addEventParticipants(input: { eventId: string; studentIds: string[] }, context?: RepositoryContext): Promise<EventParticipant[]>;
   listEventResources(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventResource>>;
   addEventResource(input: AddEventResourceInput, context?: RepositoryContext): Promise<EventResource>;
   removeEventResource(resourceId: string, context?: RepositoryContext): Promise<void>;

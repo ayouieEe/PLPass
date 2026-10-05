@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useRepositoryQueries";
 import { dateKey, formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { AuditLog } from "@/types/domain";
 import { exportTabularReport } from "@/features/organizer/utils/exportUtils";
@@ -215,8 +216,7 @@ export function OrganizerAuditLogsPage() {
   }
 
   function formatRole(role: string) {
-    if (role === "admin") return "University Admin";
-    return role.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return getUserRoleLabel(role);
   }
 
   async function exportAuditLogs(format: "xlsx" | "pdf" = "xlsx") {

@@ -52,20 +52,20 @@ export function StudentLegalReviewPage() {
   }
 
   return (
-    <AuthLayout title="Terms of Use" description={`PLPass student account information • Terms ${termsQuery.data?.version} · Privacy ${privacyQuery.data?.version}`} wide>
+    <AuthLayout title="Terms of Use" description={`PLPass student account information • Terms ${termsQuery.data?.version} · Privacy ${privacyQuery.data?.version}`} wide legal>
       <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm leading-6 text-foreground">
         <div className="flex items-start gap-3">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
           <p>Review the Terms of Use and Privacy Policy before opening your student workspace. Your acceptance is recorded for this account.</p>
         </div>
       </div>
-      <div className="mt-5 max-h-[min(52vh,30rem)] overflow-y-auto rounded-xl border border-border bg-surface px-5 py-4 text-sm leading-7 text-muted-foreground">
+      <div className="mt-5 min-h-0 flex-1 overflow-y-auto rounded-xl border border-border bg-surface px-5 py-4 text-[13px] leading-6 text-muted-foreground">
         <section aria-labelledby="student-terms-heading" className="space-y-5">
-          <h2 id="student-terms-heading" className="text-lg font-semibold text-foreground">Terms of Use</h2>
+          <h2 id="student-terms-heading" className="text-base font-semibold text-foreground">Terms of Use</h2>
           {termsQuery.data?.sections.map(({ heading, body }) => <div key={`terms-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
         </section>
         <section aria-labelledby="student-privacy-heading" className="mt-8 space-y-5 border-t border-border pt-7">
-          <h2 id="student-privacy-heading" className="text-lg font-semibold text-foreground">Privacy Policy</h2>
+          <h2 id="student-privacy-heading" className="text-base font-semibold text-foreground">Privacy Policy</h2>
           {privacyQuery.data?.sections.map(({ heading, body }) => <div key={`privacy-${heading}`}><h3 className="font-semibold text-foreground">{heading}</h3><p>{body}</p></div>)}
         </section>
       </div>

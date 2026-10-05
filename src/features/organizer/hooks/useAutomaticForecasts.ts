@@ -45,7 +45,9 @@ export function useAutomaticForecasts(events: Event[], context: RepositoryContex
   }, []);
 
   useEffect(() => {
-    if (!enabled || !missingEvents.length) {
+    // The prediction API and forecast write policy are organizer-scoped.
+    // Admin workspaces may read saved forecasts, but must not start generation.
+    if (!enabled || context.actorRole !== "organizer" || !missingEvents.length) {
       if (enabled) setStatus("complete");
       return;
     }

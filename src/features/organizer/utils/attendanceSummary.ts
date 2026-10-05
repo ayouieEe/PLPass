@@ -6,6 +6,10 @@ export type AttendanceSummaryIdentityRow = {
   attendanceStatus: AttendanceStatus;
 };
 
+export type FinalizedAttendanceIdentityRow = AttendanceSummaryIdentityRow & {
+  finalizedAt?: string | null;
+};
+
 export type UniqueAttendanceSummary = {
   rows: AttendanceSummaryIdentityRow[];
   present: number;
@@ -60,4 +64,13 @@ export function summarizeUniqueAttendance(
     population: denominator,
     attendanceRate
   };
+}
+
+export function summarizeFinalizedAttendance(rows: FinalizedAttendanceIdentityRow[]) {
+  return summarizeUniqueAttendance(
+    rows
+      .filter((row) => Boolean(row.finalizedAt))
+      .map(({ identity, attendanceStatus }) => ({ identity, attendanceStatus })),
+    0
+  );
 }

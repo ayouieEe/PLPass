@@ -18,6 +18,7 @@ import {
 import { toast } from "sonner";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { getUserRoleLabel } from "@/lib/auth/roleLabels";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { Program, Department } from "@/types/domain";
 
@@ -43,6 +44,7 @@ export function ProfilePage() {
   const { session, logout } = useDevelopmentSession();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const roleLabel = getUserRoleLabel(session?.role ?? "");
   const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
   const userQuery = useUser(session?.userId, context);
   const studentQuery = useStudents({ pageSize: 1 }, context);
@@ -180,7 +182,7 @@ export function ProfilePage() {
       <PageHeader
         eyebrow="Account"
         title="Profile"
-        description={`Manage your ${session.role} details and account security.`}
+        description={`Manage your ${roleLabel.toLowerCase()} details and account security.`}
         actions={
           <Button type="button" variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
             <LogOut className="h-4 w-4" aria-hidden="true" />
@@ -207,7 +209,7 @@ export function ProfilePage() {
             </div>
             <div className="w-full border-t border-border pt-4">
               <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-xs font-semibold capitalize text-success">
-                {session.role} Role
+                {roleLabel}
               </span>
             </div>
           </div>
