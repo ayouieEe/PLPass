@@ -408,6 +408,7 @@ function AnalyticsExportModal({
 export function OrganizerAnalyticsPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("prediction");
   const [eventFilter, setEventFilter] = useState("all");
+  const [feedbackEventSearch, setFeedbackEventSearch] = useState("");
   const [dateRangePreset, setDateRangePreset] = useState<"all" | "7d" | "30d" | "this_month" | "90d" | "custom">("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -443,7 +444,9 @@ export function OrganizerAnalyticsPage() {
   const summariesQuery = useAllEventSummarySnapshots({ pageIndex: 0, pageSize: 200 }, scope.context);
   const feedbackQuery = useAllEventFeedback({ pageIndex: 0, pageSize: 1000 }, scope.context);
 
+  const dateRangeApplies = activeTab !== "sentiment" || eventFilter === "all";
   const effectiveDateBounds = useMemo(() => {
+    if (!dateRangeApplies) return { start: null, end: null };
     if (dateRangePreset === "all") return { start: null, end: null };
     const now = new Date();
     if (dateRangePreset === "7d") {
@@ -469,7 +472,7 @@ export function OrganizerAnalyticsPage() {
       return { start: startDate || null, end: endDate || null };
     }
     return { start: null, end: null };
-  }, [dateRangePreset, startDate, endDate]);
+  }, [dateRangeApplies, dateRangePreset, startDate, endDate]);
 
   const eventData = useMemo(
     () =>
@@ -495,6 +498,11 @@ export function OrganizerAnalyticsPage() {
         })),
     [eventsQuery.data?.items, isDepartmentAdmin, session]
   );
+
+  const feedbackEventOptions = useMemo(() => {
+    const query = feedbackEventSearch.trim().toLowerCase();
+    return query ? eventData.filter((event) => event.code === eventFilter || `${event.code} ${event.title}`.toLowerCase().includes(query)) : eventData;
+  }, [eventData, eventFilter, feedbackEventSearch]);
 
   const filteredEventData = useMemo(() => {
     return eventData.filter((event) => {
@@ -977,7 +985,8 @@ export function OrganizerAnalyticsPage() {
     filteredObjectives.forEach((obj) => {
       if (obj.averageRating != null && obj.averageRating > 0) {
         const existing = grouped.get(obj.text) || { totalScore: 0, count: 0 };
-        grouped.set(obj.text, { totalScore: existing.totalScore + obj.averageRating, count: existing.count + 1 });
+        const responseCount = obj.ratingCount && obj.ratingCount > 0 ? obj.ratingCount : 1;
+        grouped.set(obj.text, { totalScore: existing.totalScore + obj.averageRating * responseCount, count: existing.count + responseCount });
       }
     });
     
@@ -999,27 +1008,32 @@ export function OrganizerAnalyticsPage() {
     let count = 0;
     filteredObjectives.forEach((obj) => {
       if (obj.averageRating != null && obj.averageRating > 0) {
-        totalScore += obj.averageRating;
-        count++;
+        const responseCount = obj.ratingCount && obj.ratingCount > 0 ? obj.ratingCount : 1;
+        totalScore += obj.averageRating * responseCount;
+        count += responseCount;
       }
     });
     
     return count > 0 ? (totalScore / count).toFixed(1) : null;
   }, [filteredEventData, objectivesQuery.data?.items]);
 
-  const studentComments = useMemo(() => {
+  const feedbackRemarks = useMemo(() => {
     const sourceFeedback = feedbackQuery.data?.items ?? [];
     const validEventIds = new Set(filteredEventData.map((e) => e.id));
-    const filteredFeedback = sourceFeedback.filter((fb) => validEventIds.has(fb.eventId));
-    
-    return filteredFeedback
+    return sourceFeedback
+      .filter((fb) => validEventIds.has(fb.eventId))
       .filter((fb) => fb.comment && fb.comment.trim().length > 0)
       .map((fb) => ({
         sentiment: fb.sentimentLabel || "Neutral",
         comment: fb.comment || ""
-      }))
-      .slice(0, 10);
+      }));
   }, [filteredEventData, feedbackQuery.data?.items]);
+
+  const studentComments = useMemo(() => feedbackRemarks.slice(0, 10), [feedbackRemarks]);
+  const remarkSentimentData = useMemo(() => ["Positive", "Neutral", "Negative"].map((name) => ({
+    name,
+    count: feedbackRemarks.filter((remark) => remark.sentiment === name).length
+  })), [feedbackRemarks]);
 
   const overallAttendanceRate = useMemo<number | null>(() => {
     if (trendData.length === 0) return null;
@@ -1161,107 +1175,125 @@ export function OrganizerAnalyticsPage() {
 
       {/* Analytics filters */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <div className="grid w-full gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {/* Event Filter */}
-            <div className="flex w-full items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                <Filter className="h-3.5 w-3.5 text-primary" />
-                Event:
-              </span>
-              <select
-                aria-label="Event filter"
-                className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
-                value={eventFilter}
-                onChange={(event) => {
-                  setEventFilter(event.target.value);
-                  setPredictionPage(0);
-                  setAttendancePage(0);
-                  setLatePage(0);
-                }}
-              >
-                <option value="all">All events</option>
-                {eventData.map((event) => (
-                  <option key={event.code} value={event.code}>
-                    {event.code} - {event.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+        <div className={`grid gap-4 ${dateRangeApplies ? "lg:grid-cols-2" : "max-w-2xl"}`}>
+          <div className="space-y-2">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Filter className="h-3.5 w-3.5 text-primary" />Event</span>
+            <select
+              aria-label="Event filter"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
+              value={eventFilter}
+              onChange={(event) => {
+                setEventFilter(event.target.value);
+                setPredictionPage(0);
+                setAttendancePage(0);
+                setLatePage(0);
+              }}
+            >
+              <option value="all">All events</option>
+              {(activeTab === "sentiment" ? feedbackEventOptions : eventData).map((event) => <option key={event.code} value={event.code}>{event.code} - {event.title}</option>)}
+            </select>
+            {activeTab === "sentiment" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <SearchInput
+                    value={feedbackEventSearch}
+                    onChange={setFeedbackEventSearch}
+                    placeholder="Search feedback events"
+                  />
+                </div>
+                {eventFilter !== "all" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-10"
+                    onClick={() => {
+                      setEventFilter("all");
+                      setFeedbackEventSearch("");
+                    }}
+                    aria-label="Clear selected feedback event"
+                  >
+                    Clear event
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-            {/* Date Range Preset Selector */}
-            <div className="flex w-full items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
-                <CalendarCheck className="h-3.5 w-3.5 text-primary" />
-                Date Range:
-              </span>
-              <select
-                aria-label="Date range filter"
-                className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
-                value={dateRangePreset}
-                onChange={(e) => {
-                  setDateRangePreset(e.target.value as typeof dateRangePreset);
-                  setPredictionPage(0);
-                  setAttendancePage(0);
-                  setLatePage(0);
-                }}
-              >
-                <option value="all">All Time</option>
-                <option value="7d">Last 7 Days</option>
-                <option value="30d">Last 30 Days</option>
-                <option value="this_month">This Month</option>
-                <option value="90d">Last 90 Days</option>
-                <option value="custom">Custom Range</option>
-              </select>
-            </div>
-
-            {/* Custom Date Inputs */}
-            {dateRangePreset === "custom" && (
-              <div className="flex w-full items-center gap-1.5 xl:col-span-2">
+          {dateRangeApplies ? <div className="space-y-2">
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-500"><CalendarCheck className="h-3.5 w-3.5 text-primary" />Date range</span>
+            <select
+              aria-label="Date range filter"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
+              value={dateRangePreset}
+              onChange={(event) => {
+                setDateRangePreset(event.target.value as typeof dateRangePreset);
+                setPredictionPage(0);
+                setAttendancePage(0);
+                setLatePage(0);
+              }}
+            >
+              <option value="all">All Time</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="30d">Last 30 Days</option>
+              <option value="this_month">This Month</option>
+              <option value="90d">Last 90 Days</option>
+              <option value="custom">Custom Range</option>
+            </select>
+            {dateRangePreset === "custom" ? (
+              <div className="flex items-center gap-2">
                 <input
                   type="date"
                   aria-label="Start date filter"
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
                   value={startDate}
                   onChange={(e) => handleStartDateChange(e.target.value)}
                 />
-                <span className="text-xs text-slate-400 font-medium">to</span>
+                <span className="text-xs font-medium text-slate-400">to</span>
                 <input
                   type="date"
                   min={startDate || undefined}
                   aria-label="End date filter"
-                  className="h-8 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-2 text-xs font-semibold text-slate-800 outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20 transition"
+                  className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
                   value={endDate}
-                  onChange={(e) => {
-                    setEndDate(e.target.value);
+                  onChange={(event) => {
+                    setEndDate(event.target.value);
                     setPredictionPage(0);
                     setAttendancePage(0);
                     setLatePage(0);
                   }}
                 />
               </div>
+            ) : (
+              <p className="flex h-10 items-center text-xs text-muted-foreground">
+                Limit results to a recent period or a custom date range.
+              </p>
             )}
+          </div> : null}
+        </div>
 
-            {/* Reset Filters Button */}
-            {(eventFilter !== "all" || dateRangePreset !== "all" || startDate || endDate) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEventFilter("all");
-                  setDateRangePreset("all");
-                  setStartDate("");
-                  setEndDate("");
-                  setPredictionPage(0);
-                  setAttendancePage(0);
-                  setLatePage(0);
-                }}
-                className="inline-flex h-8 items-center justify-self-end gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:text-primary transition sm:col-start-2 xl:col-start-4"
-                title="Reset all filters"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Reset
-              </button>
-            )}
+        {(eventFilter !== "all" || dateRangePreset !== "all" || startDate || endDate || feedbackEventSearch) ? (
+          <div className="mt-4 flex justify-end border-t border-slate-100 pt-3">
+            <button
+              type="button"
+              onClick={() => {
+                setEventFilter("all");
+                setFeedbackEventSearch("");
+                setDateRangePreset("all");
+                setStartDate("");
+                setEndDate("");
+                setPredictionPage(0);
+                setAttendancePage(0);
+                setLatePage(0);
+              }}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:text-primary"
+              title="Reset all filters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset filters
+            </button>
           </div>
+        ) : null}
       </div>
 
       {/* Tab 1: TURNOUT FORECAST TAB */}
@@ -1568,6 +1600,32 @@ export function OrganizerAnalyticsPage() {
               </ResponsiveContainer>
             </ChartPanel>
           </div>
+
+          <ChartPanel title="Student Remarks" description="Sentiment counts across written remarks, followed by the latest comments." empty={feedbackRemarks.length === 0} emptyMessage="No written feedback remarks submitted for the selected filters.">
+            <div className="flex h-full min-h-0 flex-col gap-3">
+              <div className="h-28 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={remarkSentimentData} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} fontSize={11} tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(value: number) => [value, "Remarks"]} />
+                    <Bar dataKey="count" name="Remarks" radius={[5, 5, 0, 0]}>
+                      {remarkSentimentData.map((entry) => <Cell key={entry.name} fill={entry.name === "Positive" ? "#16a34a" : entry.name === "Neutral" ? "#f59e0b" : "#dc2626"} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="min-h-0 space-y-2 overflow-y-auto pr-1">
+                {studentComments.map((remark, index) => (
+                  <article key={`${remark.comment}-${index}`} className="rounded-lg border bg-background p-3 text-sm text-muted-foreground">
+                    <div className="mb-1 flex items-center justify-between gap-3"><span className="font-medium text-foreground">Student remark</span><span className="text-xs font-semibold text-primary">{remark.sentiment}</span></div>
+                    <p>{remark.comment}</p>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </ChartPanel>
 
         </section>
       )}

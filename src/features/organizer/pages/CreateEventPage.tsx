@@ -1383,15 +1383,15 @@ export function CreateEventPage() {
         {currentStep === 4 ? <>
         {mutations.createEventMutation.isError ? <ErrorState title="Unable to create event" message="Check the required fields and selected participants." /> : null}
         {scheduleConflicts.length > 0 ? (
-          <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm">
+          <section className="rounded-lg border border-warning/30 bg-warning-muted p-4 text-foreground shadow-sm">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-700" aria-hidden="true" />
+              <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-warning" aria-hidden="true" />
               <div className="min-w-0">
                 <h2 className="font-semibold">Schedule conflict detected</h2>
-                <p className="mt-1 text-sm leading-6 text-amber-900">
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   This event overlaps with another active event at {watchedVenue}. Review the schedule before publishing.
                 </p>
-                <ul className="mt-3 space-y-1 text-sm text-amber-950">
+                <ul className="mt-3 space-y-1 text-sm text-foreground">
                   {scheduleConflicts.map((event) => (
                     <li key={event.id}>
                       <span className="font-medium">{event.code}</span> - {event.title} ({formatDate(event.startsAt)}, {formatTime(event.startsAt)} to {formatTime(event.endsAt)})
@@ -1584,13 +1584,13 @@ export function CreateEventPage() {
             </div>
           </div>
           {pendingScheduleConflicts.length > 0 ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <div className="rounded-lg border border-warning/30 bg-warning-muted p-3 text-sm text-foreground">
               <p className="font-medium">Conflicting event{pendingScheduleConflicts.length === 1 ? "" : "s"}</p>
-              <ul className="mt-2 space-y-1 text-amber-900">
+              <ul className="mt-2 space-y-1 text-muted-foreground">
                 {pendingScheduleConflicts.map((event) => (
-                  <li key={event.id} className="rounded-md border border-amber-200/80 bg-background/60 px-3 py-2">
-                    <p className="font-medium text-amber-950">{event.code} - {event.title}</p>
-                    <p className="mt-0.5 text-xs text-amber-900">
+                  <li key={event.id} className="rounded-md border border-warning/20 bg-background/60 px-3 py-2">
+                    <p className="font-medium text-foreground">{event.code} - {event.title}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {event.venue} · {formatDate(event.startsAt)} · {formatTime(event.startsAt)} - {formatTime(event.endsAt)}
                     </p>
                   </li>
