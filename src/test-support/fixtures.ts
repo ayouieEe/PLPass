@@ -91,12 +91,12 @@ export const studentFixtures: Student[] = Array.from({ length: 12 }, (_, index) 
 });
 
 export const organizerProfileFixtures: OrganizerProfile[] = [
-  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
-  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
+  { id: "organizer-1", userId: "user-organizer-1", employeeNumber: "O-001", organizationName: "PLP Student Affairs", collegeLogoPath: undefined, departmentId: "dept-ccs", position: "University Events Coordinator", employmentStatus: "active" },
+  { id: "organizer-2", userId: "user-organizer-2", employeeNumber: "O-002", organizationName: "PLP Academic Events", collegeLogoPath: undefined, departmentId: "dept-cba", position: "Program Organizer", employmentStatus: "part_time" }
 ];
 
 export const adminProfileFixtures: AdminProfile[] = [
-  { id: "admin-1", userId: "user-admin-1", employeeNumber: "001", departmentId: "dept-ccs", officeName: "Dean's Office" }
+  { id: "admin-1", userId: "user-admin-1", employeeNumber: "UA-001", departmentId: "dept-ccs", officeName: "Dean's Office" }
 ];
 
 export const classFixtures: Class[] = [

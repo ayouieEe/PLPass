@@ -25,13 +25,20 @@ describe("admin and organizer permission hardening", () => {
     expect(migration).toContain("private.is_active_admin()");
   });
 
-  it("resends only existing, unactivated invited accounts across supported account roles", () => {
+  it("uses invitation delivery for pending users and password setup for active accounts", () => {
     const worker = read("supabase/functions/manage-users/index.ts");
+    const page = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
     expect(worker).toContain('action === "prepare-user-invitation-resend"');
     expect(worker).toContain('["admin", "department_admin", "organizer"]');
     expect(worker).not.toContain('"student"].includes(targetProfile.role)');
-    expect(worker).toContain("authTarget.user.email_confirmed_at || authTarget.user.confirmed_at || authTarget.user.last_sign_in_at");
-    expect(worker).toContain("authTarget.user.invited_at");
+    expect(worker).toContain("isUnacceptedInvitation");
+    expect(worker).toContain('delivery: "invitation"');
+    expect(worker).toContain('delivery: "password_reset"');
+    expect(worker).toContain("inviteAccount(supabase, authTarget.user.email, {})");
     expect(worker).toContain("No account, profile, role, or password is created here.");
+    expect(page).toContain("Send password setup link");
+    expect(page).not.toContain("Resend invitation");
+    expect(page).toContain("Password setup link sent to");
+    expect(page).toContain("Invitation sent to");
   });
 });

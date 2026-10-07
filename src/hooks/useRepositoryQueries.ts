@@ -139,11 +139,11 @@ export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: Repos
   });
 }
 
-export function useAdminProfiles(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
+export function useAdminProfiles(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true, role?: "admin" | "department_admin") {
   const listQuery = queryWithDefaults(query);
   return useQuery({
-    queryKey: ["adminProfiles", listQuery, context],
-    queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context),
+    queryKey: ["adminProfiles", listQuery, context, role],
+    queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context, role),
     enabled: Boolean(context) && enabled
   });
 }

@@ -412,11 +412,11 @@ export interface UserManagementRepository {
   createAdmin(input: CreateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
   updateAdmin(input: UpdateAdminInput, context?: RepositoryContext): Promise<AdminProfile>;
   revokeUserSessions(input: { userId: string; reason: string }, context?: RepositoryContext): Promise<RevokeUserSessionsResult>;
-  resendUserInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
-  resendAdminInvitation(input: { userId: string }, context?: RepositoryContext): Promise<void>;
+  resendUserInvitation(input: { userId: string }, context?: RepositoryContext): Promise<{ email: string; delivery: "invitation" | "password_reset" }>;
+  resendAdminInvitation(input: { userId: string }, context?: RepositoryContext): Promise<{ email: string; delivery: "invitation" | "password_reset" }>;
   bulkCreateOrganizers(input: CreateOrganizerInput[], context?: RepositoryContext): Promise<BulkCreateOrganizersResult>;
   listOrganizerProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<OrganizerProfile>>;
-  listAdminProfiles(query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<AdminProfile>>;
+  listAdminProfiles(query?: ListQuery, context?: RepositoryContext, role?: "admin" | "department_admin"): Promise<PaginatedResult<AdminProfile>>;
   getOrganizerBranding(organizerId: string, context?: RepositoryContext): Promise<OrganizerBranding>;
   updateOrganizerBranding(input: UpdateOrganizerBrandingInput, context?: RepositoryContext): Promise<OrganizerBranding>;
   getDepartmentBranding(departmentId: string, context?: RepositoryContext): Promise<DepartmentBranding>;

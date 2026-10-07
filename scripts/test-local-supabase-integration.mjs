@@ -43,8 +43,8 @@ const ids = {
 
 const password = "PLPass-Local-Integration-2026!";
 const users = [
-  { id: ids.organizerUser, email: "organizer.integration@plpass.local", role: "organizer", first: "Olivia", last: "Organizer", employeeId: "LOCAL-ORG-01" },
-  { id: ids.organizerTwoUser, email: "organizer.two.integration@plpass.local", role: "organizer", first: "Oscar", last: "Organizer", employeeId: "LOCAL-ORG-02" },
+  { id: ids.organizerUser, email: "organizer.integration@plpass.local", role: "organizer", first: "Olivia", last: "Organizer", employeeId: "O-901" },
+  { id: ids.organizerTwoUser, email: "organizer.two.integration@plpass.local", role: "organizer", first: "Oscar", last: "Organizer", employeeId: "O-902" },
   { id: ids.studentUser, email: "student.integration@plpass.local", role: "student", first: "Sofia", last: "Student", studentId: "23-00001" },
   { id: ids.studentTwoUser, email: "student.two.integration@plpass.local", role: "student", first: "Samuel", last: "Student", studentId: "23-00002" }
 ];

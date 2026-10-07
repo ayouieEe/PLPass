@@ -40,13 +40,13 @@ BEGIN
   -- Create Profiles
   INSERT INTO public.profiles (id, email, role, first_name, last_name, account_status, employee_id, student_id)
   VALUES 
-    (v_organizer_user_id, 'organizer@plpass.edu.ph', 'organizer', 'Test', 'Organizer', 'active', 'EMP-001', NULL),
+    (v_organizer_user_id, 'organizer@plpass.edu.ph', 'organizer', 'Test', 'Organizer', 'active', 'O-001', NULL),
     (v_student_user_id, 'balbacal_chrishamazel@plpass.edu.ph', 'student', 'Chrisha Mazel', 'Balbacal', 'active', NULL, '23-00226')
   ON CONFLICT (id) DO NOTHING;
 
   -- Create Organizer
   INSERT INTO public.organizers (id, profile_id, employee_id, organization_name, position, organizer_status)
-  VALUES ('44444444-4444-4444-4444-444444444444', v_organizer_user_id, 'EMP-001', 'Test Organization', 'Coordinator', 'active')
+  VALUES ('44444444-4444-4444-4444-444444444444', v_organizer_user_id, 'O-001', 'Test Organization', 'Coordinator', 'active')
   ON CONFLICT (id) DO NOTHING;
 
   -- Create Student

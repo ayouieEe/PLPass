@@ -773,11 +773,14 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     );
     return currentContext.actorRole === "student" || currentContext.actorRole === "department_admin" ? paginateList(items, query) : paginateOrThrowEmpty(items, query);
   },
-  async listAdminProfiles(query, context) {
+  async listAdminProfiles(query, context, role) {
     await beforeRead("userManagement", context, ["admin"]);
     const currentContext = contextOrDefault(context);
     return paginateOrThrowEmpty(
-      adminProfileFixtures.filter((profile) => profile.userId === currentContext.actorUserId),
+      adminProfileFixtures.filter((profile) =>
+        (currentContext.actorRole === "admin" || profile.userId === currentContext.actorUserId) &&
+        (!role || userFixtures.some((user) => user.id === profile.userId && user.role === role))
+      ),
       query
     );
   },
@@ -837,9 +840,10 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     await beforeRead("userManagement", context, ["admin"]);
     const stamp = Date.now();
     const userId = `admin-user-${stamp}`;
-    const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^A-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
-    const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `A-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
-    userFixtures.push({ id: userId, role: "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: true, createdAt: new Date().toISOString() });
+    const prefix = input.adminRole === "department_admin" ? "DA" : "UA";
+    const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(new RegExp(`^${prefix}-(\\d{3})$`)); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
+    const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `${prefix}-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
+    userFixtures.push({ id: userId, role: input.adminRole ?? "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: true, createdAt: new Date().toISOString() });
     adminProfileFixtures.push(profile);
     return profile;
   },
@@ -872,13 +876,13 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     await beforeRead("userManagement", context, ["admin"]);
     const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin"].includes(user.role));
     if (!target) throw new RepositoryError("The administrator account could not be found.", "NOT_FOUND");
-    return;
+    return { email: target.email, delivery: "password_reset" };
   },
   async resendUserInvitation(input, context) {
     await beforeRead("userManagement", context, ["admin"]);
     const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin", "organizer"].includes(user.role));
     if (!target) throw new RepositoryError("The account could not be found.", "NOT_FOUND");
-    return;
+    return { email: target.email, delivery: "password_reset" };
   },
   async bulkCreateOrganizers(inputs, context) {
     await beforeRead("userManagement", context, ["admin"]);

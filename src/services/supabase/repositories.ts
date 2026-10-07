@@ -562,8 +562,10 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
       : await selectRows("organizers", query);
     return pageResult(rows.items.map(mapOrganizer), rows.total, query);
   },
-  async listAdminProfiles(query) {
-    const rows = await selectRowsFiltered("admin_profiles", query, "*, profiles(*)", {});
+  async listAdminProfiles(query, _context, role) {
+    const rows = role
+      ? await selectRowsFiltered("admin_profiles", query, "*, profiles!inner(*)", { "profiles.role": role })
+      : await selectRowsFiltered("admin_profiles", query, "*, profiles(*)", {});
     return pageResult(
       rows.items.map((row: Row): AdminProfile => ({
         id: String(row.id ?? ""),
@@ -607,7 +609,8 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-admin", admin: input } });
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
-    const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("employee_number", input.employeeNumber).single();
+    const generatedEmployeeNumber = String(data?.employeeNumber ?? input.employeeNumber);
+    const { data: row, error: fetchError } = await client.from("admin_profiles").select("id, profile_id, employee_number, department_id, office_name").eq("employee_number", generatedEmployeeNumber).single();
     throwIfSupabaseError(fetchError);
     return {
       id: String(row.id), userId: String(row.profile_id), employeeNumber: String(row.employee_number),
@@ -646,10 +649,12 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "SERVER_ERROR");
     if (data?.error) throw new RepositoryError(data.error, "VALIDATION_ERROR");
     if (typeof data?.email !== "string" || !data.email) throw new RepositoryError("The invitation could not be prepared.", "SERVER_ERROR");
+    if (data?.delivery === "invitation") return { email: data.email, delivery: "invitation" };
     const { error: resetError } = await client.auth.resetPasswordForEmail(data.email, {
       redirectTo: `${window.location.origin}${APP_ROUTES.resetPassword}`
     });
     if (resetError) throw new RepositoryError(resetError.message, "SERVER_ERROR");
+    return { email: data.email, delivery: "password_reset" };
   },
   async resendAdminInvitation(input, context) {
     return this.resendUserInvitation(input, context);

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { AuthWeakPasswordError } from "@supabase/auth-js";
 import { establishPasswordRecoverySession, getPasswordSetupPath, hasPasswordSetupPayload, saveRecoveredPassword } from "@/lib/auth/recovery";
@@ -29,6 +30,14 @@ describe("password recovery links", () => {
 
     expect(hasPasswordSetupPayload(location)).toBe(true);
     expect(getPasswordSetupPath(location, "/reset-password")).toBe("/reset-password#access_token=access&refresh_token=refresh&type=invite");
+  });
+
+  it("keeps invite payload handling on the public setup route", () => {
+    const router = readFileSync("src/app/router/AppRouter.tsx", "utf8");
+
+    expect(router).toContain("if (hasPasswordSetupPayload(location))");
+    expect(router).toContain("return <ResetPasswordPage />;");
+    expect(router).not.toContain("getPasswordSetupPath(location, APP_ROUTES.resetPassword)");
   });
 
   it("recognizes PKCE setup links without treating an ordinary login URL as an invite", () => {
