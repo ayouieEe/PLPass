@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateAccountEmail } from "@/lib/utils/accountEmail";
+import { generateAccountEmail, isGeneratedAccountEmail } from "@/lib/utils/accountEmail";
 
 describe("generated account email", () => {
   it("joins surname and first name, excluding the middle name", () => {
@@ -17,5 +17,10 @@ describe("generated account email", () => {
   it("returns empty until both required name parts exist", () => {
     expect(generateAccountEmail("", "Justine")).toBe("");
     expect(generateAccountEmail("Faustino", "")).toBe("");
+  });
+
+  it("recognizes legacy generated addresses when editing an account", () => {
+    expect(isGeneratedAccountEmail("faustinoiii_justineangelo@plpasig.edu.ph", "Faustino", "Justine", "Angelo", "III")).toBe(true);
+    expect(isGeneratedAccountEmail("custom@example.com", "Faustino", "Justine", "Angelo", "III")).toBe(false);
   });
 });

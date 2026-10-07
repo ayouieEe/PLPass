@@ -17,7 +17,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useQuery } from "@tanstack/react-query";
 import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
-import { getPasswordLinkType, getPasswordSetupPath, hasPasswordSetupPayload } from "@/lib/auth/recovery";
+import { hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
@@ -56,7 +56,7 @@ function AdminOrOrganizerProfilePage() {
 function PublicEntryRoute() {
   const location = useLocation();
   if (hasPasswordSetupPayload(location)) {
-    return <Navigate to={getPasswordSetupPath(location, APP_ROUTES.resetPassword)} replace state={{ invitation: getPasswordLinkType(location) === "invite" }} />;
+    return <ResetPasswordPage />;
   }
   return <Navigate to={APP_ROUTES.login} replace />;
 }

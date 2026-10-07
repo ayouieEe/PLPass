@@ -13,6 +13,11 @@ describe("account edit email consistency", () => {
     expect(mockRepository).toContain("generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension)");
   });
 
+  it("uses the same extension-aware generator when adding organizers", () => {
+    expect(readFileSync("src/features/organizer/pages/OrganizerUserManagement.tsx", "utf8")).toContain("const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);");
+    expect(worker).toContain("const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });");
+  });
+
   it("does not make successful account saves wait for list refetches", () => {
     expect(queries).toContain("const invalidateStudents = () => {");
     expect(queries).toContain("onSuccess: () => {");

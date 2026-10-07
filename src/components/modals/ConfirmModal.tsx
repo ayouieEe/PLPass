@@ -1,6 +1,7 @@
 import { Children, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { ModalShell } from "@/components/modals/ModalShell";
+import { Loader2 } from "lucide-react";
 
 type ConfirmModalProps = {
   open: boolean;
@@ -11,6 +12,8 @@ type ConfirmModalProps = {
   tone?: "default" | "danger";
   hideCancel?: boolean;
   confirmDisabled?: boolean;
+  confirmBusy?: boolean;
+  confirmBusyLabel?: string;
   cancelDisabled?: boolean;
   children?: ReactNode;
   onConfirm: () => void;
@@ -26,6 +29,8 @@ export function ConfirmModal({
   tone = "default",
   hideCancel = false,
   confirmDisabled = false,
+  confirmBusy = false,
+  confirmBusyLabel = "Working…",
   cancelDisabled = false,
   children,
   onConfirm,
@@ -38,7 +43,7 @@ export function ConfirmModal({
       open={open}
       title={title}
       description={description}
-      onClose={onCancel}
+      onClose={confirmBusy ? undefined : onCancel}
       size="sm"
       footer={
         <div className="flex justify-end gap-2">
@@ -47,8 +52,8 @@ export function ConfirmModal({
               {cancelLabel}
             </Button>
           ) : null}
-          <Button type="button" variant={tone === "danger" ? "destructive" : "default"} onClick={onConfirm} disabled={confirmDisabled}>
-            {confirmLabel}
+          <Button type="button" variant={tone === "danger" ? "destructive" : "default"} onClick={onConfirm} disabled={confirmDisabled || confirmBusy} aria-busy={confirmBusy}>
+            {confirmBusy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{confirmBusyLabel}</> : confirmLabel}
           </Button>
         </div>
       }

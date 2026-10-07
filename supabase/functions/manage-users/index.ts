@@ -54,8 +54,11 @@ function resolveAccountEmail(account: Record<string, unknown>) {
 function resolveEditedAccountEmail(existingProfile: Record<string, unknown>, submittedEmail: unknown, nextAccount: Record<string, unknown>) {
   const email = typeof submittedEmail === "string" ? submittedEmail.trim() : "";
   try {
-    const previousGeneratedEmail = resolveAccountEmail(existingProfile).toLowerCase();
-    return email.toLowerCase() === previousGeneratedEmail ? resolveAccountEmail(nextAccount) : email;
+    const previousGeneratedEmails = [
+      resolveAccountEmail(existingProfile),
+      `${compactNamePart(existingProfile.lastName)}${compactNamePart(existingProfile.nameExtension)}_${compactNamePart(existingProfile.firstName)}${compactNamePart(existingProfile.middleName)}@plpasig.edu.ph`
+    ].map((value) => value.toLowerCase());
+    return previousGeneratedEmails.includes(email.toLowerCase()) ? resolveAccountEmail(nextAccount) : email;
   } catch {
     return email;
   }
@@ -67,15 +70,24 @@ function normalizeStudentNumber(value: unknown) {
   return `${digits.slice(0, 2)}-${digits.slice(2)}`;
 }
 
-async function nextEmployeeId(supabase: ReturnType<typeof createClient>, table: "organizers" | "admin_profiles", column: "employee_id" | "employee_number", prefix: "O" | "A") {
+async function nextEmployeeId(supabase: ReturnType<typeof createClient>, table: "organizers" | "admin_profiles", column: "employee_id" | "employee_number", prefix: "O" | "DA" | "UA") {
   const { data, error } = await supabase.from(table).select(column).like(column, `${prefix}-%`);
   if (error) throw new Error(`Could not generate an employee ID: ${error.message}`);
+  const usedNumbers = new Set<number>();
   const highest = (data ?? []).reduce((max, row) => {
     const normalized = String((row as Record<string, unknown>)[column] ?? "").trim();
     const match = normalized.match(new RegExp(`^${prefix}-(\\d{3})$`));
-    return match ? Math.max(max, Number(match[1])) : max;
+    if (!match) return max;
+    const number = Number(match[1]);
+    usedNumbers.add(number);
+    return Math.max(max, number);
   }, 0);
-  return `${prefix}-${String(highest + 1).padStart(3, "0")}`;
+  let next = highest + 1;
+  if (prefix !== "O") {
+    next = 1;
+    while (usedNumbers.has(next)) next += 1;
+  }
+  return `${prefix}-${String(next).padStart(3, "0")}`;
 }
 
 async function recordAdminAudit(
@@ -101,9 +113,19 @@ async function inviteAccount(
   email: string,
   metadata: Record<string, string | undefined>
 ) {
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, { data: metadata });
+  const redirectTo = Deno.env.get("PLPASS_INVITE_REDIRECT_URL")?.trim();
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    data: metadata,
+    ...(redirectTo ? { redirectTo } : {})
+  });
   if (error || !data.user) throw new Error(error?.message || "Invitation could not be created.");
   return data.user;
+}
+
+async function ensureEmailAvailable(supabase: ReturnType<typeof createClient>, email: string) {
+  const { data, error } = await supabase.from("profiles").select("id").ilike("email", email).limit(1);
+  if (error) throw new Error(`Could not check for an existing account: ${error.message}`);
+  if ((data ?? []).length > 0) throw new Error("An account with this email already exists.");
 }
 
 async function removeAccount(
@@ -249,7 +271,7 @@ Deno.serve(async (request) => {
       return json({ error: "The account could not be found." }, 404);
     }
     if (targetProfile.account_status !== "active") {
-      return json({ error: "Only active accounts can receive an activation email." }, 400);
+      return json({ error: "Only active accounts can receive a password setup link." }, 400);
     }
     if (isDepartmentAdmin) {
       const { data: targetOrganizer } = await supabase.from("organizers").select("department_id").eq("profile_id", userId).maybeSingle();
@@ -260,16 +282,25 @@ Deno.serve(async (request) => {
     if (authTargetError || !authTarget.user || !authTarget.user.email) {
       return json({ error: "The account authentication record could not be found." }, 404);
     }
-    if (authTarget.user.email_confirmed_at || authTarget.user.confirmed_at || authTarget.user.last_sign_in_at) {
-      return json({ error: "This account has already been activated. Use password reset instead." }, 400);
+    const isUnacceptedInvitation = Boolean(
+      authTarget.user.invited_at &&
+      !authTarget.user.email_confirmed_at &&
+      !authTarget.user.confirmed_at &&
+      !authTarget.user.last_sign_in_at
+    );
+    if (isUnacceptedInvitation) {
+      try {
+        await inviteAccount(supabase, authTarget.user.email, {});
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "The invitation could not be resent." }, 400);
+      }
+      return json({ success: true, email: authTarget.user.email, delivery: "invitation" });
     }
-    if (!authTarget.user.invited_at) {
-      return json({ error: "This account was not created through an invitation and cannot receive an invitation resend." }, 400);
-    }
-
     // The browser sends the actual recovery email only after this server-side
-    // gate succeeds. No account, profile, role, or password is created here.
-    return json({ success: true, email: authTarget.user.email });
+    // gate succeeds. This supports accounts whose invite was consumed before
+    // password setup completed, as well as ordinary active accounts needing a
+    // password reset. No account, profile, role, or password is created here.
+    return json({ success: true, email: authTarget.user.email, delivery: "password_reset" });
   }
 
   if (action === "bulk-create-organizers") {
@@ -287,12 +318,15 @@ Deno.serve(async (request) => {
         if (!firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
         if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) throw new Error("The selected name extension is not valid.");
         if (isDepartmentAdmin && !departmentMatches(departmentId)) throw new Error("Department administrators can only create organizers in their own department.");
+        await ensureEmailAvailable(supabase, email);
         const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
+        await ensureEmailAvailable(supabase, email);
         const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
         const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
         const userId = user.id;
-        const { error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: "organizer", employee_id: employeeNumber, account_status: "active" });
+        const { data: savedProfile, error: profileError } = await supabase.from("profiles").insert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: "organizer", employee_id: employeeNumber, account_status: "active" }).select("name_extension").single();
         if (profileError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileError.message); }
+        if (String(savedProfile?.name_extension ?? "") !== normalizedNameExtension) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error("The organizer name extension could not be saved."); }
         const { error: organizerError } = await supabase.from("organizers").insert({ profile_id: userId, employee_id: employeeNumber, department_id: effectiveDepartmentId || null, organization_name: organizationName, position, organizer_status: "active" });
         if (organizerError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(organizerError.message); }
         try { await recordAdminAudit(supabase, authData.user.id, userId, "user.organizer_created", { email, employeeNumber, source: "bulk" }); }
@@ -323,11 +357,13 @@ Deno.serve(async (request) => {
       const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
       const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
       const userId = user.id;
-      const { error: profileInsertError } = await supabase.from("profiles").upsert({
+      await ensureEmailAvailable(supabase, email);
+      const { data: savedProfile, error: profileInsertError } = await supabase.from("profiles").upsert({
         id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null,
         role: "organizer", employee_id: employeeNumber, account_status: "active"
-      });
+      }).select("name_extension").single();
       if (profileInsertError) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error(profileInsertError.message); }
+      if (String(savedProfile?.name_extension ?? "") !== normalizedNameExtension) { await removeAccount(supabase, userId, "organizers", "profile_id"); throw new Error("The organizer name extension could not be saved."); }
       const { error: organizerInsertError } = await supabase.from("organizers").insert({
         profile_id: userId, employee_id: employeeNumber, department_id: effectiveDepartmentId || null,
         organization_name: organizationName, position, organizer_status: "active"
@@ -355,11 +391,16 @@ Deno.serve(async (request) => {
     if (!["admin", "department_admin"].includes(adminRole)) return json({ error: "The selected administrator type is not valid." }, 400);
     if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
-      const employeeNumber = await nextEmployeeId(supabase, "admin_profiles", "employee_number", "A");
+      await ensureEmailAvailable(supabase, email);
+      const employeeNumber = await nextEmployeeId(supabase, "admin_profiles", "employee_number", adminRole === "department_admin" ? "DA" : "UA");
       const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
       const userId = user.id;
-      const { error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: adminRole, employee_id: employeeNumber, account_status: "active" });
+      const { data: savedProfile, error: profileInsertError } = await supabase.from("profiles").upsert({ id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null, role: adminRole, employee_id: employeeNumber, account_status: "active" }).select("name_extension").single();
       if (profileInsertError) { await removeAccount(supabase, userId, "admin_profiles", "profile_id"); throw new Error(profileInsertError.message); }
+      if (String(savedProfile?.name_extension ?? "") !== normalizedNameExtension) {
+        await removeAccount(supabase, userId, "admin_profiles", "profile_id");
+        throw new Error("The administrator name extension could not be saved.");
+      }
       // `office_name` remains non-null for legacy records, but it is not
       // collected or shown in the Add Admin experience.
       const defaultOfficeName = adminRole === "admin" ? "University Admin" : "Department Admin";
