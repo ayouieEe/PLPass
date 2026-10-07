@@ -32,4 +32,12 @@ describe("analytics dark-mode compatibility", () => {
     expect(page).toContain('ChevronDown className="h-5 w-5 text-muted-foreground"');
     expect(page).toContain('border-t border-primary/10 bg-surface');
   });
+
+  it("uses the shared animated format controls in the two-step export modal", () => {
+    expect(page).toContain('import { ReportFormatOption } from "@/components/exports/ReportFormatOption"');
+    expect(page).toContain('<ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat}');
+    expect(page).toContain('<ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat}');
+    expect(page).toContain('2. Download Format');
+    expect(page).not.toContain('3. Download Format');
+  });
 });

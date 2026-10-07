@@ -15,8 +15,6 @@ import {
   ClipboardList,
   Clock3,
   Download,
-  FileSpreadsheet,
-  FileText,
   Filter,
   LayoutDashboard,
   MessageSquareQuote,
@@ -39,6 +37,7 @@ import { RiskSummaryChart } from "@/components/charts/RiskSummaryChart";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { DatePickerField } from "@/components/forms/DatePickerField";
@@ -330,44 +329,11 @@ function AnalyticsExportModal({
           {/* Step 2: Download Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 font-medium">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setExportFormat("xlsx")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "xlsx"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "xlsx" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileSpreadsheet className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">Spreadsheet (.XLSX)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Excel workbook format</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExportFormat("pdf")}
-                className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
-                  exportFormat === "pdf"
-                    ? "border-emerald-500 bg-emerald-50/50 text-emerald-900 ring-2 ring-emerald-500/20 font-semibold"
-                    : "border-slate-200/80 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className={`p-2 rounded-lg ${exportFormat === "pdf" ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>
-                  <FileText className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xs font-bold">PDF Document (.PDF)</p>
-                  <p className="text-[10px] text-slate-500 font-normal">Printable formatted report</p>
-                </div>
-              </button>
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable formatted report" />
             </div>
           </div>
         </div>

@@ -369,7 +369,7 @@ function EventRecordsExportModal({
           {/* Step 2: Download Format Selection */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2 font-medium">
-              3. Download Format
+              2. Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
               <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
