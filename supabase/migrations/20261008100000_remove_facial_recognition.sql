@@ -154,6 +154,8 @@ drop table if exists public.facial_enrollment_history cascade;
 drop table if exists public.student_face_embeddings cascade;
 drop table if exists public.facial_profiles cascade;
 
-delete from storage.buckets where id = 'facial-enrollments';
+-- Storage objects are removed through the Storage API before this migration.
+-- Supabase forbids deleting storage metadata directly from SQL; the empty
+-- bucket can be removed separately through the Storage API/management layer.
 
 commit;

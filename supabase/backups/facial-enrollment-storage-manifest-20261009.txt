@@ -1,0 +1,16 @@
+Production pre-decommission manifest for project ouwyhaozkqvhjalqdsvc
+Captured: 2026-10-09 Asia/Manila
+Bucket: facial-enrollments
+
+id                                      size_bytes  object_path
+9dbe2acf-fe81-4d5a-862f-d6de6c73f672  89064       eb04e6da-1636-4336-8a02-62fd45a70e56/1786540478374-face-enrollment-23-00226.jpg
+9f933ee6-b1da-44af-a500-3f3115be0b19  104063      eb04e6da-1636-4336-8a02-62fd45a70e56/1786540504978-face-enrollment-23-00226.jpg
+f6e3a341-fe9a-4e43-b382-e41b0b44ddf3  95065       eb04e6da-1636-4336-8a02-62fd45a70e56/1787031640223-face-enrollment-23-00226.jpg
+564f7fc2-de66-4282-a631-f87bd6ddd0cc  114133      eb04e6da-1636-4336-8a02-62fd45a70e56/1787150408221-face-enrollment-23-00226.jpg
+931261ac-566d-4de8-b1d3-e258bb52b6aa  136403      ac36bc9a-6369-43f4-a0dd-7ffc711d5dd3/1788074708533-face-enrollment-23-00293.jpg
+dc0c0a68-e7e7-4484-8707-b56303426a07  122198      ac36bc9a-6369-43f4-a0dd-7ffc711d5dd3/1788075357488-face-enrollment-23-00293.jpg
+76a23a9c-fb20-4a82-ad52-bb74c1e859ee  123394      ac36bc9a-6369-43f4-a0dd-7ffc711d5dd3/1788075386313-face-enrollment-23-00293.jpg
+918cc8f5-3fcd-403a-9eef-c24dfcd6fdcb  101907      eb04e6da-1636-4336-8a02-62fd45a70e56/1789437870331-face-enrollment-23-00226.jpg
+e763d791-75ce-4df1-8584-5ac74072d1d5  104510      eb04e6da-1636-4336-8a02-62fd45a70e56/1789437884775-face-enrollment-23-00226.jpg
+f6c53f28-17e0-4558-a870-0967e21a293b  88709       eb04e6da-1636-4336-8a02-62fd45a70e56/1789438186762-face-enrollment-23-00226.jpg
+567c7ed1-e532-4b97-b886-9598a91b9c4d  81085       e7e79995-90e8-4d44-b53f-dd9b7540960f/1789651167312-face-enrollment-23-00235.jpg
