@@ -25,9 +25,13 @@ function formatDate(value?: string | null) { return value ? new Date(value).toLo
 
 export function AuthenticationMethodsPage() {
   const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role } : undefined;
+  const context = session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined;
   const students = useStudents({ pageSize: 100 }, context);
-  const statuses = useStudentCredentialStatuses(context, undefined, true);
+  const credentialStudentIds = useMemo(
+    () => (students.data?.items ?? []).map((student) => student.id),
+    [students.data?.items]
+  );
+  const statuses = useStudentCredentialStatuses(context, credentialStudentIds, true);
   const mutations = useStudentCredentialMutations(context);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | QrStatus>("All");
