@@ -151,7 +151,7 @@ export function RequestHistoryPage() {
       title: "Attendance issue report",
       description: request.reason,
       status: request.status,
-      reference: request.credentialType === "facial" ? "Facial Recognition" : "Attendance Methods",
+      reference: "Attendance Methods",
       details: [
         request.reviewRemarks ? `Reviewer note: ${request.reviewRemarks}` : undefined,
         request.reviewedAt ? `Reviewed ${formatDisplayDate(request.reviewedAt)}` : undefined

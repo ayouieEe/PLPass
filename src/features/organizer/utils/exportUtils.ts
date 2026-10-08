@@ -19,7 +19,6 @@ export type ExportStudentRow = {
   attendanceRate: number;
   eventsJoined: number;
   qrStatus: string;
-  facialStatus: string;
 };
 
 export type ExportParticipationRow = {
@@ -160,8 +159,7 @@ export async function exportStudentListXlsx(students: ExportStudentRow[]) {
     "Status",
     "Attendance Rate (%)",
     "Events Joined",
-    "QR Credential",
-    "Facial Credential"
+    "QR Credential"
   ];
 
   const rows = students.map((s) => [
@@ -175,14 +173,14 @@ export async function exportStudentListXlsx(students: ExportStudentRow[]) {
     s.attendanceRate,
     s.eventsJoined,
     s.qrStatus,
-    s.facialStatus
+    s.qrStatus
   ]);
 
   await exportReportXlsx({ title: "Student List Report", rows: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index]]))), fileName: `student-list-${todayLabel()}` });
 }
 
 export async function exportStudentListPdf(students: ExportStudentRow[]) {
-  await exportReportPdf({ title: "Student List Report", fileName: `student-list-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, Email: s.email, Status: s.status, Attendance: `${s.attendanceRate}%`, Events: s.eventsJoined, QR: s.qrStatus, Facial: s.facialStatus })) });
+  await exportReportPdf({ title: "Student List Report", fileName: `student-list-${todayLabel()}`, rows: students.map((s) => ({ "Student ID": s.studentId, "Full Name": s.name, Program: s.program, "Year / Sec": `Year ${s.yearLevel} - ${s.section}`, Email: s.email, Status: s.status, Attendance: `${s.attendanceRate}%`, Events: s.eventsJoined, QR: s.qrStatus })) });
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +297,7 @@ export async function exportCorrectionRequestsPdf(requests: ExportCorrectionRequ
 }
 
 // ---------------------------------------------------------------------------
-// QR Credentials & Facial Profiles exports
+// QR credential exports
 // ---------------------------------------------------------------------------
 
 export type ExportQrCredentialRow = {
@@ -310,13 +308,6 @@ export type ExportQrCredentialRow = {
   lastUsed: string;
 };
 
-export type ExportFacialProfileRow = {
-  studentId: string;
-  studentName: string;
-  status: string;
-  enrollmentDate: string;
-  lastScan: string;
-};
 
 export async function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[], scope?: ReportExportScope) {
   await exportReportXlsx({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })), scope });
@@ -324,14 +315,6 @@ export async function exportQrCredentialsXlsx(rows: ExportQrCredentialRow[], sco
 
 export async function exportQrCredentialsPdf(rows: ExportQrCredentialRow[], scope?: ReportExportScope) {
   await exportReportPdf({ title: "QR Credentials Report", fileName: `qr-credentials-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "QR Status": r.status, "Date Generated": r.dateGenerated, "Last Used": r.lastUsed })), scope });
-}
-
-export async function exportFacialProfilesXlsx(rows: ExportFacialProfileRow[], scope?: ReportExportScope) {
-  await exportReportXlsx({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })), scope });
-}
-
-export async function exportFacialProfilesPdf(rows: ExportFacialProfileRow[], scope?: ReportExportScope) {
-  await exportReportPdf({ title: "Facial Enrollment Profiles Report", fileName: `facial-profiles-${todayLabel()}`, rows: rows.map((r) => ({ "Student ID": r.studentId, "Student Name": r.studentName, "Facial Status": r.status, "Enrollment Date": r.enrollmentDate, "Last Scan": r.lastScan })), scope });
 }
 
 

@@ -39,7 +39,6 @@ import { useWalkInWarning } from "@/features/attendance/walkInWarning";
 import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
-import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { withRequestTimeout } from "@/lib/async/requestTimeout";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
@@ -363,14 +362,8 @@ export function EventAttendancePage() {
   const [methodFilter, setMethodFilter] = useState("all");
   const [endOpen, setEndOpen] = useState(false);
   const [endReason, setEndReason] = useState("");
-  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
-  const [facialActionMode, setFacialActionMode] = useState<"check_in" | "check_out">("check_in");
-  const [facialStatus, setFacialStatus] = useState("");
-  const [facialVerifying, setFacialVerifying] = useState(false);
   const [offlineContinuityWarningShown, setOfflineContinuityWarningShown] = useState(false);
   const walkInWarning = useWalkInWarning();
-  const facialVideoRef = useRef<HTMLVideoElement | null>(null);
-  const facialStreamRef = useRef<MediaStream | null>(null);
   const endingSessionRef = useRef(false);
 
   const selectedSession = sessionQuery.data;
@@ -408,7 +401,7 @@ export function EventAttendancePage() {
     const api=desktopApi();
     if(!sessionId)return;
     const hasRecordedTimeOut=(recordsQuery.data?.items??[]).some((record)=>Boolean(record.checkedOutAt));
-    const applyPhase=(phase:AttendanceCapturePhase)=>{const resolved=resolveForwardOnlyAttendancePhase(hasRecordedTimeOut?"time_out":undefined,readAttendancePhase(window.sessionStorage,sessionId),phase);setOfflineCapturePhase(resolved);setFacialActionMode(resolved==="time_out"?"check_out":"check_in");writeAttendancePhase(window.sessionStorage,sessionId,resolved);};
+    const applyPhase=(phase:AttendanceCapturePhase)=>{const resolved=resolveForwardOnlyAttendancePhase(hasRecordedTimeOut?"time_out":undefined,readAttendancePhase(window.sessionStorage,sessionId),phase);setOfflineCapturePhase(resolved);writeAttendancePhase(window.sessionStorage,sessionId,resolved);};
     void (async()=>{
       let localPhase: AttendanceCapturePhase | undefined;
       if(api&&authSession?.userId){
@@ -444,7 +437,7 @@ export function EventAttendancePage() {
       });
       if(result.phase!=="time_out") throw new Error("Time Out could not be opened.");
       if(api&&authSession?.userId&&packageReady&&await api.getAttendanceCapturePhase(sessionId,authSession.userId)!=="time_out") await api.advanceAttendanceCapturePhase(sessionId,authSession.userId);
-      setOfflineCapturePhase("time_out");setFacialActionMode("check_out");writeAttendancePhase(window.sessionStorage,sessionId,"time_out");
+      setOfflineCapturePhase("time_out");writeAttendancePhase(window.sessionStorage,sessionId,"time_out");
     }catch(error){toast.error(getErrorMessage(error) || "Could not advance to Time Out.");}
   }
 
@@ -460,7 +453,6 @@ export function EventAttendancePage() {
       : localPhase;
     if (resolved !== offlineCapturePhase) {
       setOfflineCapturePhase(resolved);
-      setFacialActionMode(resolved === "time_out" ? "check_out" : "check_in");
       writeAttendancePhase(window.sessionStorage, sessionId, resolved);
     }
     return resolved;
@@ -478,7 +470,7 @@ export function EventAttendancePage() {
       readServerPhase:()=>getServerAttendanceCapturePhase(sessionId),
       advanceServerPhase:()=>advanceServerAttendanceCapturePhase(sessionId),
     });
-    if(result.phase!==offlineCapturePhase){setOfflineCapturePhase(result.phase);setFacialActionMode(result.phase==="time_out"?"check_out":"check_in");writeAttendancePhase(window.sessionStorage,sessionId,result.phase);}
+    if(result.phase!==offlineCapturePhase){setOfflineCapturePhase(result.phase);writeAttendancePhase(window.sessionStorage,sessionId,result.phase);}
     if(result.phase==="time_out"&&localPhase!=="time_out"&&api&&authSession?.userId&&event&&await api.getPreparedEvent(event.id,authSession.userId)) await api.advanceAttendanceCapturePhase(sessionId,authSession.userId);
     return result.phase;
   }
@@ -552,26 +544,6 @@ export function EventAttendancePage() {
       removeVisibilityListener();
     };
   }, [sessionId]);
-
-  useEffect(() => {
-    if (!facialCameraOpen) return;
-    let cancelled = false;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        facialStreamRef.current = stream;
-        if (facialVideoRef.current) facialVideoRef.current.srcObject = stream;
-      })
-      .catch(() => setFacialStatus("Camera access was not granted. Use QR or manual attendance instead."));
-    return () => {
-      cancelled = true;
-      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
-      facialStreamRef.current = null;
-    };
-  }, [facialCameraOpen]);
 
   const shellState = <ShellState scope={scope} />;
   if (shellState.props.scope.isLoading || shellState.props.scope.isError || (!scope.organizerId && scope.context.actorRole !== "admin")) {
@@ -743,7 +715,7 @@ export function EventAttendancePage() {
     return true;
   }
 
-  async function submitCredentialScan(code: string, method: "qr" | "facial", outcome?: string, similarity?: number) {
+  async function submitCredentialScan(code: string, method: "qr", outcome?: string) {
     const walkInScanUuid = crypto.randomUUID();
     let effectiveCapturePhase = offlineCapturePhase;
     try {
@@ -779,7 +751,6 @@ export function EventAttendancePage() {
         sessionId: activeSession.id,
         credentialCode: code,
         method,
-        faceSimilarity: similarity,
         occurredAt: simulatedTime(outcome)
       });
       setLatestResult(result);
@@ -798,84 +769,6 @@ export function EventAttendancePage() {
     } catch (error) {
       if(isConnectivityFailure(error)&&canUsePreparedCache&&event){try{const student=await identifyOfflineStudent(event.id,method,code);if(student&&student.isParticipant!==false){const at=simulatedTime(outcome)??new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:method,attendanceTimestamp:at},effectiveCapturePhase);setLatestResult({resultStatus:effectiveCapturePhase==="time_in"?"Time In Recorded":"Time Out Recorded",studentDisplayName:student.displayName,studentNumber:student.studentNumber,attendanceStatus:local.record.attendanceStatus,verificationMethod:method,recordedAt:at,safeMessage:local.safeMessage,summary:{present:0,late:0,absent:0,duplicateAttempts:0,failedAttempts:0}});toast.success(`${student.displayName}: saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();return;}}catch{/* Show safe failure below. */}}
       toast.error("Attendance was not saved", { description: "Neither the central service nor the prepared local package could confirm this scan." });
-    }
-  }
-  async function verifyFacialAttendance() {
-    const video = facialVideoRef.current;
-    if (!video) {
-      setFacialStatus("Start the camera and keep one student centered.");
-      return;
-    }
-    if (facialVerifying || attendanceMutations.credentialScanMutation.isPending) return;
-    setFacialVerifying(true);
-    setFacialStatus("Identifying one live face and searching enrolled event participants…");
-    let effectiveCapturePhase = offlineCapturePhase;
-    try {
-      const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
-      if(offline.status.connectivity==="offline"&&canUsePreparedCache&&event){
-        effectiveCapturePhase = await reconcileOfflineCapturePhase();
-        const student=await identifyOfflineStudent(event.id,"facial",video);
-        if(!student)throw new Error("No enrolled participant matched the saved offline face package.");
-        const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:at},effectiveCapturePhase);
-        setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${effectiveCapturePhase==="time_in"?"Time In":"Time Out"} saved locally at ${new Date(at).toLocaleTimeString()}; not synced.`);toast.success(`${student.displayName} saved at ${new Date(at).toLocaleTimeString()}`,{description:"Saved on this device; not synced."});await offline.refresh();setFacialCameraOpen(false);return;
-      }
-      effectiveCapturePhase = await reconcileOnlineCapturePhase();
-      const client = getSupabaseBrowserClient();
-      const { data: candidates, error: candidatesError } = await withRequestTimeout(client.rpc("get_live_facial_candidates", {
-        p_event_session_id: activeSession.id
-      }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
-      if (candidatesError) throw new Error(candidatesError.message);
-
-      const matches = (await Promise.all((candidates ?? []).map(async (candidate) => {
-        const { data: descriptor, error } = await withRequestTimeout(client.rpc("get_facial_descriptor_for_organizer", {
-          p_event_session_id: activeSession.id,
-          p_student_id: candidate.student_id
-        }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
-        if (error || !Array.isArray(descriptor) || !descriptor.every((value) => typeof value === "number")) return null;
-        return { candidate, similarity: faceSimilarity(descriptor, liveDescriptor) };
-      }))).filter((match): match is NonNullable<typeof match> => Boolean(match));
-
-      matches.sort((left, right) => right.similarity - left.similarity);
-      const bestMatch = matches[0];
-      if (!bestMatch || bestMatch.similarity < 0.82) {
-        throw new Error("No enrolled participant matched this face. Use QR or manual attendance.");
-      }
-      if (matches[1] && bestMatch.similarity - matches[1].similarity < 0.04) {
-        throw new Error("Face match is ambiguous. Keep only one participant in view or use QR.");
-      }
-
-      const { data: attendance, error: attendanceError } = await withRequestTimeout(client.rpc("record_live_facial_attendance", {
-        p_event_session_id: activeSession.id,
-        p_student_id: bestMatch.candidate.student_id,
-        p_similarity: bestMatch.similarity,
-        p_action: effectiveCapturePhase === "time_out" ? "check_out" : "check_in",
-        p_occurred_at: new Date().toISOString()
-      }), 30_000, "Facial attendance took too long. Use QR or manual attendance and try again.");
-      if (attendanceError) throw new Error(attendanceError.message);
-      const action = attendance && typeof attendance === "object" && "action" in attendance ? attendance.action : "checked_in";
-      const actionLabel = action === "checked_out" ? "checked out" : action === "already_recorded" ? "already recorded" : "checked in";
-      const facialAttendance = attendance && typeof attendance === "object" ? attendance as { attendance_status?: "present" | "late"; time_in?: string; time_out?: string | null } : null;
-      await cacheOnlineAttendanceForOffline({
-        studentId: bestMatch.candidate.student_id,
-        studentNumber: bestMatch.candidate.student_number,
-        displayName: bestMatch.candidate.display_name,
-        participantStatus: "invited",
-        attendanceStatus: facialAttendance?.attendance_status === "late" ? "late" : "present",
-        timeIn: facialAttendance?.time_in ?? new Date().toISOString(),
-        timeOut: facialAttendance?.time_out ?? (action === "checked_out" ? new Date().toISOString() : null),
-      });
-      setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. Returning to QR for the next student.`);
-      toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
-      await Promise.all([recordsQuery.refetch(), tapsQuery.refetch()]);
-      setFacialCameraOpen(false);
-    } catch (error) {
-      const errorMessage = getErrorMessage(error) || "Face verification could not be completed.";
-      if(isConnectivityFailure(error)&&canUsePreparedCache&&event&&facialVideoRef.current){try{const student=await identifyOfflineStudent(event.id,"facial",facialVideoRef.current);if(student&&student.isParticipant!==false){const at=new Date().toISOString();const local=await recordOfflineAttendance({eventId:event.id,sessionId:activeSession.id,studentId:student.studentId,identificationMethod:"facial",attendanceTimestamp:at},effectiveCapturePhase);setFacialStatus(`${student.displayName} (${student.studentNumber}) — ${effectiveCapturePhase==="time_in"?"Time In":"Time Out"} saved locally at ${new Date(at).toLocaleTimeString()}; not synced.`);toast.success(`${student.displayName} saved locally`,{description:"Saved on this device; not synced."});await offline.refresh();setFacialCameraOpen(false);return;}}catch{/* Preserve original online failure below. */}}
-      setFacialStatus(!navigator.onLine || /failed to fetch|network|offline/i.test(errorMessage)
-        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR attendance."
-        : errorMessage);
-    } finally {
-      setFacialVerifying(false);
     }
   }
   async function submitManualAttendance() {
@@ -1010,20 +903,6 @@ export function EventAttendancePage() {
             <p className="mt-1">Late cutoff: {formatTime(session.lateCutoffAt ?? session.startsAt)}. Window ends: {formatTime(session.attendanceWindowEndAt ?? session.endsAt ?? session.startsAt)}.</p>
           </div>
           <QRFallbackPanel disabled={attendanceMutations.credentialScanMutation.isPending} onScan={(code) => void submitCredentialScan(code, "qr")} />
-          <section className="rounded-lg border bg-surface p-4" aria-label="Facial verification">
-            <p className="font-semibold">Live facial recognition</p>
-            <p id="organizer-face-camera-instructions" className="mt-1 text-sm text-muted-foreground">Organizer fallback station. Open this only after QR cannot be read, then scan one enrolled participant at a time. Use manual ID if face verification is unavailable.</p>
-            <label className="mt-3 block text-sm font-medium">
-              Attendance action
-              <span className="mt-1 block rounded-md border px-3 py-2 text-sm">{facialActionMode==="check_in"?"Time In":"Time Out"} — one-way session step</span>
-            </label>
-            {facialCameraOpen ? <video ref={facialVideoRef} aria-label="Live facial verification camera preview" aria-describedby="organizer-face-camera-instructions" autoPlay muted playsInline className="mt-3 aspect-video w-full rounded-md bg-black object-cover scale-x-[-1]" /> : null}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setFacialCameraOpen((open) => !open)}>{facialCameraOpen ? "Stop camera" : "Start camera"}</Button>
-              <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying} onClick={() => void verifyFacialAttendance()}>{facialVerifying ? "Identifying…" : "Scan now"}</Button>
-            </div>
-            {facialStatus ? <p className="mt-3 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
-          </section>
           <section className="rounded-lg border bg-surface p-4" aria-label="Manual attendance entry">
             <h2 className="font-semibold">Manual entry</h2>
             <p className="mt-1 text-sm text-muted-foreground">Enter student ID or name for quick manual attendance.</p>
@@ -1126,7 +1005,6 @@ export function EventAttendancePage() {
                 <select aria-label="Filter by verification method" className="plpass-field h-10 rounded-md border px-3 text-sm" value={methodFilter} onChange={(event) => setMethodFilter(event.target.value)}>
                   <option value="all">All methods</option>
                   <option value="qr">QR</option>
-                  <option value="facial">Facial</option>
                   <option value="manual">Manual</option>
                   <option value="online">Online</option>
                 </select>

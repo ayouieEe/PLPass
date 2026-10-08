@@ -1,5 +1,5 @@
 export type OrganizerEventStatus = "incoming" | "today" | "active" | "completed" | "cancelled";
-export type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
+export type AttendanceMethod = "QR Code" | "Manual";
 export type AttendanceStatus = "present" | "late" | "absent";
 export type LateReason = "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
 export type CorrectionStatus = "Pending" | "Approved" | "Rejected";
@@ -14,7 +14,6 @@ export type OrganizerStudent = {
   section: string;
   email: string;
   qrStatus: CredentialStatus;
-  facialStatus: CredentialStatus;
   accountStatus: "Active" | "Suspended";
 };
 
@@ -158,11 +157,6 @@ export function rejectOrganizerCorrectionRequest(state: OrganizerUiState, ..._ar
 }
 
 export function regenerateOrganizerQr(state: OrganizerUiState, ..._args: unknown[]) {
-  void _args;
-  return state;
-}
-
-export function updateOrganizerFacialStatus(state: OrganizerUiState, ..._args: unknown[]) {
   void _args;
   return state;
 }

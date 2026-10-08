@@ -12,7 +12,6 @@ import type {
   EventParticipant,
   EventSummarySnapshot,
   LateReasonOption,
-  FacialProfile,
   Notification,
   OrganizerProfile,
   QrCredential,
@@ -404,7 +403,7 @@ export function mapCredentialRequest(row: Row): CredentialRequest {
   return {
     id: stringValue(row, ["id"]),
     studentId: stringValue(row, ["student_id"]),
-    credentialType: stringValue(row, ["credential_type"], "qr") === "facial" ? "facial" : "qr",
+    credentialType: "qr",
     requestType: stringValue(row, ["request_type"], "technical_issue") as CredentialRequest["requestType"],
     reason: stringValue(row, ["reason"]),
     status: stringValue(row, ["request_status"], "pending") as CredentialRequest["status"],
@@ -425,18 +424,6 @@ export function mapQrCredential(row: Row): QrCredential {
     expiresAt: optionalString(row, ["expires_at", "expiresAt"]),
     revokedAt: optionalString(row, ["revoked_at", "revokedAt"]),
     lastSuccessfulCheckInAt: optionalString(row, ["last_successful_check_in_at", "lastSuccessfulCheckInAt"])
-  };
-}
-
-export function mapFacialProfile(row: Row): FacialProfile {
-  return {
-    id: stringValue(row, ["id"]),
-    studentId: stringValue(row, ["student_id", "studentId"]),
-    status: stringValue(row, ["facial_status", "status"], "unknown"),
-    enrollmentReference: stringValue(row, ["enrollment_reference", "enrollmentReference"]),
-    enrolledAt: stringValue(row, ["enrolled_at", "enrolledAt"], new Date().toISOString()),
-    consentRecordedAt: stringValue(row, ["consent_recorded_at", "consentRecordedAt"], new Date().toISOString()),
-    lastVerifiedAt: optionalString(row, ["last_verified_at", "lastVerifiedAt"])
   };
 }
 

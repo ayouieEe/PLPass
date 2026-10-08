@@ -21,7 +21,6 @@ export const localMigrations = [
         event_id TEXT NOT NULL REFERENCES prepared_events(event_id) ON DELETE CASCADE,
         student_id TEXT NOT NULL, student_number TEXT NOT NULL, display_name TEXT NOT NULL,
         participant_status TEXT NOT NULL, qr_identifier TEXT,
-        face_embeddings_json TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY(event_id, student_id)
       );
       CREATE UNIQUE INDEX cached_participants_qr_idx ON cached_participants(event_id, qr_identifier) WHERE qr_identifier IS NOT NULL;
@@ -33,7 +32,7 @@ export const localMigrations = [
       );
       CREATE TABLE pending_attendance(
         local_attendance_uuid TEXT PRIMARY KEY, event_id TEXT NOT NULL, session_id TEXT NOT NULL,
-        student_id TEXT NOT NULL, identification_method TEXT NOT NULL CHECK(identification_method IN ('qr','facial','manual')),
+        student_id TEXT NOT NULL, identification_method TEXT NOT NULL CHECK(identification_method IN ('qr','manual')),
         checkout_identification_method TEXT, attendance_timestamp TEXT NOT NULL,
         attendance_status TEXT NOT NULL CHECK(attendance_status IN ('present','late')),
         time_in TEXT NOT NULL, time_out TEXT, device_id TEXT, remarks TEXT, late_reason TEXT,
@@ -133,6 +132,26 @@ export const localMigrations = [
     // Keep the Time Out method alongside the original walk-in check-in
     // method, matching pending_attendance.
     sql: `ALTER TABLE pending_walkin_scans ADD COLUMN checkout_identification_method TEXT CHECK(checkout_identification_method IN ('qr','manual'));`
+  },
+  {
+    version: 11,
+    // Remove legacy biometric cache data while preserving QR/manual records.
+    sql: `
+      DROP INDEX IF EXISTS cached_participants_qr_idx;
+      DROP INDEX IF EXISTS cached_participants_student_number_idx;
+      CREATE TABLE cached_participants_new(
+        event_id TEXT NOT NULL REFERENCES prepared_events(event_id) ON DELETE CASCADE,
+        student_id TEXT NOT NULL, student_number TEXT NOT NULL, display_name TEXT NOT NULL,
+        participant_status TEXT NOT NULL, qr_identifier TEXT,
+        PRIMARY KEY(event_id, student_id)
+      );
+      INSERT INTO cached_participants_new(event_id,student_id,student_number,display_name,participant_status,qr_identifier)
+        SELECT event_id,student_id,student_number,display_name,participant_status,qr_identifier FROM cached_participants;
+      DROP TABLE cached_participants;
+      ALTER TABLE cached_participants_new RENAME TO cached_participants;
+      CREATE UNIQUE INDEX cached_participants_qr_idx ON cached_participants(event_id, qr_identifier) WHERE qr_identifier IS NOT NULL;
+      CREATE INDEX cached_participants_student_number_idx ON cached_participants(event_id, student_number);
+    `
   }
 ] as const;
 

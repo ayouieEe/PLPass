@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from "react-dom";
 import type { ColDef } from "ag-grid-community";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Activity, AlertTriangle, ArrowLeft, Camera, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, UserRoundPlus, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, CloudOff, Eye, FileDown, Filter, Play, RefreshCw, ScanLine, Search, Square, UserRoundPlus, X } from "lucide-react";
 import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,7 +10,6 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { withRequestTimeout } from "@/lib/async/requestTimeout";
-import { extractMirroredFaceDescriptor, faceSimilarity } from "@/lib/biometrics/humanFace";
 import { extractStudentNumber, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { ErrorState } from "@/components/feedback/ErrorState";
@@ -66,7 +65,7 @@ import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } 
 // Event Records is organized around Today, Incoming, and Cancelled events.
 // A live session is a full-page state entered after Start Session.
 type EventTab = "today" | "incoming" | "cancelled";
-type AttendanceMethod = "QR Code" | "Facial Recognition" | "Manual";
+type AttendanceMethod = "QR Code" | "Manual";
 type EventFilters = {
   dateFrom: string;
   dateTo: string;
@@ -77,14 +76,12 @@ type EventFilters = {
 type EventReadiness = {
   participants: number;
   qrReady: number;
-  facialReady: number;
 };
 type EventParticipantReadiness = {
   studentId: string;
   studentName: string;
   studentNumber: string;
   qrReady: boolean;
-  facialReady: boolean;
 };
 type EventOfflinePreparation = {
   packageStatus: OfflineStatus["packageStatus"];
@@ -155,15 +152,12 @@ function saveOfflineDirectorySnapshot(organizerProfileId: string, today: string,
 }
 
 function attendanceMethodFromVerification(method?: string | null): AttendanceMethod {
-  if (method === "facial") return "Facial Recognition";
   if (method === "manual") return "Manual";
   return "QR Code";
 }
 
-function verificationMethodFromAttendance(method: AttendanceMethod): "qr" | "facial" | "manual" {
-  if (method === "Facial Recognition") return "facial";
-  if (method === "Manual") return "manual";
-  return "qr";
+function verificationMethodFromAttendance(method: AttendanceMethod): "qr" | "manual" {
+  return method === "Manual" ? "manual" : "qr";
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -931,9 +925,6 @@ export function EventManagementPage() {
   const [qrInput, setQrInput] = useState("");
   const [isQrProcessing, setIsQrProcessing] = useState(false);
   const [isCaptureCoolingDown, setIsCaptureCoolingDown] = useState(false);
-  const [facialCameraOpen, setFacialCameraOpen] = useState(false);
-  const [facialVerifying, setFacialVerifying] = useState(false);
-  const [facialStatus, setFacialStatus] = useState("");
   const [manualInput, setManualInput] = useState("");
   const [manualEntryReason, setManualEntryReason] = useState("");
   const manualInputRef = useRef<HTMLInputElement>(null);
@@ -947,8 +938,6 @@ export function EventManagementPage() {
   const attendanceCaptureCooldownUntilRef = useRef(0);
   const attendanceCaptureCooldownTimerRef = useRef<number | undefined>(undefined);
   const lastSuccessfulQrScanAtRef = useRef(0);
-  const facialVideoRef = useRef<HTMLVideoElement>(null);
-  const facialStreamRef = useRef<MediaStream | null>(null);
   const hydratedSessionIdRef = useRef<string | null>(null);
   const hydratedAttendanceDraftSessionIdRef = useRef<string | null>(null);
   const finalizedAttendanceSessionIdsRef = useRef(new Set<string>());
@@ -1087,7 +1076,6 @@ export function EventManagementPage() {
     setLiveSessionId(null);
     setActiveRows([]);
     setCaptureMode(null);
-    setFacialCameraOpen(false);
     setHandledSessionRouteId(sessionIdFromQuery);
     navigate(
       { pathname: workspaceRoute(APP_ROUTES.organizerEvents, APP_ROUTES.adminEvents), search: "" },
@@ -1453,33 +1441,6 @@ export function EventManagementPage() {
     setActiveTab(tabFromQuery);
   }, [tabFromQuery]);
 
-  useEffect(() => {
-    if (captureMode !== "Facial Recognition" || !facialCameraOpen) {
-      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
-      facialStreamRef.current = null;
-      if (facialVideoRef.current) facialVideoRef.current.srcObject = null;
-      return;
-    }
-
-    let cancelled = false;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        facialStreamRef.current = stream;
-        if (facialVideoRef.current) facialVideoRef.current.srcObject = stream;
-      })
-      .catch(() => setFacialStatus("Camera access was not granted. Use QR or manual attendance instead."));
-
-    return () => {
-      cancelled = true;
-      facialStreamRef.current?.getTracks().forEach((track) => track.stop());
-      facialStreamRef.current = null;
-    };
-  }, [captureMode, facialCameraOpen]);
-
   // Fetch objectives for all events from Supabase
   useEffect(() => {
     if (isOfflineMode) {
@@ -1781,7 +1742,6 @@ export function EventManagementPage() {
           setLiveSessionId(null);
           setActiveRows([]);
           setCaptureMode(null);
-          setFacialCameraOpen(false);
           toast.info("This attendance session is no longer active. Returned to Events.");
         }
         setHandledSessionRouteId(sessionIdFromQuery);
@@ -1887,7 +1847,6 @@ export function EventManagementPage() {
         readiness.set(event.id, {
           participants: participants.length,
           qrReady: participants.filter((participant) => Boolean(participant.qrIdentifier)).length,
-          facialReady: participants.filter((participant) => participant.faceEmbeddings.length > 0).length
         });
         return;
       }
@@ -1896,9 +1855,7 @@ export function EventManagementPage() {
         const credential = credentialStatusByStudentId.get(studentId)?.qrCredential;
         return credential?.status === "activated" && !credential.revokedAt && (!credential.expiresAt || new Date(credential.expiresAt).getTime() > now);
       }).length;
-      const facialReady = participantIds.filter((studentId) => credentialStatusByStudentId.get(studentId)?.facialProfile?.status === "activated").length;
-
-      readiness.set(event.id, { participants: participantIds.length, qrReady, facialReady });
+      readiness.set(event.id, { participants: participantIds.length, qrReady });
     });
     return readiness;
   }, [credentialStatusesQuery.data, isOfflineMode, offlinePackageByEventId, participantStudentIdsByEventId, repositoryEvents]);
@@ -1919,7 +1876,6 @@ export function EventManagementPage() {
             studentName: participant.displayName,
             studentNumber: participant.studentNumber,
             qrReady: Boolean(participant.qrIdentifier),
-            facialReady: participant.faceEmbeddings.length > 0
           })));
         return;
       }
@@ -1928,13 +1884,11 @@ export function EventManagementPage() {
         const qrCredential = credentialStatus?.qrCredential;
         const student = studentById.get(studentId);
         const qrReady = qrCredential?.status === "activated" && !qrCredential.revokedAt && (!qrCredential.expiresAt || new Date(qrCredential.expiresAt).getTime() > now);
-        const facialReady = credentialStatus?.facialProfile?.status === "activated";
         return {
           studentId,
           studentName: student?.fullName ?? student?.formattedName ?? ([student?.firstName, student?.lastName].filter(Boolean).join(" ") || "Student details unavailable"),
           studentNumber: student?.studentNumber ?? "â€”",
           qrReady,
-          facialReady
         };
       });
 
@@ -1943,7 +1897,7 @@ export function EventManagementPage() {
     return participantReadiness;
   }, [credentialStatusesQuery.data, isOfflineMode, offlinePackageByEventId, participantStudentIdsByEventId, repositoryEvents, studentsQuery.data?.items]);
   const readinessIssuesByEventId = useMemo(
-    () => new Map([...participantReadinessByEventId.entries()].map(([eventId, participants]) => [eventId, participants.filter((student) => !student.qrReady || !student.facialReady)])),
+    () => new Map([...participantReadinessByEventId.entries()].map(([eventId, participants]) => [eventId, participants.filter((student) => !student.qrReady)])),
     [participantReadinessByEventId]
   );
   const readinessModalSummary = readinessEvent?.id ? readinessByEventId.get(readinessEvent.id) : undefined;
@@ -2636,7 +2590,6 @@ export function EventManagementPage() {
     setActiveParticipantIdentities(null);
     setActiveRows([]);
     setCaptureMode(null);
-    setFacialCameraOpen(false);
     setEndSessionConfirmOpen(false);
     setEndSessionReason("");
     navigate(
@@ -2693,134 +2646,6 @@ export function EventManagementPage() {
       toast.success("Time Out is now open. Phone scanners will record Time Out only.");
     } catch (error) {
       toast.error(getErrorMessage(error) || "Time Out could not be opened.");
-    }
-  }
-
-  function openLiveFacialVerification() {
-    if (!resolvedLiveSessionId) {
-      toast.error("No active attendance session is available for facial verification.");
-      return;
-    }
-    setFacialStatus("");
-    setFacialCameraOpen(true);
-  }
-
-  async function verifyFacialAttendance() {
-    const sessionId = resolvedLiveSessionId;
-    const video = facialVideoRef.current;
-    if (!sessionId || !activeEvent || !video) {
-      setFacialStatus("Start the camera and keep one enrolled student centered.");
-      return;
-    }
-    if (facialVerifying || !beginAttendanceCapture()) return;
-
-    setFacialVerifying(true);
-    setFacialStatus("Identifying one live face among this event's enrolled participants…");
-    let effectiveFacialPhase = attendancePhase;
-    try {
-      if (!isLocalAuthoritativeSession) {
-        effectiveFacialPhase = await prepareOnlineAttendanceCapture(sessionId);
-        if (effectiveFacialPhase !== attendancePhase) {
-          setAttendancePhase(effectiveFacialPhase);
-          writeAttendancePhase(window.sessionStorage, sessionId, effectiveFacialPhase);
-        }
-      }
-      const { descriptor: liveDescriptor } = await extractMirroredFaceDescriptor(video);
-      const client = getSupabaseBrowserClient();
-      const { data: candidates, error: candidatesError } = await withRequestTimeout(client.rpc("get_live_facial_candidates", {
-        p_event_session_id: sessionId
-      }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
-      if (candidatesError) throw new Error(candidatesError.message);
-
-      const matches = (await Promise.all((candidates ?? []).map(async (candidate) => {
-        const { data: descriptor, error } = await withRequestTimeout(client.rpc("get_facial_descriptor_for_organizer", {
-          p_event_session_id: sessionId,
-          p_student_id: candidate.student_id
-        }), 30_000, "Facial attendance lookup took too long. Use QR or manual attendance and try again.");
-        if (error || !Array.isArray(descriptor) || !descriptor.every((value) => typeof value === "number")) return null;
-        return { candidate, similarity: faceSimilarity(descriptor, liveDescriptor) };
-      }))).filter((match): match is NonNullable<typeof match> => Boolean(match));
-
-      matches.sort((left, right) => right.similarity - left.similarity);
-      const bestMatch = matches[0];
-      if (!bestMatch || bestMatch.similarity < 0.82) {
-        throw new Error("No enrolled participant matched this face. Use QR or manual attendance instead.");
-      }
-      if (matches[1] && bestMatch.similarity - matches[1].similarity < 0.04) {
-        throw new Error("Face match is ambiguous. Keep only one participant in view or use QR.");
-      }
-
-      const occurredAt = new Date().toISOString();
-      const { data: attendance, error: attendanceError } = await withRequestTimeout(client.rpc("record_live_facial_attendance", {
-        p_event_session_id: sessionId,
-        p_student_id: bestMatch.candidate.student_id,
-        p_similarity: bestMatch.similarity,
-        p_action: effectiveFacialPhase === "time_out" ? "check_out" : "check_in",
-        p_occurred_at: occurredAt
-      }), 30_000, "Facial attendance took too long. Use QR or manual attendance and try again.");
-      if (attendanceError) throw new Error(attendanceError.message);
-      const action = attendance && typeof attendance === "object" && "action" in attendance && typeof attendance.action === "string"
-        ? attendance.action
-        : "checked_in";
-      const actionLabel = action === "checked_out" ? "checked out" : action === "already_recorded" ? "already recorded" : "checked in";
-      const attendanceStatus = attendance && typeof attendance === "object" && "attendance_status" in attendance && (attendance.attendance_status === "late" || attendance.attendance_status === "present")
-        ? attendance.attendance_status
-        : "present";
-
-      if (action !== "already_recorded") {
-        setActiveRows((current) => {
-          const existing = current.find((row) => row.studentId === bestMatch.candidate.student_id);
-          if (action === "checked_out") {
-            if (!existing) return current;
-            return current.map((row) => row.studentId === bestMatch.candidate.student_id
-              ? { ...row, checkOutAt: occurredAt, checkOutTime: formatLocalTime(occurredAt), checkoutAttendanceMethod: "Facial Recognition" }
-              : row);
-          }
-          if (existing) {
-            return current.map((row) => row.studentId === bestMatch.candidate.student_id
-              ? { ...row, attendanceMethod: "Facial Recognition", attendanceStatus, isFinalized: false }
-              : row);
-          }
-          return [...current, {
-            id: `facial-${bestMatch.candidate.student_id}`,
-            studentId: bestMatch.candidate.student_id,
-            studentName: bestMatch.candidate.display_name,
-            eventCode: activeEvent.code,
-            attendanceMethod: "Facial Recognition",
-            checkInAt: occurredAt,
-            checkInTime: formatLocalTime(occurredAt),
-            attendanceStatus,
-            isFinalized: false
-          }];
-        });
-      }
-
-      const facialAttendance = attendance && typeof attendance === "object" ? attendance as {
-        attendance_status?: "present" | "late";
-        time_in?: string;
-        time_out?: string | null;
-      } : null;
-      const facialExisting = activeRows.find((row) => row.studentId === bestMatch.candidate.student_id);
-      await cacheOnlineAttendanceForOffline({
-        sessionId,
-        studentId: bestMatch.candidate.student_id,
-        studentNumber: bestMatch.candidate.student_number,
-        displayName: bestMatch.candidate.display_name,
-        participantStatus: "invited",
-        attendanceStatus,
-        timeIn: facialAttendance?.time_in ?? facialExisting?.checkInAt ?? occurredAt,
-        timeOut: facialAttendance?.time_out ?? (action === "checked_out" ? occurredAt : null),
-      });
-
-      setFacialStatus(`${bestMatch.candidate.display_name} (${bestMatch.candidate.student_number}) — ${actionLabel}. Match confidence: ${(bestMatch.similarity * 100).toFixed(1)}%. You can scan the next enrolled participant.`);
-      toast.success(`${bestMatch.candidate.display_name}: ${actionLabel}`);
-    } catch (error) {
-      const errorMessage = getErrorMessage(error) || "Face verification could not be completed.";
-      setFacialStatus(isAttendanceTransportFailure(error)
-        ? "Facial recognition requires an internet connection. Reconnect and try again, or use QR/manual attendance."
-        : errorMessage);
-    } finally {
-      setFacialVerifying(false);
     }
   }
 
@@ -3807,7 +3632,7 @@ export function EventManagementPage() {
               <span className="text-muted-foreground">{readiness.participants} registered</span>
               <span className={qrReady ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>{qrReady ? "QR ready" : "QR setup incomplete"}</span>
             </div>
-            <p className="text-muted-foreground">QR {readiness.qrReady}/{readiness.participants} · Face {readiness.facialReady}/{readiness.participants}</p>
+            <p className="text-muted-foreground">QR {readiness.qrReady}/{readiness.participants}</p>
           </button>
         );
       }
@@ -4076,7 +3901,7 @@ export function EventManagementPage() {
           </div>
         ) : (
         // The original Live Session workspace stays inside Event Management.
-        // Advanced QR and facial camera tools open only when requested.
+        // Advanced attendance tools open only when requested.
         <>
         <section className="rounded-2xl border border-border bg-surface shadow-sm">
           <div className="flex flex-col gap-4 border-b border-border bg-background/40 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -4126,16 +3951,6 @@ export function EventManagementPage() {
               </Button>
                 <Button
                   type="button"
-                  variant={captureMode === "Facial Recognition" ? "default" : "outline"}
-                  className="gap-2 rounded-lg shadow-none"
-                  onClick={() => setCaptureMode("Facial Recognition")}
-                  aria-pressed={captureMode === "Facial Recognition"}
-                >
-                  <Camera className="h-4 w-4" aria-hidden="true" />
-                  Facial Recognition
-                </Button>
-                <Button
-                  type="button"
                   variant={captureMode === "Manual" ? "default" : "outline"}
                   className="gap-2 rounded-lg shadow-none"
                   onClick={activateManualCapture}
@@ -4166,39 +3981,6 @@ export function EventManagementPage() {
                         </div>
                       </div>
 
-                    </div>
-                  ) : captureMode === "Facial Recognition" ? (
-                    <div className="mx-auto max-w-2xl text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                        <Camera className="h-6 w-6" aria-hidden="true" />
-                      </div>
-                      <p className="mt-4 text-sm font-semibold text-foreground">Facial verification</p>
-                      <p id="live-facial-instructions" className="mt-2 text-sm text-muted-foreground">Use this supervised fallback only when QR cannot be read. Keep one enrolled participant centered in the camera.</p>
-
-                      {facialCameraOpen ? (
-                        <div className="mt-4 overflow-hidden rounded-xl border border-border bg-black">
-                          <video
-                            ref={facialVideoRef}
-                            aria-label="Live facial verification camera preview"
-                            aria-describedby="live-facial-instructions"
-                            autoPlay
-                            muted
-                            playsInline
-                            className="aspect-video w-full scale-x-[-1] object-cover"
-                          />
-                        </div>
-                      ) : null}
-
-                      <div className="mt-4 flex flex-wrap justify-center gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => facialCameraOpen ? setFacialCameraOpen(false) : openLiveFacialVerification()}>
-                          <Camera className="h-4 w-4" aria-hidden="true" />
-                          {facialCameraOpen ? "Stop camera" : "Open live verification"}
-                        </Button>
-                        <Button type="button" size="sm" disabled={!facialCameraOpen || facialVerifying || isCaptureCoolingDown} onClick={() => void verifyFacialAttendance()}>
-                          {facialVerifying ? "Identifying…" : attendancePhase === "time_out" ? "Verify Time Out" : "Verify attendance"}
-                        </Button>
-                      </div>
-                      {facialStatus ? <p className="mt-4 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground" role="status">{facialStatus}</p> : null}
                     </div>
                   ) : captureMode === "Manual" ? (
                     <div className="space-y-4">
@@ -4256,7 +4038,7 @@ export function EventManagementPage() {
                   ) : (
                     <div className="text-center">
                       <p className="text-sm font-semibold text-foreground">Choose a capture mode</p>
-                      <p className="mt-2 text-sm text-muted-foreground">Tap QR Code, Facial Recognition, or Manual to begin.</p>
+                      <p className="mt-2 text-sm text-muted-foreground">Tap QR Code or Manual to begin.</p>
                     </div>
                   )}
             </div>
@@ -4436,18 +4218,17 @@ export function EventManagementPage() {
             <p className="mt-1 text-sm text-muted-foreground">{readinessEvent.code} · {readinessEvent.name}</p>
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
-            QR is the primary check-in method. Facial recognition is an optional backup for students who cannot scan their QR code.
+             QR is the primary check-in method. Manual entry remains available when a student cannot scan their QR code.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <SummaryTile label="Registered" value={readinessModalSummary.participants.toString()} />
             <SummaryTile label="QR credentials ready" value={`${readinessModalSummary.qrReady}/${readinessModalSummary.participants}`} />
-            <SummaryTile label="Facial backups ready" value={`${readinessModalSummary.facialReady}/${readinessModalSummary.participants}`} />
           </div>
 
           {readinessModalIssues.length === 0 ? (
             <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-              Every registered student has both a usable QR credential and facial backup.
+              Every registered student has a usable QR credential.
             </div>
           ) : (
             <div className="mt-5">
@@ -4465,7 +4246,6 @@ export function EventManagementPage() {
                       <th className="px-4 py-3 font-medium">Student</th>
                       <th className="px-4 py-3 font-medium">Student No.</th>
                       <th className="px-4 py-3 font-medium">QR credential</th>
-                      <th className="px-4 py-3 font-medium">Facial backup</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4474,7 +4254,6 @@ export function EventManagementPage() {
                         <td className="px-4 py-3 font-medium text-foreground">{student.studentName}</td>
                         <td className="px-4 py-3 text-muted-foreground">{student.studentNumber}</td>
                         <td className={`px-4 py-3 font-medium ${student.qrReady ? "text-emerald-700" : "text-amber-700"}`}>{student.qrReady ? "Ready" : "Needs QR"}</td>
-                        <td className={`px-4 py-3 font-medium ${student.facialReady ? "text-emerald-700" : "text-muted-foreground"}`}>{student.facialReady ? "Ready" : "Not enrolled"}</td>
                       </tr>
                     ))}
                   </tbody>

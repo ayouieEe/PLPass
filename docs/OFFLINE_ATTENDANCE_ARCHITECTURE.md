@@ -47,7 +47,7 @@ sequenceDiagram
 
 1. Sign in online in the desktop app and open an approved scheduled/ongoing event.
 2. Select **Prepare for Offline Use**. A package is marked ready only after required event, session, and participant identity data is present.
-3. During an outage, use QR first, local facial matching second, and exact Student ID/name last. Every method calls the same local attendance validator.
+3. During an outage, use QR first and exact Student ID/name manual fallback second. Every method calls the same local attendance validator.
 4. A local success explicitly says synchronization is pending. Keep the app open when connectivity returns; it probes Supabase authentication rather than trusting `navigator.onLine` and synchronizes automatically in bounded batches. **Retry Sync** is also available.
 5. Resolve conflicts before cleanup. After the event is completed and the status says all attendance is synchronized, select **Clean up offline package**.
 
@@ -69,11 +69,11 @@ Local records use a generated `local_attendance_uuid` and lifecycle states `PEND
 
 `sync_offline_event_attendance` validates the authenticated organizer, event ownership, participant eligibility, method, timestamps, and status. Postgres uniquely enforces both the local UUID and the existing `(event_session_id, student_id)` attendance identity. If an upload response is lost, the client queries by UUID; deletion occurs only after the returned or queried row has the same UUID. Connectivity by itself never deletes data.
 
-## Cleanup and biometric handling
+## Cleanup and local cache handling
 
 The event cache is retained across temporary reconnections. Cleanup is blocked until the event is completed, pending/retry/syncing/conflict count is zero, and Supabase connectivity has been positively confirmed. Cleanup cascades through local sessions, participants, QR identifiers, attendance state, and embeddings only; it never deletes a Supabase event or history.
 
-SQLite `secure_delete` is enabled and the WAL is truncated during cleanup. Secure deletion cannot be guaranteed on SSDs because wear leveling may preserve old physical pages. This implementation mitigates exposure through minimum-data caching, the per-user application directory, short event retention, no raw-photo caching, no biometric logging, and verified cleanup. Database encryption/key destruction is a recommended future hardening step if the defense environment requires stronger at-rest guarantees.
+SQLite `secure_delete` is enabled and the WAL is truncated during cleanup. Secure deletion cannot be guaranteed on SSDs because wear leveling may preserve old physical pages. This implementation mitigates exposure through minimum-data caching, the per-user application directory, short event retention, and verified cleanup. Database encryption/key destruction is a recommended future hardening step if the defense environment requires stronger at-rest guarantees.
 
 ## Run and test
 

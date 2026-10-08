@@ -226,15 +226,10 @@ describe("event page validation helpers", () => {
     expect(dateKey("2026-08-31T00:00:00.000Z")).toBe("2026-08-31");
   });
 
-  it("runs facial verification in the active event workspace", () => {
-    expect(eventManagementPage).toContain("extractMirroredFaceDescriptor(video)");
-    expect(eventManagementPage).toContain('client.rpc("record_live_facial_attendance"');
-    expect(eventManagementPage).not.toContain("identifyLiveFace(");
-    expect(eventManagementPage).toContain("Live facial verification camera preview");
-    expect(eventManagementPage).not.toContain("navigate(APP_ROUTES.organizerSession(resolvedLiveSessionId))");
-    expect(eventManagementPage).toContain("No active attendance session is available for facial verification.");
-    expect(eventManagementPage).toContain("effectiveFacialPhase = await prepareOnlineAttendanceCapture(sessionId);");
-    expect(eventManagementPage).toContain('p_action: effectiveFacialPhase === "time_out" ? "check_out" : "check_in"');
+  it("removes facial verification from the active event workspace", () => {
+    expect(eventManagementPage).not.toContain("facial");
+    expect(eventManagementPage).not.toContain("extractMirroredFaceDescriptor");
+    expect(eventManagementPage).not.toContain("facial");
   });
 
   it("keeps schedule navigation out of a live event workspace and clears stale sessions", () => {
@@ -547,7 +542,6 @@ describe("event page validation helpers", () => {
   it("paces every attendance capture for one second to prevent burst reconciliation", () => {
     expect(eventManagementPage).toContain("const attendanceCaptureCooldownUntilRef = useRef(0);");
     expect(eventManagementPage).toContain("attendanceCaptureCooldownUntilRef.current = now + 1_000;");
-    expect(eventManagementPage).toContain("if (facialVerifying || !beginAttendanceCapture()) return;");
     expect(eventManagementPage).toContain("if (!beginAttendanceCapture()) return;");
     expect(eventManagementPage).toContain("Please wait one second before recording the next student.");
     expect(eventManagementPage).toContain('disabled={isCaptureCoolingDown}');
@@ -599,7 +593,6 @@ describe("event page validation helpers", () => {
     expect(eventAttendancePage).toContain("coordinateAttendancePhase");
     expect(eventAttendancePage).toContain("advanceServerPhase:()=>advanceServerAttendanceCapturePhase(sessionId)");
     expect(eventAttendancePage).toContain("effectiveCapturePhase = await reconcileOnlineCapturePhase()");
-    expect(eventAttendancePage).toContain('p_action: effectiveCapturePhase === "time_out" ? "check_out" : "check_in"');
   });
 
   it("retains the durable Walk-in origin when hydrating the live attendee list", () => {

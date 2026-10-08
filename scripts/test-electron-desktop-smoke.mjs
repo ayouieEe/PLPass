@@ -63,7 +63,7 @@ try {
     env: {
       ...process.env,
       PLPASS_E2E_ISOLATED: "1",
-      PLPASS_FACIAL_API_URL: "http://127.0.0.1:9",
+      PLPASS_API_URL: "http://127.0.0.1:9",
       VITE_DEV_SERVER_URL: "plpass://app/"
     }
   }), "app launch");

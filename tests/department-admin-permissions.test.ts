@@ -66,10 +66,8 @@ describe("department-admin permission contract", () => {
     expect(migration).not.toMatch(/returns table\s*\([^)]*token_hash/is);
     expect(repository).toContain('client.rpc("department_admin_issue_qr_credential"');
     expect(repository).toContain('"credentials.reset.department" : "credentials.revoke.department"');
-    expect(page).toContain("Reissue QR");
+    expect(page).toContain("Issue QR");
     expect(page).not.toContain("credentialActions");
-    expect(page).toContain("canResetCredentials");
-    expect(page).toContain("canRevokeCredentials");
     expect(read("src/features/department/pages/DepartmentWorkspacePages.tsx")).toContain("return <AuthenticationMethodsPage />;");
   });
 

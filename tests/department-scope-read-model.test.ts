@@ -72,7 +72,7 @@ describe("department read-model coverage", () => {
     expect(repositories).toMatch(/const scopedDepartmentId = context\?\.actorRole === "department_admin"\s*\? context\.departmentId\s*:\s*undefined;/);
     expect(repositories).toContain('context?.actorRole === "department_admin" && !scopedDepartmentId) return []');
     expect(repositories).toContain('if (scopedDepartmentId) builder = builder.eq("department_id", scopedDepartmentId);');
-    expect(credentials).toContain('useOrganizerCredentialDirectory(scope.context, actorRole === "organizer")');
+    expect(credentials).toContain("useStudentCredentialStatuses");
     expect(credentials).not.toContain("useParticipantsForEvents");
     expect(credentials).not.toContain("useStudentsByIds");
     expect(users).toContain("fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}");

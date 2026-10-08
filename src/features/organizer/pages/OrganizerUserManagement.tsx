@@ -29,7 +29,7 @@ import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
+import { getQrCredentialDisplayStatus, type CredentialDisplayStatus } from "@/lib/credentials/status";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -72,7 +72,7 @@ function useOrganizerScope() {
 }
 
 type StudentStatus = "Active" | "Deactivated";
-type CredentialStatus = CredentialDisplayStatus | FacialCredentialDisplayStatus;
+type CredentialStatus = CredentialDisplayStatus;
 type OrganizerStatus = "Active" | "Inactive";
 const studentNameExtensions = ["Jr.", "Sr.", "II", "III", "IV", "V"] as const;
 const emptyStudentForm: CreateStudentInput = {
@@ -101,7 +101,6 @@ type StudentAccount = {
   attendanceRate: number | null;
   eventsJoined: number;
   qrStatus: CredentialStatus;
-  facialStatus: FacialCredentialDisplayStatus;
 };
 function normalizeNameFieldValue(key: string, value: string | undefined) {
   return value === undefined || !["firstName", "middleName", "lastName"].includes(key) ? value : capitalizePersonName(value);
@@ -385,8 +384,6 @@ function StudentDetailModal({
                     <StatusBadge value={student.qrStatus} />
                   </div>
                   <div className="flex items-center justify-between gap-4 p-4">
-                    <p className="text-xs font-medium uppercase text-muted-foreground">Facial Credential</p>
-                    <StatusBadge value={student.facialStatus} />
                   </div>
                 </div>
               </section>
@@ -478,7 +475,6 @@ function ReportExportModal({
           attendanceRate: s.attendanceRate ?? 0,
           eventsJoined: s.eventsJoined,
           qrStatus: s.qrStatus,
-          facialStatus: s.facialStatus
         }));
 
         if (exportFormat === "xlsx") {
@@ -1703,7 +1699,6 @@ export function OrganizerUserManagementPage() {
       const programCode = student.programCode || programsMap.get(student.programId) || "BSIT";
       const credentials = credentialMap.get(student.id);
       const qrCredential = credentials?.qrCredential;
-      const facialProfile = credentials?.facialProfile;
       return {
         id: student.id,
         userId: student.userId,
@@ -1718,7 +1713,6 @@ export function OrganizerUserManagementPage() {
         attendanceRate: rate,
         eventsJoined: attendedCount,
         qrStatus: getQrCredentialDisplayStatus(qrCredential),
-        facialStatus: getFacialCredentialDisplayStatus(facialProfile)
       };
     });
 
@@ -1792,7 +1786,7 @@ export function OrganizerUserManagementPage() {
         accountStatus: nextStatus,
         statusOnly: true
       });
-      toast.success(nextStatus === "active" ? "Student account reactivated." : "Student account deactivated. QR and facial credentials were kept.");
+      toast.success(nextStatus === "active" ? "Student account reactivated." : "Student account deactivated. QR credentials were kept.");
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
@@ -1885,14 +1879,12 @@ export function OrganizerUserManagementPage() {
         headerName: "Credentials",
         colId: "credentials",
         minWidth: 220,
-        valueGetter: ({ data }) => (data ? `${data.qrStatus} ${data.facialStatus}` : ""),
+        valueGetter: ({ data }) => (data ? data.qrStatus : ""),
         cellRenderer: ({ data }: ICellRendererParams<StudentAccount>) =>
           data ? (
             <div className="flex h-full items-center gap-2">
               <span className="text-xs text-muted-foreground">QR</span>
               <StatusBadge value={data.qrStatus} />
-              <span className="text-xs text-muted-foreground">Face</span>
-              <StatusBadge value={data.facialStatus} />
             </div>
           ) : null
       },

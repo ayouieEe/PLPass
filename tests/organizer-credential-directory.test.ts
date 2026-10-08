@@ -7,7 +7,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 describe("organizer credential directory", () => {
   it("uses one organizer-scoped directory request instead of a client-side scope waterfall", () => {
     const source = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
-    expect(source).toContain("useOrganizerCredentialDirectory(scope.context, actorRole === \"organizer\")");
+    expect(source).toContain("useStudentCredentialStatuses");
     expect(source).not.toContain("useParticipantsForEvents");
     expect(source).not.toContain("useStudentsByIds");
   });

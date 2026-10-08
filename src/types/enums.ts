@@ -35,7 +35,7 @@ export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 export const NOTIFICATION_SEVERITIES = ["info", "warning", "critical"] as const;
 export type NotificationSeverity = (typeof NOTIFICATION_SEVERITIES)[number];
 
-export const VERIFICATION_METHODS = ["qr", "facial", "manual", "online"] as const;
+export const VERIFICATION_METHODS = ["qr", "manual", "online"] as const;
 export type VerificationMethod = (typeof VERIFICATION_METHODS)[number];
 
 export const ATTENDANCE_SESSION_TYPES = ["class", "event"] as const;

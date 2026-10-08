@@ -48,7 +48,6 @@ describe("auditLogUtils helper unit tests", () => {
   it("formats technical action identifiers into readable text", () => {
     expect(formatAuditAction("Credential.qr Issued")).toBe("QR credential issued");
     expect(formatAuditAction("credential.qr.issued")).toBe("QR credential issued");
-    expect(formatAuditAction("credential.facial.enrolled")).toBe("Facial credential enrolled");
     expect(formatAuditAction("event.approved")).toBe("Event approved");
     expect(formatAuditAction("session.completed")).toBe("Session completed");
     expect(formatAuditAction("user.invited")).toBe("User invited");
@@ -57,7 +56,6 @@ describe("auditLogUtils helper unit tests", () => {
 
   it("formats target entity type badges", () => {
     expect(formatTargetType("qr_credential")).toBe("QR Credential");
-    expect(formatTargetType("facial_profile")).toBe("Facial Credential");
     expect(formatTargetType("event")).toBe("Event");
     expect(formatTargetType("attendance_session")).toBe("Attendance Session");
     expect(formatTargetType("correction_request")).toBe("Correction Request");
@@ -165,7 +163,6 @@ describe("OrganizerAuditLogsPage UI component tests", () => {
     
     // Check formatted readable actions
     expect(await screen.findByText("QR credential issued")).toBeInTheDocument();
-    expect(screen.getByText("Facial credential enrolled")).toBeInTheDocument();
     expect(screen.getByText("Event approved")).toBeInTheDocument();
 
     // Check affected target names (student names and event titles)

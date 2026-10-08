@@ -130,7 +130,6 @@ type EventFeedbackRatingRow = {
 
 function mapVerificationMethod(value: string | null): AttendanceMethod {
   if (value === "qr") return "QR Code";
-  if (value === "facial") return "Facial Recognition";
   return "Manual";
 }
 

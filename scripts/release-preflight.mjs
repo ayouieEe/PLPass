@@ -20,9 +20,9 @@ requireFiles([
   "PHASE_10_RELEASE_READINESS.md",
   "docs/DEPLOYMENT_RUNBOOK.md",
   "docs/UAT_CHECKLIST.md",
-  "docs/BIOMETRIC_PRIVACY_CHECKLIST.md"
+  "docs/DEPLOYMENT_RUNBOOK.md"
 ]);
-requireMigration("harden_biometric_and_event_email_functions");
+requireMigration("remove_facial_recognition");
 rejectFrontendServiceSecrets();
 checkBuiltArtifact();
 

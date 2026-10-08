@@ -81,7 +81,6 @@ function getDefaultRequestType(status: StudentEventRecord["status"]) {
 function formatAttendanceMethod(method: string) {
   const normalized = method.toLowerCase();
   if (normalized === "qr" || normalized === "qr code") return "QR Code";
-  if (normalized === "facial" || normalized === "facial recognition") return "Facial Recognition";
   if (normalized === "manual") return "Manual";
   return "Manual";
 }

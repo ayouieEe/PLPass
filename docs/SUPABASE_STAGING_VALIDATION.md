@@ -15,7 +15,7 @@ Run this checklist before deploying application code or database changes to stag
 
 ## Required multi-account authorization checks
 
-- A student can read and update only their own profile, attendance requests, credentials, notifications, and biometric enrollment data.
+- A student can read and update only their own profile, attendance requests, QR credentials, and notifications.
 - A student cannot create or modify events, organizer settings, another student's records, or audit logs.
 - An organizer can manage only events and attendance data allowed by the ownership rules.
 - One organizer cannot modify another organizer's events unless the product explicitly grants that role.

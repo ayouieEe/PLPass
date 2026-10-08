@@ -225,10 +225,10 @@ export type EndAttendanceSessionInput = {
 export type FinalizeAttendanceRecordInput = {
   studentId: string;
   status: "present" | "late";
-  verificationMethod: Extract<VerificationMethod, "qr" | "facial" | "manual">;
+  verificationMethod: Extract<VerificationMethod, "qr" | "manual">;
   timeIn: string;
   timeOut?: string;
-  checkoutVerificationMethod?: Extract<VerificationMethod, "qr" | "facial" | "manual">;
+  checkoutVerificationMethod?: Extract<VerificationMethod, "qr" | "manual">;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
   remarks?: string;
 };
@@ -236,8 +236,7 @@ export type FinalizeAttendanceRecordInput = {
 export type AttendanceScanInput = {
   sessionId: string;
   credentialCode: string;
-  method: Extract<VerificationMethod, "qr" | "facial">;
-  faceSimilarity?: number;
+  method: Extract<VerificationMethod, "qr">;
   occurredAt?: string;
 };
 
@@ -268,13 +267,6 @@ export type CreateCredentialRequestInput = Pick<
 export type IssueQrCredentialInput = {
   studentId: string;
   expiresAt?: string;
-};
-
-export type EnrollFacialProfileInput = {
-  studentId: string;
-  enrollmentReference?: string;
-  faceImage?: File;
-  faceDescriptor?: number[];
 };
 
 export type AttendanceSubmissionResultStatus =
@@ -315,7 +307,7 @@ export type ReviewCorrectionRequestInput = {
 
 export type SetStudentCredentialStatusInput = {
   studentId: string;
-  credentialType: "qr" | "facial";
+  credentialType: "qr";
   status: "activated" | "inactive" | "blocked";
 };
 
@@ -503,7 +495,6 @@ export interface StudentCredentialRepository {
   listOrganizerCredentialDirectory(context?: RepositoryContext): Promise<OrganizerCredentialDirectoryEntry[]>;
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
-  enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   setCredentialStatus(input: SetStudentCredentialStatusInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
 }
 

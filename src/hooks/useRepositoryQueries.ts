@@ -18,7 +18,6 @@ import type {
   UpdateStudentInput,
   EndAttendanceSessionInput,
   AttendanceScanInput,
-  EnrollFacialProfileInput,
   IssueQrCredentialInput,
   ManualAttendanceInput,
   RescheduleEventInput,
@@ -716,13 +715,6 @@ export function useStudentCredentialMutations(context?: RepositoryContext) {
   return {
     issueQrCredentialMutation: useMutation({
       mutationFn: (input: IssueQrCredentialInput) => repositories.studentCredentials.issueQrCredential(input, context),
-      onSuccess: invalidateCredentials,
-      onError: (error: unknown) => {
-        toast.error(getErrorMessage(error));
-      }
-    }),
-    enrollFacialProfileMutation: useMutation({
-      mutationFn: (input: EnrollFacialProfileInput) => repositories.studentCredentials.enrollFacialProfile(input, context),
       onSuccess: invalidateCredentials,
       onError: (error: unknown) => {
         toast.error(getErrorMessage(error));

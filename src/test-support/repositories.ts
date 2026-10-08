@@ -1920,24 +1920,6 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
       }
     };
   },
-  async enrollFacialProfile(input, context) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer", "student"]);
-    const currentContext = contextOrDefault(context);
-    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
-      throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
-    }
-    return {
-      studentId: input.studentId,
-      facialProfile: {
-        id: `face-${input.studentId}`,
-        studentId: input.studentId,
-        status: "activated",
-        enrollmentReference: input.enrollmentReference ?? `face-${input.studentId}`,
-        enrolledAt: new Date().toISOString(),
-        consentRecordedAt: new Date().toISOString()
-      }
-    };
-  },
   async setCredentialStatus(input, context) {
     await beforeRead("studentCredentials", context, ["admin", "organizer"]);
     const currentContext = contextOrDefault(context);
