@@ -9,6 +9,10 @@ describe("non-visual attendance alternatives", () => {
 
     expect(studentMethods).not.toContain("facial");
     expect(studentMethods).not.toContain("faceDescriptor");
+    expect(studentMethods).toContain("Attendance access");
+    expect(studentMethods).toContain("Supported attendance modes");
+    expect(studentMethods).toContain("What to prepare");
+    expect(studentMethods).toContain("Report attendance issue");
     expect(organizerAttendance).not.toContain("facial");
     expect(organizerAttendance).toContain("Manual");
   });
