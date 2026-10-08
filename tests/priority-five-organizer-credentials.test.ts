@@ -9,6 +9,10 @@ describe("QR-only credential workflows", () => {
     const page = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
     const users = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
     expect(page).toContain("useStudentCredentialStatuses");
+    expect(page).toContain("Credential directory");
+    expect(page).toContain("Search by student name or Student ID...");
+    expect(page).toContain("credential-status-filter");
+    expect(page).toContain("PLPassDataGrid");
     expect(page).not.toContain("facial");
     expect(users).not.toContain("facialStatus");
   });
