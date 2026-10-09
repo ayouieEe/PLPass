@@ -1,115 +1,610 @@
-import { useMemo, useState } from "react";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { type ReactNode, useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import type { ReactNode } from "react";
-import { CheckCircle2, Download, Filter, QrCode, Search, UserCheck, X, XCircle } from "lucide-react";
+import { CheckCircle2, Download, Filter, QrCode, Search, UserCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
 import { ConfirmModal } from "@/components/modals/ConfirmModal";
+import { Button } from "@/components/ui/button";
 import { PLPassDataGrid } from "@/components/data-display/PLPassDataGrid";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { Button } from "@/components/ui/button";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
-import { useStudentCredentialMutations, useStudentCredentialStatuses, useStudents } from "@/hooks/useRepositoryQueries";
-import { exportQrCredentialsPdf, exportQrCredentialsXlsx } from "@/features/organizer/utils/exportUtils";
+import { useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations, useOrganizerCredentialDirectory } from "@/hooks/useRepositoryQueries";
+import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
+import type { ExportQrCredentialRow } from "@/features/organizer/utils/exportUtils";
+import type { ReportExportScope } from "@/lib/exports/reportExport";
+import { getQrCredentialDisplayStatus, type CredentialDisplayStatus } from "@/lib/credentials/status";
+import { dateKey, formatDateTime, formatDisplayDate } from "@/lib/utils/date";
+import { hasCapability } from "@/lib/auth/permissions";
 
-type QrStatus = "Active" | "Deactivated" | "Not issued";
-type QrRow = { studentId: string; studentName: string; studentNumber: string; credentialId: string; status: QrStatus; dateGenerated: string; lastUsed: string };
+type QRStatus = "Active" | "Deactivated" | "Not issued";
+type AuthenticationStatusFilter = "All" | "Active" | "Deactivated" | "Not issued";
 
-function CredentialMetric({ label, value, icon, tone = "default" }: { label: string; value: number; icon: ReactNode; tone?: "default" | "success" | "danger" }) {
-  const colors = { default: "bg-primary/10 text-primary", success: "bg-success-muted text-success", danger: "bg-danger-muted text-danger" };
-  return <article className="group relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className="absolute inset-x-0 top-0 h-0.5 bg-primary/35" /><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p></div><span className={`grid h-9 w-9 place-items-center rounded-lg ${colors[tone]}`}>{icon}</span></div></article>;
+type QrRow = {
+  studentId: string;
+  studentName: string;
+  studentNumber: string;
+  credentialId: string;
+  status: QRStatus;
+  dateGenerated: string;
+  lastUsed: string;
+};
+
+function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
+  const value = student?.credentialId ? student.studentNumber : "";
+  const qrDataUrl = useQrCredentialDataUrl(student?.status === "Active", value);
+
+  return (
+    <div className="rounded-md border border-dashed border-border bg-background p-3">
+      <div className="mx-auto flex h-52 w-52 items-center justify-center rounded-lg bg-primary/10 p-3 text-primary">
+        {qrDataUrl ? (
+          <img
+            src={qrDataUrl}
+            alt={`PLPass QR credential for ${student?.studentName ?? "student"}`}
+            className="h-full w-full object-contain"
+          />
+        ) : (
+          <QrCode className="h-12 w-12" aria-hidden="true" />
+        )}
+      </div>
+      <div className="mt-3 space-y-1 text-center">
+        <p className="font-semibold text-foreground">{student?.studentName}</p>
+        <p>QR status: {student?.status || "Active"}</p>
+        <p>Issued: {student?.dateGenerated || formatDisplayDate(new Date())}</p>
+      </div>
+    </div>
+  );
+}
+function CredentialMetric({ label, value, icon, accent = "default" }: { label: string; value: number; icon: ReactNode; accent?: "default" | "success" | "warning" | "danger" }) {
+  const accentClass = {
+    default: "bg-primary/10 text-primary",
+    success: "bg-success-muted text-success",
+    warning: "bg-warning-muted text-warning",
+    danger: "bg-danger-muted text-danger"
+  }[accent];
+
+  return (
+    <article className="group relative overflow-hidden rounded-xl border bg-surface p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="absolute inset-x-0 top-0 h-0.5 bg-primary/35" />
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
+        </div>
+        <span className={`grid h-9 w-9 place-items-center rounded-lg ${accentClass}`}>{icon}</span>
+      </div>
+    </article>
+  );
+}
+function useOrganizerScope() {
+  const { session } = useDevelopmentSession();
+  const context = useMemo(
+    () => (session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined),
+    [session]
+  );
+  return { context };
 }
 
-function qrTone(status: QrStatus) { return status === "Active" ? "success" as const : status === "Deactivated" ? "danger" as const : "warning" as const; }
-function formatDate(value?: string | null) { return value ? new Date(value).toLocaleDateString() : "-"; }
+function qrTone(status: QRStatus) {
+  return status === "Active" ? "success" as const : status === "Not issued" ? "warning" as const : "danger" as const;
+}
 
-function QrExportModal({ isOpen, onClose, rows }: { isOpen: boolean; onClose: () => void; rows: QrRow[] }) {
+function ReportExportModal({
+  isOpen,
+  onClose,
+  qrRows,
+  exportScope,
+  onExportAction
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  qrRows: QrRow[];
+  exportScope?: ReportExportScope;
+  onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
+}) {
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
+
   if (!isOpen) return null;
 
+  const count = qrRows.length;
+
   async function handleExport() {
-    if (!rows.length) { toast.warning("No records match the selected export criteria."); return; }
+    if (count === 0) {
+      toast.warning("No records match the selected export criteria.");
+      return;
+    }
+
     setIsExportLoading(true);
-    try {
-      const data = rows.map((row) => ({ studentId: row.studentNumber, studentName: row.studentName, status: row.status, dateGenerated: row.dateGenerated, lastUsed: row.lastUsed }));
-      if (exportFormat === "xlsx") await exportQrCredentialsXlsx(data);
-      else await exportQrCredentialsPdf(data);
-      toast.success(`Exported ${data.length} QR credential record(s) as ${exportFormat.toUpperCase()}.`);
-      onClose();
-    } catch { toast.error("Unable to prepare the export. Please try again."); }
-    finally { setIsExportLoading(false); }
+    const exportTools = await import("@/features/organizer/utils/exportUtils")
+      .catch(() => {
+        toast.error("Unable to prepare the export. Please try again.");
+        return null;
+      })
+      .finally(() => setIsExportLoading(false));
+    if (!exportTools) return;
+
+    const data: ExportQrCredentialRow[] = qrRows.map((r) => ({
+      studentId: r.studentNumber,
+      studentName: r.studentName,
+      status: r.status,
+      dateGenerated: r.dateGenerated,
+      lastUsed: r.lastUsed
+    }));
+    if (exportFormat === "xlsx") {
+      await exportTools.exportQrCredentialsXlsx(data, exportScope);
+      toast.success("Exported " + data.length + " QR credential record(s) as XLSX.");
+    } else {
+      await exportTools.exportQrCredentialsPdf(data, exportScope);
+      toast.success("Exported " + data.length + " QR credential record(s) as PDF.");
+    }
+
+    onExportAction(
+      "Exported QR Credentials",
+      "export_action",
+      {
+        reportType: "qr",
+        format: exportFormat,
+        recordCount: count
+      }
+    );
+
+    onClose();
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <section className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all" role="dialog" aria-modal="true" aria-labelledby="export-modal-title">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-4">
-          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-xs"><Download className="h-5 w-5" aria-hidden="true" /></div><div><h2 id="export-modal-title" className="text-base font-bold text-slate-900">Export Authentication Report</h2><p className="text-xs font-medium text-slate-500">Select a method and format. Export uses the current page filters.</p></div></div>
-          <button type="button" onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/60 bg-white text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" aria-label="Close export modal"><X className="h-4 w-4" /></button>
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <section
+        className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl transition-all"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+      >
+        <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-xs">
+              <Download className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
+                Export QR Credentials
+              </h2>
+              <p className="text-xs text-slate-500 font-medium">Select a format. Export uses the current page filters.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/60 bg-white text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close export modal"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-        <div className="space-y-5 p-6">
-          <div><span className="mb-2.5 block text-[11px] font-bold uppercase tracking-wider text-slate-400">1. Authentication Method</span><div className="grid grid-cols-1 gap-3"><div className="relative flex flex-col justify-between rounded-xl border border-primary bg-primary/5 p-4 text-left ring-2 ring-primary/20 shadow-xs"><div className="mb-2 flex items-center justify-between"><div className="rounded-lg bg-primary/10 p-2 text-primary"><QrCode className="h-4 w-4" /></div><span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">Selected</span></div><div><p className="text-sm font-bold text-slate-900">QR Credentials</p><p className="mt-1 text-[11px] leading-snug text-slate-500">Student QR status, generation dates &amp; usage history.</p></div></div></div></div>
-          <div><span className="mb-2.5 block text-[11px] font-bold uppercase tracking-wider text-slate-400">2. Download Format</span><div className="grid grid-cols-2 gap-3"><ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" /><ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable PDF report" /></div></div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
+              Download Format
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
+              <ReportFormatOption format="pdf" selectedFormat={exportFormat} onSelect={setExportFormat} description="Printable PDF report" />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/80 px-6 py-4"><span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><CheckCircle2 className="h-3.5 w-3.5" />{rows.length} records selected</span><div className="flex items-center gap-2.5"><button type="button" onClick={onClose} className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">Cancel</button><button type="button" onClick={() => void handleExport()} disabled={!rows.length || isExportLoading} className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"><Download className="h-4 w-4" aria-hidden="true" />{isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}</button></div></div>
+
+        <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {count} records selected
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={count === 0 || isExportLoading}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              {isExportLoading ? "Preparing export..." : "Export " + exportFormat.toUpperCase()}
+            </button>
+          </div>
+        </div>
       </section>
-    </div>, document.body
+    </div>,
+    document.body
   );
 }
 
 export function AuthenticationMethodsPage() {
-  const { session } = useDevelopmentSession();
-  const context = session ? { actorUserId: session.userId, actorRole: session.role, departmentId: session.departmentId } : undefined;
-  const students = useStudents({ pageSize: 100 }, context);
-  const credentialStudentIds = useMemo(
-    () => (students.data?.items ?? []).map((student) => student.id),
-    [students.data?.items]
+  const scope = useOrganizerScope();
+  const actorRole = scope.context?.actorRole;
+  const isDepartmentAdmin = actorRole === "department_admin";
+  const isReadOnly = actorRole !== "organizer" && actorRole !== "admin" && actorRole !== "department_admin";
+  const organizerDirectoryQuery = useOrganizerCredentialDirectory(scope.context, actorRole === "organizer");
+  const allStudentsQuery = useStudents({ pageSize: 100 }, scope.context, actorRole !== "organizer");
+  const studentsQuery = actorRole === "organizer" ? organizerDirectoryQuery : allStudentsQuery;
+  const departmentStudentIds = useMemo(
+    () => isDepartmentAdmin ? (allStudentsQuery.data?.items ?? []).map((student) => student.id) : [],
+    [allStudentsQuery.data?.items, isDepartmentAdmin]
   );
-  const statuses = useStudentCredentialStatuses(context, credentialStudentIds, true);
-  const mutations = useStudentCredentialMutations(context);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"All" | QrStatus>("All");
-  const [selectedRow, setSelectedRow] = useState<QrRow | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
-  const statusByStudent = useMemo(() => new Map((statuses.data ?? []).map((item) => [item.studentId, item])), [statuses.data]);
-  const rows = useMemo<QrRow[]>(() => (students.data?.items ?? []).map((student) => {
-    const credential = statusByStudent.get(student.id)?.qrCredential;
-    const active = credential?.status === "activated" || credential?.status === "active";
-    return { studentId: student.id, studentName: student.fullName || student.studentNumber, studentNumber: student.studentNumber, credentialId: credential?.id ?? "", status: credential ? (active ? "Active" : "Deactivated") : "Not issued", dateGenerated: formatDate(credential?.issuedAt), lastUsed: formatDate(credential?.lastSuccessfulCheckInAt) };
-  }), [statusByStudent, students.data?.items]);
-  const filteredRows = useMemo(() => rows.filter((row) => {
-    const matchesSearch = !searchQuery.trim() || `${row.studentName} ${row.studentNumber}`.toLowerCase().includes(searchQuery.trim().toLowerCase());
-    return matchesSearch && (statusFilter === "All" || row.status === statusFilter);
-  }), [rows, searchQuery, statusFilter]);
+  const credentialStatusesQuery = useStudentCredentialStatuses(
+    scope.context,
+    actorRole === "department_admin" ? departmentStudentIds : undefined,
+    actorRole !== "organizer"
+  );
+  const credentialMutations = useStudentCredentialMutations(scope.context);
+  const auditLogMutations = useAuditLogMutations(scope.context);
+  const canResetCredentials = !isReadOnly && (actorRole === "department_admin"
+    ? hasCapability(actorRole, "credentials.reset.department")
+    : actorRole === "organizer"
+      ? hasCapability(actorRole, "credentials.reset.owned_event")
+      : actorRole === "admin" && hasCapability(actorRole, "credentials.reset"));
+  const canRevokeCredentials = !isReadOnly && (actorRole === "department_admin"
+    ? hasCapability(actorRole, "credentials.revoke.department")
+    : actorRole === "organizer"
+      ? hasCapability(actorRole, "credentials.revoke.owned_event")
+      : actorRole === "admin" && hasCapability(actorRole, "credentials.revoke"));
 
-  async function issue(studentId: string, name: string) {
-    try { await mutations.issueQrCredentialMutation.mutateAsync({ studentId }); toast.success(`QR credential issued for ${name}.`); }
-    catch { toast.error("QR credential could not be issued."); }
+  const rawStudents = useMemo(() => {
+    if (actorRole === "organizer") return (organizerDirectoryQuery.data ?? []).map((entry) => ({ id: entry.studentId, studentNumber: entry.studentNumber, formattedName: entry.studentName, fullName: entry.studentName }));
+    return allStudentsQuery.data?.items ?? [];
+  }, [actorRole, organizerDirectoryQuery.data, allStudentsQuery.data?.items]);
+
+    const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<AuthenticationStatusFilter>("All");
+
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [activeModal, setActiveModal] = useState<null | {
+    type: "qr";
+    title: string;
+    description: string;
+    confirmLabel: string;
+    cancelLabel?: string;
+    hideCancel?: boolean;
+    tone?: "default" | "danger";
+    studentName?: string;
+    studentId?: string;
+  }>(null);
+
+  const credentialMap = useMemo(
+    () => new Map((actorRole === "organizer" ? (organizerDirectoryQuery.data ?? []).map((entry) => entry.credentialStatus) : (credentialStatusesQuery.data ?? [])).map((status) => [status.studentId, status])),
+    [actorRole, credentialStatusesQuery.data, organizerDirectoryQuery.data]
+  );
+
+  const qrRows = useMemo<QrRow[]>(() => rawStudents.map((student) => {
+    const credential = credentialMap.get(student.id)?.qrCredential;
+    return {
+      studentId: student.id,
+      studentName: student.formattedName || student.fullName || student.studentNumber,
+      studentNumber: student.studentNumber,
+      credentialId: credential?.id ?? "",
+      status: credential ? (getQrCredentialDisplayStatus(credential) === "Active" ? "Active" : "Deactivated") : "Not issued",
+      dateGenerated: credential?.issuedAt ? dateKey(credential.issuedAt) : "-",
+      lastUsed: credential?.lastSuccessfulCheckInAt ? formatDateTime(credential.lastSuccessfulCheckInAt, "-") : "-"
+    };
+  }), [credentialMap, rawStudents]);
+  const filteredQrRows = useMemo(() => {
+    return qrRows.filter((r) => {
+      const matchesSearch =
+        !searchQuery.trim() ||
+        r.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        r.studentNumber.toLowerCase().includes(searchQuery.toLowerCase());
+
+      let matchesStatus = true;
+      if (statusFilter === "Active") {
+        matchesStatus = r.status === "Active";
+      } else if (statusFilter === "Deactivated") {
+        matchesStatus = r.status === "Deactivated";
+      } else if (statusFilter === "Not issued") {
+        matchesStatus = r.status === "Not issued";
+      }
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [qrRows, searchQuery, statusFilter]);
+
+  const handleDisableQr = useCallback((student: QrRow) => {
+    setActiveModal({
+      type: "qr",
+      title: "Deactivate QR credential",
+      description: `Revoke the current QR credential for ${student.studentName}? They will need a new credential before using QR check-in.`,
+      confirmLabel: "Deactivate",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      studentName: student.studentName,
+      studentId: student.studentId
+    });
+  }, []);
+
+  const handleActivateQr = useCallback((student: QrRow) => {
+    setActiveModal({
+      type: "qr",
+      title: "Reactivate QR credential",
+      description: `Reactivate the existing QR credential for ${student.studentName}?`,
+      confirmLabel: "Reactivate",
+      cancelLabel: "Cancel",
+      tone: "default",
+      studentName: student.studentName,
+      studentId: student.studentId
+    });
+  }, []);
+
+  const handleRegenerateQr = useCallback((student: QrRow) => {
+    setActiveModal({
+      type: "qr",
+      title: "Reissue QR credential",
+      description: `The current QR credential for ${student.studentName} will be revoked and replaced with a new one. Continue?`,
+      confirmLabel: "Regenerate QR",
+      cancelLabel: "Cancel",
+      tone: "danger",
+      studentName: student.studentName,
+      studentId: student.studentId
+    });
+  }, []);
+
+  const handleToggleQrStatus = useCallback((student: QrRow) => {
+    if (student.status === "Active") {
+      handleDisableQr(student);
+    } else {
+      handleActivateQr(student);
+    }
+  }, [handleDisableQr, handleActivateQr]);
+
+  const handleViewQr = useCallback((student: QrRow) => {
+    const isActive = student.status === "Active";
+    const canManage = Boolean(student.credentialId);
+    setActiveModal({
+      type: "qr",
+      title: "QR credential details",
+      description: `Review the current QR credential for ${student.studentName}.`,
+      confirmLabel: canManage ? (isActive ? "Deactivate" : "Reactivate") : "Close",
+      cancelLabel: canManage ? "Cancel" : "Close",
+      hideCancel: !canManage,
+      tone: canManage && isActive ? "danger" : "default",
+      studentName: student.studentName,
+      studentId: student.studentId
+    });
+  }, []);
+
+  async function confirmModalAction() {
+    if (!activeModal) return;
+    if (activeModal.hideCancel) {
+      setActiveModal(null);
+      return;
+    }
+    try {
+    const isRevocation = /Disable|Deactivate/.test(activeModal.title);
+    if ((isRevocation && !canRevokeCredentials) || (!isRevocation && /Enable|Activate|Regenerate|Reissue/.test(activeModal.title) && !canResetCredentials)) {
+      toast.error("Your account does not have permission for this credential action.");
+      setActiveModal(null);
+      return;
+    }
+
+    if (activeModal.type === "qr" && activeModal.studentName) {
+      const student = qrRows.find((row) => row.studentId === activeModal.studentId);
+      if (!student) {
+        toast.error("Student credential could not be found.");
+        setActiveModal(null);
+        return;
+      }
+      if (activeModal.title === "QR credential details") {
+        if (!student.credentialId) {
+          setActiveModal(null);
+          return;
+        }
+        if (student.status === "Active") handleDisableQr(student);
+        else handleActivateQr(student);
+        return;
+      }
+      if (/Reissue|Regenerate/i.test(activeModal.title)) {
+        await credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: student.studentId });
+        toast.success(`A new QR credential was issued for ${student.studentName}.`);
+      } else if (activeModal.title.includes("Deactivate") || (activeModal.title === "QR credential details" && student.status === "Active" && Boolean(student.credentialId))) {
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "qr",
+          status: "inactive"
+        });
+        toast.success(`QR credential deactivated for ${activeModal.studentName}.`);
+      } else if (activeModal.title.includes("Reactivate") || activeModal.title.includes("Activate") || activeModal.title.includes("Regenerate") || (activeModal.title === "QR credential details" && student.status !== "Active" && Boolean(student.credentialId))) {
+        await credentialMutations.setCredentialStatusMutation.mutateAsync({
+          studentId: student.studentId,
+          credentialType: "qr",
+          status: "activated"
+        });
+        toast.success(`QR credential reactivated for ${activeModal.studentName}.`);
+      }
+    }
+
+    setActiveModal(null);
+    } catch {
+      // Credential mutation hooks surface the server error; close the modal
+      // without leaving an unhandled rejected promise from the confirm button.
+      setActiveModal(null);
+    }
   }
-  async function toggle(row: QrRow) {
-    try { await mutations.setCredentialStatusMutation.mutateAsync({ studentId: row.studentId, credentialType: "qr", status: row.status === "Active" ? "inactive" : "activated" }); toast.success(`QR credential ${row.status === "Active" ? "deactivated" : "reactivated"} for ${row.studentName}.`); setSelectedRow(null); }
-    catch { toast.error("QR credential status could not be changed."); }
-  }
 
-  const columns: ColDef<QrRow>[] = [
-    { headerName: "Student", colId: "student", minWidth: 260, flex: 1, valueGetter: ({ data }) => data ? `${data.studentName} ${data.studentNumber}` : "", cellRenderer: ({ data }: ICellRendererParams<QrRow>) => data ? <div className="py-1 leading-tight"><div className="font-medium text-foreground">{data.studentName}</div><div className="mt-1 font-mono text-xs text-muted-foreground">{data.studentNumber}</div></div> : null },
-    { headerName: "Status", field: "status", minWidth: 145, cellRenderer: ({ value }: ICellRendererParams<QrRow, QrStatus>) => <StatusBadge label={value ?? "Not issued"} tone={qrTone(value ?? "Not issued")} /> },
-    { headerName: "Date Generated", field: "dateGenerated", minWidth: 155 },
-    { headerName: "Last Used", field: "lastUsed", minWidth: 145 },
-    { headerName: "Action", colId: "action", minWidth: 150, sortable: false, cellRenderer: ({ data }: ICellRendererParams<QrRow>) => data ? <Button type="button" size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); if (data.credentialId) setSelectedRow(data); else void issue(data.studentId, data.studentName); }}>{data.credentialId ? "Manage QR" : "Issue QR"}</Button> : null }
-  ];
+  const selectedStudentQrInfo = useMemo(() => {
+    if (!activeModal?.studentId) return null;
+    return qrRows.find((r) => r.studentId === activeModal.studentId);
+  }, [activeModal?.studentId, qrRows]);
 
-  if (students.isLoading || statuses.isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading QR credentials...</div>;
-  if (students.isError || statuses.isError) return <div className="p-6 text-sm text-destructive">Unable to load QR credentials. Please refresh the page.</div>;
-  return <div className="space-y-6">
-    <PageHeader title="Authentication Methods" description="Issue, review, and manage student QR attendance credentials." />
-    <section className="grid gap-3 sm:grid-cols-3" aria-label="Credential overview"><CredentialMetric label="QR credentials" value={rows.filter((row) => row.credentialId).length} icon={<QrCode className="h-4 w-4" />} /><CredentialMetric label="Active" value={rows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} tone="success" /><CredentialMetric label="Deactivated" value={rows.filter((row) => row.status === "Deactivated").length} icon={<XCircle className="h-4 w-4" />} tone="danger" /></section>
-    <section className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-base font-semibold text-foreground">Credential directory</h2><div className="flex items-center gap-2"><span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary"><Filter className="h-3 w-3" aria-hidden="true" />{filteredRows.length} results</span><Button type="button" size="sm" variant="outline" onClick={() => setExportOpen(true)}><Download className="mr-1.5 h-3.5 w-3.5" />Export</Button></div></div><div className="grid grid-cols-1 items-end gap-3 border-t border-border/50 pt-3 md:grid-cols-[minmax(0,1fr)_220px_auto]"><div className="relative w-full"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><input type="text" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search by student name or Student ID..." className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-9 text-xs shadow-xs transition focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />{searchQuery ? <button type="button" aria-label="Clear search" onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button> : null}</div><div className="flex flex-col gap-1"><label htmlFor="credential-status-filter" className="text-[11px] font-medium text-muted-foreground">Credential status</label><select id="credential-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"><option value="All">All statuses</option><option value="Active">Active</option><option value="Deactivated">Deactivated</option><option value="Not issued">Not issued</option></select></div><div className="flex min-h-9 items-center md:justify-end">{searchQuery || statusFilter !== "All" ? <Button type="button" variant="ghost" size="sm" className="px-0 text-xs" onClick={() => { setSearchQuery(""); setStatusFilter("All"); }}>Clear filters</Button> : null}</div></div></section>
-    <PLPassDataGrid label="Student QR Credentials" data={filteredRows} columns={columns} isLoading={students.isLoading} emptyTitle="No QR credentials found" emptyDescription="There are no student QR credentials matching your criteria." onRowClick={setSelectedRow} />
-    <ConfirmModal open={Boolean(selectedRow)} title="QR credential details" description={selectedRow ? `Manage the QR attendance credential for ${selectedRow.studentName}.` : undefined} confirmLabel={selectedRow?.status === "Active" ? "Deactivate" : "Reactivate"} cancelLabel="Close" onConfirm={() => selectedRow ? void toggle(selectedRow) : undefined} onCancel={() => setSelectedRow(null)}>{selectedRow ? <div className="space-y-3 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-sm text-muted-foreground"><div className="flex items-center justify-between"><div><p className="font-semibold text-foreground">QR credential preview</p><p className="mt-0.5 text-xs">Use this credential for event attendance.</p></div><StatusBadge label={selectedRow.status} tone={qrTone(selectedRow.status)} /></div><div className="flex h-40 items-center justify-center rounded-lg border border-dashed bg-background text-primary"><QrCode className="h-20 w-20" aria-hidden="true" /></div><p>Issued: {selectedRow.dateGenerated} · Last used: {selectedRow.lastUsed}</p><Button type="button" variant="outline" size="sm" onClick={() => void issue(selectedRow.studentId, selectedRow.studentName)}>Reissue QR</Button></div> : null}</ConfirmModal>
-    <QrExportModal isOpen={exportOpen} onClose={() => setExportOpen(false)} rows={filteredRows} />
-  </div>;
+  const qrColumns = useMemo<ColDef<QrRow>[]>(() => [
+    {
+      headerName: "Student",
+      colId: "student",
+      minWidth: 240,
+      flex: 1,
+      valueGetter: ({ data }) => data ? `${data.studentName} ${data.studentNumber}` : "",
+      cellRenderer: ({ data }: ICellRendererParams<QrRow>) => data ? (
+        <div className="py-1 leading-tight">
+          <div className="font-medium text-foreground">{data.studentName}</div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">{data.studentNumber}</div>
+        </div>
+      ) : null
+    },
+    {
+      headerName: "QR Status",
+      field: "status",
+      minWidth: 130,
+      cellRenderer: ({ value }: ICellRendererParams<QrRow, QRStatus>) => (
+        <StatusBadge label={value ?? "Deactivated"} tone={qrTone(value ?? "Deactivated")} />
+      )
+    },
+    { headerName: "Date Generated", field: "dateGenerated", minWidth: 150 },
+    { headerName: "Last Used", field: "lastUsed", minWidth: 150 },
+  ], []);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage credentials for participants in your owned events."} />
+
+      <section className="grid gap-3 sm:grid-cols-3" aria-label="Credential overview">
+        <CredentialMetric label="QR credentials" value={qrRows.filter((row) => Boolean(row.credentialId)).length} icon={<QrCode className="h-4 w-4" />} />
+        <CredentialMetric label="Active" value={qrRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
+        <CredentialMetric label="Deactivated" value={qrRows.filter((row) => row.status === "Deactivated").length} icon={<QrCode className="h-4 w-4" />} accent="danger" />
+      </section>
+
+      <section className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-foreground">Credential directory</h2>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+              <Filter className="h-3 w-3" aria-hidden="true" />
+              {filteredQrRows.length} results
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsExportModalOpen(true)}
+              hidden={isReadOnly || isDepartmentAdmin}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800"
+            >
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
+              Export
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-1 items-end gap-3 border-t border-border/50 pt-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+          <div className="relative w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by student name or Student ID..."
+              className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-xs shadow-xs transition focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+              )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="credential-status-filter" className="text-[11px] font-medium text-muted-foreground">Credential status</label>
+            <select
+              id="credential-status-filter"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+              className="h-9 w-full rounded-md border bg-background px-2.5 text-xs outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="All">All statuses</option>
+              <option value="Active">Active</option>
+              <option value="Deactivated">Deactivated</option>
+              <option value="Not issued">Not issued</option>
+            </select>
+          </div>
+          <div className="flex min-h-9 items-center lg:justify-end">
+            {searchQuery || statusFilter !== "All" ? (
+              <Button type="button" variant="ghost" size="sm" className="px-0 text-xs" onClick={() => { setSearchQuery(""); setStatusFilter("All"); }}>
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <ConfirmModal
+        open={Boolean(activeModal)}
+        title={activeModal?.title ?? "Action"}
+        description={activeModal?.description}
+        confirmLabel={activeModal?.confirmLabel}
+        cancelLabel={activeModal?.cancelLabel}
+        tone={activeModal?.tone}
+        hideCancel={activeModal?.hideCancel}
+        onConfirm={confirmModalAction}
+        onCancel={() => setActiveModal(null)}
+      >
+        {activeModal?.type === "qr" && activeModal.title === "QR credential details" && activeModal.studentName ? (
+          <div className="space-y-4 rounded-xl border border-primary/15 bg-gradient-to-br from-primary/[0.06] via-surface to-surface p-4 text-sm text-muted-foreground">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-foreground">QR credential preview</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Use this credential for event attendance.</p>
+              </div>
+              <StatusBadge label={selectedStudentQrInfo?.status ?? "Deactivated"} tone={qrTone(selectedStudentQrInfo?.status ?? "Deactivated")} />
+            </div>
+            <OrganizerQrPreview student={selectedStudentQrInfo} />
+            <p>
+              {/Regenerate|Reissue/i.test(activeModal.title)
+                ? "A fresh QR code will be generated and assigned to this student for the next event."
+                : "This preview shows the student’s current QR credential details before attendance check-in."}
+            </p>
+            {activeModal.title === "QR credential details" && canResetCredentials && selectedStudentQrInfo ? (
+              <div className="flex justify-end border-t border-border/60 pt-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => handleRegenerateQr(selectedStudentQrInfo)}>
+                  Reissue QR
+                </Button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+      </ConfirmModal>
+
+      <div className="space-y-6">
+        <PLPassDataGrid
+          label="Student QR Credentials"
+          data={filteredQrRows}
+          columns={qrColumns}
+          isLoading={studentsQuery.isLoading}
+          emptyTitle="No QR credentials found"
+          emptyDescription="There are no student QR credentials matching your criteria."
+          onRowClick={isReadOnly ? undefined : handleViewQr}
+        />
+      </div>
+
+      <ReportExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        qrRows={filteredQrRows}
+        exportScope={actorRole === "department_admin" && scope.context?.departmentId ? { type: "department", departmentId: scope.context.departmentId } : undefined}
+        onExportAction={(action, targetType, metadata) => {
+          void auditLogMutations.logActionMutation.mutateAsync({
+            action,
+            targetType,
+            metadata
+          });
+        }}
+      />
+    </div>
+  );
 }
