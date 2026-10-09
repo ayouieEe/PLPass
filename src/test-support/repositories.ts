@@ -879,7 +879,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return { email: target.email, delivery: "password_reset" };
   },
   async resendUserInvitation(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
     const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin", "organizer"].includes(user.role));
     if (!target) throw new RepositoryError("The account could not be found.", "NOT_FOUND");
     return { email: target.email, delivery: "password_reset" };
@@ -1875,7 +1875,7 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
 
 export const simulatedStudentCredentialRepository: StudentCredentialRepository = {
   async listStudentCredentialStatuses(context, studentIds) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["admin", "department_admin", "organizer"]);
     if (context?.actorRole === "organizer" && !studentIds?.length) return [];
     return [];
   },
@@ -1895,7 +1895,7 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
       }));
   },
   async getStudentCredentialStatus(studentId, context) {
-    await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["student", "admin", "department_admin", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(studentId)) {
       throw new RepositoryError("Organizers can only access credentials for participants in their own events.", "PERMISSION_DENIED");
@@ -1921,7 +1921,7 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
     };
   },
   async setCredentialStatus(input, context) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["admin", "department_admin", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
       throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");

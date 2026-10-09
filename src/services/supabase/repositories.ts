@@ -631,7 +631,9 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return { revokedSessionCount: Number(data?.revokedSessionCount ?? 0) };
   },
   async resendUserInvitation(input, context) {
-    if (context?.actorRole !== "admin") throw new RepositoryError("Only university administrators can resend account invitations.", "PERMISSION_DENIED");
+    if (context?.actorRole !== "admin" && context?.actorRole !== "department_admin") {
+      throw new RepositoryError("Only administrators can resend account invitations.", "PERMISSION_DENIED");
+    }
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", {
       body: { action: "prepare-user-invitation-resend", userId: input.userId }
@@ -647,6 +649,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return { email: data.email, delivery: "password_reset" };
   },
   async resendAdminInvitation(input, context) {
+    if (context?.actorRole !== "admin") throw new RepositoryError("Only university administrators can resend administrator invitations.", "PERMISSION_DENIED");
     return this.resendUserInvitation(input, context);
   },
   async bulkCreateOrganizers(inputs, context) {
