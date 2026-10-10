@@ -28,7 +28,7 @@ export function TimePickerField<TFieldValues extends FieldValues>({
             {label}
             {required ? <span className="ml-1 text-danger" aria-hidden="true">*</span> : null}
           </span>
-          <input {...field} className={fieldBaseClass} type="time" disabled={disabled} aria-required={required || undefined} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined} />
+          <input {...field} className={fieldBaseClass} type="time" disabled={disabled} aria-required={required || undefined} aria-invalid={Boolean(fieldState.error)} aria-describedby={fieldState.error ? errorId : undefined} onInput={(event) => field.onChange(event.currentTarget.value)} />
           {fieldState.error ? <p id={errorId} role="alert" className={fieldErrorClass}>{fieldState.error.message}</p> : null}
         </label>
       )}
