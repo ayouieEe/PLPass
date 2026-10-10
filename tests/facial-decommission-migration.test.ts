@@ -16,6 +16,7 @@ describe("facial decommission migration", () => {
     expect(sql).toContain("verification_method in ('qr', 'manual')");
     expect(sql).toContain("credential_type in ('qr')");
     expect(sql).toContain("drop column if exists facial_profile_id");
-    expect(sql).toContain("delete from storage.buckets where id = 'facial-enrollments'");
+    expect(sql).toContain("Storage objects are removed through the Storage API before this migration.");
+    expect(sql).not.toContain("delete from storage.buckets where id = 'facial-enrollments'");
   });
 });

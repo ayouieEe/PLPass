@@ -79,19 +79,10 @@ test.describe("student validation and device recovery", () => {
     await expect(page.getByText("Explanation must be at least 10 characters.")).toBeVisible();
   });
 
-  test("provides a fallback when camera permission is denied", async ({ page }) => {
-    await page.addInitScript(() => {
-      Object.defineProperty(navigator, "mediaDevices", {
-        configurable: true,
-        value: {
-          getUserMedia: () => Promise.reject(new DOMException("Permission denied", "NotAllowedError"))
-        }
-      });
-    });
+  test("does not expose removed facial enrollment", async ({ page }) => {
     await page.goto("/student/methods");
-    await page.getByRole("button", { name: "Enroll face" }).click();
-    await expect(page.getByRole("dialog").getByRole("heading", { name: "Enroll facial backup" })).toBeVisible();
-    await expect(page.getByText("Camera access was blocked or unavailable. Use the fallback photo picker below.")).toBeVisible();
-    await expect(page.getByText("Use fallback")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Attendance Methods" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Enroll face" })).toHaveCount(0);
+    await expect(page.getByText(/facial|face enrollment/i)).toHaveCount(0);
   });
 });
