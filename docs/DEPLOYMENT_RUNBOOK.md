@@ -20,6 +20,16 @@
 - Configure allowed origins, Storage limits, email provider settings, monitoring, and backup retention.
 - Run `node scripts/release-preflight.mjs --production` in the hosting build environment. It fails closed unless the Supabase CLI is authenticated to the configured project and linked migration parity, schema lint, and generated-type parity all pass. Do not bypass this check; reconcile and apply reviewed migrations first, then rerun it.
 
+## Student Vercel deployment
+
+- Use a separate Vercel project for the student web app and keep the desktop build target unchanged.
+- The project uses `npm run build:student`, publishes `dist`, and relies on `vercel.json` to rewrite deep links to `student.html`.
+- Configure only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or their `NEXT_PUBLIC_` equivalents) in both Preview and Production. Never add service-role, database, SMTP, ML, or private API credentials to browser-visible variables.
+- Set Supabase Auth Site URL to the final HTTPS student domain. Allow exact production `/reset-password` and `/accept-invitation` redirects, the approved localhost redirect, and a narrowly scoped Vercel Preview wildcard only while Preview QA is active.
+- Keep `/accept-invitation` public for staff invitation links. Staff completion must retain the `plpass://open` Desktop handoff; student invitation onboarding is not part of this release.
+- Before promotion, run `npm run build:student`, `npm run check:bundle:student`, and `npm run check:release:student -- --production` against the intended linked project. Promote the verified immutable Preview deployment; do not deploy the desktop `index.html` or `scanner.html` artifact to this project.
+- Verify student login, refresh, password reset, legal review, dashboard, events, attendance, requests, notifications, logout, mobile accessibility, and staff-account denial on Preview. Roll back by promoting the previous immutable Vercel deployment; do not reverse database migrations for a frontend rollback.
+
 ## Release order
 
 1. Apply backward-compatible database migrations to the intended project.

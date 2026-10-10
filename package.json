@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite --configLoader runner",
     "build": "tsc -b && vite build --configLoader runner",
+    "build:student": "tsc -b && vite build --mode student --configLoader runner",
     "build:desktop": "vite build --configLoader runner && tsc -p tsconfig.electron.json && copy /Y electron\\preload.cjs dist-electron\\electron\\preload.cjs > NUL",
     "build:desktop:test": "vite build --mode test --configLoader runner && tsc -p tsconfig.electron.json && copy /Y electron\\preload.cjs dist-electron\\electron\\preload.cjs > NUL",
     "desktop": "npm run build:desktop && electron .",
@@ -18,7 +19,9 @@
     "test:desktop:ui": "npm run build:desktop:test && node scripts/test-electron-desktop-ui.mjs",
     "test:visual": "playwright test --project=visual-chromium",
     "check:bundle": "node scripts/check-bundle-budget.mjs",
+    "check:bundle:student": "node scripts/check-bundle-budget.mjs --student",
     "check:release": "node scripts/release-preflight.mjs",
+    "check:release:student": "node scripts/release-preflight.mjs --student",
     "check:supabase": "node scripts/check-supabase-readiness.mjs",
     "check:supabase:linked": "node scripts/check-supabase-linked.mjs",
     "test:supabase:local": "node scripts/test-local-supabase-integration.mjs",

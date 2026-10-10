@@ -5,51 +5,58 @@ import { defineConfig } from "vitest/config";
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
-export default defineConfig({
-  envPrefix: ["VITE_", "NEXT_PUBLIC_"],
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(projectRoot, "./src")
-    }
-  },
-  build: {
-    modulePreload: {
-      polyfill: false,
-      resolveDependencies(_filename, dependencies) {
-        // Keep only the React runtime in the document's preload set. The
-        // remaining vendor chunks are still normal ESM dependencies and are
-        // fetched by the entry module when the corresponding providers or
-        // routes are evaluated. This prevents the initial document from
-        // eagerly downloading query, Supabase, and icon code before it is
-        // needed.
-        return dependencies.filter((dependency) => dependency.includes("react-vendor"));
-      }
-    },
-    rollupOptions: {
-      input: {
+export default defineConfig(({ mode }) => {
+  const studentWebBuild = mode === "student";
+  const input: Record<string, string> = studentWebBuild
+    ? { student: path.resolve(projectRoot, "student.html") }
+    : {
         main: path.resolve(projectRoot, "index.html"),
         scanner: path.resolve(projectRoot, "scanner.html")
+      };
+
+  return {
+    envPrefix: ["VITE_", "NEXT_PUBLIC_"],
+    plugins: [react()],
+    resolve: {
+      alias: {
+        "@": path.resolve(projectRoot, "./src")
+      }
+    },
+    build: {
+      modulePreload: {
+        polyfill: false,
+        resolveDependencies(_filename, dependencies) {
+          // Keep only the React runtime in the document's preload set. The
+          // remaining vendor chunks are still normal ESM dependencies and are
+          // fetched by the entry module when the corresponding providers or
+          // routes are evaluated. This prevents the initial document from
+          // eagerly downloading query, Supabase, and icon code before it is
+          // needed.
+          return dependencies.filter((dependency) => dependency.includes("react-vendor"));
+        }
       },
-      output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) return undefined;
-          if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom)[\\/]/.test(id)) return "react-vendor";
-          if (id.includes("node_modules/@supabase/")) return "supabase-vendor";
-          if (id.includes("node_modules/@tanstack/")) return "query-vendor";
-          if (id.includes("node_modules/lucide-react/")) return "icons-vendor";
-          return undefined;
+      rollupOptions: {
+        input,
+        output: {
+          manualChunks(id) {
+            if (!id.includes("node_modules")) return undefined;
+            if (/[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom)[\\/]/.test(id)) return "react-vendor";
+            if (id.includes("node_modules/@supabase/")) return "supabase-vendor";
+            if (id.includes("node_modules/@tanstack/")) return "query-vendor";
+            if (id.includes("node_modules/lucide-react/")) return "icons-vendor";
+            return undefined;
+          }
         }
       }
+    },
+    test: {
+      environment: "jsdom",
+      globals: true,
+      include: ["tests/**/*.test.{ts,tsx}"],
+      exclude: ["e2e/**", "node_modules/**", "dist/**"],
+      setupFiles: "./tests/setup.ts",
+      testTimeout: 20000,
+      css: true
     }
-  },
-  test: {
-    environment: "jsdom",
-    globals: true,
-    include: ["tests/**/*.test.{ts,tsx}"],
-    exclude: ["e2e/**", "node_modules/**", "dist/**"],
-    setupFiles: "./tests/setup.ts",
-    testTimeout: 20000,
-    css: true
-  }
+  };
 });
