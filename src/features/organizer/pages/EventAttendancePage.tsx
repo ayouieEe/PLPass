@@ -8,6 +8,7 @@ import { NavLink, Navigate, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { createUuid } from "@/lib/utils/uuid";
 import { useHeader } from "@/app/providers/HeaderContext";
 import { queryClient } from "@/app/providers/queryClient";
 import { AttendanceTrendChart } from "@/components/charts/AttendanceTrendChart";
@@ -671,7 +672,7 @@ export function EventAttendancePage() {
     else toast.success(`${displayName}: ${phase === "time_in" ? "Time In" : "Time Out"} recorded`, { description });
   }
 
-  async function admitOnlineWalkIn(studentNumber: string, method: "qr" | "manual", occurredAt: string, localScanUuid = crypto.randomUUID()): Promise<boolean> {
+  async function admitOnlineWalkIn(studentNumber: string, method: "qr" | "manual", occurredAt: string, localScanUuid = createUuid()): Promise<boolean> {
     if (!event) throw new Error("The event could not be found.");
     const knownStudent = (studentsQuery.data?.items ?? []).find((student) => student.studentNumber === studentNumber);
     if (!knownStudent) {
@@ -716,7 +717,7 @@ export function EventAttendancePage() {
   }
 
   async function submitCredentialScan(code: string, method: "qr", outcome?: string) {
-    const walkInScanUuid = crypto.randomUUID();
+    const walkInScanUuid = createUuid();
     let effectiveCapturePhase = offlineCapturePhase;
     try {
       if (offline.status.connectivity === "offline" && canUsePreparedCache && event) {
@@ -772,7 +773,7 @@ export function EventAttendancePage() {
     }
   }
   async function submitManualAttendance() {
-    const walkInScanUuid = crypto.randomUUID();
+    const walkInScanUuid = createUuid();
     let effectiveCapturePhase = offlineCapturePhase;
     try {
       if(offline.status.connectivity!=="offline"&&navigator.onLine) effectiveCapturePhase = await reconcileOnlineCapturePhase();

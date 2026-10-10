@@ -25,8 +25,8 @@ export function DatePickerField<TFieldValues extends FieldValues>({
       control={control}
       name={name}
       render={({ field, fieldState }) => {
-        const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-          const nextValue = event.target.value;
+        const handleChange = (event: React.FormEvent<HTMLInputElement>) => {
+          const nextValue = event.currentTarget.value;
 
           if (min && nextValue) {
             const selectedDate = new Date(`${nextValue}T00:00:00`);
@@ -55,6 +55,7 @@ export function DatePickerField<TFieldValues extends FieldValues>({
               min={min}
               aria-required={required || undefined}
               onChange={handleChange}
+              onInput={handleChange}
               aria-invalid={Boolean(fieldState.error)}
               aria-describedby={fieldState.error ? errorId : undefined}
             />

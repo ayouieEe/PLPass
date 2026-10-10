@@ -1,5 +1,6 @@
 import { BrowserQRCodeReader } from "@zxing/browser";
 import "./scanner.css";
+import { createUuid } from "@/lib/utils/uuid";
 
 const appRoot = document.querySelector<HTMLDivElement>("#app");
 if (!appRoot) throw new Error("Scanner page could not start.");
@@ -21,11 +22,11 @@ const scannerClientId = (() => {
   try {
     const existing = localStorage.getItem(key);
     if (existing) return existing;
-    const created = crypto.randomUUID();
+    const created = createUuid();
     localStorage.setItem(key, created);
     return created;
   } catch {
-    return crypto.randomUUID();
+    return createUuid();
   }
 })();
 
@@ -81,7 +82,7 @@ async function startScan() {
       recentCredentials.set(credential, now + 5_000);
       busy = true; result.className = "scan-status"; result.textContent = `Recording ${phaseLabel()} with the laptop…`;
       try {
-        const response = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${stationToken}` }, body: JSON.stringify({ credentialCode: credential, scanAttemptId: crypto.randomUUID() }) });
+        const response = await fetch("/api/scan", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${stationToken}` }, body: JSON.stringify({ credentialCode: credential, scanAttemptId: createUuid() }) });
         const body = await response.json() as { accepted?: boolean; action?: string; message?: string; studentName?: string; studentNumber?: string; recordedAt?: string; requiresWalkInConfirmation?: boolean; verifiedStudent?: boolean; error?: string };
         if(body.requiresWalkInConfirmation&&body.studentNumber&&await confirmWalkIn(body.studentNumber,body.studentName,body.verifiedStudent)){
           const walkInResponse=await fetch("/api/walk-in",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${stationToken}`},body:JSON.stringify({studentNumber:body.studentNumber})});

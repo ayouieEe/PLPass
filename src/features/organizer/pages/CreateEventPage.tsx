@@ -27,6 +27,7 @@ import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
+import { createUuid } from "@/lib/utils/uuid";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -794,7 +795,7 @@ export function CreateEventPage() {
     setHasOrganizerInteracted(true);
     setPendingResources((resources) => [
       ...resources,
-      ...selectedFiles.map((file) => ({ id: crypto.randomUUID(), kind: "file" as const, title: newFileResourceTitle.trim() || file.name, file }))
+      ...selectedFiles.map((file) => ({ id: createUuid(), kind: "file" as const, title: newFileResourceTitle.trim() || file.name, file }))
     ]);
     setNewFileResourceTitle("");
   }
@@ -813,7 +814,7 @@ export function CreateEventPage() {
       return;
     }
     setHasOrganizerInteracted(true);
-    setPendingResources((resources) => [...resources, { id: crypto.randomUUID(), kind: "link", title: newResourceTitle.trim(), externalUrl: url }]);
+    setPendingResources((resources) => [...resources, { id: createUuid(), kind: "link", title: newResourceTitle.trim(), externalUrl: url }]);
     setNewResourceTitle("");
     setNewResourceUrl("");
   }

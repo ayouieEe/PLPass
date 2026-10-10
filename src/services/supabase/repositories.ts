@@ -37,6 +37,7 @@ import type {
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatStudentNumber } from "@/lib/utils/studentNumber";
+import { createUuid } from "@/lib/utils/uuid";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { dateKey, manilaDateTimeToIso } from "@/lib/utils/date";
 import { mapSupabaseError, throwIfSupabaseError } from "@/lib/supabase/errors";
@@ -1685,8 +1686,8 @@ export const supabaseCorrectionRequestRepository: CorrectionRequestRepository = 
       throw new RepositoryError("Proof attachment is required to create a correction request.", "VALIDATION_ERROR");
     }
 
-    const requestId = crypto.randomUUID();
-    const proofFileId = crypto.randomUUID();
+    const requestId = createUuid();
+    const proofFileId = createUuid();
     const safeFileName = sanitizeStorageFileName(input.proofAttachment.name);
     const proofObjectPath = `${studentId}/${requestId}/${proofFileId}-${safeFileName}`;
     const { error: uploadError } = await client.storage
@@ -1769,11 +1770,11 @@ export const supabaseCredentialRequestRepository: CredentialRequestRepository = 
       throw new RepositoryError("You already have a pending request for this credential issue.", "VALIDATION_ERROR");
     }
 
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     let proofObjectPath: string | undefined;
 
     if (input.proofAttachment) {
-      const proofFileId = crypto.randomUUID();
+      const proofFileId = createUuid();
       const safeFileName = sanitizeStorageFileName(input.proofAttachment.name);
       proofObjectPath = `${studentId}/${requestId}/${proofFileId}-${safeFileName}`;
       const { error: uploadError } = await client.storage

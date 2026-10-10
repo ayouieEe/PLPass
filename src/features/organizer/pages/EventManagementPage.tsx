@@ -27,6 +27,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import { hasCapability } from "@/lib/auth/permissions";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { createUuid } from "@/lib/utils/uuid";
 import type { FinalizeAttendanceRecordInput } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type { PriorityLevel } from "@/types/enums";
@@ -2681,7 +2682,7 @@ export function EventManagementPage() {
       return;
     }
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
-    const walkInScanUuid = crypto.randomUUID();
+    const walkInScanUuid = createUuid();
     const recordQrLocally = async () => {
       if (!sessionId) throw new Error("The active attendance session could not be found.");
       if(session?.userId&&(await getOfflineSessionEndState(eventId,sessionId,session.userId)).isLocallyEnded) throw new Error("This event was ended on this device. Attendance capture is locked until synchronization is confirmed.");
@@ -3068,7 +3069,7 @@ export function EventManagementPage() {
     const eventId = activeEvent.id;
     const sessionId = activeScannerSessionId ?? resolvedLiveSessionId;
     const recordedAt = new Date().toISOString();
-    const walkInScanUuid = crypto.randomUUID();
+    const walkInScanUuid = createUuid();
     const recordManualLocally = async () => {
       const api = desktopApi();
       const organizerProfileId = session?.userId;
