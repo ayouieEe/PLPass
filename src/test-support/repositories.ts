@@ -785,7 +785,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     );
   },
   async createOrganizer(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && context.departmentId !== input.departmentId) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     const stamp = Date.now();
     const userId = `organizer-user-${stamp}`;
     const profileId = `organizer-profile-${stamp}`;
@@ -806,7 +807,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return profile;
   },
   async updateOrganizer(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && context.departmentId !== input.departmentId) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     const organizerIndex = organizerProfileFixtures.findIndex((profile) => profile.id === input.id && profile.userId === input.profileId);
     if (organizerIndex === -1) throw new RepositoryError("Organizer account not found.", "NOT_FOUND");
     const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "organizer");
@@ -879,13 +881,14 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return { email: target.email, delivery: "password_reset" };
   },
   async resendUserInvitation(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
     const target = userFixtures.find((user) => user.id === input.userId && ["admin", "department_admin", "organizer"].includes(user.role));
     if (!target) throw new RepositoryError("The account could not be found.", "NOT_FOUND");
     return { email: target.email, delivery: "password_reset" };
   },
   async bulkCreateOrganizers(inputs, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && inputs.some((input) => context.departmentId !== input.departmentId)) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     inputs.forEach((input, index) => {
       const userId = `organizer-user-${Date.now()}-${index}`;
       const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
@@ -1875,7 +1878,7 @@ export const simulatedCredentialRequestRepository: CredentialRequestRepository =
 
 export const simulatedStudentCredentialRepository: StudentCredentialRepository = {
   async listStudentCredentialStatuses(context, studentIds) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["admin", "department_admin", "organizer"]);
     if (context?.actorRole === "organizer" && !studentIds?.length) return [];
     return [];
   },
@@ -1895,7 +1898,7 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
       }));
   },
   async getStudentCredentialStatus(studentId, context) {
-    await beforeRead("studentCredentials", context, ["student", "admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["student", "admin", "department_admin", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(studentId)) {
       throw new RepositoryError("Organizers can only access credentials for participants in their own events.", "PERMISSION_DENIED");
@@ -1920,26 +1923,8 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
       }
     };
   },
-  async enrollFacialProfile(input, context) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer", "student"]);
-    const currentContext = contextOrDefault(context);
-    if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
-      throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
-    }
-    return {
-      studentId: input.studentId,
-      facialProfile: {
-        id: `face-${input.studentId}`,
-        studentId: input.studentId,
-        status: "activated",
-        enrollmentReference: input.enrollmentReference ?? `face-${input.studentId}`,
-        enrolledAt: new Date().toISOString(),
-        consentRecordedAt: new Date().toISOString()
-      }
-    };
-  },
   async setCredentialStatus(input, context) {
-    await beforeRead("studentCredentials", context, ["admin", "organizer"]);
+    await beforeRead("studentCredentials", context, ["admin", "department_admin", "organizer"]);
     const currentContext = contextOrDefault(context);
     if (currentContext.actorRole === "organizer" && !organizerStudentIds(currentContext).has(input.studentId)) {
       throw new RepositoryError("Organizers can only manage credentials for participants in their own events.", "PERMISSION_DENIED");
@@ -2164,6 +2149,22 @@ export const simulatedSystemSettingsRepository: SystemSettingsRepository = {
       updatedAt: new Date().toISOString()
     };
     return { ...systemSettingsState };
+  },
+  async prepareSchoolYearSemesters(schoolYear: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    if (!/^\d{4}-\d{4}$/.test(schoolYear.trim())) throw new RepositoryError("School year must use the YYYY-YYYY format.", "VALIDATION_ERROR");
+  },
+  async previewStudentProgression(_targetSchoolYear: string, _targetSemesterId: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return [];
+  },
+  async applyStudentProgression(_targetSchoolYear: string, _targetSemesterId: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return { updatedCount: 0 };
+  },
+  async transitionSchoolYear(_input, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return { updatedCount: 0 };
   }
 };
 

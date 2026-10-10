@@ -5,6 +5,7 @@ const page = readFileSync("src/features/organizer/pages/OrganizerUserManagement.
 const contracts = readFileSync("src/services/contracts/index.ts", "utf8");
 const repository = readFileSync("src/services/supabase/repositories.ts", "utf8");
 const userManager = readFileSync("supabase/functions/manage-users/index.ts", "utf8");
+const queries = readFileSync("src/hooks/useRepositoryQueries.ts", "utf8");
 
 describe("organizer account editing", () => {
   it("opens the same organizer editor from every directory row", () => {
@@ -45,6 +46,12 @@ describe("organizer account editing", () => {
     expect(page).toContain('value="Organizer" />');
     expect(page).toContain('position: "Organizer" });');
     expect(userManager).toContain('const position = "Organizer";');
+  });
+
+  it("refreshes the profile directory and shows a busy state after creation starts", () => {
+    expect(queries).toContain('queryClient.invalidateQueries({ queryKey: ["users"] })');
+    expect(page).toContain('confirmBusy={mutation.isPending} confirmBusyLabel="Creating…"');
+    expect(page).toContain('cancelDisabled={mutation.isPending}');
   });
 
   it("keeps organizer bulk templates position-free and closes after download", () => {

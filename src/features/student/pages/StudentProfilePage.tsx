@@ -148,16 +148,10 @@ export function StudentProfilePage() {
   const readiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
   const credentialReadinessError = credentialStatusQuery.isError;
   const hasQrCredential = hasUsableQrCredential(readiness);
-  const hasFacialEnrollment = readiness.faceEnrolled;
   const qrCredentialLabel = credentialReadinessError
     ? "Unable to read"
     : hasQrCredential
       ? formatCredentialStatus(readiness.qrStatus)
-      : "Pending";
-  const facialEnrollmentLabel = credentialReadinessError
-    ? "Unable to read"
-    : hasFacialEnrollment
-      ? formatCredentialStatus(readiness.faceStatus)
       : "Pending";
   async function handleAvatarChange(event: React.ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -283,7 +277,6 @@ export function StudentProfilePage() {
             </h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <ProfileField label="QR Credential" value={qrCredentialLabel} icon={Hash} />
-              <ProfileField label="Facial Enrollment" value={facialEnrollmentLabel} icon={Camera} />
               <ProfileField label="Event Records" value={metrics.totalCount} icon={CalendarCheck} />
               <ProfileField label="Attendance Rate" value={`${metrics.attendanceRate}%`} icon={Award} />
               <ProfileField label="Account Created" value={formatDisplayDate(user.createdAt)} icon={CalendarCheck} />

@@ -15,7 +15,6 @@ const ACTION_EXACT_MAP: Record<string, string> = {
   "credential_qr_issued": "QR credential issued",
   "Credential.qr Issued": "QR credential issued",
   "credential.qr.revoked": "QR credential revoked",
-  "credential.facial.enrolled": "Facial credential enrolled",
   "credential.status_changed": "Credential status changed",
   "event.created": "Event created",
   "event.updated": "Event updated",
@@ -30,7 +29,6 @@ const ACTION_EXACT_MAP: Record<string, string> = {
   "session.ended": "Session completed",
   "qr_attendance.recorded": "QR attendance recorded",
   "manual_attendance.recorded": "Manual attendance recorded",
-  "facial_attendance.recorded": "Facial attendance recorded",
   "correction_request.submitted": "Correction request submitted",
   "correction_request.approved": "Correction request approved",
   "correction_request.rejected": "Correction request rejected",
@@ -75,7 +73,6 @@ export function formatTargetType(targetType: string | undefined | null): string 
 
   const lower = targetType.toLowerCase();
   if (lower === "qr_credential" || lower === "credential") return "QR Credential";
-  if (lower === "facial_profile") return "Facial Credential";
   if (lower === "attendance_session" || lower === "session") return "Attendance Session";
   if (lower === "attendance_record") return "Attendance Record";
   if (lower === "event") return "Event";
@@ -257,7 +254,7 @@ export function getAuditTargetInfo(log: AuditLog, lookups?: AuditTargetLookups):
     }
   }
 
-  if ((targetTypeLower.includes("credential") || targetTypeLower.includes("student") || targetTypeLower.includes("facial")) && lookups?.students) {
+  if ((targetTypeLower.includes("credential") || targetTypeLower.includes("student")) && lookups?.students) {
     const match = lookups.students.find((s) => s.id === targetId || s.userId === targetId);
     if (match) {
       const displayName = match.fullName ?? match.formattedName ?? `Student ${match.studentNumber}`;
@@ -330,7 +327,7 @@ export function auditActionCategory(log: AuditLog): NonNullable<AuditLogFilters[
   const value = `${log.action} ${log.targetType}`.toLowerCase();
   if (/(correction|attendance_request)/.test(value)) return "correction";
   if (/(attendance|session|check[-_ ]?in|check[-_ ]?out)/.test(value)) return "attendance";
-  if (/(credential|qr|facial|verification)/.test(value)) return "credentials";
+  if (/(credential|qr|verification)/.test(value)) return "credentials";
   if (/(export|profile|password)/.test(value)) return "account";
   if (/(event|objective|feedback|resource)/.test(value)) return "events";
   return "account";

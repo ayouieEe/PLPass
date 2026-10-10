@@ -12,8 +12,8 @@ import type { LocalAttendanceInput, LocalAttendanceResult, OfflineAttendanceEven
 const directory = path.dirname(fileURLToPath(import.meta.url));
 let store: LocalAttendanceDatabase;
 let scannerCoordinator: ScannerCoordinator;
-let facialService: ChildProcess | undefined;
-let facialServiceStartPromise: Promise<void> | undefined;
+let mlService: ChildProcess | undefined;
+let mlServiceStartPromise: Promise<void> | undefined;
 const syncWakeTimers = new Map<string, NodeJS.Timeout>();
 
 function publishOfflineSyncDue(organizerProfileId: string) {
@@ -46,7 +46,7 @@ function offlineAttendanceEvent(input: LocalAttendanceInput, result: LocalAttend
 }
 
 const workspaceRoot = path.resolve(directory, "..", "..");
-const facialApiBaseUrl = process.env.PLPASS_FACIAL_API_URL ?? "http://127.0.0.1:8000";
+const mlApiBaseUrl = process.env.PLPASS_API_URL ?? "http://127.0.0.1:8000";
 // A Playwright desktop test launches against an isolated user-data directory.
 // It must not be blocked by the developer's normal PLPass window, while
 // production launches retain Electron's normal single-instance protection.
@@ -58,6 +58,26 @@ if (isIsolatedDesktopTest) {
   app.commandLine.appendSwitch("in-process-gpu");
 }
 const hasSingleInstanceLock = isIsolatedDesktopTest || app.requestSingleInstanceLock();
+
+if (process.defaultApp) {
+  const entryPoint = process.argv[1];
+  if (entryPoint) app.setAsDefaultProtocolClient("plpass", process.execPath, [path.resolve(entryPoint)]);
+} else {
+  app.setAsDefaultProtocolClient("plpass");
+}
+
+function isDesktopLaunchUrl(value: string) {
+  return /^plpass:\/\/open(?:[/?#]|$)/i.test(value);
+}
+
+function focusDesktopWindow(commandLine: string[] = []) {
+  if (!commandLine.some(isDesktopLaunchUrl)) return;
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
 
 // Register before Electron becomes ready. The renderer is a secure, standard
 // origin so SPA navigation and module/assets loaded from plpass://app work the
@@ -83,19 +103,21 @@ function backupOfflineDatabaseBeforeIndexRepair(databasePath: string, indexes: s
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, commandLine) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (!window) return;
     if (window.isMinimized()) window.restore();
+    window.show();
     window.focus();
+    focusDesktopWindow(commandLine);
   });
 }
 
-async function facialServiceReady() {
+async function mlServiceReady() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3_000);
   try {
-    const response = await fetch(`${facialApiBaseUrl}/openapi.json`, { signal: controller.signal });
+    const response = await fetch(`${mlApiBaseUrl}/openapi.json`, { signal: controller.signal });
     return response.ok;
   } catch {
     return false;
@@ -121,74 +143,41 @@ function localPythonWindowlessPath() {
   return existsSync(developmentPython) ? developmentPython : localPythonPath();
 }
 
-async function ensureLocalFacialService() {
-  if (await facialServiceReady()) return;
-  if (facialServiceStartPromise) return facialServiceStartPromise;
+async function ensureLocalMlService() {
+  if (await mlServiceReady()) return;
+  if (mlServiceStartPromise) return mlServiceStartPromise;
 
-  facialServiceStartPromise = (async () => {
-    if (await facialServiceReady()) return;
+  mlServiceStartPromise = (async () => {
+    if (await mlServiceReady()) return;
     const python = localPythonPath();
     if (!python) {
-      throw new Error("Offline facial recognition needs the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
+      throw new Error("Automatic forecasts need the PLPass Python runtime. Install it or configure PLPASS_PYTHON_PATH.");
     }
     let spawnError: Error | undefined;
-    if (!facialService || facialService.exitCode !== null) {
-      facialService = spawn(localPythonWindowlessPath() ?? python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
+    if (!mlService || mlService.exitCode !== null) {
+      mlService = spawn(localPythonWindowlessPath() ?? python, ["-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000"], {
         cwd: workspaceRoot,
         stdio: "ignore",
         windowsHide: true
       });
-      facialService.once("error", (error) => { spawnError = error; });
+      mlService.once("error", (error) => { spawnError = error; });
     }
     // The first ArcFace/RetinaFace initialization can take about a minute on a
     // fresh desktop, while later launches use the cached models.
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (await facialServiceReady()) return;
+      if (await mlServiceReady()) return;
       if (spawnError) throw new Error(`The local PLPass model service could not start: ${spawnError.message}`);
-      if (facialService?.exitCode !== null) throw new Error("The local PLPass model service exited before becoming ready.");
+      if (mlService?.exitCode !== null) throw new Error("The local PLPass model service exited before becoming ready.");
     }
     throw new Error("The local PLPass model service did not start. Check the configured Python runtime and try again.");
   })();
 
   try {
-    await facialServiceStartPromise;
+    await mlServiceStartPromise;
   } finally {
-    facialServiceStartPromise = undefined;
+    mlServiceStartPromise = undefined;
   }
-}
-
-async function identifyOfflineFace(eventId: string, capture: number[]) {
-  await ensureLocalFacialService();
-  const cachedCandidates = store.listFaceCandidates(eventId);
-  const candidates = cachedCandidates.map((candidate) => ({
-    student_id: candidate.studentId,
-    embeddings: candidate.faceEmbeddings
-  }));
-  if (!candidates.length) return null;
-
-  const body = new FormData();
-  body.append("capture", new Blob([new Uint8Array(capture)], { type: "image/jpeg" }), "offline-face.jpg");
-  body.append("candidates", JSON.stringify(candidates));
-  const response = await fetch(`${facialApiBaseUrl}/facial/offline-identify`, { method: "POST", body });
-  const payload = await response.json().catch(() => null) as { student_id?: unknown; detail?: { message?: unknown } } | null;
-  if (!response.ok) {
-    const message = payload?.detail && typeof payload.detail.message === "string"
-      ? payload.detail.message
-      : "Offline face verification could not be completed.";
-    throw new Error(message);
-  }
-  const studentId = typeof payload?.student_id === "string" ? payload.student_id : null;
-  const match = studentId ? cachedCandidates.find((candidate) => candidate.studentId === studentId) : undefined;
-  return match
-    ? {
-        studentId: match.studentId,
-        studentNumber: match.studentNumber,
-        displayName: match.displayName,
-        participantStatus: match.participantStatus,
-        qrIdentifier: match.qrIdentifier
-      }
-    : null;
 }
 
 function scannerCertificateStore(userDataPath: string): ScannerCertificateStore {
@@ -257,7 +246,7 @@ function registerHandlers() {
     "offline:setLifecycle": (eventId, sessionId, state) => store.setOfflineLifecycleState(eventId, sessionId, state),
     "offline:status": (id, ownerId) => store.getStatusForOrganizer(id, ownerId), "offline:getPreparedEvent": (id, ownerId) => store.getPreparedEventForOrganizer(id, ownerId), "offline:getPreparedEventBySession": (id, ownerId) => store.getPreparedEventBySessionForOrganizer(id, ownerId),
     "offline:identifyQr": (eventId, qr) => store.identifyQr(eventId, qr), "offline:identifyManual": (eventId, value) => store.identifyManual(eventId, value),
-    "offline:identifyFace": (eventId, capture) => identifyOfflineFace(eventId, capture), "offline:record": (input) => { const attendanceInput = input as unknown as LocalAttendanceInput; const result = store.recordAttendance(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
+    "offline:record": (input) => { const attendanceInput = input as unknown as LocalAttendanceInput; const result = store.recordAttendance(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
     "offline:recordScanner": (input, phase) => { const attendanceInput = input as unknown as LocalAttendanceInput; const capturePhase = phase as unknown as "time_in" | "time_out"; const result = capturePhase === "time_out" ? store.recordScannerCheckOut(attendanceInput) : store.recordScannerCheckIn(attendanceInput); publishOfflineAttendance(offlineAttendanceEvent(attendanceInput, result)); return result; },
     "offline:capturePhase": (sessionId, ownerId) => store.getAttendanceCapturePhase(sessionId,ownerId), "offline:advancePhase": (sessionId,ownerId) => store.advanceAttendanceCapturePhase(sessionId,ownerId), "offline:cacheOnlineAttendance": (input) => store.cacheOnlineAttendance(input as { eventId:string; sessionId:string; organizerProfileId:string; studentId:string; studentNumber?:string; displayName?:string; participantStatus?:"invited"|"confirmed"|"walk_in"; attendanceStatus:"present"|"late"; timeIn:string; timeOut?:string|null }),
     "offline:queueWalkin": (input) => { const walkInInput = input as unknown as {eventId:string;sessionId:string;studentNumber:string;identificationMethod:"qr"|"manual";capturePhase:"time_in"|"time_out";attendanceTimestamp:string;organizerProfileId:string}; const result = store.queueWalkInScan(walkInInput); const action = result.action ?? (walkInInput.capturePhase === "time_in" ? "checked_in" : "checked_out"); publishOfflineAttendance({ eventId: walkInInput.eventId, sessionId: walkInInput.sessionId, studentNumber: result.studentNumber, action, recordedAt: action === "already_recorded" ? result.timeIn : walkInInput.attendanceTimestamp, timeIn: result.timeIn, timeOut: result.timeOut, syncStatus: result.syncStatus, message: action === "already_recorded" ? "This walk-in already has Time In recorded." : `${walkInInput.capturePhase === "time_in" ? "Time In" : "Time Out"} saved on this device at ${new Date(walkInInput.attendanceTimestamp).toLocaleTimeString()}; not synced.`,source:"organizer" }); return result; }, "offline:listWalkins": (eventId,ownerId,activeSessionId) => store.listPendingWalkInScans(eventId,ownerId,activeSessionId),
@@ -265,7 +254,7 @@ function registerHandlers() {
     "offline:listPending": (eventId, organizerId) => store.listPending(eventId, organizerId), "offline:beginSync": (limit, forceRetry, organizerId) => store.beginSync(limit, forceRetry, organizerId),
     "offline:confirmSync": (uuid, serverId, status, timeOut) => store.confirmSync(uuid, serverId, status, timeOut), "offline:failSync": (uuid,status,error) => store.failSync(uuid,status,error),
     "offline:recover": (organizerId) => store.recoverInterruptedSync(organizerId), "offline:cleanup": (eventId,verified,completed) => store.cleanupEvent(eventId,verified,completed), "offline:integrity": () => store.checkIntegrity(),
-    "ml:ensure": () => ensureLocalFacialService()
+    "ml:ensure": () => ensureLocalMlService()
   };
   handlers["scanner:start"] = (eventId, sessionId, phase, ownerId) => {
     if (!store.getPreparedEventForOrganizer(eventId, ownerId)) throw new Error("The event package is not available to this organizer on this device.");
@@ -337,7 +326,8 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   void win.loadURL(url).catch((error: unknown) => {
     console.error(`Renderer failed to open ${url}: ${error instanceof Error ? error.message : String(error)}`);
   });
+  focusDesktopWindow(process.argv);
 });
 
-app.on("before-quit", () => { void scannerCoordinator?.stop(); facialService?.kill(); facialService = undefined; });
+app.on("before-quit", () => { void scannerCoordinator?.stop(); mlService?.kill(); mlService = undefined; });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

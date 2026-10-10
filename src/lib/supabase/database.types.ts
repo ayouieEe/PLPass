@@ -129,6 +129,11 @@ export type Database = {
           created_at: string
           event_session_id: string
           finalized_at: string | null
+          historical_academic_year: string | null
+          historical_section_id: string | null
+          historical_section_name: string | null
+          historical_semester_id: string | null
+          historical_year_level: number | null
           id: string
           late_reason: string | null
           late_reason_category: string | null
@@ -153,6 +158,11 @@ export type Database = {
           created_at?: string
           event_session_id: string
           finalized_at?: string | null
+          historical_academic_year?: string | null
+          historical_section_id?: string | null
+          historical_section_name?: string | null
+          historical_semester_id?: string | null
+          historical_year_level?: number | null
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null
@@ -177,6 +187,11 @@ export type Database = {
           created_at?: string
           event_session_id?: string
           finalized_at?: string | null
+          historical_academic_year?: string | null
+          historical_section_id?: string | null
+          historical_section_name?: string | null
+          historical_semester_id?: string | null
+          historical_year_level?: number | null
           id?: string
           late_reason?: string | null
           late_reason_category?: string | null

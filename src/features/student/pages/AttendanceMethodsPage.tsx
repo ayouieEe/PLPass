@@ -1,215 +1,67 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { AlertTriangle, ClipboardCheck, Download, Paperclip, QrCode, ShieldCheck, X } from "lucide-react";
 import { z } from "zod";
-import {
-  AlertTriangle,
-  Camera,
-  CheckCircle2,
-  ClipboardCheck,
-  Download,
-  Lock,
-  Paperclip,
-  QrCode,
-  ShieldCheck,
-  UploadCloud,
-  X,
-  type LucideIcon
-} from "lucide-react";
 import { toast } from "sonner";
-import { getErrorMessage } from "@/lib/utils/errors";
-import { ModalShell } from "@/components/modals/ModalShell";
-import { ErrorState } from "@/components/feedback/ErrorState";
-import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
+import { LoadingState } from "@/components/feedback/LoadingState";
+import { ErrorState } from "@/components/feedback/ErrorState";
+import { ModalShell } from "@/components/modals/ModalShell";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useCredentialRequests, useStudentCredentialMutations, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
+import { useCredentialRequests, useStudentCredentialStatus } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
-import { extractFaceDescriptorFromFile } from "@/lib/biometrics/humanFace";
-import { cn } from "@/lib/utils/cn";
-import {
-  ensureStudentIdentityReadiness,
-  formatCredentialStatus,
-  hasUsableQrCredential,
-  useStudentScope
-} from "@/features/student/studentExperience";
+import { ensureStudentIdentityReadiness, formatCredentialStatus, hasUsableQrCredential, useStudentScope } from "@/features/student/studentExperience";
 
-const issueReportSchema = z.object({
-  issueDescription: z.string().min(10, "Explanation must be at least 10 characters.")
-});
-type IssueReportFormValues = z.infer<typeof issueReportSchema>;
-
-const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
+const issueReportSchema = z.object({ issueDescription: z.string().min(10, "Explanation must be at least 10 characters.") });
+type IssueReportValues = z.infer<typeof issueReportSchema>;
 const issueProofMaxBytes = 5 * 1024 * 1024;
 const acceptedIssueProofTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
-const faceEnrollmentMaxBytes = 5 * 1024 * 1024;
-const acceptedFaceEnrollmentTypes = ["image/png", "image/jpeg", "image/webp"];
+const cardShellClass = "relative overflow-hidden rounded-2xl border bg-surface p-5 shadow-sm";
+
+function CardAccent() {
+  return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
+}
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function CardAccent() {
-  return <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-primary/25 to-transparent" />;
-}
-
 function QrPreview({ active, value, fileName }: { active: boolean; value: string; fileName: string }) {
   const qrDataUrl = useQrCredentialDataUrl(active, value);
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <div
-        className={cn("grid h-44 w-44 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5 sm:h-52 sm:w-52", !active && "opacity-70 grayscale")}
-        role="img"
-        aria-label={active ? "PLPass student QR credential, ready for organizer scanning" : "PLPass student QR credential unavailable; contact an organizer or administrator"}
-      >
-        {qrDataUrl ? (
-          <img src={qrDataUrl} alt="" className="h-full w-full object-contain" />
-        ) : (
-          <QrCode className="h-20 w-20 text-primary/60" aria-hidden="true" />
-        )}
-      </div>
-      {qrDataUrl ? (
-        <a
-          href={qrDataUrl}
-          download={fileName}
-          className="inline-flex h-9 items-center justify-center rounded-full border bg-background px-4 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted"
-        >
-          <Download className="mr-2 h-4 w-4 text-primary" />
-          Download QR
-        </a>
-      ) : null}
+  return <div className="flex flex-col items-center gap-3">
+    <div className={`grid h-44 w-44 place-items-center rounded-2xl border bg-white p-3 shadow-sm ring-8 ring-primary/5 sm:h-52 sm:w-52 ${!active ? "opacity-70 grayscale" : ""}`} role="img" aria-label={active ? "PLPass student QR credential, ready for organizer scanning" : "PLPass student QR credential unavailable; contact an organizer or administrator"}>
+      {qrDataUrl ? <img src={qrDataUrl} alt="" className="h-full w-full object-contain" /> : <QrCode className="h-20 w-20 text-primary/60" aria-hidden="true" />}
     </div>
-  );
+    {qrDataUrl ? <a href={qrDataUrl} download={fileName} className="inline-flex h-9 items-center justify-center rounded-full border bg-background px-4 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted"><Download className="mr-2 h-4 w-4 text-primary" />Download QR</a> : null}
+  </div>;
 }
 
 export function AttendanceMethodsPage() {
   const scope = useStudentScope();
-  const credentialRequestsQuery = useCredentialRequests({ pageSize: 100 }, scope.context);
-  const credentialStatusQuery = useStudentCredentialStatus(scope.student?.id, scope.context);
-  const credentialMutations = useStudentCredentialMutations(scope.context);
-  const [showFaceEnrollment, setShowFaceEnrollment] = useState(false);
+  const requests = useCredentialRequests({ pageSize: 100 }, scope.context);
+  const credentials = useStudentCredentialStatus(scope.student?.id, scope.context);
   const [showIssueReport, setShowIssueReport] = useState(false);
   const [issueProofFile, setIssueProofFile] = useState<File | null>(null);
   const [issueProofError, setIssueProofError] = useState("");
   const [issueProofInputKey, setIssueProofInputKey] = useState(0);
-  const [faceEnrollmentFile, setFaceEnrollmentFile] = useState<File | null>(null);
-  const [faceEnrollmentError, setFaceEnrollmentError] = useState("");
-  const [faceEnrollmentProcessing, setFaceEnrollmentProcessing] = useState(false);
-  const [faceEnrollmentInputKey, setFaceEnrollmentInputKey] = useState(0);
-  const [facePreviewUrl, setFacePreviewUrl] = useState("");
-  const [faceCameraError, setFaceCameraError] = useState("");
-  const [faceCameraStarting, setFaceCameraStarting] = useState(false);
-  const [faceCameraRestartKey, setFaceCameraRestartKey] = useState(0);
-  const faceVideoRef = useRef<HTMLVideoElement | null>(null);
-  const faceCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const faceStreamRef = useRef<MediaStream | null>(null);
+  const issueForm = useForm<IssueReportValues>({ resolver: zodResolver(issueReportSchema), defaultValues: { issueDescription: "" } });
 
-  const issueForm = useForm<IssueReportFormValues>({
-    resolver: zodResolver(issueReportSchema),
-    defaultValues: { issueDescription: "" }
-  });
-  useEffect(() => {
-    let cancelled = false;
-
-    async function startFaceCamera() {
-      if (!showFaceEnrollment || faceEnrollmentFile) return;
-
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setFaceCameraError("Camera capture is not available in this browser. Use the fallback photo picker below.");
-        return;
-      }
-
-      stopFaceCamera();
-      setFaceCameraError("");
-      setFaceCameraStarting(true);
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            facingMode: "user",
-            width: { ideal: 960 },
-            height: { ideal: 720 }
-          }
-        });
-
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        faceStreamRef.current = stream;
-        if (faceVideoRef.current) {
-          faceVideoRef.current.srcObject = stream;
-          await faceVideoRef.current.play().catch(() => undefined);
-        }
-      } catch {
-        if (!cancelled) {
-          setFaceCameraError("Camera access was blocked or unavailable. Use the fallback photo picker below.");
-        }
-      } finally {
-        if (!cancelled) {
-          setFaceCameraStarting(false);
-        }
-      }
-    }
-
-    void startFaceCamera();
-
-    return () => {
-      cancelled = true;
-      stopFaceCamera();
-    };
-  }, [showFaceEnrollment, faceEnrollmentFile, faceCameraRestartKey]);
-
-  const qrProvisionAttempted = useRef(false);
-  useEffect(() => {
-    if (!scope.student || credentialStatusQuery.isLoading || credentialStatusQuery.isError || credentialStatusQuery.data?.qrCredential?.id || qrProvisionAttempted.current) return;
-    qrProvisionAttempted.current = true;
-    void credentialMutations.issueQrCredentialMutation.mutateAsync({ studentId: scope.student.id })
-      .then(() => credentialStatusQuery.refetch())
-      .catch(() => undefined);
-  }, [credentialMutations.issueQrCredentialMutation, credentialStatusQuery, scope.student]);
-
-  if (scope.isLoading) return <LoadingState label="Loading attendance methods" />;
+  if (scope.isLoading || credentials.isLoading || requests.isLoading) return <LoadingState label="Loading attendance methods" />;
   if (scope.isError || !scope.student) return <ErrorState title="Student profile unavailable" message="The signed-in account does not have a student profile record." />;
-  if (credentialRequestsQuery.isLoading) return <LoadingState label="Loading attendance method requests" />;
-  if (credentialRequestsQuery.isError) return <ErrorState title="Unable to load attendance method requests" message="Please try refreshing the page." />;
-  if (credentialStatusQuery.isLoading) return <LoadingState label="Loading attendance access" />;
-  if (credentialStatusQuery.isError) return <ErrorState title="Unable to load attendance access" message="Please refresh the page. If this continues, ask an organizer to verify your attendance manually." />;
+  if (credentials.isError || requests.isError) return <ErrorState title="Unable to load attendance access" message="Please refresh the page. If this continues, ask an organizer to verify your attendance manually." />;
 
   const student = scope.student;
-  const identityReadiness = ensureStudentIdentityReadiness(credentialStatusQuery.data);
-  const hasQrCredential = hasUsableQrCredential(identityReadiness);
-  // A support request must not make a valid credential look unusable. The QR
-  // remains scannable until it is deactivated or expires.
-  const qrStatus = hasQrCredential ? formatCredentialStatus(identityReadiness.qrStatus) : "Pending";
-  const facialStatus = identityReadiness.faceEnrolled ? "Active" : "Pending";
-  const readiness = Number(hasQrCredential) + Number(identityReadiness.faceEnrolled);
-  // The displayed QR must carry the same identity as the school-ID QR.
-  // Credential activation is still checked by the scanner/server.
-  const qrScanCode = hasQrCredential ? student.studentNumber : "";
+  const readiness = ensureStudentIdentityReadiness(credentials.data);
+  const hasQrCredential = hasUsableQrCredential(readiness);
+  const qrStatus = hasQrCredential ? formatCredentialStatus(readiness.qrStatus) : "Pending";
   const qrDownloadFileName = `plpass-qr-${student.studentNumber}.png`;
-
-  async function handleIssueSubmit(values: IssueReportFormValues) {
-    try {
-      await credentialRequestsQuery.createMutation.mutateAsync({
-        studentId: student.id,
-        credentialType: "qr",
-        requestType: "technical_issue",
-        reason: values.issueDescription,
-        proofAttachment: issueProofFile ?? undefined
-      });
-      issueForm.reset();
-      resetIssueProofFile();
-      setShowIssueReport(false);
-    } catch {
-      // The shared credential mutation reports the failure once.
-    }
-  }
+  const verificationSteps = [
+    { icon: QrCode, label: "QR", tag: "Primary", description: "The normal method for Time In and Time Out during onsite events." },
+    { icon: ClipboardCheck, label: "Manual", tag: "Backup", description: "Used by organizers when QR scanning is unavailable." }
+  ];
 
   function resetIssueProofFile() {
     setIssueProofFile(null);
@@ -220,540 +72,41 @@ export function AttendanceMethodsPage() {
   function handleIssueProofChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     setIssueProofError("");
-
-    if (!file) {
-      setIssueProofFile(null);
-      return;
-    }
-
-    if (!acceptedIssueProofTypes.includes(file.type)) {
-      setIssueProofFile(null);
-      setIssueProofError("Use a PNG, JPG, WebP, or PDF file.");
-      setIssueProofInputKey((key) => key + 1);
-      return;
-    }
-
-    if (file.size > issueProofMaxBytes) {
-      setIssueProofFile(null);
-      setIssueProofError("Proof file must be 5 MB or smaller.");
-      setIssueProofInputKey((key) => key + 1);
-      return;
-    }
-
+    if (!file) return setIssueProofFile(null);
+    if (!acceptedIssueProofTypes.includes(file.type)) { setIssueProofError("Use a PNG, JPG, WebP, or PDF file."); setIssueProofInputKey((key) => key + 1); return; }
+    if (file.size > issueProofMaxBytes) { setIssueProofError("Proof file must be 5 MB or smaller."); setIssueProofInputKey((key) => key + 1); return; }
     setIssueProofFile(file);
   }
 
-  function resetFaceEnrollmentFile() {
-    if (facePreviewUrl) {
-      URL.revokeObjectURL(facePreviewUrl);
-    }
-    setFaceEnrollmentFile(null);
-    setFacePreviewUrl("");
-    setFaceEnrollmentError("");
-    setFaceEnrollmentInputKey((key) => key + 1);
-    setFaceCameraRestartKey((key) => key + 1);
-  }
-
-  function stopFaceCamera() {
-    faceStreamRef.current?.getTracks().forEach((track) => track.stop());
-    faceStreamRef.current = null;
-    if (faceVideoRef.current) {
-      faceVideoRef.current.srcObject = null;
-    }
-  }
-
-  function setFaceEnrollmentCapture(file: File) {
-    if (facePreviewUrl) {
-      URL.revokeObjectURL(facePreviewUrl);
-    }
-    setFaceEnrollmentFile(file);
-    setFacePreviewUrl(URL.createObjectURL(file));
-    setFaceEnrollmentError("");
-    stopFaceCamera();
-  }
-
-  function handleFaceEnrollmentFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    setFaceEnrollmentError("");
-
-    if (!file) {
-      setFaceEnrollmentFile(null);
-      return;
-    }
-
-    if (!acceptedFaceEnrollmentTypes.includes(file.type)) {
-      setFaceEnrollmentFile(null);
-      setFaceEnrollmentError("Use a PNG, JPG, or WebP photo.");
-      setFaceEnrollmentInputKey((key) => key + 1);
-      return;
-    }
-
-    if (file.size > faceEnrollmentMaxBytes) {
-      setFaceEnrollmentFile(null);
-      setFaceEnrollmentError("Face photo must be 5 MB or smaller.");
-      setFaceEnrollmentInputKey((key) => key + 1);
-      return;
-    }
-
-    void saveFaceCapture(file);
-  }
-
-  function captureLiveFacePhoto() {
-    const video = faceVideoRef.current;
-    const canvas = faceCanvasRef.current;
-
-    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
-      setFaceEnrollmentError("Camera is still loading. Please try again in a moment.");
-      return;
-    }
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      setFaceEnrollmentError("Unable to capture from this camera.");
-      return;
-    }
-
-    // The preview is mirrored so it behaves like a familiar selfie camera.
-    // Mirror the exported frame too; otherwise the saved photo appears
-    // reversed compared with what the student aligned in the preview.
-    context.setTransform(-1, 0, 0, 1, canvas.width, 0);
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        setFaceEnrollmentError("Unable to capture a face photo. Please try again.");
-        return;
-      }
-
-      if (blob.size > faceEnrollmentMaxBytes) {
-        setFaceEnrollmentError("Captured photo is too large. Please try again.");
-        return;
-      }
-
-      const file = new File([blob], `face-enrollment-${student.studentNumber}.jpg`, { type: "image/jpeg" });
-      void saveFaceCapture(file);
-    }, "image/jpeg", 0.9);
-  }
-
-  async function saveFaceCapture(file: File) {
+  async function handleIssueSubmit(values: IssueReportValues) {
     try {
-      setFaceEnrollmentError("");
-      setFaceEnrollmentProcessing(true);
-      setFaceEnrollmentCapture(file);
-      const { descriptor } = await extractFaceDescriptorFromFile(file);
-      await credentialMutations.enrollFacialProfileMutation.mutateAsync({
-        studentId: student.id,
-        faceImage: file,
-        faceDescriptor: descriptor
-      });
-      resetFaceEnrollmentFile();
-      toast.success("Facial backup enrolled.");
-      setShowFaceEnrollment(false);
-      await credentialStatusQuery.refetch();
-    } catch (error) {
-      const message = getErrorMessage(error);
-      setFaceEnrollmentError(message);
-      toast.error(message);
-    } finally {
-      setFaceEnrollmentProcessing(false);
-    }
+      await requests.createMutation.mutateAsync({ studentId: student.id, credentialType: "qr", requestType: "technical_issue", reason: values.issueDescription, proofAttachment: issueProofFile ?? undefined });
+      issueForm.reset();
+      resetIssueProofFile();
+      setShowIssueReport(false);
+      toast.success("QR support request submitted.");
+    } catch { /* The shared mutation reports the failure. */ }
   }
 
-  const verificationSteps: Array<{ icon: LucideIcon; label: string; tag: string; description: string }> = [
-    { icon: QrCode, label: "QR", tag: "Primary", description: "The normal method for Time In and Time Out during onsite events." },
-    { icon: Camera, label: "Facial", tag: "Backup", description: "Used by organizers when QR scanning cannot be completed." },
-    { icon: ClipboardCheck, label: "Manual", tag: "Backup", description: "Used by organizers when both QR scanning and facial verification are unavailable." }
-  ];
+  function closeIssueReport() {
+    setShowIssueReport(false);
+    issueForm.clearErrors();
+    resetIssueProofFile();
+  }
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Attendance Methods"
-        description="View your attendance options and report verification issues."
-        actions={
-          <Button type="button" variant="destructive" onClick={() => setShowIssueReport(true)}>
-            <AlertTriangle className="mr-2 h-4 w-4" />
-            Report an Issue
-          </Button>
-        }
-      />
+  return <div className="space-y-6">
+    <PageHeader title="Attendance Methods" description="View your attendance options and report verification issues." actions={<Button type="button" variant="destructive" onClick={() => setShowIssueReport(true)}><AlertTriangle className="mr-2 h-4 w-4" />Report an Issue</Button>} />
 
-      <section className="space-y-4">
-        <div className="space-y-4">
-          <section className={cn(cardShellClass, "p-0")}>
-            <CardAccent />
-            <div className="flex flex-wrap items-start justify-between gap-4 p-5 md:p-6">
-              <div className="flex items-start gap-3">
-                <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5">
-                  <ShieldCheck className="h-5 w-5 text-primary" />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance access</p>
-                  <h2 className="mt-1 text-xl font-semibold tracking-tight">{readiness} of 2 verification options ready</h2>
-                  <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                    QR is the primary method. If QR scanning fails, organizers can use facial verification; manual attendance is the final backup when neither QR nor facial verification is available.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : "muted"} />
-                <StatusBadge label={`Face - ${facialStatus}`} tone={identityReadiness.faceEnrolled ? "success" : "muted"} />
-              </div>
-            </div>
-
-            <div className="grid gap-4 border-t bg-surface-muted/30 p-5 md:auto-rows-fr md:grid-cols-2 md:p-6">
-              <div className="flex h-full min-h-[34rem] min-w-0 flex-col rounded-2xl border bg-surface p-5 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Primary</p>
-                    <h2 className="mt-1 text-xl font-semibold tracking-tight">QR Credential</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Use this for Time In and Time Out scans when attending onsite events.
-                    </p>
-                  </div>
-                  <div className="shrink-0 self-start">
-                    <StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : "muted"} />
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-3 text-center sm:p-5">
-                  <QrPreview active={hasQrCredential} value={qrScanCode} fileName={qrDownloadFileName} />
-                  <p className="mt-4 text-sm font-semibold text-foreground">
-                    Student No. {student.studentNumber}
-                  </p>
-                  <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
-                    {hasQrCredential ? "Ready for organizer scanning." : "Preparing your QR credential…"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex h-full min-h-[34rem] min-w-0 flex-col rounded-2xl border bg-surface p-5 shadow-sm">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Backup</p>
-                    <h2 className="mt-1 text-xl font-semibold tracking-tight">Facial Recognition</h2>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Used by organizers only when QR scanning cannot be completed.
-                    </p>
-                  </div>
-                  <div className="shrink-0 self-start sm:self-start">
-                    <StatusBadge label={facialStatus} tone={identityReadiness.faceEnrolled ? "success" : "muted"} />
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-1 flex-col rounded-xl border bg-background p-4 sm:p-5">
-                  <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-center sm:text-left">
-                    <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      {identityReadiness.faceEnrolled ? <CheckCircle2 className="h-6 w-6" /> : <Camera className="h-6 w-6" />}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold">{identityReadiness.faceEnrolled ? "Facial backup ready" : "Facial backup not set up"}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {identityReadiness.faceEnrolled
-                          ? `Your facial backup is active${identityReadiness.faceEnrolledDate ? ` since ${new Date(identityReadiness.faceEnrolledDate).toLocaleDateString()}` : ""}.`
-                          : "Ask an organizer or administrator to help you complete your one-time backup enrollment."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 rounded-xl border border-dashed bg-muted/30 p-4">
-                    <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:text-left">
-                      <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-muted-foreground">
-                          {identityReadiness.faceEnrolled ? "One-time student enrollment complete" : "One-time student enrollment"}
-                        </p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                          {identityReadiness.faceEnrolled
-                            ? "Your face is already enrolled. Facial enrollment cannot be repeated or replaced."
-                            : "Follow the three quick camera prompts. Each capture is saved automatically."}
-                        </p>
-                        <div className="mt-3 flex flex-wrap justify-center gap-2 sm:justify-start">
-                          {!identityReadiness.faceEnrolled ? (
-                            <Button type="button" size="sm" onClick={() => setShowFaceEnrollment(true)}>
-                              Enroll face
-                            </Button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <aside className="grid gap-4 lg:grid-cols-2">
-          <div className={cardShellClass}>
-            <CardAccent />
-            <h2 className="text-base font-semibold tracking-tight">Supported attendance modes</h2>
-            <p className="mt-1 text-sm text-muted-foreground">These are the attendance methods students may encounter in PLPass.</p>
-            <div className="mt-5">
-              {verificationSteps.map((step, index) => (
-                <div key={step.label} className="relative flex gap-3 pb-6 last:pb-0">
-                  {index < verificationSteps.length - 1 && (
-                    <span className="absolute left-4 top-9 h-full w-px bg-border" />
-                  )}
-                  <span className="relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 ring-4 ring-surface">
-                    <step.icon className="h-3.5 w-3.5 text-primary" />
-                  </span>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold">{step.label}</p>
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{step.tag}</span>
-                    </div>
-                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.description}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className={cardShellClass}>
-            <CardAccent />
-            <h2 className="text-base font-semibold tracking-tight">What to prepare</h2>
-            <div className="mt-4 space-y-3">
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-sm font-semibold">Before the event</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">Make sure your QR is ready. If it is not available, contact the organizer before the event.</p>
-              </div>
-              <div className="rounded-xl border bg-background p-4">
-                <p className="text-sm font-semibold">At the venue</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">Let the organizer scan your QR. If scanning fails, follow the organizer’s backup attendance instructions.</p>
-              </div>
-            </div>
-          </div>
-        </aside>
+    <section className="space-y-4">
+      <section className={`${cardShellClass} p-0`}>
+        <CardAccent />
+        <div className="flex flex-wrap items-start justify-between gap-4 p-5 md:p-6"><div className="flex items-start gap-3"><span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5"><ShieldCheck className="h-5 w-5 text-primary" /></span><div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Attendance access</p><h2 className="mt-1 text-xl font-semibold tracking-tight">{hasQrCredential ? "1 of 1 verification options ready" : "0 of 1 verification options ready"}</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">QR is the primary method. If QR scanning fails, organizers can record attendance manually.</p></div></div><StatusBadge label={`QR - ${qrStatus}`} tone={hasQrCredential ? "success" : "muted"} /></div>
+        <div className="border-t bg-surface-muted/30 p-5 md:p-6"><div className="flex min-h-[34rem] flex-col rounded-2xl border bg-surface p-5 shadow-sm"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-wide text-primary">Primary</p><h2 className="mt-1 text-xl font-semibold tracking-tight">QR Credential</h2><p className="mt-1 text-sm leading-6 text-muted-foreground">Use this for Time In and Time Out scans when attending onsite events.</p></div><div className="shrink-0"><StatusBadge label={qrStatus} tone={hasQrCredential ? "success" : "muted"} /></div></div><div className="mt-5 flex flex-1 flex-col items-center justify-center rounded-xl border bg-background p-3 text-center sm:p-5"><QrPreview active={hasQrCredential} value={student.studentNumber} fileName={qrDownloadFileName} /><p className="mt-4 text-sm font-semibold text-foreground">Student No. {student.studentNumber}</p><p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">{hasQrCredential ? "Ready for organizer scanning." : "Preparing your QR credential…"}</p></div></div></div>
       </section>
 
-      <ModalShell
-        open={showFaceEnrollment}
-        title="Enroll facial backup"
-        description="Capture one clear, front-facing photo. Facial enrollment is a one-time process."
-        size="md"
-        onClose={() => {
-          setShowFaceEnrollment(false);
-          resetFaceEnrollmentFile();
-        }}
-      >
-        <div className="space-y-4">
-          <div className="rounded-2xl border bg-primary/5 p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                <Camera className="h-5 w-5 text-primary" />
-              </span>
-              <div>
-                <p className="font-semibold">Capture: Front-facing photo</p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Make a natural slight head turn for side captures. Keep one face centered and well-lit; no photo is stored after the embedding is created.
-                </p>
-              </div>
-            </div>
-          </div>
+      <aside className="grid gap-4 lg:grid-cols-2"><div className={cardShellClass}><CardAccent /><h2 className="text-base font-semibold tracking-tight">Supported attendance modes</h2><p className="mt-1 text-sm text-muted-foreground">These are the attendance methods students may encounter in PLPass.</p><div className="mt-5">{verificationSteps.map((step, index) => <div key={step.label} className="relative flex gap-3 pb-6 last:pb-0">{index < verificationSteps.length - 1 ? <span className="absolute left-4 top-9 h-full w-px bg-border" /> : null}<span className="relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 ring-4 ring-surface"><step.icon className="h-3.5 w-3.5 text-primary" /></span><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{step.label}</p><span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{step.tag}</span></div><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{step.description}</p></div></div>)}</div></div><div className={cardShellClass}><CardAccent /><h2 className="text-base font-semibold tracking-tight">What to prepare</h2><div className="mt-4 space-y-3"><div className="rounded-xl border bg-background p-4"><p className="text-sm font-semibold">Before the event</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Make sure your QR is ready. If it is not available, contact the organizer before the event.</p></div><div className="rounded-xl border bg-background p-4"><p className="text-sm font-semibold">At the venue</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Let the organizer scan your QR. If scanning fails, follow the organizer’s manual attendance instructions.</p></div></div></div></aside>
+    </section>
 
-          <div className="rounded-2xl border bg-surface-muted/40 p-4">
-            <p id="face-camera-instructions" className="sr-only">Live camera preview for facial enrollment. Center your face in the frame with even lighting, then capture the requested pose. Each capture saves automatically. If the camera is unavailable, use the file fallback.</p>
-            <div className="overflow-hidden rounded-2xl border bg-black">
-              {facePreviewUrl ? (
-                <img src={facePreviewUrl} alt="Captured face preview" className="aspect-video w-full object-cover" />
-              ) : (
-                <div className="relative aspect-video w-full">
-                  <video
-                    ref={faceVideoRef}
-                    aria-label="Live facial enrollment camera preview"
-                    aria-describedby="face-camera-instructions"
-                    className="h-full w-full scale-x-[-1] object-cover"
-                    muted
-                    playsInline
-                    autoPlay
-                  />
-                  {faceCameraStarting ? (
-                    <div className="absolute inset-0 grid place-items-center bg-black/70 text-sm font-semibold text-white">
-                      Starting camera...
-                    </div>
-                  ) : null}
-                  {faceCameraError ? (
-                    <div className="absolute inset-0 grid place-items-center bg-black/80 p-6 text-center text-sm font-medium leading-6 text-white">
-                      {faceCameraError}
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-
-            <canvas ref={faceCanvasRef} className="hidden" aria-hidden="true" />
-
-            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold">{faceEnrollmentFile ? "Captured face photo" : "Live camera capture"}</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {faceEnrollmentProcessing
-                    ? "Checking and saving this pose automatically…"
-                    : faceEnrollmentFile
-                      ? `Capture could not be saved. File size: ${formatFileSize(faceEnrollmentFile.size)}.`
-                      : `Capture is saved automatically. Maximum file size is ${formatFileSize(faceEnrollmentMaxBytes)}.`}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {faceEnrollmentFile && !faceEnrollmentProcessing ? (
-                  <Button type="button" variant="outline" onClick={resetFaceEnrollmentFile}>
-                    Retake photo
-                  </Button>
-                ) : !faceEnrollmentFile ? (
-                  <Button type="button" onClick={captureLiveFacePhoto} disabled={faceCameraStarting || faceEnrollmentProcessing || Boolean(faceCameraError)}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    {faceEnrollmentProcessing ? "Saving…" : "Capture face"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            {faceCameraError ? (
-              <div className="mt-4 rounded-xl border bg-background p-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    If your device camera is blocked, use this fallback to capture/select a new face photo.
-                  </p>
-                  <label className="inline-flex cursor-pointer items-center justify-center rounded-full border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted">
-                    <UploadCloud className="mr-2 h-4 w-4 text-primary" />
-                    Use fallback
-                    <input
-                      key={faceEnrollmentInputKey}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      capture="user"
-                      className="sr-only"
-                      onChange={handleFaceEnrollmentFileChange}
-                    />
-                  </label>
-                </div>
-              </div>
-            ) : null}
-
-            {faceEnrollmentError ? <p className="mt-2 text-sm text-danger">{faceEnrollmentError}</p> : null}
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setShowFaceEnrollment(false);
-                resetFaceEnrollmentFile();
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      </ModalShell>
-
-      <ModalShell
-        open={showIssueReport}
-        title="Report attendance issue"
-        description="Use this only when QR scanning or backup verification did not work during an event."
-        size="md"
-        onClose={() => {
-          setShowIssueReport(false);
-          issueForm.clearErrors();
-          resetIssueProofFile();
-        }}
-      >
-        <form onSubmit={issueForm.handleSubmit(handleIssueSubmit)} className="space-y-4">
-          <div className="rounded-2xl border bg-warning/5 p-4">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-warning/10">
-                <AlertTriangle aria-hidden="true" className="h-5 w-5 text-warning" />
-              </span>
-              <div>
-                <p className="font-semibold">Before sending, check with the event organizer first.</p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Submit this report if your attendance could not be recorded because the QR scan, camera backup, or organizer verification failed.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <label className="block">
-            <span className="text-sm font-semibold">What happened?</span>
-            <textarea
-              {...issueForm.register("issueDescription")}
-              aria-invalid={Boolean(issueForm.formState.errors.issueDescription)}
-              aria-describedby={issueForm.formState.errors.issueDescription ? "attendance-issue-description-error" : undefined}
-              className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm"
-              placeholder="Example: My QR could not be scanned during EVT-2026-005 at the venue entrance."
-            />
-          </label>
-          {issueForm.formState.errors.issueDescription ? (
-            <p id="attendance-issue-description-error" role="alert" className="text-sm text-danger">{issueForm.formState.errors.issueDescription.message}</p>
-          ) : null}
-
-          <div className="rounded-2xl border bg-surface-muted/40 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="text-sm font-semibold">Proof attachment</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Optional screenshot, photo, or PDF to help organizers review the problem. Maximum file size is {formatFileSize(issueProofMaxBytes)}.
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center justify-center rounded-full border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted">
-                <Paperclip className="mr-2 h-4 w-4 text-primary" />
-                Choose file
-                <input
-                  key={issueProofInputKey}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,application/pdf"
-                  className="sr-only"
-                  onChange={handleIssueProofChange}
-                />
-              </label>
-            </div>
-
-            {issueProofFile ? (
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Paperclip className="h-4 w-4 flex-shrink-0 text-primary" />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{issueProofFile.name}</p>
-                    <p className="text-xs text-muted-foreground">{formatFileSize(issueProofFile.size)}</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
-                  aria-label="Remove proof attachment"
-                  onClick={resetIssueProofFile}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
-
-            {issueProofError ? <p className="mt-2 text-sm text-danger">{issueProofError}</p> : null}
-          </div>
-
-          <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setShowIssueReport(false);
-                issueForm.clearErrors();
-                resetIssueProofFile();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={credentialRequestsQuery.createMutation.isPending || Boolean(issueProofError)}>
-              {credentialRequestsQuery.createMutation.isPending ? "Submitting..." : "Submit report"}
-            </Button>
-          </div>
-        </form>
-      </ModalShell>
-    </div>
-  );
+    <ModalShell open={showIssueReport} title="Report attendance issue" description="Use this only when QR scanning or backup verification did not work during an event." size="md" onClose={closeIssueReport}><form onSubmit={issueForm.handleSubmit(handleIssueSubmit)} className="space-y-4"><div className="rounded-2xl border bg-warning/5 p-4"><div className="flex items-start gap-3"><span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-warning/10"><AlertTriangle aria-hidden="true" className="h-5 w-5 text-warning" /></span><div><p className="font-semibold">Before sending, check with the event organizer first.</p><p className="mt-1 text-sm leading-6 text-muted-foreground">Submit this report if your attendance could not be recorded because QR scanning or organizer verification failed.</p></div></div></div><label className="block"><span className="text-sm font-semibold">What happened?</span><textarea id="attendance-issue-explanation" {...issueForm.register("issueDescription")} aria-invalid={Boolean(issueForm.formState.errors.issueDescription)} aria-describedby={issueForm.formState.errors.issueDescription ? "attendance-issue-explanation-error" : undefined} className="plpass-field mt-2 min-h-32 w-full rounded-xl border p-3 text-sm" placeholder="Example: My QR could not be scanned during EVT-2026-005 at the venue entrance." /></label>{issueForm.formState.errors.issueDescription ? <p id="attendance-issue-explanation-error" role="alert" className="text-sm text-danger">{issueForm.formState.errors.issueDescription.message}</p> : null}<div className="rounded-2xl border bg-surface-muted/40 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-sm font-semibold">Proof attachment</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Optional screenshot, photo, or PDF to help organizers review the problem. Maximum file size is {formatFileSize(issueProofMaxBytes)}.</p></div><label className="inline-flex cursor-pointer items-center justify-center rounded-full border bg-background px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted"><Paperclip className="mr-2 h-4 w-4 text-primary" />Choose file<input key={issueProofInputKey} type="file" accept={acceptedIssueProofTypes.join(",")} className="sr-only" onChange={handleIssueProofChange} /></label></div>{issueProofFile ? <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background px-3 py-2"><div className="flex min-w-0 items-center gap-2"><Paperclip className="h-4 w-4 flex-shrink-0 text-primary" /><p className="truncate text-sm font-semibold">{issueProofFile.name}</p></div><button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition hover:bg-surface-muted hover:text-foreground" aria-label="Remove proof attachment" onClick={resetIssueProofFile}><X className="h-4 w-4" /></button></div> : null}{issueProofError ? <p className="mt-2 text-sm text-danger">{issueProofError}</p> : null}</div><div className="flex flex-wrap justify-end gap-2 border-t pt-4"><Button type="button" variant="outline" onClick={closeIssueReport}>Cancel</Button><Button type="submit" disabled={requests.createMutation.isPending || Boolean(issueProofError)}>{requests.createMutation.isPending ? "Submitting..." : "Submit report"}</Button></div></form></ModalShell>
+  </div>;
 }

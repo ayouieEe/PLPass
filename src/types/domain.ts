@@ -30,6 +30,7 @@ export type User = {
   nameExtension?: string;
   avatarUrl?: string;
   isActive: boolean;
+  accountSetupCompletedAt?: ISODateString;
   createdAt: ISODateString;
 };
 
@@ -299,6 +300,11 @@ export type AttendanceRecord = {
   id: string;
   sessionId: string;
   studentId: string;
+  historicalAcademicYear?: string;
+  historicalSemesterId?: string;
+  historicalYearLevel?: number;
+  historicalSectionId?: string;
+  historicalSectionName?: string;
   status: AttendanceStatus;
   verificationMethod: VerificationMethod;
   checkoutVerificationMethod?: VerificationMethod;
@@ -342,7 +348,7 @@ export type CorrectionRequest = {
 export type CredentialRequest = {
   id: ID;
   studentId: ID;
-  credentialType: "qr" | "facial";
+  credentialType: "qr";
   requestType: "replacement" | "technical_issue";
   reason: string;
   status: CredentialRequestStatus;
@@ -363,20 +369,9 @@ export type QrCredential = {
   lastSuccessfulCheckInAt?: ISODateString;
 };
 
-export type FacialProfile = {
-  id: ID;
-  studentId: ID;
-  status: string;
-  enrollmentReference: string;
-  enrolledAt: ISODateString;
-  consentRecordedAt: ISODateString;
-  lastVerifiedAt?: ISODateString;
-};
-
 export type StudentCredentialStatus = {
   studentId: ID;
   qrCredential?: QrCredential;
-  facialProfile?: FacialProfile;
 };
 
 export type Report = {
@@ -468,7 +463,7 @@ export type SystemSettings = {
   minimumTimeOutIntervalMinutes: number;
   allowAttendanceAfterScheduledEnd: boolean;
   automaticAbsentMarking: boolean;
-  allowedVerificationMethods: Array<"qr" | "facial">;
+  allowedVerificationMethods: Array<"qr">;
   sensitiveActionReasonRequired: boolean;
   updatedAt: ISODateString;
 };

@@ -6,7 +6,7 @@
 2. Confirm both GitHub quality jobs pass.
 3. Confirm `npm ci`, build, lint, 80 unit/integration tests, bundle budget, dependency audit, and 63 browser tests pass.
 4. Back up the staging database and record the currently deployed migration version.
-5. Apply pending migrations to staging, including biometric/RPC hardening.
+5. Apply pending migrations to staging, including the guarded facial-recognition decommission migration.
 6. Run Supabase database lint and Security Advisor.
 7. Execute the database authorization checks listed in Phase 5.
 8. Complete organizer and student UAT and record names, date, environment, browser/device, result, and unresolved limitations.
@@ -26,7 +26,7 @@
 2. Verify linked migration parity and RPC signatures; regenerate database types if needed.
 3. Run the production release preflight against the same project. It must pass before the frontend artifact is deployed.
 4. Smoke-test login, organizer dashboard/events/session, student dashboard/attendance/methods, corrections, reports, notifications, and logout.
-5. Verify audit records and application logs contain no secrets or biometric descriptors.
+5. Verify audit records and application logs contain no secrets or removed biometric data.
 6. Announce availability only after acceptance criteria pass.
 
 ## Rollback

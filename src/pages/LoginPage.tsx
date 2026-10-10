@@ -8,6 +8,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import { getAuthorizedHomePath, isPathAllowedForRole } from "@/lib/utils/auth";
 import { formatUserErrorMessage } from "@/lib/utils/errors";
 import { getPasswordLinkType, getPasswordSetupPath, hasPasswordSetupPayload } from "@/lib/auth/recovery";
+import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
 import type { UserRole } from "@/types/roles";
 
 type LocationState = {
@@ -33,18 +34,40 @@ export function LoginPage() {
     // on /login. Hand the one-time invite token to the existing password setup
     // page instead of asking a first-time user to sign in.
     if (hasPasswordSetupPayload(location)) {
-      navigate(getPasswordSetupPath(location, APP_ROUTES.resetPassword), {
+      const setupPath = getPasswordLinkType(location) === "invite" ? APP_ROUTES.acceptInvitation : APP_ROUTES.resetPassword;
+      navigate(getPasswordSetupPath(location, setupPath), {
         replace: true,
         state: { invitation: getPasswordLinkType(location) === "invite" }
       });
     }
   }, [location, navigate]);
 
-  function redirectAfterSignIn(role: UserRole) {
+  async function redirectAfterSignIn(nextSession: { role: UserRole; userId: string }) {
     const requestedPath = locationState?.from?.pathname;
-    const destination = requestedPath && isPathAllowedForRole(requestedPath, role)
+    if (nextSession.role === "student") {
+      try {
+        const legalStatus = await getLegalAcceptanceStatus(nextSession.userId);
+        if (!allCurrentLegalDocumentsAccepted(legalStatus)) {
+          navigate(APP_ROUTES.studentLegalReview, {
+            replace: true,
+            state: { from: { pathname: requestedPath ?? APP_ROUTES.studentDashboard } }
+          });
+          return;
+        }
+      } catch {
+        // The legal review page performs the same check and shows its own
+        // retry-safe loading/error state. Do not open the workspace when the
+        // acceptance status could not be verified.
+        navigate(APP_ROUTES.studentLegalReview, {
+          replace: true,
+          state: { from: { pathname: requestedPath ?? APP_ROUTES.studentDashboard } }
+        });
+        return;
+      }
+    }
+    const destination = requestedPath && isPathAllowedForRole(requestedPath, nextSession.role)
       ? requestedPath
-      : getAuthorizedHomePath(role);
+      : getAuthorizedHomePath(nextSession.role);
     navigate(destination, { replace: true });
   }
 
@@ -69,10 +92,13 @@ export function LoginPage() {
     }
 
     setIsSubmitting(true);
-    const nextSession = await signInWithPassword(trimmedEmail, password);
-    setIsSubmitting(false);
-    if (nextSession) {
-      redirectAfterSignIn(nextSession.role);
+    try {
+      const nextSession = await signInWithPassword(trimmedEmail, password);
+      if (nextSession) {
+        await redirectAfterSignIn(nextSession);
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   }
 

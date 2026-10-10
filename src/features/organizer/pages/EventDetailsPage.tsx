@@ -1185,15 +1185,6 @@ export function EventDetailsPage() {
       }
     },
     {
-      id: "facialBackup",
-      header: "Facial backup",
-      cell: ({ row }) => {
-        if (credentialStatusesQuery.isLoading) return <span className="text-sm text-muted-foreground">Checking...</span>;
-        const ready = credentialStatusByStudentId.get(row.original.id)?.facialProfile?.status === "activated";
-        return <StatusBadge label={ready ? "Ready" : "Not enrolled"} tone={ready ? "success" : "muted"} />;
-      }
-    },
-    {
       id: "invitation",
       header: "Invitation",
       cell: ({ row }) => {
@@ -1344,7 +1335,7 @@ export function EventDetailsPage() {
 
       {canManageOwnedEvents ? <>
         <OfflineStatusPanel status={offline.status} busy={offline.busy} onPrepare={()=>void offline.prepare().then(()=>toast.success("Event is ready for offline use.")).catch((error)=>toast.error(getErrorMessage(error) || "Offline preparation failed."))} onRetry={()=>void offline.sync(true)} />
-        {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Completed packages are removed automatically after server confirmation and a 24-hour safety period.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const cleaned=await cleanupExpiredReconciledEvents(scope.context.actorUserId);setCleanupMessage(cleaned?"Cleanup completed. Temporary event and biometric cache data were removed.":"Cleanup is not ready yet. PLPass will keep this package until reconciliation and the 24-hour safety period are complete.");if(cleaned)await offline.refresh();})()}>Check cleanup status</Button></div></section>:null}
+        {offline.status.runtimeAvailable&&offline.status.packageStatus==="READY"?<section className="rounded-lg border bg-surface p-4" aria-live="polite"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-semibold">Post-event local cleanup</p><p className="text-sm text-muted-foreground">Completed packages are removed automatically after server confirmation and a 24-hour safety period.</p>{cleanupMessage?<p className="mt-2 text-sm">{cleanupMessage}</p>:null}</div><Button type="button" variant="outline" disabled={offline.busy} onClick={()=>void (async()=>{const cleaned=await cleanupExpiredReconciledEvents(scope.context.actorUserId);setCleanupMessage(cleaned?"Cleanup completed. Temporary event cache data were removed.":"Cleanup is not ready yet. PLPass will keep this package until reconciliation and the 24-hour safety period are complete.");if(cleaned)await offline.refresh();})()}>Check cleanup status</Button></div></section>:null}
       </> : null}
       
       {/* Event Overview Stats */}

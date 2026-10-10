@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { type ReactNode, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { type ReactNode, useMemo, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
-import { AlertCircle, Camera, CheckCircle2, ChevronDown, Download, Filter, QrCode, ScanLine, Search, UserCheck, UserRound, UserX, X } from "lucide-react";
+import { CheckCircle2, Download, Filter, QrCode, Search, UserCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { ReportFormatOption } from "@/components/exports/ReportFormatOption";
@@ -13,16 +13,14 @@ import { PageHeader } from "@/components/shared/PageHeader";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useStudentCredentialMutations, useStudentCredentialStatuses, useStudents, useAuditLogMutations, useOrganizerCredentialDirectory } from "@/hooks/useRepositoryQueries";
 import { useQrCredentialDataUrl } from "@/hooks/useQrCredentialDataUrl";
-import type { ExportQrCredentialRow, ExportFacialProfileRow } from "@/features/organizer/utils/exportUtils";
+import type { ExportQrCredentialRow } from "@/features/organizer/utils/exportUtils";
 import type { ReportExportScope } from "@/lib/exports/reportExport";
-import { getFacialCredentialDisplayStatus, getQrCredentialDisplayStatus, type CredentialDisplayStatus, type FacialCredentialDisplayStatus } from "@/lib/credentials/status";
+import { getQrCredentialDisplayStatus, type CredentialDisplayStatus } from "@/lib/credentials/status";
 import { dateKey, formatDateTime, formatDisplayDate } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
 
-type FacialStatus = FacialCredentialDisplayStatus;
-type QRStatus = "Active" | "Deactivated";
-type AuthenticationStatusFilter = "All" | "Active" | "Pending" | "Deactivated";
-type ActiveTab = "facial" | "qr";
+type QRStatus = "Active" | "Deactivated" | "Not issued";
+type AuthenticationStatusFilter = "All" | "Active" | "Deactivated" | "Not issued";
 
 type QrRow = {
   studentId: string;
@@ -59,7 +57,6 @@ function OrganizerQrPreview({ student }: { student?: QrRow | null }) {
     </div>
   );
 }
-
 function CredentialMetric({ label, value, icon, accent = "default" }: { label: string; value: number; icon: ReactNode; accent?: "default" | "success" | "warning" | "danger" }) {
   const accentClass = {
     default: "bg-primary/10 text-primary",
@@ -81,16 +78,6 @@ function CredentialMetric({ label, value, icon, accent = "default" }: { label: s
     </article>
   );
 }
-
-type FacialRow = {
-  studentId: string;
-  studentName: string;
-  studentNumber: string;
-  enrollmentDate: string;
-  status: FacialStatus;
-  lastScan: string;
-};
-
 function useOrganizerScope() {
   const { session } = useDevelopmentSession();
   const context = useMemo(
@@ -100,177 +87,29 @@ function useOrganizerScope() {
   return { context };
 }
 
-function facialTone(status: FacialStatus) {
-  if (status === "Active") return "success" as const;
-  return status === "Pending" ? "warning" as const : "danger" as const;
-}
-
 function qrTone(status: QRStatus) {
-  return status === "Active" ? "success" as const : "danger" as const;
-}
-
-function FacialActionsRenderer({
-  data,
-  onViewFacial,
-  onToggleFacialStatus
-}: {
-  data: FacialRow;
-  onViewFacial: (studentName: string) => void;
-  onToggleFacialStatus: (studentName: string, currentStatus: FacialStatus) => void;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  const toggleMenu = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!isOpen && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setMenuPos({
-        top: rect.bottom + 4,
-        left: rect.right - 192
-      });
-      setIsOpen(true);
-    } else {
-      setIsOpen(false);
-    }
-  };
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (buttonRef.current && buttonRef.current.contains(event.target as Node)) {
-        return;
-      }
-      setIsOpen(false);
-    }
-    function handleScrollOrResize() {
-      if (isOpen && buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        setMenuPos({
-          top: rect.bottom + 4,
-          left: rect.right - 192
-        });
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      document.addEventListener("keydown", handleKeyDown);
-      window.addEventListener("scroll", handleScrollOrResize, true);
-      window.addEventListener("resize", handleScrollOrResize);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("scroll", handleScrollOrResize, true);
-      window.removeEventListener("resize", handleScrollOrResize);
-    };
-  }, [isOpen]);
-
-  if (!data) return null;
-
-  const isFacialActive = data.status === "Active";
-  const canToggleFacialStatus = data.status === "Active" || data.status === "Deactivated";
-
-  return (
-    <div className="flex items-center gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 border-border bg-background shadow-xs"
-        onClick={() => onViewFacial(data.studentName)}
-      >
-        <UserRound className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-        View
-      </Button>
-
-      {canToggleFacialStatus ? (
-        <Button
-          ref={buttonRef}
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="h-8 shadow-xs"
-          onClick={toggleMenu}
-          aria-expanded={isOpen}
-          aria-haspopup="menu"
-        >
-          Manage
-          <ChevronDown className="ml-1 h-3.5 w-3.5" aria-hidden="true" />
-        </Button>
-      ) : null}
-
-      {isOpen && menuPos && createPortal(
-        <div
-          role="menu"
-          style={{
-            position: "fixed",
-            top: `${menuPos.top}px`,
-            left: `${menuPos.left}px`,
-            zIndex: 99999
-          }}
-          className="w-48 rounded-md border border-border bg-popover p-1 shadow-lg animate-in fade-in-50 zoom-in-95"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setIsOpen(false);
-              onToggleFacialStatus(data.studentName, data.status);
-            }}
-            className="flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs font-medium text-popover-foreground hover:bg-accent hover:text-accent-foreground"
-          >
-            {isFacialActive ? (
-              <>
-                <X className="h-3.5 w-3.5 text-destructive" />
-                Deactivate Facial
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                Reactivate Facial
-              </>
-            )}
-          </button>
-        </div>,
-        document.body
-      )}
-    </div>
-  );
+  return status === "Active" ? "success" as const : status === "Not issued" ? "warning" as const : "danger" as const;
 }
 
 function ReportExportModal({
   isOpen,
   onClose,
   qrRows,
-  facialRows,
-  activeTab,
   exportScope,
   onExportAction
 }: {
   isOpen: boolean;
   onClose: () => void;
   qrRows: QrRow[];
-  facialRows: FacialRow[];
-  activeTab: ActiveTab;
   exportScope?: ReportExportScope;
   onExportAction: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
 }) {
-  const [reportType, setReportType] = useState<"qr" | "facial">(activeTab === "facial" ? "facial" : "qr");
   const [exportFormat, setExportFormat] = useState<"xlsx" | "pdf">("xlsx");
   const [isExportLoading, setIsExportLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const filteredQr = qrRows;
-  const filteredFacial = facialRows;
-  const count = reportType === "qr" ? filteredQr.length : filteredFacial.length;
+  const count = qrRows.length;
 
   async function handleExport() {
     if (count === 0) {
@@ -287,43 +126,26 @@ function ReportExportModal({
       .finally(() => setIsExportLoading(false));
     if (!exportTools) return;
 
-    if (reportType === "qr") {
-      const data: ExportQrCredentialRow[] = filteredQr.map((r) => ({
-        studentId: r.studentNumber,
-        studentName: r.studentName,
-        status: r.status,
-        dateGenerated: r.dateGenerated,
-        lastUsed: r.lastUsed
-      }));
-      if (exportFormat === "xlsx") {
-        await exportTools.exportQrCredentialsXlsx(data, exportScope);
-        toast.success(`Exported ${data.length} QR credential record(s) as XLSX.`);
-      } else {
-        await exportTools.exportQrCredentialsPdf(data, exportScope);
-        toast.success(`Exported ${data.length} QR credential record(s) as PDF.`);
-      }
+    const data: ExportQrCredentialRow[] = qrRows.map((r) => ({
+      studentId: r.studentNumber,
+      studentName: r.studentName,
+      status: r.status,
+      dateGenerated: r.dateGenerated,
+      lastUsed: r.lastUsed
+    }));
+    if (exportFormat === "xlsx") {
+      await exportTools.exportQrCredentialsXlsx(data, exportScope);
+      toast.success("Exported " + data.length + " QR credential record(s) as XLSX.");
     } else {
-      const data: ExportFacialProfileRow[] = filteredFacial.map((r) => ({
-        studentId: r.studentNumber,
-        studentName: r.studentName,
-        status: r.status,
-        enrollmentDate: r.enrollmentDate,
-        lastScan: r.lastScan
-      }));
-      if (exportFormat === "xlsx") {
-        await exportTools.exportFacialProfilesXlsx(data, exportScope);
-        toast.success(`Exported ${data.length} facial enrollment record(s) as XLSX.`);
-      } else {
-        await exportTools.exportFacialProfilesPdf(data, exportScope);
-        toast.success(`Exported ${data.length} facial enrollment record(s) as PDF.`);
-      }
+      await exportTools.exportQrCredentialsPdf(data, exportScope);
+      toast.success("Exported " + data.length + " QR credential record(s) as PDF.");
     }
 
     onExportAction(
-      reportType === "qr" ? "Exported QR Credentials" : "Exported Facial Profiles",
+      "Exported QR Credentials",
       "export_action",
       {
-        reportType,
+        reportType: "qr",
         format: exportFormat,
         recordCount: count
       }
@@ -340,7 +162,6 @@ function ReportExportModal({
         aria-modal="true"
         aria-labelledby="export-modal-title"
       >
-        {/* Header */}
         <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 border border-primary/20 text-primary shadow-xs">
@@ -348,9 +169,9 @@ function ReportExportModal({
             </div>
             <div>
               <h2 id="export-modal-title" className="text-base font-bold text-slate-900">
-                Export Authentication Report
+                Export QR Credentials
               </h2>
-              <p className="text-xs text-slate-500 font-medium">Select a method and format. Export uses the current page filters.</p>
+              <p className="text-xs text-slate-500 font-medium">Select a format. Export uses the current page filters.</p>
             </div>
           </div>
           <button
@@ -363,70 +184,10 @@ function ReportExportModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-5">
-          {/* Step 1: Report Content Cards */}
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              1. Authentication Method
-            </span>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setReportType("qr")}
-                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
-                  reportType === "qr"
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
-                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${reportType === "qr" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
-                    <QrCode className="h-4 w-4" />
-                  </div>
-                  {reportType === "qr" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
-                      Selected
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">QR Credentials</p>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Student QR status, generation dates & usage history.</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReportType("facial")}
-                className={`relative flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
-                  reportType === "facial"
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs"
-                    : "border-slate-200/80 bg-white hover:border-slate-300 hover:bg-slate-50/50"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className={`p-2 rounded-lg ${reportType === "facial" ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
-                    <Camera className="h-4 w-4" />
-                  </div>
-                  {reportType === "facial" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-white">
-                      Selected
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-900">Facial Recognition</p>
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">Enrollment status, last scan dates & issues.</p>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Step 2: File Format Selection */}
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2.5">
-              2. Download Format
+              Download Format
             </span>
             <div className="grid grid-cols-2 gap-3">
               <ReportFormatOption format="xlsx" selectedFormat={exportFormat} onSelect={setExportFormat} description="Excel workbook format" />
@@ -435,7 +196,6 @@ function ReportExportModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
@@ -459,7 +219,7 @@ function ReportExportModal({
               className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-xs font-bold text-white shadow-md shadow-primary/25 transition hover:bg-primary/90 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               <Download className="h-4 w-4" aria-hidden="true" />
-              {isExportLoading ? "Preparing export..." : `Export ${exportFormat.toUpperCase()}`}
+              {isExportLoading ? "Preparing export..." : "Export " + exportFormat.toUpperCase()}
             </button>
           </div>
         </div>
@@ -504,13 +264,12 @@ export function AuthenticationMethodsPage() {
     return allStudentsQuery.data?.items ?? [];
   }, [actorRole, organizerDirectoryQuery.data, allStudentsQuery.data?.items]);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>("qr");
-  const [searchQuery, setSearchQuery] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<AuthenticationStatusFilter>("All");
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [activeModal, setActiveModal] = useState<null | {
-    type: "qr" | "facial";
+    type: "qr";
     title: string;
     description: string;
     confirmLabel: string;
@@ -533,24 +292,11 @@ export function AuthenticationMethodsPage() {
       studentName: student.formattedName || student.fullName || student.studentNumber,
       studentNumber: student.studentNumber,
       credentialId: credential?.id ?? "",
-      status: getQrCredentialDisplayStatus(credential) === "Active" ? "Active" : "Deactivated",
+      status: credential ? (getQrCredentialDisplayStatus(credential) === "Active" ? "Active" : "Deactivated") : "Not issued",
       dateGenerated: credential?.issuedAt ? dateKey(credential.issuedAt) : "-",
       lastUsed: credential?.lastSuccessfulCheckInAt ? formatDateTime(credential.lastSuccessfulCheckInAt, "-") : "-"
     };
   }), [credentialMap, rawStudents]);
-
-  const facialRows = useMemo<FacialRow[]>(() => rawStudents.map((student) => {
-    const profile = credentialMap.get(student.id)?.facialProfile;
-    return {
-      studentId: student.id,
-      studentName: student.formattedName || student.fullName || student.studentNumber,
-      studentNumber: student.studentNumber,
-      enrollmentDate: profile?.enrolledAt ? dateKey(profile.enrolledAt) : "-",
-      status: getFacialCredentialDisplayStatus(profile),
-      lastScan: profile?.lastVerifiedAt ? dateKey(profile.lastVerifiedAt) : "-"
-    };
-  }), [credentialMap, rawStudents]);
-
   const filteredQrRows = useMemo(() => {
     return qrRows.filter((r) => {
       const matchesSearch =
@@ -563,33 +309,13 @@ export function AuthenticationMethodsPage() {
         matchesStatus = r.status === "Active";
       } else if (statusFilter === "Deactivated") {
         matchesStatus = r.status === "Deactivated";
-      } else if (statusFilter === "Pending") {
-        matchesStatus = false;
+      } else if (statusFilter === "Not issued") {
+        matchesStatus = r.status === "Not issued";
       }
 
       return matchesSearch && matchesStatus;
     });
   }, [qrRows, searchQuery, statusFilter]);
-
-  const filteredFacialRows = useMemo(() => {
-    return facialRows.filter((r) => {
-      const matchesSearch =
-        !searchQuery.trim() ||
-        r.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.studentNumber.toLowerCase().includes(searchQuery.toLowerCase());
-
-      let matchesStatus = true;
-      if (statusFilter === "Active") {
-        matchesStatus = r.status === "Active";
-      } else if (statusFilter === "Deactivated") {
-        matchesStatus = r.status === "Deactivated";
-      } else if (statusFilter === "Pending") {
-        matchesStatus = r.status === "Pending";
-      }
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [facialRows, searchQuery, statusFilter]);
 
   const handleDisableQr = useCallback((student: QrRow) => {
     setActiveModal({
@@ -654,53 +380,6 @@ export function AuthenticationMethodsPage() {
     });
   }, []);
 
-  const handleViewFacial = useCallback((student: FacialRow) => {
-    setActiveModal({
-      type: "facial",
-      title: "Facial enrollment details",
-      description: `Review the current facial enrollment for ${student.studentName}.`,
-      confirmLabel: "Close",
-      hideCancel: true,
-      studentName: student.studentName,
-      studentId: student.studentId
-    });
-  }, []);
-
-  const handleDeactivateFacial = useCallback((student: FacialRow) => {
-    setActiveModal({
-      type: "facial",
-      title: "Deactivate facial credential",
-      description: `Revoke the facial recognition credential for ${student.studentName}? This will block future facial check-ins.`,
-      confirmLabel: "Deactivate",
-      cancelLabel: "Cancel",
-      tone: "danger",
-      studentName: student.studentName,
-      studentId: student.studentId
-    });
-  }, []);
-
-  const handleActivateFacial = useCallback((student: FacialRow) => {
-    setActiveModal({
-      type: "facial",
-      title: "Reactivate facial credential",
-      description: `Reactivate the existing facial enrollment for ${student.studentName}?`,
-      confirmLabel: "Reactivate",
-      cancelLabel: "Cancel",
-      tone: "default",
-      studentName: student.studentName,
-      studentId: student.studentId
-    });
-  }, []);
-
-  const handleToggleFacialStatus = useCallback((student: FacialRow) => {
-    if (student.status === "Pending") return;
-    if (student.status === "Active") {
-      handleDeactivateFacial(student);
-    } else {
-      handleActivateFacial(student);
-    }
-  }, [handleDeactivateFacial, handleActivateFacial]);
-
   async function confirmModalAction() {
     if (!activeModal) return;
     if (activeModal.hideCancel) {
@@ -751,36 +430,6 @@ export function AuthenticationMethodsPage() {
       }
     }
 
-    if (activeModal.type === "facial" && activeModal.studentName) {
-      const student = facialRows.find((row) => row.studentId === activeModal.studentId);
-      if (!student) {
-        toast.error("Student facial credential could not be found.");
-        setActiveModal(null);
-        return;
-      }
-      if (student.status === "Pending") {
-        setActiveModal(null);
-        return;
-      }
-      if (activeModal.title.includes("Deactivate")) {
-        await credentialMutations.setCredentialStatusMutation.mutateAsync({
-          studentId: student.studentId,
-          credentialType: "facial",
-          status: "inactive"
-        });
-        toast.success(`Facial enrollment deactivated for ${activeModal.studentName}.`);
-      } else if (activeModal.title.includes("Reactivate") || activeModal.title.includes("Activate")) {
-        await credentialMutations.setCredentialStatusMutation.mutateAsync({
-          studentId: student.studentId,
-          credentialType: "facial",
-          status: "activated"
-        });
-        toast.success(`Facial enrollment reactivated for ${activeModal.studentName}.`);
-      } else {
-        toast.success(`Facial enrollment for ${activeModal.studentName} opened.`);
-      }
-    }
-
     setActiveModal(null);
     } catch {
       // Credential mutation hooks surface the server error; close the modal
@@ -793,11 +442,6 @@ export function AuthenticationMethodsPage() {
     if (!activeModal?.studentId) return null;
     return qrRows.find((r) => r.studentId === activeModal.studentId);
   }, [activeModal?.studentId, qrRows]);
-
-  const selectedStudentFacialInfo = useMemo(() => {
-    if (!activeModal?.studentId) return null;
-    return facialRows.find((r) => r.studentId === activeModal.studentId);
-  }, [activeModal?.studentId, facialRows]);
 
   const qrColumns = useMemo<ColDef<QrRow>[]>(() => [
     {
@@ -825,70 +469,15 @@ export function AuthenticationMethodsPage() {
     { headerName: "Last Used", field: "lastUsed", minWidth: 150 },
   ], []);
 
-  const facialColumns = useMemo<ColDef<FacialRow>[]>(() => [
-    {
-      headerName: "Student",
-      colId: "student",
-      minWidth: 240,
-      flex: 1,
-      valueGetter: ({ data }) => data ? `${data.studentName} ${data.studentNumber}` : "",
-      cellRenderer: ({ data }: ICellRendererParams<FacialRow>) => data ? (
-        <div className="py-1 leading-tight">
-          <div className="font-medium text-foreground">{data.studentName}</div>
-          <div className="mt-1 font-mono text-xs text-muted-foreground">{data.studentNumber}</div>
-        </div>
-      ) : null
-    },
-    { headerName: "Enrollment Date", field: "enrollmentDate", minWidth: 150 },
-    {
-      headerName: "Status",
-      field: "status",
-      minWidth: 130,
-      cellRenderer: ({ value }: ICellRendererParams<FacialRow, FacialStatus>) => (
-        <StatusBadge label={value ?? "Deactivated"} tone={facialTone(value ?? "Deactivated")} />
-      )
-    },
-    { headerName: "Last Scan", field: "lastScan", minWidth: 150 }
-  ], []);
-
   return (
     <div className="space-y-6">
-      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes and facial recognition credentials institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage credentials for participants in your owned events."} />
+      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage QR codes for students in your department."} />
 
       <section className="grid gap-3 sm:grid-cols-3" aria-label="Credential overview">
-        {activeTab === "qr" ? (
-          <>
-            <CredentialMetric label="QR credentials" value={qrRows.length} icon={<QrCode className="h-4 w-4" />} />
-            <CredentialMetric label="Active" value={qrRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
-            <CredentialMetric label="Deactivated" value={qrRows.filter((row) => row.status === "Deactivated").length} icon={<QrCode className="h-4 w-4" />} accent="danger" />
-          </>
-        ) : (
-          <>
-            <CredentialMetric label="Pending" value={facialRows.filter((row) => row.status === "Pending").length} icon={<Camera className="h-4 w-4" />} accent="warning" />
-            <CredentialMetric label="Active" value={facialRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
-            <CredentialMetric label="Deactivated" value={facialRows.filter((row) => row.status === "Deactivated").length} icon={<Camera className="h-4 w-4" />} accent="danger" />
-          </>
-        )}
+        <CredentialMetric label="QR credentials" value={qrRows.filter((row) => Boolean(row.credentialId)).length} icon={<QrCode className="h-4 w-4" />} />
+        <CredentialMetric label="Active" value={qrRows.filter((row) => row.status === "Active").length} icon={<UserCheck className="h-4 w-4" />} accent="success" />
+        <CredentialMetric label="Deactivated" value={qrRows.filter((row) => row.status === "Deactivated").length} icon={<QrCode className="h-4 w-4" />} accent="danger" />
       </section>
-
-      <div className="grid grid-cols-2 gap-2 rounded-xl border bg-card p-1.5 shadow-sm">
-        <button
-          type="button"
-          onClick={() => { setActiveTab("qr"); if (statusFilter === "Pending") setStatusFilter("All"); }}
-          className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "qr" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
-        >
-          <QrCode className="h-4 w-4" />
-          QR Code
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("facial")}
-          className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-xs ${activeTab === "facial" ? "bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:bg-muted"}`}
-        >
-          <Camera className="h-4 w-4" />
-          Facial Recognition
-        </button>
-      </div>
 
       <section className="space-y-3 rounded-xl border bg-surface p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -896,7 +485,7 @@ export function AuthenticationMethodsPage() {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
               <Filter className="h-3 w-3" aria-hidden="true" />
-              {activeTab === "qr" ? filteredQrRows.length : filteredFacialRows.length} results
+              {filteredQrRows.length} results
             </span>
             <button
               type="button"
@@ -939,8 +528,8 @@ export function AuthenticationMethodsPage() {
             >
               <option value="All">All statuses</option>
               <option value="Active">Active</option>
-              {activeTab === "facial" ? <option value="Pending">Pending</option> : null}
               <option value="Deactivated">Deactivated</option>
+              <option value="Not issued">Not issued</option>
             </select>
           </div>
           <div className="flex min-h-9 items-center lg:justify-end">
@@ -976,7 +565,7 @@ export function AuthenticationMethodsPage() {
             <OrganizerQrPreview student={selectedStudentQrInfo} />
             <p>
               {/Regenerate|Reissue/i.test(activeModal.title)
-                ? "A fresh QR code will be generated and assigned to this student for the next event." 
+                ? "A fresh QR code will be generated and assigned to this student for the next event."
                 : "This preview shows the student’s current QR credential details before attendance check-in."}
             </p>
             {activeModal.title === "QR credential details" && canResetCredentials && selectedStudentQrInfo ? (
@@ -989,77 +578,24 @@ export function AuthenticationMethodsPage() {
           </div>
         ) : null}
 
-        {activeModal?.type === "facial" && activeModal.title === "Facial enrollment details" && activeModal.studentName ? (
-          <div className="space-y-3 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-            <div className="flex items-center justify-between">
-              <p className="font-medium text-foreground">Facial profile preview</p>
-              <span className="rounded-full border border-border bg-background px-2 py-1 text-xs font-semibold uppercase tracking-wide text-foreground">
-                Current profile
-              </span>
-            </div>
-            <div className="rounded-md border border-dashed border-border bg-background p-3">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <UserRound className="h-10 w-10" />
-              </div>
-              <div className="mt-3 space-y-1 text-center">
-                <p className="font-semibold text-foreground">{activeModal.studentName}</p>
-                <p>Last verified: {selectedStudentFacialInfo?.lastScan && selectedStudentFacialInfo.lastScan !== "-" ? selectedStudentFacialInfo.lastScan : formatDisplayDate(new Date())}</p>
-                <p>Status: {selectedStudentFacialInfo?.status || "Deactivated"}</p>
-              </div>
-            </div>
-            <p>
-              This preview shows the stored facial profile and recent verification activity for the student.
-            </p>
-            {selectedStudentFacialInfo && (selectedStudentFacialInfo.status === "Active" || selectedStudentFacialInfo.status === "Deactivated") ? (
-              <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
-                {(selectedStudentFacialInfo.status === "Active" ? canRevokeCredentials : canResetCredentials) ? <Button
-                  type="button"
-                  variant={selectedStudentFacialInfo.status === "Active" ? "destructive" : "default"}
-                  size="sm"
-                  onClick={() => handleToggleFacialStatus(selectedStudentFacialInfo)}
-                >
-                  {selectedStudentFacialInfo.status === "Active" ? "Deactivate" : "Reactivate"}
-                </Button> : null}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
       </ConfirmModal>
 
-      {activeTab === "qr" ? (
-        <div className="space-y-6">
-          <PLPassDataGrid
-            label="Student QR Credentials"
-            data={filteredQrRows}
-            columns={qrColumns}
-            isLoading={studentsQuery.isLoading}
-            emptyTitle="No QR credentials found"
-            emptyDescription="There are no student QR credentials matching your criteria."
-            onRowClick={isReadOnly ? undefined : handleViewQr}
-          />
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <PLPassDataGrid
-            label="Facial Enrollment Records"
-            data={filteredFacialRows}
-            columns={facialColumns}
-            isLoading={studentsQuery.isLoading}
-            emptyTitle="No facial enrollment records found"
-            emptyDescription="There are no facial enrollment records matching your criteria."
-            onRowClick={isReadOnly ? undefined : handleViewFacial}
-          />
-
-        </div>
-      )}
+      <div className="space-y-6">
+        <PLPassDataGrid
+          label="Student QR Credentials"
+          data={filteredQrRows}
+          columns={qrColumns}
+          isLoading={studentsQuery.isLoading}
+          emptyTitle="No QR credentials found"
+          emptyDescription="There are no student QR credentials matching your criteria."
+          onRowClick={isReadOnly ? undefined : handleViewQr}
+        />
+      </div>
 
       <ReportExportModal
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         qrRows={filteredQrRows}
-        facialRows={filteredFacialRows}
-        activeTab={activeTab}
         exportScope={actorRole === "department_admin" && scope.context?.departmentId ? { type: "department", departmentId: scope.context.departmentId } : undefined}
         onExportAction={(action, targetType, metadata) => {
           void auditLogMutations.logActionMutation.mutateAsync({

@@ -400,7 +400,7 @@ export function OrganizerAuditLogsPage() {
                 onChange={(e) => setActionCategory(e.target.value as AuditLogFilters["actionCategory"])}
               >
                 <option value="all">All Action Types</option>
-                <option value="credentials">Credentials (QR / Facial)</option>
+                <option value="credentials">Credentials (QR)</option>
                 <option value="events">Events & Resources</option>
                 <option value="attendance">Attendance & Sessions</option>
                 <option value="correction">Correction Requests</option>

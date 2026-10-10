@@ -54,15 +54,14 @@ describe("automatic turnout forecast workflow", () => {
   it("does not leave desktop forecast requests or service startup permanently pending", () => {
     expect(source("src/services/api/mlClient.ts")).toContain("REQUEST_TIMEOUT_MS = 30_000");
     expect(source("src/services/api/mlClient.ts")).toContain("controller.abort()");
-    expect(source("electron/main.ts")).toContain("facialServiceStartPromise");
+    expect(source("electron/main.ts")).toContain("mlServiceStartPromise");
     expect(source("electron/main.ts")).toContain("controller.abort()");
   });
 
-  it("creates a missing local prediction artifact without blocking startup on facial loading", () => {
+  it("creates a missing local prediction artifact without biometric startup work", () => {
     const api = source("api/main.py");
 
     expect(api).toContain("train_and_write_artifacts(write_insights=False)");
-    expect(api).toContain("asyncio.create_task(warm_facial_model_in_background())");
-    expect(api).not.toContain("from api.services.facial_recognition import FacialRecognitionError");
+    expect(api).not.toContain("facial");
   });
 });

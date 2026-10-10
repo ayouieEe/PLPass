@@ -18,9 +18,9 @@ describe("account edit email consistency", () => {
     expect(worker).toContain("const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });");
   });
 
-  it("does not make successful account saves wait for list refetches", () => {
+  it("keeps successful account saves on the shared refresh path", () => {
     expect(queries).toContain("const invalidateStudents = () => {");
     expect(queries).toContain("onSuccess: () => {");
-    expect(queries).not.toContain("onSuccess: async () => {\n      await Promise.all([\n        queryClient.invalidateQueries({ queryKey: [\"organizerProfiles\"] })");
+    expect(queries).toContain('queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] })');
   });
 });

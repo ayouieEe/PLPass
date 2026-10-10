@@ -225,10 +225,10 @@ export type EndAttendanceSessionInput = {
 export type FinalizeAttendanceRecordInput = {
   studentId: string;
   status: "present" | "late";
-  verificationMethod: Extract<VerificationMethod, "qr" | "facial" | "manual">;
+  verificationMethod: Extract<VerificationMethod, "qr" | "manual">;
   timeIn: string;
   timeOut?: string;
-  checkoutVerificationMethod?: Extract<VerificationMethod, "qr" | "facial" | "manual">;
+  checkoutVerificationMethod?: Extract<VerificationMethod, "qr" | "manual">;
   lateReason?: "Traffic / Commute" | "Class or Academic Conflict" | "Personal / Health" | "Weather / Force Majeure" | "Other";
   remarks?: string;
 };
@@ -236,8 +236,7 @@ export type FinalizeAttendanceRecordInput = {
 export type AttendanceScanInput = {
   sessionId: string;
   credentialCode: string;
-  method: Extract<VerificationMethod, "qr" | "facial">;
-  faceSimilarity?: number;
+  method: Extract<VerificationMethod, "qr">;
   occurredAt?: string;
 };
 
@@ -268,13 +267,6 @@ export type CreateCredentialRequestInput = Pick<
 export type IssueQrCredentialInput = {
   studentId: string;
   expiresAt?: string;
-};
-
-export type EnrollFacialProfileInput = {
-  studentId: string;
-  enrollmentReference?: string;
-  faceImage?: File;
-  faceDescriptor?: number[];
 };
 
 export type AttendanceSubmissionResultStatus =
@@ -315,7 +307,7 @@ export type ReviewCorrectionRequestInput = {
 
 export type SetStudentCredentialStatusInput = {
   studentId: string;
-  credentialType: "qr" | "facial";
+  credentialType: "qr";
   status: "activated" | "inactive" | "blocked";
 };
 
@@ -370,6 +362,17 @@ export type UpdateSystemSettingsInput = Partial<
     | "sensitiveActionReasonRequired"
   >
 >;
+
+export type StudentProgressionPreviewRow = {
+  studentId: string;
+  studentNumber: string;
+  displayName: string;
+  currentYearLevel: number;
+  targetYearLevel: number;
+  currentSection: string;
+  targetSectionId?: string;
+  issue?: string;
+};
 
 export type CatalogDepartmentInput = { id?: string; code: string; name: string; isActive?: boolean };
 export type CatalogProgramInput = { id?: string; departmentId: string; code: string; name: string; isActive?: boolean };
@@ -503,7 +506,6 @@ export interface StudentCredentialRepository {
   listOrganizerCredentialDirectory(context?: RepositoryContext): Promise<OrganizerCredentialDirectoryEntry[]>;
   getStudentCredentialStatus(studentId: string, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   issueQrCredential(input: IssueQrCredentialInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
-  enrollFacialProfile(input: EnrollFacialProfileInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
   setCredentialStatus(input: SetStudentCredentialStatusInput, context?: RepositoryContext): Promise<StudentCredentialStatus>;
 }
 
@@ -548,6 +550,10 @@ export interface AnalyticsMlRepository {
 export interface SystemSettingsRepository {
   getSettings(context?: RepositoryContext): Promise<SystemSettings>;
   updateSettings(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<SystemSettings>;
+  prepareSchoolYearSemesters(schoolYear: string, context?: RepositoryContext): Promise<void>;
+  previewStudentProgression(targetSchoolYear: string, targetSemesterId: string, context?: RepositoryContext): Promise<StudentProgressionPreviewRow[]>;
+  applyStudentProgression(targetSchoolYear: string, targetSemesterId: string, context?: RepositoryContext): Promise<{ updatedCount: number }>;
+  transitionSchoolYear(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<{ updatedCount: number }>;
 }
 
 export interface LegalDocumentRepository {

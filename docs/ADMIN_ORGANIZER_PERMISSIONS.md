@@ -27,7 +27,7 @@ Primary sources:
 - View institution-wide attendance records.
 - View institution-wide reports.
 - View institution-wide analytics.
-- Manage QR and facial credential status institution-wide.
+- Manage QR credential status institution-wide.
 - Reset or revoke credentials.
 - View all audit logs.
 - Export audit logs.
@@ -53,7 +53,7 @@ Primary sources:
 - Use organizer-owned credential controls.
 - Access the organizer user-management route.
 - Revoke their own sessions through the session-revocation control.
-- Read or expose raw facial descriptors.
+- Read or expose biometric data.
 - Access service-role or Brevo secrets from the frontend.
 - Use student-only workflows such as submitting feedback, late reasons, or attendance correction requests as a student.
 - Access another role’s workspace by navigating directly to its URL.
@@ -77,7 +77,7 @@ Both require the recovery capability and confirmation/reason handling.
 - Start and end attendance sessions for owned events.
 - View owned event records.
 - Use QR attendance.
-- Use facial-recognition attendance.
+- Bypass the QR/manual attendance controls.
 - Use manual attendance.
 - Use checkout/time-out attendance.
 - Use offline attendance in the desktop app for prepared owned events.
@@ -85,7 +85,7 @@ Both require the recovery capability and confirmation/reason handling.
 - Review correction requests for their own events.
 - View owned-event reports.
 - View owned-event analytics.
-- Manage QR and facial credentials for students participating in their owned events.
+- Manage QR credentials for students participating in their owned events.
 - Activate or deactivate supported owned-event credentials.
 - View their own audit logs.
 - Export their own scoped audit logs.
@@ -117,7 +117,7 @@ Both require the recovery capability and confirmation/reason handling.
 - Run system consistency checks.
 - Recover or finish arbitrary attendance sessions through administrator System Health controls.
 - Access administrator user-management routes.
-- Access raw facial descriptors.
+- Access biometric data.
 - Access service-role or Brevo secrets.
 - Use offline attendance from a normal browser.
 - Start an event that is not eligible under ownership, session, or scheduled-date rules.

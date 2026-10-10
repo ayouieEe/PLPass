@@ -25,7 +25,7 @@ export type StudentEventRecord = {
   startsAt: string;
   endsAt?: string;
   status: AttendanceStatus | "correction-pending";
-  method: "QR" | "QR Code" | "Facial" | "Facial Recognition" | "Manual" | "Online";
+  method: "QR" | "QR Code" | "Manual" | "Online";
   recordedAt: string;
   lateReasonCategory?: string;
   lateReason?: string;
@@ -92,20 +92,13 @@ export type StudentIdentityReadiness = {
   qrCredentialId: string;
   qrStatus: string;
   qrExpiry: string | null;
-  faceEnrolled: boolean;
-  faceEnrolledDate: string | null;
-  faceStatus: string;
 };
 
 export function ensureStudentIdentityReadiness(credentials?: StudentCredentialStatus): StudentIdentityReadiness {
-  const facialStatus = credentials?.facialProfile?.status ?? "not_configured";
   return {
     qrCredentialId: credentials?.qrCredential?.id ?? "",
     qrStatus: credentials?.qrCredential?.status ?? "not_configured",
     qrExpiry: credentials?.qrCredential?.expiresAt ?? null,
-    faceEnrolled: facialStatus === "active" || facialStatus === "activated",
-    faceEnrolledDate: credentials?.facialProfile?.enrolledAt ?? null,
-    faceStatus: facialStatus
   };
 }
 
@@ -127,9 +120,6 @@ export function emptyStudentIdentityReadiness(): StudentIdentityReadiness {
     qrCredentialId: "",
     qrStatus: "not_configured",
     qrExpiry: null,
-    faceEnrolled: false,
-    faceEnrolledDate: null,
-    faceStatus: "not_configured"
   };
 }
 
@@ -279,7 +269,6 @@ export function getStudentDashboardEvents(
 
 export function studentAttendanceMethodLabel(method: AttendanceRecord["verificationMethod"]): StudentEventRecord["method"] {
   if (method === "qr") return "QR Code";
-  if (method === "facial") return "Facial Recognition";
   return "Manual";
 }
 

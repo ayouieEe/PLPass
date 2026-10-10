@@ -39,9 +39,7 @@ describe("student event record flow", () => {
     const experience = readFileSync(resolve(process.cwd(), "src/features/student/studentExperience.ts"), "utf8");
     expect(page).toContain("selectedRecord.timeIn && selectedRecord.timeOut");
     expect(page).toContain('return "QR Code"');
-    expect(page).toContain('return "Facial Recognition"');
     expect(page).toContain('return "Manual"');
     expect(experience).toContain('if (method === "qr") return "QR Code";');
-    expect(experience).toContain('if (method === "facial") return "Facial Recognition";');
   });
 });

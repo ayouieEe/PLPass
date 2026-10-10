@@ -1,6 +1,6 @@
 export type SyncStatus = "PENDING_SYNC" | "SYNCING" | "CONFIRMED" | "CONFLICT" | "RETRY";
 
-export type OfflineIdentificationMethod = "qr" | "facial" | "manual";
+export type OfflineIdentificationMethod = "qr" | "manual";
 
 export type PreparedEventParticipant = {
   studentId: string;
@@ -8,12 +8,9 @@ export type PreparedEventParticipant = {
   displayName: string;
   participantStatus: string;
   qrIdentifier?: string;
-  faceEmbeddings: number[][];
   /** True when this student is enrolled in the event; false means a verified walk-in candidate. */
   isParticipant?: boolean;
 };
-
-export type OfflineFaceMatch = Omit<PreparedEventParticipant, "faceEmbeddings">;
 
 export type PreparedEventSession = {
   id: string;
@@ -189,7 +186,6 @@ export interface PLPassDesktopApi {
   getPreparedEventBySession(sessionId: string, organizerProfileId: string): Promise<PreparedEventPackage | null>;
   identifyQr(eventId: string, qrIdentifier: string): Promise<PreparedEventParticipant | null>;
   identifyManual(eventId: string, studentIdentifier: string): Promise<PreparedEventParticipant | null>;
-  identifyOfflineFace(eventId: string, capture: number[]): Promise<OfflineFaceMatch | null>;
   recordAttendance(input: LocalAttendanceInput): Promise<LocalAttendanceResult>;
   recordScannerAttendance(input: LocalAttendanceInput, phase: AttendanceCapturePhase): Promise<LocalAttendanceResult>;
   cacheOnlineAttendance(input: { eventId: string; sessionId: string; organizerProfileId: string; studentId: string; studentNumber?: string; displayName?: string; participantStatus?: "invited" | "confirmed" | "walk_in"; attendanceStatus: "present" | "late"; timeIn: string; timeOut?: string | null }): Promise<void>;

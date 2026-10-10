@@ -13,7 +13,7 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
   if (pathname === "/admin/users") return { title: "Users", description: "Manage Student, Organizer, and Admin accounts.", breadcrumbs: ["Admin", "Users"] };
   if (pathname === "/admin/events") return { title: "Events", description: "View institution-wide events and operational status.", breadcrumbs: ["Admin", "Events"] };
   if (pathname === "/admin/attendance") return { title: "Attendance Records", description: "Review attendance across all events.", breadcrumbs: ["Admin", "Attendance"] };
-  if (pathname === "/admin/credentials") return { title: "Authentication Methods", description: "Manage QR codes and facial recognition credentials for all students.", breadcrumbs: ["Admin", "Authentication Methods"] };
+  if (pathname === "/admin/credentials") return { title: "Authentication Methods", description: "Manage QR credentials for all students.", breadcrumbs: ["Admin", "Authentication Methods"] };
   if (pathname === "/admin/analytics") return { title: "Analytics", description: "Review institution-wide analytics.", breadcrumbs: ["Admin", "Analytics"] };
   if (pathname === "/admin/audit-logs") return { title: "Audit Logs", description: "Review all system activity.", breadcrumbs: ["Admin", "Audit Logs"] };
   if (pathname === "/admin/catalogs") return { title: "Academic Catalogs", description: "Manage academic and event catalogs.", breadcrumbs: ["Admin", "Catalogs"] };
@@ -21,7 +21,7 @@ export function getRouteHeaderMeta(pathname: string, role: UserRole): RouteHeade
 
   if (pathname === "/department" || pathname === "/department/dashboard") return { title: "Department Overview", description: "Review department events, participation, and branding.", breadcrumbs: ["Department Admin", "Dashboard"] };
   if (pathname === "/department/events") return { title: "Department Events", description: "Review events associated with your department.", breadcrumbs: ["Department Admin", "Events"] };
-  if (pathname === "/department/credentials") return { title: "Authentication Methods", description: "Review QR and facial authentication status for students in your department.", breadcrumbs: ["Department Admin", "Authentication Methods"] };
+  if (pathname === "/department/credentials") return { title: "Authentication Methods", description: "Review QR authentication status for students in your department.", breadcrumbs: ["Department Admin", "Authentication Methods"] };
   if (pathname === "/department/records" || pathname === "/department/attendance") return { title: "Event Records", description: "Review attendance records for department events.", breadcrumbs: ["Department Admin", "Event Records"] };
   if (pathname === "/department/analytics") return { title: "Analytics Insights", description: "Review attendance insights for your department.", breadcrumbs: ["Department Admin", "Analytics Insights"] };
   if (pathname === "/department/audit-logs") return { title: "Audit Logs", description: "Review activity within your department scope.", breadcrumbs: ["Department Admin", "Audit Logs"] };

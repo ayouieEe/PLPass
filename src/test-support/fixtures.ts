@@ -167,7 +167,7 @@ export const attendanceRecordFixtures: AttendanceRecord[] = [
   { id: "record-2", sessionId: "session-1", studentId: "student-2", status: "late", verificationMethod: "qr", recordedAt: "2026-06-24T00:18:00.000Z" },
   { id: "record-3", sessionId: "session-1", studentId: "student-3", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "No check-in received" },
   { id: "record-4", sessionId: "session-1", studentId: "student-4", status: "absent", verificationMethod: "manual", recordedAt: "2026-06-24T01:00:00.000Z", note: "Approved excuse" },
-  { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "facial", recordedAt: "2026-06-26T00:02:00.000Z" },
+  { id: "record-5", sessionId: "session-2", studentId: "student-5", status: "present", verificationMethod: "qr", recordedAt: "2026-06-26T00:02:00.000Z" },
   { id: "record-6", sessionId: "session-3", studentId: "student-1", status: "present", verificationMethod: "qr", recordedAt: "2026-02-10T00:04:00.000Z", note: "Feedback submitted" },
   { id: "record-7", sessionId: "session-4", studentId: "student-1", status: "absent", verificationMethod: "manual", recordedAt: "2026-02-24T09:00:00.000Z", note: "No attendance scan received" },
   { id: "record-8", sessionId: "session-5", studentId: "student-1", status: "late", verificationMethod: "manual", recordedAt: "2026-03-05T01:18:00.000Z", timeIn: "2026-03-05T01:18:00.000Z", checkedOutAt: "2026-03-05T03:00:00.000Z", lateReasonSubmittedAt: "2026-03-05T03:01:00.000Z", note: "Late reason: Traffic / Commute" },
@@ -216,7 +216,6 @@ export const auditLogFixtures: AuditLog[] = [
   { id: "audit-2", actorUserId: "user-organizer-1", action: "session.completed", targetType: "attendance_session", targetId: "session-1", timestamp: "2026-06-25T10:30:00.000Z", metadata: { records: 4, sessionTitle: "IT 204 Week 1" } },
   { id: "audit-3", actorUserId: "user-organizer-1", action: "event.approved", targetType: "event", targetId: "event-1", timestamp: "2026-06-24T14:15:00.000Z", metadata: { venue: "PLP Pasig Gymnasium", eventTitle: "CCS Orientation" } },
   { id: "audit-4", actorUserId: "user-organizer-1", action: "Credential.qr Issued", targetType: "qr_credential", targetId: "student-1", timestamp: "2026-06-24T11:00:00.000Z", metadata: { studentName: "Student 01", studentNumber: "2026-0001", method: "qr" } },
-  { id: "audit-5", actorUserId: "user-organizer-1", action: "credential.facial.enrolled", targetType: "facial_profile", targetId: "student-6", timestamp: "2026-06-23T16:45:00.000Z", metadata: { studentName: "Student 06", studentNumber: "2026-0006" } },
   { id: "audit-6", actorUserId: "user-organizer-2", action: "event.created", targetType: "event", targetId: "event-2", timestamp: "2026-06-22T09:20:00.000Z", metadata: { eventTitle: "Business Forum", category: "Skills Training" } },
   { id: "audit-7", actorUserId: "user-organizer-1", action: "correction_request.approved", targetType: "correction_request", targetId: "correction-3", timestamp: "2026-06-21T13:10:00.000Z", metadata: { studentName: "Student 07", eventTitle: "PLP Student General Assembly", requestedStatus: "late" } },
   { id: "audit-8", actorUserId: "user-organizer-1", action: "qr_attendance.recorded", targetType: "attendance_record", targetId: "record-1", timestamp: "2026-06-20T08:01:00.000Z", metadata: { studentName: "Student 01", status: "present" } }
@@ -247,7 +246,7 @@ export const systemSettingsFixture: SystemSettings = {
   minimumTimeOutIntervalMinutes: 15,
   allowAttendanceAfterScheduledEnd: true,
   automaticAbsentMarking: true,
-  allowedVerificationMethods: ["qr", "facial"],
+  allowedVerificationMethods: ["qr"],
   sensitiveActionReasonRequired: true,
   updatedAt: now
 };

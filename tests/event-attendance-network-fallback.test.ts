@@ -7,11 +7,11 @@ const attendancePage = readFileSync(resolve(process.cwd(), "src/features/organiz
 const localDatabase = readFileSync(resolve(process.cwd(), "electron/localDatabase.ts"), "utf8");
 
 describe("event attendance transport fallback", () => {
-  it("uses one transport-failure classifier for capture fallback and facial guidance", () => {
+  it("uses one transport-failure classifier for QR/manual capture fallback", () => {
     expect(page).toContain("function isAttendanceTransportFailure(error: unknown)");
     expect(page).toContain("const networkFailure = isAttendanceTransportFailure(error);");
     expect(page).toContain("tryRecordManualLocallyAfterTransportFailure");
-    expect(page).toContain("QR/manual attendance.");
+    expect(page).not.toContain("facial");
     expect(page).toContain("cacheOnlineAttendanceForOffline");
   });
 
@@ -38,7 +38,7 @@ describe("event attendance transport fallback", () => {
     expect(localDatabase).not.toContain("void forceRetry");
   });
 
-  it("mirrors walk-in and facial attendance on the legacy live attendance route too", () => {
+  it("mirrors walk-in attendance on the legacy live attendance route too", () => {
     expect(attendancePage).toContain("async function cacheOnlineAttendanceForOffline");
     expect(attendancePage).toContain("participantStatus: \"walk_in\"");
     expect(attendancePage).toContain("participantStatus: \"invited\"");

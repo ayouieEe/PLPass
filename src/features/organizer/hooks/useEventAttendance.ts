@@ -36,6 +36,9 @@ type AttendanceSummaryRow = {
   id: string;
   event_session_id: string | null;
   student_id: string | null;
+  historical_academic_year?: string | null;
+  historical_year_level?: number | null;
+  historical_section_name?: string | null;
   local_attendance_uuid?: string | null;
   attendance_status: string | null;
   verification_method: string | null;
@@ -130,7 +133,6 @@ type EventFeedbackRatingRow = {
 
 function mapVerificationMethod(value: string | null): AttendanceMethod {
   if (value === "qr") return "QR Code";
-  if (value === "facial") return "Facial Recognition";
   return "Manual";
 }
 
@@ -208,7 +210,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, local_attendance_uuid, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, historical_academic_year, historical_year_level, historical_section_name, local_attendance_uuid, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -286,6 +288,9 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     summary.rows.push({
       id: String(row?.id ?? `absent-${eventId}-${participant.student_id}`),
       studentId: participant.student_id,
+      ...(row?.historical_academic_year ? { historicalAcademicYear: row.historical_academic_year } : {}),
+      ...(row?.historical_year_level != null ? { historicalYearLevel: Number(row.historical_year_level) } : {}),
+      ...(row?.historical_section_name ? { historicalSectionName: row.historical_section_name } : {}),
       sessionId: row?.event_session_id ?? sessionRow?.id,
       ...(row?.local_attendance_uuid ? { localScanUuid: row.local_attendance_uuid } : {}),
       studentName: student?.name ?? (row ? studentDisplayName(row) : `Student ${participant.student_id.slice(0, 8)}`),

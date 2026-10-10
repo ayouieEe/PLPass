@@ -239,7 +239,7 @@ export function StudentDashboardPage() {
         <DashboardNotice
           tone="warning"
           title="Attendance access status is not available yet"
-          description="Your dashboard data is still shown. QR and facial readiness will appear once attendance access can be checked."
+          description="Your dashboard data is still shown. QR readiness will appear once attendance access can be checked."
         />
       ) : null}
 

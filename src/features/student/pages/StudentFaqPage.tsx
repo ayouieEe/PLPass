@@ -48,7 +48,7 @@ const faqCategories: FaqCategory[] = [
       },
       {
         question: "What attendance methods are available?",
-        answer: "Your Attendance Methods page shows the verification methods enabled for your account, such as a student QR credential and facial recognition. The organizer’s session settings determine which method can be used at a particular event."
+        answer: "Your Attendance Methods page shows the QR credential enabled for your account."
       },
       {
         question: "How do I use my QR credential?",
@@ -59,12 +59,8 @@ const faqCategories: FaqCategory[] = [
         answer: "Your credential may still be provisioning, inactive, expired, or unavailable because your account is not ready for attendance verification. Refresh Attendance Methods and, if it remains unavailable, ask an organizer to verify your account or attendance manually."
       },
       {
-        question: "How do I enroll or use facial recognition?",
-        answer: "Open Attendance Methods and follow the enrollment flow when facial recognition is enabled for your account. Use good lighting, keep your face visible, and follow the on-screen instructions. You can use the supported photo fallback if camera access is unavailable."
-      },
-      {
         question: "What if attendance verification fails?",
-        answer: "Try the available method again in the session’s attendance window. For QR, increase screen brightness and hold the code steady. For facial recognition, improve lighting and remove anything covering your face. If the problem continues, use Report attendance issue and include a clear explanation."
+        answer: "Try QR again in the session’s attendance window, increase screen brightness, and hold the code steady. If the problem continues, use Report attendance issue and include a clear explanation."
       },
       {
         question: "Can I check in after the attendance window closes?",
@@ -96,7 +92,7 @@ const faqCategories: FaqCategory[] = [
         answer: "Requests remain pending until the assigned organizer or reviewer evaluates them. Avoid submitting duplicates; instead, monitor Request History and contact the organizer if you need to provide an important clarification."
       },
       {
-        question: "How do I report a QR or facial-recognition issue?",
+        question: "How do I report a QR issue?",
         answer: "Open Attendance Methods, choose Report attendance issue, describe the problem clearly, and attach supporting proof if requested. Your report will appear in Request History after it is submitted."
       },
       {
@@ -113,12 +109,8 @@ const faqCategories: FaqCategory[] = [
         answer: "PLPass displays student information according to your signed-in role and the access rules for the school workspace. Do not share your account, QR credential, or uploaded proof with anyone who does not need it."
       },
       {
-        question: "How is my facial information handled?",
-        answer: "Facial enrollment is optional only where enabled by the school and is used for attendance verification. Use the in-app controls to review its status. If you have a privacy concern, contact your school administrator before enrolling or ask about another available attendance method."
-      },
-      {
         question: "What should I do if PLPass is not loading correctly?",
-        answer: "Refresh the page, confirm your internet connection, and try a current browser with camera permissions enabled when using facial recognition. If the problem continues, note the page, time, and error message before contacting support."
+        answer: "Refresh the page, confirm your internet connection, and try a current browser. If the problem continues, note the page, time, and error message before contacting support."
       },
       {
         question: "Why are notifications or request updates delayed?",

@@ -12,7 +12,6 @@ import type {
   EventParticipant,
   EventSummarySnapshot,
   LateReasonOption,
-  FacialProfile,
   Notification,
   OrganizerProfile,
   QrCredential,
@@ -172,6 +171,7 @@ export function mapProfileToUser(row: Row): User {
     nameExtension: optionalString(row, ["name_extension"]),
     avatarUrl: optionalString(row, ["avatar_url", "profile_picture"]),
     isActive: !["inactive", "suspended"].includes(stringValue(row, ["account_status"], "active")),
+    accountSetupCompletedAt: optionalString(row, ["account_setup_completed_at"]),
     createdAt: stringValue(row, ["created_at"], new Date().toISOString())
   };
 }
@@ -365,6 +365,11 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     id: stringValue(row, ["id"]),
     sessionId: stringValue(row, ["class_session_id", "event_session_id", "session_id"]),
     studentId: stringValue(row, ["student_id"]),
+    historicalAcademicYear: optionalString(row, ["historical_academic_year"]),
+    historicalSemesterId: optionalString(row, ["historical_semester_id"]),
+    historicalYearLevel: row.historical_year_level == null ? undefined : Number(row.historical_year_level),
+    historicalSectionId: optionalString(row, ["historical_section_id"]),
+    historicalSectionName: optionalString(row, ["historical_section_name"]),
     status: stringValue(row, ["attendance_status", "status"], "present") as AttendanceStatus,
     verificationMethod: stringValue(row, ["verification_method"], "manual") as VerificationMethod,
     checkoutVerificationMethod: optionalString(row, ["checkout_verification_method"]) as VerificationMethod | undefined,
@@ -404,7 +409,7 @@ export function mapCredentialRequest(row: Row): CredentialRequest {
   return {
     id: stringValue(row, ["id"]),
     studentId: stringValue(row, ["student_id"]),
-    credentialType: stringValue(row, ["credential_type"], "qr") === "facial" ? "facial" : "qr",
+    credentialType: "qr",
     requestType: stringValue(row, ["request_type"], "technical_issue") as CredentialRequest["requestType"],
     reason: stringValue(row, ["reason"]),
     status: stringValue(row, ["request_status"], "pending") as CredentialRequest["status"],
@@ -425,18 +430,6 @@ export function mapQrCredential(row: Row): QrCredential {
     expiresAt: optionalString(row, ["expires_at", "expiresAt"]),
     revokedAt: optionalString(row, ["revoked_at", "revokedAt"]),
     lastSuccessfulCheckInAt: optionalString(row, ["last_successful_check_in_at", "lastSuccessfulCheckInAt"])
-  };
-}
-
-export function mapFacialProfile(row: Row): FacialProfile {
-  return {
-    id: stringValue(row, ["id"]),
-    studentId: stringValue(row, ["student_id", "studentId"]),
-    status: stringValue(row, ["facial_status", "status"], "unknown"),
-    enrollmentReference: stringValue(row, ["enrollment_reference", "enrollmentReference"]),
-    enrolledAt: stringValue(row, ["enrolled_at", "enrolledAt"], new Date().toISOString()),
-    consentRecordedAt: stringValue(row, ["consent_recorded_at", "consentRecordedAt"], new Date().toISOString()),
-    lastVerifiedAt: optionalString(row, ["last_verified_at", "lastVerifiedAt"])
   };
 }
 

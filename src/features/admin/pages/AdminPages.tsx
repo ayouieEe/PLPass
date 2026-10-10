@@ -55,4 +55,4 @@ export const AdminEventsPage = () => <AdminResourcePage kind="events" title="Eve
 export const AdminAttendancePage = () => <AdminResourcePage kind="records" title="Attendance Records" description="Review attendance sessions and records across all events." />;
 export const AdminAuditLogsPage = () => <AdminResourcePage kind="audit" title="Audit Logs" description="Review all system activity and administrative actions." />;
 export const AdminCatalogsPage = () => <AdminResourcePage kind="catalog" title="Academic Catalogs" description="Manage departments, programs, sections, semesters, and event categories." />;
-export const AdminCredentialsPage = () => <AdminResourcePage kind="users" title="Credential Management" description="Manage student QR and facial credential operations." />;
+export const AdminCredentialsPage = () => <AdminResourcePage kind="users" title="Credential Management" description="Manage student QR credential operations." />;

@@ -7,7 +7,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 describe("organizer credential directory", () => {
   it("uses one organizer-scoped directory request instead of a client-side scope waterfall", () => {
     const source = read("src/features/organizer/pages/AuthenticationMethodsPage.tsx");
-    expect(source).toContain("useOrganizerCredentialDirectory(scope.context, actorRole === \"organizer\")");
+    expect(source).toContain("useStudentCredentialStatuses");
     expect(source).not.toContain("useParticipantsForEvents");
     expect(source).not.toContain("useStudentsByIds");
   });
@@ -24,4 +24,11 @@ describe("organizer credential directory", () => {
     expect(migration).not.toContain("face_descriptor");
     expect(migration).not.toContain("student_face_embeddings");
   });
+
+  it("keeps the organizer directory department-scoped", () => {
+    const migration = read("supabase/migrations/20261009120000_organizer_credential_directory_department_scope.sql");
+    expect(migration).toContain("organizer.department_id = s.department_id");
+    expect(migration).not.toContain("event_participants");
+  });
+
 });

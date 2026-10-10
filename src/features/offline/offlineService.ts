@@ -77,28 +77,11 @@ export async function endOfflineEvent(eventId:string,sessionId:string,organizerP
   return api.endOfflineSession(eventId,sessionId,organizerProfileId,new Date().toISOString(),reason);
 }
 
-async function captureOfflineFace(input: HTMLVideoElement | HTMLCanvasElement) {
-  const canvas = input instanceof HTMLCanvasElement ? input : document.createElement("canvas");
-  if (input instanceof HTMLVideoElement) {
-    if (!input.videoWidth || !input.videoHeight) throw new Error("Wait for the camera preview before verifying attendance.");
-    const longestEdge = Math.max(input.videoWidth, input.videoHeight);
-    const scale = Math.min(1, 720 / longestEdge);
-    canvas.width = Math.max(1, Math.round(input.videoWidth * scale));
-    canvas.height = Math.max(1, Math.round(input.videoHeight * scale));
-    canvas.getContext("2d")?.drawImage(input, 0, 0, canvas.width, canvas.height);
-  }
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-  if (!blob) throw new Error("The camera frame could not be captured.");
-  return Array.from(new Uint8Array(await blob.arrayBuffer()));
-}
-
 export async function identifyOfflineStudent(eventId: string, method: OfflineIdentificationMethod, identifier: string | HTMLVideoElement | HTMLCanvasElement): Promise<PreparedEventParticipant | null> {
   const api = desktopApi(); if (!api) return null;
   if (method === "qr" && typeof identifier === "string") return api.identifyQr(eventId, identifier);
   if (method === "manual" && typeof identifier === "string") return api.identifyManual(eventId, identifier);
-  if (method !== "facial" || typeof identifier === "string") return null;
-  const match = await api.identifyOfflineFace(eventId, await captureOfflineFace(identifier));
-  return match ? { ...match, faceEmbeddings: [] } : null;
+  return null;
 }
 
 export async function recordOfflineAttendance(input: LocalAttendanceInput, phase?:"time_in"|"time_out"): Promise<LocalAttendanceResult> {
@@ -394,7 +377,7 @@ export async function reconcileOfflineEventLifecycle(
 
     const pending=await api.hasUnresolvedWork(organizerProfileId);
     // Keep the reconciled package for 24 hours before removing disposable
-    // roster/biometric data. A later startup, reconnect, or visibility sweep
+    // roster data. A later startup, reconnect, or visibility sweep
     // performs the same server and local checks before cleanup.
     if (!pending && !failures.length) await cleanupExpiredReconciledEvents(organizerProfileId, true);
     const discardDetail=discardedWalkIns ? ` ${discardedWalkIns} invalid offline walk-in record${discardedWalkIns === 1 ? " was" : "s were"} discarded automatically.` : "";
