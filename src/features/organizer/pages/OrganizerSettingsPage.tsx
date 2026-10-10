@@ -57,6 +57,7 @@ export function AdminSystemSettingsPage({ initialTab = "overview" }: { initialTa
   const [pendingSchoolYearTransition, setPendingSchoolYearTransition] = useState<UpdateSystemSettingsInput | null>(null);
   const [progressionConfirmOpen, setProgressionConfirmOpen] = useState(false);
   const [progressionTargetYear, setProgressionTargetYear] = useState("");
+  const [progressionTargetSemesterId, setProgressionTargetSemesterId] = useState("");
   const [progressionRows, setProgressionRows] = useState<Array<{ studentId: string; studentNumber: string; displayName: string; currentYearLevel: number; targetYearLevel: number; currentSection: string; issue?: string }>>([]);
   useEffect(() => { if (settingsQuery.data) { setForm({ ...settingsQuery.data }); setSavedForm({ ...settingsQuery.data }); } }, [settingsQuery.data]);
   useEffect(() => {
@@ -104,6 +105,7 @@ export function AdminSystemSettingsPage({ initialTab = "overview" }: { initialTa
       if (/^\d{4}-\d{4}$/.test(savedYear) && targetStart > currentStart + 1) { toast.error("Advance one school year at a time through Student progression."); return; }
       if (/^\d{4}-\d{4}$/.test(savedYear) && targetStart === currentStart + 1) {
         setProgressionTargetYear(targetYear);
+        setProgressionTargetSemesterId(targetSemesterId);
         setProgressionRows([]);
         setPendingSchoolYearTransition(nextSettings);
         setTab("academic");
@@ -117,7 +119,7 @@ export function AdminSystemSettingsPage({ initialTab = "overview" }: { initialTa
     setPendingSettingsSave(nextSettings);
   };
   const confirmSettingsSave = async () => { if (!pendingSettingsSave) return; try { await settingsQuery.updateMutation.mutateAsync(pendingSettingsSave); setSavedForm({ ...pendingSettingsSave }); setPendingSettingsSave(null); } catch (error) { toast.error(getErrorMessage(error)); } };
-  const reset = () => { setForm({ ...savedForm }); setPendingSchoolYearTransition(null); setProgressionRows([]); toast.message("Unsaved changes discarded."); };
+  const reset = () => { setForm({ ...savedForm }); setPendingSchoolYearTransition(null); setProgressionRows([]); setProgressionTargetSemesterId(""); toast.message("Unsaved changes discarded."); };
   const applyProgression = async () => {
     try { if (pendingSchoolYearTransition) { await settingsQuery.transitionSchoolYearMutation.mutateAsync(pendingSchoolYearTransition); setForm({ ...pendingSchoolYearTransition }); setSavedForm({ ...pendingSchoolYearTransition }); setPendingSchoolYearTransition(null); setProgressionRows([]); return; } await settingsQuery.applyProgressionMutation.mutateAsync({ targetSchoolYear: progressionTargetYear, targetSemesterId: progressionTargetSemesterId }); setProgressionRows([]); } catch { /* mutation reports the server error */ }
   };
