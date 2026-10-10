@@ -171,6 +171,7 @@ export function mapProfileToUser(row: Row): User {
     nameExtension: optionalString(row, ["name_extension"]),
     avatarUrl: optionalString(row, ["avatar_url", "profile_picture"]),
     isActive: !["inactive", "suspended"].includes(stringValue(row, ["account_status"], "active")),
+    accountSetupCompletedAt: optionalString(row, ["account_setup_completed_at"]),
     createdAt: stringValue(row, ["created_at"], new Date().toISOString())
   };
 }
@@ -364,6 +365,11 @@ export function mapAttendanceRecord(row: Row): AttendanceRecord {
     id: stringValue(row, ["id"]),
     sessionId: stringValue(row, ["class_session_id", "event_session_id", "session_id"]),
     studentId: stringValue(row, ["student_id"]),
+    historicalAcademicYear: optionalString(row, ["historical_academic_year"]),
+    historicalSemesterId: optionalString(row, ["historical_semester_id"]),
+    historicalYearLevel: row.historical_year_level == null ? undefined : Number(row.historical_year_level),
+    historicalSectionId: optionalString(row, ["historical_section_id"]),
+    historicalSectionName: optionalString(row, ["historical_section_name"]),
     status: stringValue(row, ["attendance_status", "status"], "present") as AttendanceStatus,
     verificationMethod: stringValue(row, ["verification_method"], "manual") as VerificationMethod,
     checkoutVerificationMethod: optionalString(row, ["checkout_verification_method"]) as VerificationMethod | undefined,

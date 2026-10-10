@@ -8,6 +8,7 @@ type RecoveryAuthClient = {
     updateUser: (attributes: { password: string }) => Promise<AuthResult>;
     signOut: (options: { scope: "global" }) => Promise<AuthResult>;
   };
+  rpc: (functionName: string, args?: Record<string, unknown>) => Promise<AuthResult>;
 };
 
 type RecoveryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -102,9 +103,14 @@ export async function establishPasswordRecoverySession(
   return true;
 }
 
-export async function saveRecoveredPassword(client: RecoveryAuthClient, password: string, storage?: RecoveryStorage) {
+export async function saveRecoveredPassword(client: RecoveryAuthClient, password: string, storage?: RecoveryStorage, markAccountSetupComplete = false) {
   const { error } = await client.auth.updateUser({ password });
   if (error) throw error;
+
+  if (markAccountSetupComplete) {
+    const { error: setupError } = await client.rpc("complete_account_setup");
+    if (setupError) throw setupError;
+  }
 
   clearPasswordRecoveryMarker(storage);
   try {

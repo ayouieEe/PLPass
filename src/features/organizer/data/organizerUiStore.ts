@@ -33,6 +33,9 @@ export type OrganizerEvent = {
 export type OrganizerAttendanceRow = {
   id: string;
   studentId: string;
+  historicalAcademicYear?: string;
+  historicalYearLevel?: number;
+  historicalSectionName?: string;
   sessionId?: string;
   localScanUuid?: string;
   studentName: string;

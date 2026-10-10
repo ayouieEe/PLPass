@@ -27,6 +27,7 @@ import type {
   SystemHealthIssue,
   SystemHealthSnapshot,
   FailedNotificationJob,
+  StudentProgressionPreviewRow,
   LegalDocument,
   LegalDocumentRepository,
   LegalDocumentType,
@@ -59,7 +60,7 @@ import {
   mapReport,
   mapStudent
 } from "@/lib/supabase/mappers";
-import { RepositoryError } from "@/services/repositoryUtils";
+import { RepositoryError, type RepositoryContext } from "@/services/repositoryUtils";
 import { extractQrCredentialId, normalizeStudentIdentityValue, studentIdentityMatchesPayload } from "@/lib/credentials/qrCredential";
 import { getPhilippineNowIso } from "@/lib/utils/date";
 import { hasCapability } from "@/lib/auth/permissions";
@@ -144,7 +145,7 @@ const defaultPageSize = 20;
 const eventReadSelect = "*, event_categories(category_name)";
 const studentReadSelect = "*, profiles(first_name, middle_name, last_name, name_extension, email, account_status), sections(section_name, year_level), programs(program_code, program_name)";
 const attendanceSessionReadSelect = "id, event_id, created_by, session_name, venue, mode, session_status, scheduled_start, scheduled_end, actual_start, actual_end, attendance_window_start_at, attendance_window_end_at, late_cutoff_at, ended_reason, session_archive_status, superseded_by, created_at, updated_at";
-const attendanceRecordReadSelect = "id, event_session_id, student_id, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, recorded_by, remarks, late_reason, late_reason_category, late_reason_option_id, late_reason_submitted_at, finalized_at, verification_attempt_id, local_attendance_uuid, created_at, updated_at";
+const attendanceRecordReadSelect = "id, event_session_id, student_id, historical_academic_year, historical_semester_id, historical_year_level, historical_section_id, historical_section_name, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, recorded_by, remarks, late_reason, late_reason_category, late_reason_option_id, late_reason_submitted_at, finalized_at, verification_attempt_id, local_attendance_uuid, created_at, updated_at";
 const attendanceRequestProofBucket = "attendance-request-proofs";
 const credentialRequestProofBucket = "credential-request-proofs";
 
@@ -393,6 +394,15 @@ function requireDepartmentCredentialCapability(context: { actorRole?: string } |
   }
 }
 
+function requireOrganizerManagementContext(context: RepositoryContext | undefined, departmentId?: string) {
+  if (context?.actorRole !== "admin" && context?.actorRole !== "department_admin") {
+    throw new RepositoryError("Only administrators can manage organizer accounts.", "PERMISSION_DENIED");
+  }
+  if (context.actorRole === "department_admin" && (!context.departmentId || !departmentId || departmentId !== context.departmentId)) {
+    throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
+  }
+}
+
 function requireCredentialReadContext(context?: { actorRole?: string }) {
   if (context?.actorRole && !["student", "organizer", "admin", "department_admin"].includes(context.actorRole)) {
     throw new RepositoryError("This account cannot read student credentials.", "PERMISSION_DENIED");
@@ -569,7 +579,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     );
   },
   async createOrganizer(input, context) {
-    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
+    requireOrganizerManagementContext(context, input.departmentId);
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "create-organizer", organizer: input } });
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
@@ -580,7 +590,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return mapOrganizer(row as Row);
   },
   async updateOrganizer(input, context) {
-    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can update organizer accounts.", "PERMISSION_DENIED");
+    requireOrganizerManagementContext(context, input.departmentId);
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "update-organizer", organizer: input } });
     if (error) throw new RepositoryError(await getFunctionInvocationErrorMessage(error), "VALIDATION_ERROR");
@@ -653,7 +663,7 @@ export const supabaseUserManagementRepository: UserManagementRepository = {
     return this.resendUserInvitation(input, context);
   },
   async bulkCreateOrganizers(inputs, context) {
-    if (context?.actorRole !== "admin") throw new RepositoryError("Only administrators can create organizer accounts.", "PERMISSION_DENIED");
+    inputs.forEach((input) => requireOrganizerManagementContext(context, input.departmentId));
     const client = getSupabaseBrowserClient();
     const { data, error } = await client.functions.invoke("manage-users", { body: { action: "bulk-create-organizers", organizers: inputs } });
     if (error) throw new RepositoryError(error.message, "VALIDATION_ERROR");
@@ -2347,6 +2357,73 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
     const { error } = await client.rpc("admin_update_system_settings" as never, { p_settings_id: current.id, p_changes: changes } as never);
     throwIfSupabaseError(error);
     return supabaseSystemSettingsRepository.getSettings(context);
+  },
+  async prepareSchoolYearSemesters(schoolYear, context): Promise<void> {
+    requireAdminContext(context);
+    const { error } = await getSupabaseBrowserClient().rpc("admin_prepare_school_year_semesters" as never, { p_school_year: schoolYear.trim() } as never);
+    throwIfSupabaseError(error);
+  },
+  async previewStudentProgression(targetSchoolYear, targetSemesterId, context): Promise<StudentProgressionPreviewRow[]> {
+    requireAdminContext(context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_preview_student_progression" as never, { p_target_school_year: targetSchoolYear.trim(), p_target_semester_id: targetSemesterId } as never);
+    throwIfSupabaseError(error);
+    return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => ({
+      studentId: String(row.student_id),
+      studentNumber: String(row.student_number),
+      displayName: String(row.display_name),
+      currentYearLevel: Number(row.current_year_level),
+      targetYearLevel: Number(row.target_year_level),
+      currentSection: String(row.current_section),
+      targetSectionId: typeof row.target_section_id === "string" ? row.target_section_id : undefined,
+      issue: typeof row.issue === "string" ? row.issue : undefined
+    }));
+  },
+  async applyStudentProgression(targetSchoolYear, targetSemesterId, context): Promise<{ updatedCount: number }> {
+    requireAdminContext(context);
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_apply_student_progression" as never, { p_target_school_year: targetSchoolYear.trim(), p_target_semester_id: targetSemesterId } as never);
+    throwIfSupabaseError(error);
+    const result = data as unknown as Record<string, unknown>;
+    return { updatedCount: Number(result?.updatedCount ?? result?.updated_count ?? 0) };
+  },
+  async transitionSchoolYear(input, context): Promise<{ updatedCount: number }> {
+    requireAdminContext(context);
+    if (!input.currentSchoolYear?.trim() || !input.currentSemesterId) throw new RepositoryError("Select a target school year and semester first.", "VALIDATION_ERROR");
+    const current = await supabaseSystemSettingsRepository.getSettings(context);
+    const changes = {
+      ...(input.institutionName !== undefined ? { institution_name: input.institutionName.trim() } : {}),
+      current_school_year: input.currentSchoolYear.trim(),
+      current_semester_id: input.currentSemesterId,
+      ...(input.attendanceLateCutoffMinutes !== undefined ? { attendance_late_cutoff_minutes: input.attendanceLateCutoffMinutes } : {}),
+      ...(input.defaultSessionDurationMinutes !== undefined ? { default_session_duration_minutes: input.defaultSessionDurationMinutes } : {}),
+      notification_preferences: {
+        readerPolicy: input.readerPolicy?.trim() || current.readerPolicy,
+        credentialStatusPolicy: input.credentialStatusPolicy?.trim() || current.credentialStatusPolicy,
+        notificationPreferencePlaceholder: input.notificationPreferencePlaceholder?.trim() || current.notificationPreferencePlaceholder,
+        notificationEventsEnabled: input.notificationEventsEnabled ?? current.notificationEventsEnabled,
+        notificationCredentialsEnabled: input.notificationCredentialsEnabled ?? current.notificationCredentialsEnabled,
+        notificationCorrectionsEnabled: input.notificationCorrectionsEnabled ?? current.notificationCorrectionsEnabled,
+        notificationRemindersEnabled: input.notificationRemindersEnabled ?? current.notificationRemindersEnabled,
+        participantInvitationMode: input.participantInvitationMode ?? current.participantInvitationMode,
+        noStartReminderMinutes: input.noStartReminderMinutes ?? current.noStartReminderMinutes,
+        autoCancelAfterMinutes: input.autoCancelAfterMinutes ?? current.autoCancelAfterMinutes,
+        requireCancellationReason: input.requireCancellationReason ?? current.requireCancellationReason,
+        minimumTimeOutIntervalMinutes: input.minimumTimeOutIntervalMinutes ?? current.minimumTimeOutIntervalMinutes,
+        allowAttendanceAfterScheduledEnd: input.allowAttendanceAfterScheduledEnd ?? current.allowAttendanceAfterScheduledEnd,
+        automaticAbsentMarking: input.automaticAbsentMarking ?? current.automaticAbsentMarking,
+        allowedVerificationMethods: input.allowedVerificationMethods ?? current.allowedVerificationMethods,
+        sensitiveActionReasonRequired: input.sensitiveActionReasonRequired ?? current.sensitiveActionReasonRequired
+      },
+      verification_policy: input.readerPolicy?.trim() || current.readerPolicy
+    } as Json;
+    const { data, error } = await getSupabaseBrowserClient().rpc("admin_transition_school_year" as never, {
+      p_settings_id: current.id,
+      p_target_school_year: input.currentSchoolYear.trim(),
+      p_target_semester_id: input.currentSemesterId,
+      p_changes: changes
+    } as never);
+    throwIfSupabaseError(error);
+    const result = data as unknown as Record<string, unknown>;
+    return { updatedCount: Number(result?.updatedCount ?? result?.updated_count ?? 0) };
   }
 };
 

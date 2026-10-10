@@ -20,7 +20,8 @@ function createClient(session: unknown | null = { user: { id: "recovery-user" } 
       getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
       updateUser: vi.fn().mockResolvedValue({ error: null }),
       signOut: vi.fn().mockResolvedValue({ error: null })
-    }
+    },
+    rpc: vi.fn().mockResolvedValue({ error: null })
   };
 }
 
@@ -36,7 +37,7 @@ describe("password recovery links", () => {
     const router = readFileSync("src/app/router/AppRouter.tsx", "utf8");
 
     expect(router).toContain("if (hasPasswordSetupPayload(location))");
-    expect(router).toContain("return <ResetPasswordPage />;");
+    expect(router).toContain("return getPasswordLinkType(location) === \"invite\" ? <AcceptInvitationPage /> : <ResetPasswordPage />;");
     expect(router).not.toContain("getPasswordSetupPath(location, APP_ROUTES.resetPassword)");
   });
 
@@ -110,5 +111,22 @@ describe("password recovery links", () => {
     await expect(saveRecoveredPassword(client, "Valid-password1!", storage)).resolves.toBeUndefined();
     expect(storage.getItem("plpass-password-recovery")).toBeNull();
     expect(client.auth.signOut).toHaveBeenCalledWith({ scope: "global" });
+  });
+
+  it("marks invitation setup complete before signing out", async () => {
+    const storage = createStorage();
+    const client = createClient();
+
+    await expect(saveRecoveredPassword(client, "Valid-password1!", storage, true)).resolves.toBeUndefined();
+    expect(client.rpc).toHaveBeenCalledWith("complete_account_setup");
+  });
+
+  it("offers an automatic desktop handoff after invitation setup", () => {
+    const page = readFileSync("src/pages/ResetPasswordPage.tsx", "utf8");
+    const launcher = readFileSync("src/lib/desktop/launch.ts", "utf8");
+
+    expect(page).toContain("launchDesktopApp");
+    expect(page).toContain("Open PLPass Desktop");
+    expect(launcher).toContain('"plpass://open"');
   });
 });

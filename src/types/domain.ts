@@ -30,6 +30,7 @@ export type User = {
   nameExtension?: string;
   avatarUrl?: string;
   isActive: boolean;
+  accountSetupCompletedAt?: ISODateString;
   createdAt: ISODateString;
 };
 
@@ -299,6 +300,11 @@ export type AttendanceRecord = {
   id: string;
   sessionId: string;
   studentId: string;
+  historicalAcademicYear?: string;
+  historicalSemesterId?: string;
+  historicalYearLevel?: number;
+  historicalSectionId?: string;
+  historicalSectionName?: string;
   status: AttendanceStatus;
   verificationMethod: VerificationMethod;
   checkoutVerificationMethod?: VerificationMethod;

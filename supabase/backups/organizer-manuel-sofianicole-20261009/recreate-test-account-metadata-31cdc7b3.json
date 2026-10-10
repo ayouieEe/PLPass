@@ -1,0 +1,33 @@
+{
+  "purpose": "Pre-deletion metadata snapshot for a disposable organizer test account",
+  "captured_at": "2026-10-09T08:32:35Z",
+  "email": "manuel_sofianicole@plpasig.edu.ph",
+  "auth_user_id": "31cdc7b3-6078-4659-96f0-4fc9d4700942",
+  "identity_id": "8e75c0b6-2a0a-4b24-bc2a-ef220527eb48",
+  "profile": {
+    "role": "organizer",
+    "account_status": "active",
+    "first_name": "Sofia Nicole",
+    "middle_name": "",
+    "last_name": "Manuel",
+    "employee_id": "O-006",
+    "department_id": null,
+    "account_setup_completed_at": "2026-10-09T06:37:52.733241Z"
+  },
+  "organizer": {
+    "id": "78697abd-3ad5-453f-9d2d-eeaccc2f89f8",
+    "department_id": "b0a8b026-575c-4e4a-93bf-83ac51efe431",
+    "employee_id": "O-006",
+    "position": "Organizer",
+    "organizer_status": "active",
+    "organization_name": "College of International Hospitality Management Department"
+  },
+  "pre_delete_dependency_counts": {
+    "identity": 1,
+    "profile": 1,
+    "organizer": 1,
+    "events_owned": 0,
+    "audit_actor": 0,
+    "avatar_objects": 0
+  }
+}

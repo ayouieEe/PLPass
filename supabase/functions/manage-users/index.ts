@@ -264,14 +264,14 @@ Deno.serve(async (request) => {
 
     const { data: targetProfile, error: targetProfileError } = await supabase
       .from("profiles")
-      .select("email, role, account_status")
+      .select("email, role, account_status, account_setup_completed_at")
       .eq("id", userId)
       .maybeSingle();
     if (targetProfileError || !targetProfile || !["admin", "department_admin", "organizer"].includes(targetProfile.role)) {
       return json({ error: "The account could not be found." }, 404);
     }
     if (targetProfile.account_status !== "active") {
-      return json({ error: "Only active accounts can receive a password setup link." }, 400);
+      return json({ error: "Only active accounts can receive an invitation or password reset link." }, 400);
     }
     if (isDepartmentAdmin) {
       const { data: targetOrganizer } = await supabase.from("organizers").select("department_id").eq("profile_id", userId).maybeSingle();
@@ -284,9 +284,7 @@ Deno.serve(async (request) => {
     }
     const isUnacceptedInvitation = Boolean(
       authTarget.user.invited_at &&
-      !authTarget.user.email_confirmed_at &&
-      !authTarget.user.confirmed_at &&
-      !authTarget.user.last_sign_in_at
+      !targetProfile.account_setup_completed_at
     );
     if (isUnacceptedInvitation) {
       try {

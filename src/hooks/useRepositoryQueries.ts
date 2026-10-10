@@ -903,7 +903,10 @@ export function useOrganizerAccountMutation(context?: RepositoryContext) {
   return useMutation({
     mutationFn: (input: CreateOrganizerInput) => repositories.userManagement.createOrganizer(input, context),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["organizerProfiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["users"] })
+      ]);
       toast.success("Organizer account created successfully.");
     },
     onError: (error: unknown) => toast.error(getErrorMessage(error))
@@ -1103,14 +1106,46 @@ export function useSystemSettings(context?: RepositoryContext) {
     mutationFn: (input: UpdateSystemSettingsInput) => repositories.systemSettings.updateSettings(input, context),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["systemSettings"] });
+      await queryClient.invalidateQueries({ queryKey: ["semesters"] });
       toast.success("System settings updated successfully");
     },
     onError: (error: unknown) => {
       toast.error(getErrorMessage(error));
     }
   });
+  const previewProgressionMutation = useMutation({
+    mutationFn: ({ targetSchoolYear, targetSemesterId }: { targetSchoolYear: string; targetSemesterId: string }) => repositories.systemSettings.previewStudentProgression(targetSchoolYear, targetSemesterId, context)
+  });
+  const prepareSchoolYearSemestersMutation = useMutation({
+    mutationFn: (schoolYear: string) => repositories.systemSettings.prepareSchoolYearSemesters(schoolYear, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["semesters"] });
+      toast.success("Standard semesters prepared. Select one before saving the school year.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+  const applyProgressionMutation = useMutation({
+    mutationFn: ({ targetSchoolYear, targetSemesterId }: { targetSchoolYear: string; targetSemesterId: string }) => repositories.systemSettings.applyStudentProgression(targetSchoolYear, targetSemesterId, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["students"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemHealth"] });
+      toast.success("Students advanced successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
+  const transitionSchoolYearMutation = useMutation({
+    mutationFn: (input: UpdateSystemSettingsInput) => repositories.systemSettings.transitionSchoolYear(input, context),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["systemSettings"] });
+      await queryClient.invalidateQueries({ queryKey: ["semesters"] });
+      await queryClient.invalidateQueries({ queryKey: ["students"] });
+      await queryClient.invalidateQueries({ queryKey: ["systemHealth"] });
+      toast.success("School year advanced and students updated successfully.");
+    },
+    onError: (error: unknown) => toast.error(getErrorMessage(error))
+  });
 
-  return { ...settingsQuery, updateMutation };
+  return { ...settingsQuery, updateMutation, prepareSchoolYearSemestersMutation, previewProgressionMutation, applyProgressionMutation, transitionSchoolYearMutation };
 }
 
 export function useLegalDocument(documentType: "terms" | "privacy", context?: RepositoryContext) {

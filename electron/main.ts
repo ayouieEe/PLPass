@@ -59,6 +59,26 @@ if (isIsolatedDesktopTest) {
 }
 const hasSingleInstanceLock = isIsolatedDesktopTest || app.requestSingleInstanceLock();
 
+if (process.defaultApp) {
+  const entryPoint = process.argv[1];
+  if (entryPoint) app.setAsDefaultProtocolClient("plpass", process.execPath, [path.resolve(entryPoint)]);
+} else {
+  app.setAsDefaultProtocolClient("plpass");
+}
+
+function isDesktopLaunchUrl(value: string) {
+  return /^plpass:\/\/open(?:[/?#]|$)/i.test(value);
+}
+
+function focusDesktopWindow(commandLine: string[] = []) {
+  if (!commandLine.some(isDesktopLaunchUrl)) return;
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+
 // Register before Electron becomes ready. The renderer is a secure, standard
 // origin so SPA navigation and module/assets loaded from plpass://app work the
 // same way in the installed desktop application as they do in development.
@@ -83,11 +103,13 @@ function backupOfflineDatabaseBeforeIndexRepair(databasePath: string, indexes: s
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, commandLine) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (!window) return;
     if (window.isMinimized()) window.restore();
+    window.show();
     window.focus();
+    focusDesktopWindow(commandLine);
   });
 }
 
@@ -304,6 +326,7 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   void win.loadURL(url).catch((error: unknown) => {
     console.error(`Renderer failed to open ${url}: ${error instanceof Error ? error.message : String(error)}`);
   });
+  focusDesktopWindow(process.argv);
 });
 
 app.on("before-quit", () => { void scannerCoordinator?.stop(); mlService?.kill(); mlService = undefined; });

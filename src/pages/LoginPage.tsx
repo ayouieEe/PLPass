@@ -34,7 +34,8 @@ export function LoginPage() {
     // on /login. Hand the one-time invite token to the existing password setup
     // page instead of asking a first-time user to sign in.
     if (hasPasswordSetupPayload(location)) {
-      navigate(getPasswordSetupPath(location, APP_ROUTES.resetPassword), {
+      const setupPath = getPasswordLinkType(location) === "invite" ? APP_ROUTES.acceptInvitation : APP_ROUTES.resetPassword;
+      navigate(getPasswordSetupPath(location, setupPath), {
         replace: true,
         state: { invitation: getPasswordLinkType(location) === "invite" }
       });

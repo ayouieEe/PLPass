@@ -471,7 +471,7 @@ export function AuthenticationMethodsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage credentials for participants in your owned events."} />
+      <PageHeader title="Authentication Methods" description={scope.context?.actorRole === "admin" ? "Manage QR codes institution-wide." : isDepartmentAdmin ? "Review authentication methods for students in your department." : "Manage QR codes for students in your department."} />
 
       <section className="grid gap-3 sm:grid-cols-3" aria-label="Credential overview">
         <CredentialMetric label="QR credentials" value={qrRows.filter((row) => Boolean(row.credentialId)).length} icon={<QrCode className="h-4 w-4" />} />

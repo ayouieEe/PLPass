@@ -8,7 +8,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
-import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+import { AcceptInvitationPage, ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { LegalPolicyPage } from "@/pages/LegalPolicyPage";
 import { ProtectedRoute } from "@/app/router/ProtectedRoute";
 import { RoleRoute } from "@/app/router/RoleRoute";
@@ -17,7 +17,7 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useQuery } from "@tanstack/react-query";
 import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
-import { hasPasswordSetupPayload } from "@/lib/auth/recovery";
+import { getPasswordLinkType, hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
@@ -56,7 +56,7 @@ function AdminOrOrganizerProfilePage() {
 function PublicEntryRoute() {
   const location = useLocation();
   if (hasPasswordSetupPayload(location)) {
-    return <ResetPasswordPage />;
+    return getPasswordLinkType(location) === "invite" ? <AcceptInvitationPage /> : <ResetPasswordPage />;
   }
   return <Navigate to={APP_ROUTES.login} replace />;
 }
@@ -100,6 +100,7 @@ export function AppRouter() {
         <Route index element={<PublicEntryRoute />} />
         <Route path={APP_ROUTES.login} element={<LoginPage />} />
         <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
+        <Route path={APP_ROUTES.acceptInvitation} element={<AcceptInvitationPage />} />
         <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
         <Route path={APP_ROUTES.terms} element={<LegalPolicyPage document="terms" />} />
         <Route path={APP_ROUTES.privacy} element={<LegalPolicyPage document="privacy" />} />

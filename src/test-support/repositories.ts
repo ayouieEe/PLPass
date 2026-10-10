@@ -785,7 +785,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     );
   },
   async createOrganizer(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && context.departmentId !== input.departmentId) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     const stamp = Date.now();
     const userId = `organizer-user-${stamp}`;
     const profileId = `organizer-profile-${stamp}`;
@@ -806,7 +807,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return profile;
   },
   async updateOrganizer(input, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && context.departmentId !== input.departmentId) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     const organizerIndex = organizerProfileFixtures.findIndex((profile) => profile.id === input.id && profile.userId === input.profileId);
     if (organizerIndex === -1) throw new RepositoryError("Organizer account not found.", "NOT_FOUND");
     const userIndex = userFixtures.findIndex((user) => user.id === input.profileId && user.role === "organizer");
@@ -885,7 +887,8 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     return { email: target.email, delivery: "password_reset" };
   },
   async bulkCreateOrganizers(inputs, context) {
-    await beforeRead("userManagement", context, ["admin"]);
+    await beforeRead("userManagement", context, ["admin", "department_admin"]);
+    if (context?.actorRole === "department_admin" && inputs.some((input) => context.departmentId !== input.departmentId)) throw new RepositoryError("Department administrators can only manage organizers in their own department.", "PERMISSION_DENIED");
     inputs.forEach((input, index) => {
       const userId = `organizer-user-${Date.now()}-${index}`;
       const nextId = organizerProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(/^O-(\d{3})$/); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
@@ -2146,6 +2149,22 @@ export const simulatedSystemSettingsRepository: SystemSettingsRepository = {
       updatedAt: new Date().toISOString()
     };
     return { ...systemSettingsState };
+  },
+  async prepareSchoolYearSemesters(schoolYear: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    if (!/^\d{4}-\d{4}$/.test(schoolYear.trim())) throw new RepositoryError("School year must use the YYYY-YYYY format.", "VALIDATION_ERROR");
+  },
+  async previewStudentProgression(_targetSchoolYear: string, _targetSemesterId: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return [];
+  },
+  async applyStudentProgression(_targetSchoolYear: string, _targetSemesterId: string, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return { updatedCount: 0 };
+  },
+  async transitionSchoolYear(_input, context) {
+    await beforeRead("systemSettings", context, ["admin"]);
+    return { updatedCount: 0 };
   }
 };
 

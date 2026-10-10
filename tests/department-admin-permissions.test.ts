@@ -28,6 +28,16 @@ describe("department-admin permission contract", () => {
     expect(hasCapability("organizer", "credentials.revoke.owned_event")).toBe(true);
   });
 
+  it("allows department-admin organizer management while keeping the repository scope guard", () => {
+    const repository = read("src/services/supabase/repositories.ts");
+    const worker = read("supabase/functions/manage-users/index.ts");
+    expect(hasCapability("department_admin", "users.create.organizer.department")).toBe(true);
+    expect(repository).toContain("requireOrganizerManagementContext(context, input.departmentId)");
+    expect(repository).toContain("inputs.forEach((input) => requireOrganizerManagementContext(context, input.departmentId))");
+    expect(worker).toContain('if (isDepartmentAdmin && !departmentMatches(departmentId))');
+    expect(worker).toContain('const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;');
+  });
+
   it("keeps the coordinator as a desktop subsystem, not an account role", () => {
     expect(CAPABILITIES).not.toContain("coordinator.manage");
     expect(read("src/features/offline/ScannerStationsPanel.tsx")).toContain("ScannerCoordinatorStatus");
@@ -66,7 +76,7 @@ describe("department-admin permission contract", () => {
     expect(migration).not.toMatch(/returns table\s*\([^)]*token_hash/is);
     expect(repository).toContain('client.rpc("department_admin_issue_qr_credential"');
     expect(repository).toContain('"credentials.reset.department" : "credentials.revoke.department"');
-    expect(page).toContain("Issue QR");
+    expect(page).toContain("issueQrCredentialMutation");
     expect(page).not.toContain("credentialActions");
     expect(read("src/features/department/pages/DepartmentWorkspacePages.tsx")).toContain("return <AuthenticationMethodsPage />;");
   });

@@ -363,6 +363,17 @@ export type UpdateSystemSettingsInput = Partial<
   >
 >;
 
+export type StudentProgressionPreviewRow = {
+  studentId: string;
+  studentNumber: string;
+  displayName: string;
+  currentYearLevel: number;
+  targetYearLevel: number;
+  currentSection: string;
+  targetSectionId?: string;
+  issue?: string;
+};
+
 export type CatalogDepartmentInput = { id?: string; code: string; name: string; isActive?: boolean };
 export type CatalogProgramInput = { id?: string; departmentId: string; code: string; name: string; isActive?: boolean };
 export type CatalogSectionInput = { id?: string; programId: string; name: string; yearLevel: number; academicYear: string; semester: string; isActive?: boolean };
@@ -539,6 +550,10 @@ export interface AnalyticsMlRepository {
 export interface SystemSettingsRepository {
   getSettings(context?: RepositoryContext): Promise<SystemSettings>;
   updateSettings(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<SystemSettings>;
+  prepareSchoolYearSemesters(schoolYear: string, context?: RepositoryContext): Promise<void>;
+  previewStudentProgression(targetSchoolYear: string, targetSemesterId: string, context?: RepositoryContext): Promise<StudentProgressionPreviewRow[]>;
+  applyStudentProgression(targetSchoolYear: string, targetSemesterId: string, context?: RepositoryContext): Promise<{ updatedCount: number }>;
+  transitionSchoolYear(input: UpdateSystemSettingsInput, context?: RepositoryContext): Promise<{ updatedCount: number }>;
 }
 
 export interface LegalDocumentRepository {

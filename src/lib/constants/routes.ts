@@ -3,6 +3,7 @@ export const APP_ROUTES = {
   dashboard: "/dashboard",
   login: "/login",
   forgotPassword: "/forgot-password",
+  acceptInvitation: "/accept-invitation",
   resetPassword: "/reset-password",
   terms: "/terms",
   privacy: "/privacy",
