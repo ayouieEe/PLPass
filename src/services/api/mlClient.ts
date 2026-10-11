@@ -45,19 +45,25 @@ export interface BatchPredictionResponse {
   }>;
 }
 
+import fallbackInsights from "../../../api/models/model_insights.json";
+
 export async function fetchModelInsights(): Promise<MlPredictionInsights | null> {
+  if (window.plpassDesktop) {
+    void window.plpassDesktop.ensureMlService().catch(() => {});
+  }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch(`${API_BASE}/model/insights`, { signal: controller.signal });
-    if (!response.ok) return null;
-    return await response.json();
+    if (response.ok) {
+      return await response.json();
+    }
   } catch {
-    // Return null cleanly when the FastAPI ML server on port 8000 is offline/unreachable
-    return null;
+    // Port 8000 might be warming up or offline; fall back to precomputed model insights
   } finally {
     clearTimeout(timeout);
   }
+  return fallbackInsights as unknown as MlPredictionInsights;
 }
 
 export async function fetchBatchPrediction(request: BatchPredictionRequest): Promise<BatchPredictionResponse | null> {

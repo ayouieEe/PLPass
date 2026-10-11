@@ -57,47 +57,89 @@ Deno.serve(async (req) => {
     let sentimentLabel = "neutral";
     let sentimentScore = 0.0;
 
+    function analyzeSentimentFallback(text: string): { label: "positive" | "negative" | "neutral"; score: number } {
+      const lower = text.toLowerCase();
+      const positiveWords = [
+        "good", "great", "excellent", "awesome", "loved", "love", "amazing", "informative",
+        "helpful", "clear", "enjoyed", "best", "useful", "inspiring", "smooth", "organized",
+        "maganda", "galing", "maayos", "salamat", "masaya", "sulit", "nagustuhan", "malinaw"
+      ];
+      const negativeWords = [
+        "bad", "terrible", "poor", "boring", "waste", "disappointed", "slow", "delayed",
+        "confusing", "useless", "worst", "unclear", "disorganized", "noisy", "late",
+        "pangit", "panget", "gulo", "magulo", "sayang", "lito", "hirap", "bulok", "walang kwenta"
+      ];
+
+      let posCount = 0;
+      let negCount = 0;
+      for (const word of positiveWords) {
+        if (lower.includes(word)) posCount++;
+      }
+      for (const word of negativeWords) {
+        if (lower.includes(word)) negCount++;
+      }
+
+      if (posCount > negCount) {
+        return { label: "positive", score: Math.min(0.95, 0.6 + (posCount - negCount) * 0.15) };
+      } else if (negCount > posCount) {
+        return { label: "negative", score: Math.min(0.95, 0.6 + (negCount - posCount) * 0.15) };
+      }
+      return { label: "neutral", score: 0.5 };
+    }
+
     // Call Hugging Face API if there is a comment
-    if (payload.comment && payload.comment.trim() !== "" && HF_API_TOKEN) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8_000);
-      try {
-        const hfResponse = await fetch(HF_MODEL_URL, {
-          headers: {
-            Authorization: `Bearer ${HF_API_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify({ inputs: payload.comment }),
-          signal: controller.signal,
-        });
+    if (payload.comment && payload.comment.trim() !== "") {
+      const trimmedComment = payload.comment.trim();
+      let analyzedWithHf = false;
 
-        if (hfResponse.ok) {
-          const result = await hfResponse.json();
-          // The result is usually [[{ label: 'positive', score: 0.9 }, ...]]
-          if (Array.isArray(result) && Array.isArray(result[0])) {
-            const classifications = result[0];
-            // Get argmax (highest score)
-            let bestClass = classifications[0];
-            for (const cls of classifications) {
-              if (cls.score > bestClass.score) {
-                bestClass = cls;
+      if (HF_API_TOKEN) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8_000);
+        try {
+          const hfResponse = await fetch(HF_MODEL_URL, {
+            headers: {
+              Authorization: `Bearer ${HF_API_TOKEN}`,
+              "Content-Type": "application/json",
+            },
+            method: "POST",
+            body: JSON.stringify({ inputs: trimmedComment }),
+            signal: controller.signal,
+          });
+
+          if (hfResponse.ok) {
+            const result = await hfResponse.json();
+            // The result is usually [[{ label: 'positive', score: 0.9 }, ...]]
+            if (Array.isArray(result) && Array.isArray(result[0])) {
+              const classifications = result[0];
+              // Get argmax (highest score)
+              let bestClass = classifications[0];
+              for (const cls of classifications) {
+                if (cls.score > bestClass.score) {
+                  bestClass = cls;
+                }
               }
-            }
-            sentimentScore = bestClass.score;
-            const rawLabel = bestClass.label.toLowerCase();
+              sentimentScore = bestClass.score;
+              const rawLabel = (bestClass.label || "").toLowerCase();
 
-            if (rawLabel.includes("positive") || rawLabel.includes("pos")) sentimentLabel = "positive";
-            else if (rawLabel.includes("negative") || rawLabel.includes("neg")) sentimentLabel = "negative";
-            else sentimentLabel = "neutral";
+              if (rawLabel.includes("positive") || rawLabel.includes("pos") || rawLabel === "label_2") sentimentLabel = "positive";
+              else if (rawLabel.includes("negative") || rawLabel.includes("neg") || rawLabel === "label_0") sentimentLabel = "negative";
+              else sentimentLabel = "neutral";
+              analyzedWithHf = true;
+            }
+          } else {
+            console.error("Hugging Face API Error:", await hfResponse.text());
           }
-        } else {
-          console.error("Hugging Face API Error:", await hfResponse.text());
+        } catch (error) {
+          console.warn("Sentiment analysis unavailable; submitting feedback with neutral sentiment.", error);
+        } finally {
+          clearTimeout(timeoutId);
         }
-      } catch (error) {
-        console.warn("Sentiment analysis unavailable; submitting feedback with neutral sentiment.", error);
-      } finally {
-        clearTimeout(timeoutId);
+      }
+
+      if (!analyzedWithHf) {
+        const fallback = analyzeSentimentFallback(trimmedComment);
+        sentimentLabel = fallback.label;
+        sentimentScore = fallback.score;
       }
     }
 

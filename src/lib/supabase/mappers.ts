@@ -333,10 +333,10 @@ export function mapEventFeedbackTask(row: Row): EventFeedbackTask {
 export function mapEventSummarySnapshot(row: Row): EventSummarySnapshot {
   return {
     eventId: stringValue(row, ["event_id"]),
-    positivePercentage: numberValue(row, ["positive_percentage"]),
-    neutralPercentage: numberValue(row, ["neutral_percentage"]),
-    negativePercentage: numberValue(row, ["negative_percentage"]),
-    totalFeedbackCount: numberValue(row, ["total_feedback_count"]),
+    positivePercentage: numberValue(row, ["positive_percentage", "positive_percent"]),
+    neutralPercentage: numberValue(row, ["neutral_percentage", "neutral_percent"]),
+    negativePercentage: numberValue(row, ["negative_percentage", "negative_percent"]),
+    totalFeedbackCount: numberValue(row, ["total_feedback_count", "total_registered"]),
     updatedAt: stringValue(row, ["updated_at"], new Date().toISOString())
   };
 }

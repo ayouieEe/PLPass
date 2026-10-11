@@ -129,8 +129,11 @@ async function mlServiceReady() {
 function localPythonPath() {
   const configured = process.env.PLPASS_PYTHON_PATH;
   if (configured && existsSync(configured)) return configured;
-  const developmentPython = path.join(workspaceRoot, ".venv", "Scripts", "python.exe");
-  return existsSync(developmentPython) ? developmentPython : undefined;
+  for (const venvName of [".venv", "ml_env"]) {
+    const candidate = path.join(workspaceRoot, venvName, "Scripts", "python.exe");
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function localPythonWindowlessPath() {
@@ -139,8 +142,11 @@ function localPythonWindowlessPath() {
     const windowless = configured.replace(/python(?:\.exe)?$/i, "pythonw.exe");
     if (existsSync(windowless)) return windowless;
   }
-  const developmentPython = path.join(workspaceRoot, ".venv", "Scripts", "pythonw.exe");
-  return existsSync(developmentPython) ? developmentPython : localPythonPath();
+  for (const venvName of [".venv", "ml_env"]) {
+    const candidate = path.join(workspaceRoot, venvName, "Scripts", "pythonw.exe");
+    if (existsSync(candidate)) return candidate;
+  }
+  return localPythonPath();
 }
 
 async function ensureLocalMlService() {
@@ -293,6 +299,9 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   );
   scannerCoordinator = new ScannerCoordinator(store, rendererDirectory, (status) => BrowserWindow.getAllWindows().forEach((window) => window.webContents.send("scanner:status", status)), scannerCertificateStore(app.getPath("userData")), publishOfflineAttendance);
   registerHandlers();
+  void ensureLocalMlService().catch((err: unknown) => {
+    console.info(`Background ML service warm-up: ${err instanceof Error ? err.message : String(err)}`);
+  });
   const preloadPath = path.join(directory, "preload.cjs");
   if (!existsSync(preloadPath)) console.error(`PLPass desktop preload is missing: ${preloadPath}`);
   // Pending attendance is a reliability workload. Keep its authenticated

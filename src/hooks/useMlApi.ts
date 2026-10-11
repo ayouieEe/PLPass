@@ -6,7 +6,8 @@ export function useModelInsights() {
     queryKey: ["modelInsights"],
     queryFn: fetchModelInsights,
     staleTime: 1000 * 60 * 60, // 1 hour
-    retry: false, // Prevent retrying when ML server on port 8000 is offline
+    retry: 1,
+    retryDelay: 1000,
     refetchOnWindowFocus: false
   });
 }

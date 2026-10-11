@@ -548,32 +548,58 @@ export function OrganizerAnalyticsPage() {
   }, [filteredEventData, summariesQuery.data?.items]);
 
   const sentimentOverview = useMemo(() => {
-    const filteredSummaries = filteredSentimentSummaries;
-    
-    if (filteredSummaries.length === 0) {
+    const hasSummaries = filteredSentimentSummaries.length > 0 &&
+      filteredSentimentSummaries.some((s) => (s.positivePercentage || 0) + (s.neutralPercentage || 0) + (s.negativePercentage || 0) > 0);
+
+    if (hasSummaries) {
+      const totals = filteredSentimentSummaries.reduce(
+        (acc, row) => ({
+          positive: acc.positive + (row.positivePercentage || 0),
+          neutral: acc.neutral + (row.neutralPercentage || 0),
+          negative: acc.negative + (row.negativePercentage || 0)
+        }),
+        { positive: 0, neutral: 0, negative: 0 }
+      );
+      const count = filteredSentimentSummaries.length || 1;
+
+      return [
+        { name: "Positive", value: Math.round(totals.positive / count) },
+        { name: "Neutral", value: Math.round(totals.neutral / count) },
+        { name: "Negative", value: Math.round(totals.negative / count) }
+      ];
+    }
+
+    // Direct aggregation from actual student feedback records
+    const validEventIds = new Set(filteredEventData.map((e) => e.id));
+    const matchingFeedback = (feedbackQuery.data?.items ?? []).filter(
+      (fb) => validEventIds.has(fb.eventId) && fb.sentimentLabel
+    );
+
+    if (matchingFeedback.length === 0) {
       return [
         { name: "Positive", value: 0 },
         { name: "Neutral", value: 0 },
         { name: "Negative", value: 0 }
       ];
     }
-    
-    const totals = filteredSummaries.reduce(
-      (acc, row) => ({
-        positive: acc.positive + (row.positivePercentage || 0),
-        neutral: acc.neutral + (row.neutralPercentage || 0),
-        negative: acc.negative + (row.negativePercentage || 0)
-      }),
-      { positive: 0, neutral: 0, negative: 0 }
-    );
-    const count = filteredSummaries.length || 1;
 
+    let pos = 0;
+    let neu = 0;
+    let neg = 0;
+    matchingFeedback.forEach((fb) => {
+      const label = (fb.sentimentLabel || "").toLowerCase();
+      if (label === "positive") pos += 1;
+      else if (label === "negative") neg += 1;
+      else neu += 1;
+    });
+
+    const total = matchingFeedback.length;
     return [
-      { name: "Positive", value: Math.round(totals.positive / count) },
-      { name: "Neutral", value: Math.round(totals.neutral / count) },
-      { name: "Negative", value: Math.round(totals.negative / count) }
+      { name: "Positive", value: Math.round((pos / total) * 100) },
+      { name: "Neutral", value: Math.round((neu / total) * 100) },
+      { name: "Negative", value: Math.round((neg / total) * 100) }
     ];
-  }, [filteredSentimentSummaries]);
+  }, [filteredEventData, feedbackQuery.data?.items, filteredSentimentSummaries]);
 
   const filteredLateReasons = useMemo(() => {
     const validEventIds = new Set(filteredEventData.map((e) => e.id));
@@ -691,9 +717,10 @@ export function OrganizerAnalyticsPage() {
 
   const predictionFactors = useMemo(() => {
     if (!insightsData?.feature_importance?.length) return [];
-    const positiveImportance = insightsData.feature_importance.filter((factor) => factor.importance_mean > 0).slice(0, 5);
-    if (positiveImportance.length > 0) {
-      const maxImp = Math.max(...positiveImportance.map(f => f.importance_mean));
+    const sortedFeatures = [...insightsData.feature_importance].sort((a, b) => b.importance_mean - a.importance_mean);
+    const topFeatures = sortedFeatures.slice(0, 5);
+    if (topFeatures.length > 0) {
+      const maxImp = Math.max(...topFeatures.map(f => Math.abs(f.importance_mean)), 0.0001);
       
       const getFeatureExplanation = (featureId: string) => {
         switch (featureId) {
@@ -721,7 +748,7 @@ export function OrganizerAnalyticsPage() {
         }
       };
 
-      return positiveImportance.map(f => {
+      return topFeatures.map(f => {
         const actionableFeatures = ['time', 'category', 'venue', 'duration', 'day'];
         const isActionable = actionableFeatures.some(key => f.feature.toLowerCase().includes(key));
         const explanation = getFeatureExplanation(f.feature);
@@ -729,7 +756,7 @@ export function OrganizerAnalyticsPage() {
         return {
           id: f.feature,
           name: explanation.name,
-          strength: Math.round((f.importance_mean / maxImp) * 100),
+          strength: Math.max(10, Math.round((Math.abs(f.importance_mean) / maxImp) * 100)),
           detail: explanation.detail,
           type: isActionable ? "actionable" : "inherent",
           insight: explanation.insight
@@ -804,7 +831,7 @@ export function OrganizerAnalyticsPage() {
         title: "FEEDBACK SENTIMENT & OBJECTIVE EVALUATION",
         executiveSummary: `Saved event feedback summaries indicate ${positiveSentimentLabel} positive sentiment. Objective ratings are shown only where submitted ratings exist.`,
         keyFindings: [
-          `Feedback sentiment breakdown: ${positiveSentimentLabel} Positive, ${filteredSentimentSummaries.length ? `${sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0}%` : "N/A"} Neutral, ${filteredSentimentSummaries.length ? `${sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0}%` : "N/A"} Negative.`,
+          `Feedback sentiment breakdown: ${positiveSentimentLabel} Positive, ${positiveSentimentShare != null ? `${sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0}%` : "N/A"} Neutral, ${positiveSentimentShare != null ? `${sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0}%` : "N/A"} Negative.`,
           `Objective rating records available in this scope: ${objectivePerformance.length}.`
         ],
         recommendations: ["Review the underlying feedback and objective ratings before drawing qualitative conclusions."]
@@ -872,7 +899,7 @@ export function OrganizerAnalyticsPage() {
       }
     }
 
-    if ((request.reportType === "master" || request.reportType === "sentiment") && filteredSentimentSummaries.length > 0) {
+    if ((request.reportType === "master" || request.reportType === "sentiment") && (filteredSentimentSummaries.length > 0 || positiveSentimentShare != null)) {
       const pos = positiveSentimentShare ?? 0;
       const neu = sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0;
       const neg = sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0;
@@ -989,16 +1016,20 @@ export function OrganizerAnalyticsPage() {
     return sourceFeedback
       .filter((fb) => validEventIds.has(fb.eventId))
       .filter((fb) => fb.comment && fb.comment.trim().length > 0)
-      .map((fb) => ({
-        sentiment: fb.sentimentLabel || "Neutral",
-        comment: fb.comment || ""
-      }));
+      .map((fb) => {
+        const raw = (fb.sentimentLabel || "neutral").toLowerCase();
+        const capitalized = raw.charAt(0).toUpperCase() + raw.slice(1);
+        return {
+          sentiment: capitalized,
+          comment: fb.comment || ""
+        };
+      });
   }, [filteredEventData, feedbackQuery.data?.items]);
 
   const studentComments = useMemo(() => feedbackRemarks.slice(0, 10), [feedbackRemarks]);
   const remarkSentimentData = useMemo(() => ["Positive", "Neutral", "Negative"].map((name) => ({
     name,
-    count: feedbackRemarks.filter((remark) => remark.sentiment === name).length
+    count: feedbackRemarks.filter((remark) => remark.sentiment.toLowerCase() === name.toLowerCase()).length
   })), [feedbackRemarks]);
 
   const overallAttendanceRate = useMemo<number | null>(() => {
@@ -1008,10 +1039,11 @@ export function OrganizerAnalyticsPage() {
 
   const overallAttendanceLabel = overallAttendanceRate == null ? "N/A" : `${overallAttendanceRate}%`;
   const positiveSentimentShare = useMemo<number | null>(() => {
-    if (filteredSentimentSummaries.length === 0) return null;
-    const posObj = sentimentOverview.find(s => s.name === "Positive");
-    return posObj?.value ?? null;
-  }, [filteredSentimentSummaries.length, sentimentOverview]);
+    const hasData = sentimentOverview.some((s) => s.value > 0);
+    if (!hasData) return null;
+    const posObj = sentimentOverview.find((s) => s.name === "Positive");
+    return posObj?.value ?? 0;
+  }, [sentimentOverview]);
   const positiveSentimentLabel = positiveSentimentShare == null ? "N/A" : `${positiveSentimentShare}%`;
 
   const tabs: Array<{ id: ActiveTab; label: string; icon: typeof BarChart3 }> = [
