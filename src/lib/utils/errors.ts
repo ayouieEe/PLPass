@@ -78,6 +78,10 @@ export function formatUserErrorMessage(rawMessage: string | null | undefined): s
     return "Please wait at least one minute after Time In before recording Time Out.";
   }
 
+  if (lower.includes("insert has more expressions than target columns")) {
+    return "The session could not be saved because the system is updating. Please try again in a few moments.";
+  }
+
   // Supabase / Postgrest Schema Cache & Migration Issues
   if (
     lower.includes("pgrst202") ||

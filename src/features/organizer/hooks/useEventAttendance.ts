@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatDisplayTime } from "@/lib/utils/date";
 import { postgresUuidValues } from "@/lib/utils/postgresUuid";
+import { formatSurnameFirstName } from "@/lib/utils/names";
 import type { AttendanceMethod, OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
 import { mergeOrganizerAttendanceRows, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 
@@ -11,6 +12,7 @@ type ProfileNameRow = {
   first_name?: string | null;
   middle_name?: string | null;
   last_name?: string | null;
+  name_extension?: string | null;
 };
 
 type StudentRelationRow = {
@@ -88,6 +90,9 @@ export function resolveRecordedOrganizerAttendanceStatus(input: OrganizerAttenda
 
 export type EventAttendanceSummary = {
   rows: Array<Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: OrgAttendanceStatus }>;
+  /** Actual bounds of the latest completed session for this event. */
+  actualStart?: string;
+  actualEnd?: string;
   /** Actual end of the latest completed session, used for event-history ordering. */
   completedAt?: string;
   present: number;
@@ -139,11 +144,12 @@ function mapVerificationMethod(value: string | null): AttendanceMethod {
 function studentDisplayName(row: AttendanceSummaryRow): string {
   const student = Array.isArray(row.students) ? row.students[0] : row.students;
   const profile = Array.isArray(student?.profiles) ? student?.profiles[0] : student?.profiles;
-  if (profile) {
-    const parts = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean);
-    if (parts.length) return parts.join(" ");
-  }
-  return row?.student_id ? `Student ${String(row.student_id).slice(0, 8)}` : "Unknown Student";
+  return formatSurnameFirstName({
+    firstName: profile?.first_name,
+    middleName: profile?.middle_name,
+    lastName: profile?.last_name,
+    nameExtension: profile?.name_extension
+  }, row?.student_id ? `Student ${String(row.student_id).slice(0, 8)}` : "Unknown Student");
 }
 
 function mapLateReason(value: string | null): OrganizerAttendanceRow["lateReason"] {
@@ -200,8 +206,13 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
   const studentById = new Map<string, { studentNumber: string; name: string }>();
   for (const row of (studentRows ?? []) as Array<{ id: string; student_id?: string | null; profiles?: ProfileNameRow | ProfileNameRow[] | null }>) {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-    const name = [profile?.first_name, profile?.middle_name, profile?.last_name].filter(Boolean).join(" ");
-    studentById.set(String(row.id), { studentNumber: String(row.student_id ?? ""), name: name || `Student ${String(row.id).slice(0, 8)}` });
+    const name = formatSurnameFirstName({
+      firstName: profile?.first_name,
+      middleName: profile?.middle_name,
+      lastName: profile?.last_name,
+      nameExtension: profile?.name_extension
+    }, `Student ${String(row.id).slice(0, 8)}`);
+    studentById.set(String(row.id), { studentNumber: String(row.student_id ?? ""), name });
   }
 
   // 3. Attendance records for those sessions, joined to student + profile names
@@ -210,7 +221,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const { data, error } = await client
       .from("attendance_records")
       .select(
-        "id, event_session_id, student_id, historical_academic_year, historical_year_level, historical_section_name, local_attendance_uuid, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name))"
+        "id, event_session_id, student_id, historical_academic_year, historical_year_level, historical_section_name, local_attendance_uuid, attendance_status, attendance_origin, verification_method, checkout_verification_method, time_in, time_out, recorded_at, finalized_at, remarks, late_reason_category, students(profiles(first_name, middle_name, last_name, name_extension))"
       )
       .in("event_session_id", sessionIds);
     if (error) throw error;
@@ -260,7 +271,13 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
     const latestCompletedSession = eventSessions
       .filter((session) => session.session_status === "completed")
       .sort((left, right) => new Date(right.actual_end ?? right.actual_start ?? 0).getTime() - new Date(left.actual_end ?? left.actual_start ?? 0).getTime())[0];
-    if (latestCompletedSession?.actual_end) summaries[eventId].completedAt = latestCompletedSession.actual_end;
+    if (latestCompletedSession) {
+      if (latestCompletedSession.actual_start) summaries[eventId].actualStart = latestCompletedSession.actual_start;
+      if (latestCompletedSession.actual_end) {
+        summaries[eventId].actualEnd = latestCompletedSession.actual_end;
+        summaries[eventId].completedAt = latestCompletedSession.actual_end;
+      }
+    }
     const effectiveSession = activeSession ?? latestCompletedSession;
     if (effectiveSession) effectiveSessionByEvent.set(eventId, effectiveSession);
   }

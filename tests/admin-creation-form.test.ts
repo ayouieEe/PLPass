@@ -81,6 +81,7 @@ describe("administrator creation contract", () => {
     const whitespaceRepairMigration = read("supabase/migrations/20261007120000_repair_organizer_profile_employee_id_whitespace.sql");
 
     expect(worker).toContain('nextEmployeeId(supabase, "organizers", "employee_id", "O")');
+    expect(worker).toContain("while (usedNumbers.has(next)) next += 1;");
     expect(repositories).toContain("const employeeNumber = `O-${String(nextId).padStart(3, \"0\")}`;");
     expect(fixtures).toContain('employeeNumber: "O-001"');
     expect(fixtures).toContain('employeeNumber: "UA-001"');

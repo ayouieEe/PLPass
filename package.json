@@ -5,7 +5,7 @@
   "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
-    "dev": "vite --configLoader runner",
+    "dev": "vite",
     "build": "tsc -b && vite build --configLoader runner",
     "build:student": "tsc -b && vite build --mode student --configLoader runner",
     "build:desktop": "vite build --configLoader runner && tsc -p tsconfig.electron.json && copy /Y electron\\preload.cjs dist-electron\\electron\\preload.cjs > NUL",

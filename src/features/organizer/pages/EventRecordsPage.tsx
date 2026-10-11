@@ -97,6 +97,8 @@ function objectiveKey(objective: EventObjective | string, index: number) {
 type AttendanceRow = Omit<OrganizerAttendanceRow, "attendanceStatus"> & { attendanceStatus: AttendanceStatus };
 
 type CompletedRecord = EventRecord & {
+  actualStart?: string;
+  actualEnd?: string;
   completedAt?: string;
   present: number;
   late: number;
@@ -191,8 +193,8 @@ function ModalFrame({
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4" onClick={onClose}>
-      <section role="dialog" aria-modal="true" aria-label="Completed event report" className={`max-h-[90vh] w-full overflow-hidden rounded-2xl border bg-surface shadow-xl ${width}`} onClick={(event) => event.stopPropagation()}>
-        <div className="max-h-[90vh] overflow-y-auto">{children}</div>
+      <section role="dialog" aria-modal="true" aria-label="Completed event report" className={`flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border bg-surface shadow-xl ${width}`} onClick={(event) => event.stopPropagation()}>
+        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </section>
     </div>,
     document.body
@@ -559,6 +561,8 @@ export function EventRecordsPage() {
       return {
         ...event,
         ...(summary ? {
+          actualStart: summary.actualStart,
+          actualEnd: summary.actualEnd,
           completedAt: summary.completedAt,
           present: summary.present,
           late: summary.late,
@@ -981,6 +985,21 @@ export function CompletedEventModal({
   onExportAttendanceReport?: (label: string, rows: AttendanceRow[]) => void;
 }) {
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [attendeeSearch, setAttendeeSearch] = useState("");
+  const filteredRows = useMemo(() => {
+    const query = normalized(attendeeSearch);
+    if (!query) return rows;
+
+    return rows.filter((row) => [
+      row.studentName,
+      row.verificationLabel ?? "Verified",
+      row.attendanceStatus,
+      row.checkInTime,
+      row.checkOutTime ?? "",
+      formatAttendanceMethod(row),
+      row.lateReason ?? ""
+    ].some((value) => normalized(value).includes(query)));
+  }, [attendeeSearch, rows]);
   const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     // Who + at-a-glance outcome, grouped first so status doesn't require scrolling to see
     { accessorKey: "studentName", header: "Student Name" },
@@ -1016,7 +1035,7 @@ export function CompletedEventModal({
 
   return (
     <ModalFrame onClose={onClose} width="max-w-6xl">
-      <div className="bg-muted/30">
+      <div className="flex min-h-0 flex-col bg-muted/30">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b bg-surface px-5 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
@@ -1050,14 +1069,15 @@ export function CompletedEventModal({
           </div>
         </header>
 
-        <main className="p-4 sm:p-6">
+        <main className="plpass-modern-scrollbar min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <article className="mx-auto max-w-5xl space-y-5 rounded-xl border bg-surface p-5 shadow-sm sm:p-6">
             <section className="border-b pb-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">{record.name}</h2>
                   {record.organizerName ? <p className="mt-2 text-sm text-muted-foreground">Organized by <span className="font-medium text-foreground">{record.organizerName}</span>{record.organizerEmail ? <> · {record.organizerEmail}</> : null}</p> : null}
-                  <p className="mt-1 text-sm text-muted-foreground">{record.code} · {record.date} · {record.startTime} - {record.endTime}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{record.code} · {record.date} · Scheduled {record.startTime} - {record.endTime}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Actual session: {record.actualStart ? formatDisplayTime(record.actualStart) : "Not recorded"} - {record.actualEnd ? formatDisplayTime(record.actualEnd) : "Not recorded"}</p>
                 </div>
                 {record.priorityLevel ? <StatusBadge label={record.priorityLevel} tone={priorityTone(record.priorityLevel)} /> : null}
               </div>
@@ -1089,24 +1109,37 @@ export function CompletedEventModal({
               Review individual attendance with check-in, checkout, and method details.
             </p>
           </div>
-          <span className="rounded-full border bg-surface-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-             {rows.length} participants
-          </span>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <label className="relative block w-full sm:w-72">
+              <span className="sr-only">Search attendees</span>
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="search"
+                value={attendeeSearch}
+                onChange={(event) => setAttendeeSearch(event.target.value)}
+                placeholder="Search attendees"
+                className="h-10 w-full rounded-lg border bg-surface pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+            </label>
+            <span className="rounded-full border bg-surface-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+              {attendeeSearch.trim() ? `${filteredRows.length} of ${rows.length}` : rows.length} participants
+            </span>
+          </div>
         </div>
 
         <PLPassDataGrid
           label="Attendee information"
-          data={rows}
+          data={filteredRows}
           columns={attendanceColumns}
            emptyTitle="No participants"
            emptyDescription="Assigned participants will appear here with Present, Late, or Absent attendance outcomes."
         />
       </section>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-3">
-        <section className="rounded-lg border bg-background p-4">
+      <div className="mt-5 grid gap-4 lg:grid-cols-3 lg:items-start">
+        <section className="flex h-96 flex-col rounded-lg border bg-background p-4">
           <h3 className="font-semibold">Late Arrival Breakdown</h3>
-          <div className="mt-3 space-y-3">
+          <div className="plpass-modern-scrollbar mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
             {lateBreakdown(rows).map((item) => (
               <div key={item.reason}>
                 <div className="flex items-center justify-between text-sm">
@@ -1124,9 +1157,9 @@ export function CompletedEventModal({
           </div>
         </section>
 
-        <section className="rounded-lg border bg-background p-4">
+        <section className="flex h-96 flex-col rounded-lg border bg-background p-4">
           <h3 className="font-semibold">Post-Event Objective Results</h3>
-          <div className="mt-3 space-y-3">
+          <div className="plpass-modern-scrollbar mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
             {record.objectives.length ? (
               record.objectives.map((objective, index) => (
                 <div key={objectiveKey(objective, index)} className="rounded-lg border bg-background p-3">
@@ -1145,14 +1178,14 @@ export function CompletedEventModal({
           </div>
         </section>
 
-        <section className="rounded-lg border bg-background p-4">
+        <section className="flex h-96 flex-col rounded-lg border bg-background p-4">
           <h3 className="font-semibold">Feedback Sentiment</h3>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <SummaryTile label="Positive" value={`${record.sentiment.positive}%`} />
             <SummaryTile label="Neutral" value={`${record.sentiment.neutral}%`} />
             <SummaryTile label="Negative" value={`${record.sentiment.negative}%`} />
           </div>
-          <div className="mt-4 space-y-2">
+          <div className="plpass-modern-scrollbar mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
             {record.feedbackComments.length ? (
               record.feedbackComments.map((comment) => (
                 <p key={comment} className="rounded-lg border bg-surface p-3 text-sm text-muted-foreground">

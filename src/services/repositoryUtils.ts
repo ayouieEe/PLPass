@@ -28,6 +28,10 @@ export const defaultRepositoryContext: RepositoryContext = {
   actorRole: "admin"
 };
 
+export function hasRepositoryContext(context?: RepositoryContext): context is RepositoryContext {
+  return Boolean(context?.actorUserId.trim());
+}
+
 export function assertRole(context: RepositoryContext, allowedRoles: UserRole[]) {
   if (!allowedRoles.includes(context.actorRole)) {
     throw new RepositoryError("Permission denied for this role.", "PERMISSION_DENIED");

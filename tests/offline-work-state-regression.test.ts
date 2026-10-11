@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const provider = readFileSync(resolve(process.cwd(), "src/app/providers/DevelopmentSessionProvider.tsx"), "utf8");
 const layout = readFileSync(resolve(process.cwd(), "src/app/layouts/DashboardLayout.tsx"), "utf8");
 const offlineEventHook = readFileSync(resolve(process.cwd(), "src/features/offline/useOfflineEvent.ts"), "utf8");
+const eventManagementPage = readFileSync(resolve(process.cwd(), "src/features/organizer/pages/EventManagementPage.tsx"), "utf8");
 
 describe("offline work banner state", () => {
   it("uses the owner-scoped unresolved-work result even when diagnostic reads fail", () => {
@@ -32,6 +33,10 @@ describe("offline work banner state", () => {
     expect(exitOfflineAfterVerification).toBeGreaterThan(onlineAfterVerification);
     expect(exitOfflineAfterVerification).toBeLessThan(reconciles);
     expect(provider).toContain("window.setInterval(() => void verifyReachability(), 3_000)");
+    expect(provider).toContain('"Checking the PLPass connection took too long."');
+    expect(provider).toContain('"Reconnecting to PLPass took too long."');
+    expect(provider).toContain("let checking = false;");
+    expect(provider).toContain("if (checking) return;");
     expect(provider).toContain('toast.warning("Offline Walk-in removed"');
     expect(provider).toContain('No active enrolled student matches this number. No attendance was recorded.');
     expect(provider).toContain('was already invited. Their attendance was recorded as invited attendance.');
@@ -44,6 +49,23 @@ describe("offline work banner state", () => {
     expect(provider).toContain("if (!unresolved && !isActiveAttendanceRoute())");
     expect(provider).toContain("window.setTimeout(() => window.location.reload(), 0);");
     expect(provider).not.toContain("window.location.reload();\n      setAuthError");
+  });
+
+  it("preserves the active local session when offline routing from another workspace", () => {
+    expect(provider).toContain("findLocalActiveSessionId(session.userId)");
+    expect(provider).toContain("APP_ROUTES.organizerEvents}?session=${encodeURIComponent(localSessionId)}");
+    expect(provider).toContain("replaceRendererRoute");
+  });
+
+  it("leaves the live route after a completed offline reconciliation", () => {
+    expect(provider).toContain('restoredLocalSession?.offlineLifecycle === "ENDED"');
+    expect(provider).toContain("replaceRendererRoute(APP_ROUTES.organizerEvents)");
+  });
+
+  it("keeps active local sessions visible when the package or directory snapshot is stale", () => {
+    expect(eventManagementPage).toContain('const activeLocalEventIds = new Set(');
+    expect(eventManagementPage).toContain('["START_PENDING", "STARTED"].includes(summary.lifecycle)');
+    expect(eventManagementPage).toContain('activeLocalEventIds.has(eventId) || verifiedOnlineEventIds.includes(eventId)');
   });
 
   it("keeps the connection state as a compact header status", () => {

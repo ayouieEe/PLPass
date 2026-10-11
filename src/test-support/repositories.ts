@@ -1893,7 +1893,7 @@ export const simulatedStudentCredentialRepository: StudentCredentialRepository =
       .map((student) => ({
         studentId: student.id,
         studentNumber: student.studentNumber,
-        studentName: student.fullName ?? student.formattedName ?? student.studentNumber,
+        studentName: student.formattedName ?? student.fullName ?? student.studentNumber,
         credentialStatus: { studentId: student.id }
       }));
   },

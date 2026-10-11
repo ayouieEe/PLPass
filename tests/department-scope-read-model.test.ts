@@ -104,6 +104,15 @@ describe("department read-model coverage", () => {
     expect(eventDetailsPage).toContain('["admin", "department_admin"].includes(scope.context.actorRole)');
     expect(eventPage).toContain("if (!canManageOwnedEvents) {");
     expect(eventPage).toContain("Refresh monitor");
+    expect(eventPage).toContain("isReadOnlyMonitor && activeEvent ? (");
+    expect(eventPage).not.toContain('"Session active"');
+    expect(eventPage).toContain("<CalendarCheck className");
+    expect(eventPage).toContain('className="min-w-0 flex-1 truncate text-lg font-semibold"');
+    expect(eventPage).toContain("const filteredMonitorRows = useMemo");
+    expect(eventPage).toContain('data={filteredMonitorRows}');
+    expect(eventPage).toContain("Search live attendance");
+    expect(eventPage).toContain("Scheduled {formatLocalTime(activeAttendanceSession.startsAt)}");
+    expect(eventPage).toContain("Actual start {formatLocalTime(actualStartAt)}");
     const adminCapabilities = permissions.slice(permissions.indexOf("const adminCapabilities"), permissions.indexOf("const departmentAdminCapabilities"));
     expect(adminCapabilities).not.toContain("attendance.session.recover");
     expect(adminHealth).not.toContain("Recover session</button>");

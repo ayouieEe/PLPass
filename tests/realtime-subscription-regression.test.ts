@@ -14,6 +14,8 @@ describe("Realtime subscription boundaries", () => {
     expect(provider).not.toContain("filter: `recipient_id=eq.${session.userId}`");
     expect(provider).not.toContain("tableQueryKeys");
     expect(provider).not.toContain('event: "*"');
+    expect(provider).toContain("if (retryTimer !== undefined) return;");
+    expect(provider).toContain("5_000 * 2 ** retryAttempt");
   });
 
   it("refreshes student event views when invitations or schedules change", () => {

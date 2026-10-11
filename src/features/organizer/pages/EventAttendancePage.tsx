@@ -71,6 +71,7 @@ import { coordinateAttendancePhase, resolveForwardOnlyAttendancePhase } from "@/
 import { advanceServerAttendanceCapturePhase, getServerAttendanceCapturePhase } from "@/features/organizer/attendancePhaseRepository";
 import { resolveRecordedOrganizerAttendanceStatus, useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate } from "@/lib/utils/date";
+import { formatSurnameFirstName } from "@/lib/utils/names";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import type { RepositoryContext } from "@/services/repositoryUtils";
 import type {
@@ -226,8 +227,7 @@ function eventLabel(event: Event | undefined) {
 
 function studentName(student: Student | undefined) {
   if (!student) return "Unknown student";
-  const profileName = [student.firstName, student.middleName, student.lastName].filter(Boolean).join(" ");
-  return student.formattedName || student.fullName || profileName || student.studentNumber;
+  return formatSurnameFirstName(student, student.formattedName || student.fullName || student.studentNumber);
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {

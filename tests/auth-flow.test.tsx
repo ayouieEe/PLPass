@@ -123,7 +123,7 @@ describe("mock authentication flow", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Settings" });
-    await userEvent.click(screen.getByRole("tab", { name: /notifications/i }));
+    expect(screen.queryByRole("tab", { name: /notifications/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Correction request updates" })).not.toBeInTheDocument();
   });
 

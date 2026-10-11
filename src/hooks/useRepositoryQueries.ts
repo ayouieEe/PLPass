@@ -29,7 +29,7 @@ import type {
   UpdateSystemSettingsInput,
   UpdateOrganizerBrandingInput
 } from "@/services/contracts";
-import type { RepositoryContext } from "@/services/repositoryUtils";
+import { hasRepositoryContext, type RepositoryContext } from "@/services/repositoryUtils";
 import type { AttendanceAttempt, AttendanceRecord, Notification } from "@/types/domain";
 import type { EventStatus } from "@/types/enums";
 import type { ListQuery, PaginatedResult } from "@/types/filters";
@@ -76,7 +76,7 @@ export function useUsers(query?: Partial<ListQuery>, context?: RepositoryContext
   return useQuery({
     queryKey: ["users", listQuery, context],
     queryFn: () => repositories.userManagement.listUsers(listQuery, context),
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -85,7 +85,7 @@ export function useUser(userId: string | undefined, context?: RepositoryContext)
     queryKey: ["user", userId, context],
     queryFn: () => repositories.userManagement.getUserById(userId ?? "", context),
     staleTime: studentCachePolicy.referenceStaleTime,
-    enabled: Boolean(userId && context)
+    enabled: Boolean(userId) && hasRepositoryContext(context)
   });
 }
 
@@ -96,7 +96,7 @@ export function useStudents(query?: Partial<ListQuery>, context?: RepositoryCont
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudents(listQuery, context), "Student data"),
     retry: retryUnlessTimedOut,
     staleTime: studentCachePolicy.referenceStaleTime,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -134,7 +134,7 @@ export function useOrganizerProfiles(query?: Partial<ListQuery>, context?: Repos
     queryKey: ["organizerProfiles", listQuery, context],
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listOrganizerProfiles(listQuery, context), "Organizer data"),
     retry: retryUnlessTimedOut,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -143,7 +143,7 @@ export function useAdminProfiles(query?: Partial<ListQuery>, context?: Repositor
   return useQuery({
     queryKey: ["adminProfiles", listQuery, context, role],
     queryFn: () => repositories.userManagement.listAdminProfiles(listQuery, context, role),
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -156,20 +156,20 @@ export function useAcademicCatalog(query?: Partial<ListQuery>, context?: Reposit
     departments: useQuery({
       queryKey: ["departments", listQuery, context],
       queryFn: () => repositories.academicManagement.listDepartments(listQuery, context),
-      enabled: Boolean(context) && enabled
+      enabled: hasRepositoryContext(context) && enabled
     }),
     programs: useQuery({
       queryKey: ["programs", listQuery, context],
       queryFn: () => repositories.academicManagement.listPrograms(listQuery, context),
-      enabled: Boolean(context) && enabled
+      enabled: hasRepositoryContext(context) && enabled
     }),
     semesters: useQuery({
       queryKey: ["semesters", listQuery, context],
       queryFn: () => repositories.academicManagement.listSemesters(listQuery, context),
-      enabled: Boolean(context) && enabled && !departmentAdmin
+      enabled: hasRepositoryContext(context) && enabled && !departmentAdmin
     }),
-    sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled }),
-    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: Boolean(context) && enabled && !departmentAdmin }),
+    sections: useQuery({ queryKey: ["sections", listQuery, context], queryFn: () => repositories.academicManagement.listSections?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: hasRepositoryContext(context) && enabled }),
+    categories: useQuery({ queryKey: ["eventCategories", listQuery, context], queryFn: () => repositories.academicManagement.listEventCategories?.(listQuery, context) ?? Promise.resolve({ items: [], total: 0, pageIndex: 0, pageSize: 100, pageCount: 1 }), enabled: hasRepositoryContext(context) && enabled && !departmentAdmin }),
     createDepartmentMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateDepartment>>[0]) => { if (!repositories.academicManagement.createOrUpdateDepartment) throw new Error("Department management is unavailable."); return repositories.academicManagement.createOrUpdateDepartment(input, context); }, onSuccess: invalidate }),
     createProgramMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateProgram>>[0]) => { if (!repositories.academicManagement.createOrUpdateProgram) throw new Error("Program management is unavailable."); return repositories.academicManagement.createOrUpdateProgram(input, context); }, onSuccess: invalidate }),
     createSectionMutation: useMutation({ mutationFn: async (input: Parameters<NonNullable<typeof repositories.academicManagement.createOrUpdateSection>>[0]) => { if (!repositories.academicManagement.createOrUpdateSection) throw new Error("Section management is unavailable."); return repositories.academicManagement.createOrUpdateSection(input, context); }, onSuccess: invalidate }),
@@ -182,7 +182,8 @@ export function useClasses(query?: Partial<ListQuery>, context?: RepositoryConte
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["classes", listQuery, context],
-    queryFn: () => repositories.academicManagement.listClasses(listQuery, context)
+    queryFn: () => repositories.academicManagement.listClasses(listQuery, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -190,7 +191,7 @@ export function useClass(classId: string | undefined, context?: RepositoryContex
   return useQuery({
     queryKey: ["class", classId, context],
     queryFn: () => repositories.academicManagement.getClassById(classId ?? "", context),
-    enabled: Boolean(classId),
+    enabled: Boolean(classId) && hasRepositoryContext(context),
     retry: false
   });
 }
@@ -199,7 +200,8 @@ export function useClassRosters(query?: Partial<ListQuery>, context?: Repository
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["classRosters", listQuery, context],
-    queryFn: () => repositories.classRosters.listClassRosters(listQuery, context)
+    queryFn: () => repositories.classRosters.listClassRosters(listQuery, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -227,7 +229,7 @@ export function useStudentsForClass(classId: string | undefined, query?: Partial
   return useQuery({
     queryKey: ["studentsForClass", classId, listQuery, context],
     queryFn: () => repositories.classRosters.listStudentsForClass(classId ?? "", listQuery, context),
-    enabled: Boolean(classId)
+    enabled: Boolean(classId) && hasRepositoryContext(context)
   });
 }
 
@@ -238,7 +240,7 @@ export function useEvents(query?: Partial<ListQuery>, context?: RepositoryContex
     queryFn: () => boundedDashboardRequest(repositories.eventManagement.listEvents(listQuery, context), "Events"),
     retry: retryUnlessTimedOut,
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -246,7 +248,7 @@ export function useEvent(eventId: string | undefined, context?: RepositoryContex
   return useQuery({
     queryKey: ["event", eventId, context],
     queryFn: () => repositories.eventManagement.getEventById(eventId ?? "", context),
-    enabled: Boolean(eventId) && enabled,
+    enabled: Boolean(eventId) && hasRepositoryContext(context) && enabled,
     retry: false
   });
 }
@@ -318,6 +320,7 @@ export function useEventRescheduleMutation(context?: RepositoryContext) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["events"] });
       await queryClient.invalidateQueries({ queryKey: ["attendanceSessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["notifications"] });
       await queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
       toast.success("Event rescheduled successfully");
     },
@@ -332,7 +335,7 @@ export function useEventParticipants(eventId: string, query?: Partial<ListQuery>
   return useQuery({
     queryKey: ["eventParticipants", eventId, listQuery, context],
     queryFn: () => repositories.eventManagement.listEventParticipants(eventId, listQuery, context),
-    enabled: Boolean(eventId) && enabled
+    enabled: Boolean(eventId) && hasRepositoryContext(context) && enabled
   });
 }
 
@@ -342,7 +345,7 @@ export function useStudentsByIds(studentIds: readonly string[], context?: Reposi
     queryKey: ["students", "ids", normalizedStudentIds, context],
     queryFn: () => boundedDashboardRequest(repositories.userManagement.listStudentsByIds(normalizedStudentIds, context), "Student data"),
     retry: retryUnlessTimedOut,
-    enabled: Boolean(context) && normalizedStudentIds.length > 0
+    enabled: hasRepositoryContext(context) && normalizedStudentIds.length > 0
   });
 }
 
@@ -356,7 +359,7 @@ export function useParticipantsForEvents(eventIds: readonly string[], context?: 
       );
       return results.flatMap((result) => result.items);
     },
-    enabled: Boolean(context?.actorUserId && normalizedEventIds.length)
+    enabled: hasRepositoryContext(context) && normalizedEventIds.length > 0
   });
 }
 
@@ -365,7 +368,7 @@ export function useEventResources(eventId: string, query?: Partial<ListQuery>, c
   return useQuery({
     queryKey: ["eventResources", eventId, listQuery, context],
     queryFn: () => repositories.eventManagement.listEventResources(eventId, listQuery, context),
-    enabled: Boolean(eventId) && enabled
+    enabled: Boolean(eventId) && hasRepositoryContext(context) && enabled
   });
 }
 
@@ -377,7 +380,7 @@ export function useAttendanceSessions(query?: Partial<ListQuery>, context?: Repo
     retry: retryUnlessTimedOut,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -385,7 +388,7 @@ export function useAttendanceSession(sessionId: string | undefined, context?: Re
   return useQuery({
     queryKey: ["attendanceSession", sessionId, context],
     queryFn: () => repositories.attendanceSessions.getAttendanceSessionById(sessionId ?? "", context),
-    enabled: Boolean(sessionId && context) && enabled,
+    enabled: Boolean(sessionId) && hasRepositoryContext(context) && enabled,
     retry: false,
     staleTime: 15_000,
     refetchOnWindowFocus: false
@@ -460,7 +463,7 @@ export function useAttendanceRecords(query?: Partial<ListQuery>, context?: Repos
     retry: retryUnlessTimedOut,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -569,7 +572,7 @@ export function useAttendanceRecord(recordId: string | undefined, context?: Repo
   return useQuery({
     queryKey: ["attendanceRecord", recordId, context],
     queryFn: () => repositories.attendanceRecords.getAttendanceRecordById(recordId ?? "", context),
-    enabled: Boolean(recordId),
+    enabled: Boolean(recordId) && hasRepositoryContext(context),
     retry: false
   });
 }
@@ -578,7 +581,8 @@ export function useAttendanceAttempts(query?: Partial<ListQuery>, context?: Repo
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["attendanceAttempts", listQuery, context],
-    queryFn: () => repositories.attendanceAttempts.listAttendanceAttempts(listQuery, context)
+    queryFn: () => repositories.attendanceAttempts.listAttendanceAttempts(listQuery, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -608,7 +612,7 @@ export function useCorrectionRequests(
     queryKey: ["correctionRequests", listQuery, context],
     queryFn: () => repositories.correctionRequests.listCorrectionRequests(listQuery, context),
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
   const createMutation = useMutation({
     mutationFn: (input: CreateCorrectionRequestInput) =>
@@ -639,7 +643,7 @@ export function useCredentialRequests(query?: Partial<ListQuery>, context?: Repo
     queryKey: ["credentialRequests", listQuery, context],
     queryFn: () => repositories.credentialRequests.listCredentialRequests(listQuery, context),
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(context)
+    enabled: hasRepositoryContext(context)
   });
   const createMutation = useMutation({
     mutationFn: (input: CreateCredentialRequestInput) =>
@@ -679,7 +683,7 @@ export function useStudentCredentialStatus(studentId: string | undefined, contex
     queryKey: ["studentCredentialStatus", studentId, context],
     queryFn: () => repositories.studentCredentials.getStudentCredentialStatus(studentId ?? "", context),
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(studentId && context)
+    enabled: Boolean(studentId) && hasRepositoryContext(context)
   });
 }
 
@@ -688,7 +692,7 @@ export function useStudentCredentialStatuses(context?: RepositoryContext, studen
   return useQuery({
     queryKey: ["studentCredentialStatuses", context, normalizedStudentIds],
     queryFn: () => repositories.studentCredentials.listStudentCredentialStatuses(context, normalizedStudentIds),
-    enabled: Boolean(context?.actorUserId && enabled && (context.actorRole !== "organizer" || normalizedStudentIds.length))
+    enabled: hasRepositoryContext(context) && enabled && (context.actorRole !== "organizer" || normalizedStudentIds.length > 0)
   });
 }
 
@@ -698,7 +702,7 @@ export function useOrganizerCredentialDirectory(context?: RepositoryContext, ena
     queryFn: () => boundedDashboardRequest(repositories.studentCredentials.listOrganizerCredentialDirectory(context), "Credential directory"),
     retry: retryUnlessTimedOut,
     staleTime: studentCachePolicy.operationalStaleTime,
-    enabled: Boolean(context?.actorUserId && context.actorRole === "organizer" && enabled)
+    enabled: hasRepositoryContext(context) && context.actorRole === "organizer" && enabled
   });
 }
 
@@ -735,7 +739,7 @@ export function useEventObjectives(eventId: string | undefined, context?: Reposi
   return useQuery({
     queryKey: ["eventObjectives", eventId, context],
     queryFn: () => repositories.eventFeedback.listEventObjectives(eventId ?? "", context),
-    enabled: Boolean(eventId) && enabled
+    enabled: Boolean(eventId) && hasRepositoryContext(context) && enabled
   });
 }
 
@@ -744,7 +748,7 @@ export function useStudentEventFeedback(studentId: string | undefined, context?:
   const listQueryResult = useQuery({
     queryKey: ["studentEventFeedback", studentId, context],
     queryFn: () => repositories.eventFeedback.listStudentFeedback(studentId ?? "", context),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && hasRepositoryContext(context)
   });
   const submitMutation = useMutation({
     mutationFn: (input: SubmitEventFeedbackInput) =>
@@ -766,14 +770,16 @@ export function useFinalizedEventYears(context?: RepositoryContext) {
   return useQuery({
     queryKey: ["finalizedEventYears", context],
     queryFn: () => repositories.attendanceRecords.listFinalizedEventYears(context),
-    staleTime: 5 * 60 * 1000
+    staleTime: 5 * 60 * 1000,
+    enabled: hasRepositoryContext(context)
   });
 }
 
 export function useStudentDashboardSummary(context?: RepositoryContext) {
   return useQuery({
     queryKey: ["studentDashboardSummary", context],
-    queryFn: () => boundedDashboardRequest(repositories.attendanceRecords.getStudentDashboardSummary(context), "Dashboard summary")
+    queryFn: () => boundedDashboardRequest(repositories.attendanceRecords.getStudentDashboardSummary(context), "Dashboard summary"),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -781,7 +787,8 @@ export function useLateReasonOptions(locale = typeof navigator !== "undefined" ?
   return useQuery({
     queryKey: ["lateReasonOptions", locale, context],
     queryFn: () => repositories.attendanceRecords.listLateReasonOptions(locale, context),
-    staleTime: 5 * 60 * 1000
+    staleTime: 5 * 60 * 1000,
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -789,28 +796,31 @@ export function useStudentFeedbackTasks(studentId: string | undefined, context?:
   return useQuery({
     queryKey: ["studentFeedbackTasks", studentId, context],
     queryFn: () => repositories.eventFeedback.listStudentFeedbackTasks(studentId ?? "", context),
-    enabled: Boolean(studentId)
+    enabled: Boolean(studentId) && hasRepositoryContext(context)
   });
 }
 
 export function useAllEventObjectives(query?: ListQuery, context?: RepositoryContext) {
   return useQuery({
     queryKey: ["allEventObjectives", query, context],
-    queryFn: () => repositories.eventFeedback.listAllEventObjectives(query, context)
+    queryFn: () => repositories.eventFeedback.listAllEventObjectives(query, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
 export function useAllEventSummarySnapshots(query?: ListQuery, context?: RepositoryContext) {
   return useQuery({
     queryKey: ["allEventSummarySnapshots", query, context],
-    queryFn: () => repositories.eventFeedback.listAllEventSummarySnapshots(query, context)
+    queryFn: () => repositories.eventFeedback.listAllEventSummarySnapshots(query, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
 export function useAllEventFeedback(query?: ListQuery, context?: RepositoryContext) {
   return useQuery({
     queryKey: ["allEventFeedback", query, context],
-    queryFn: () => repositories.eventFeedback.listAllEventFeedback(query, context)
+    queryFn: () => repositories.eventFeedback.listAllEventFeedback(query, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -821,7 +831,8 @@ export function useNotifications(query?: Partial<ListQuery>, context?: Repositor
   const unreadCountQueryKey = ["notifications", "unreadCount", context] as const;
   const listQueryResult = useQuery({
     queryKey,
-    queryFn: () => repositories.notifications.listNotifications(listQuery, context)
+    queryFn: () => repositories.notifications.listNotifications(listQuery, context),
+    enabled: hasRepositoryContext(context)
   });
   const markReadMutation = useMutation({
     mutationFn: (notificationId: string) => repositories.notifications.markNotificationRead(notificationId, context),
@@ -973,7 +984,7 @@ export function useOrganizerBranding(organizerId: string | undefined, context?: 
   const query = useQuery({
     queryKey: ["organizerBranding", organizerId, context],
     queryFn: () => repositories.userManagement.getOrganizerBranding(organizerId ?? "", context),
-    enabled: Boolean(organizerId && context)
+    enabled: Boolean(organizerId) && hasRepositoryContext(context)
   });
   const updateMutation = useMutation({
     mutationFn: (input: Omit<UpdateOrganizerBrandingInput, "organizerId">) => repositories.userManagement.updateOrganizerBranding({ ...input, organizerId: organizerId ?? "" }, context),
@@ -993,7 +1004,7 @@ export function useDepartmentBranding(departmentId: string | undefined, context?
   const query = useQuery({
     queryKey: ["departmentBranding", departmentId, context],
     queryFn: () => repositories.userManagement.getDepartmentBranding(departmentId ?? "", context),
-    enabled: Boolean(departmentId && context)
+    enabled: Boolean(departmentId) && hasRepositoryContext(context)
   });
   const updateMutation = useMutation({
     mutationFn: (input: Omit<import("@/services/contracts").UpdateDepartmentBrandingInput, "departmentId">) => repositories.userManagement.updateDepartmentBranding({ ...input, departmentId: departmentId ?? "" }, context),
@@ -1013,7 +1024,7 @@ export function useNotificationPreferences(context?: RepositoryContext) {
   const query = useQuery({
     queryKey,
     queryFn: () => repositories.notifications.getPreferences(context),
-    enabled: Boolean(context),
+    enabled: hasRepositoryContext(context),
     retry: false
   });
   const updateMutation = useMutation({
@@ -1033,7 +1044,7 @@ export function useNotificationUnreadCount(context?: RepositoryContext) {
   return useQuery({
     queryKey: ["notifications", "unreadCount", context],
     queryFn: () => repositories.notifications.listNotifications(listQuery, context),
-    enabled: Boolean(context),
+    enabled: hasRepositoryContext(context),
     select: (result) => context ? result.items.filter((notification) => isNotificationVisibleForRole(notification, context.actorRole) && notification.status === "unread").length : 0
   });
 }
@@ -1042,7 +1053,8 @@ export function useNotificationsQuery(query?: Partial<ListQuery>, context?: Repo
   const listQuery = queryWithDefaults(query);
   return useQuery({
     queryKey: ["notifications", listQuery, context],
-    queryFn: () => repositories.notifications.listNotifications(listQuery, context)
+    queryFn: () => repositories.notifications.listNotifications(listQuery, context),
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -1051,7 +1063,7 @@ export function useAuditLogs(query?: Partial<ListQuery>, context?: RepositoryCon
   return useQuery({
     queryKey: ["auditLogs", listQuery, context],
     queryFn: () => repositories.auditLogs.listAuditLogs(listQuery, context),
-    enabled: Boolean(context)
+    enabled: hasRepositoryContext(context)
   });
 }
 
@@ -1091,7 +1103,7 @@ export function useMlPredictions(query?: Partial<ListQuery>, context?: Repositor
   return useQuery({
     queryKey: ["mlPredictions", listQuery, context],
     queryFn: () => repositories.analyticsMl.listMlPredictions(listQuery, context),
-    enabled: Boolean(context) && enabled
+    enabled: hasRepositoryContext(context) && enabled
   });
 }
 
@@ -1100,7 +1112,8 @@ export function useSystemSettings(context?: RepositoryContext) {
   const queryKey = ["systemSettings", context] as const;
   const settingsQuery = useQuery({
     queryKey,
-    queryFn: () => repositories.systemSettings.getSettings(context)
+    queryFn: () => repositories.systemSettings.getSettings(context),
+    enabled: hasRepositoryContext(context)
   });
   const updateMutation = useMutation({
     mutationFn: (input: UpdateSystemSettingsInput) => repositories.systemSettings.updateSettings(input, context),
