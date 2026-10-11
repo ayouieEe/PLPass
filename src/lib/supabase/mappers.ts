@@ -20,6 +20,7 @@ import type {
   User
 } from "@/types/domain";
 import type { AttendanceMode, AttendanceSessionType, AttendanceStatus, EventStatus, PriorityLevel, UserRole, VerificationMethod } from "@/types/enums";
+import { formatSurnameFirstName } from "@/lib/utils/names";
 
 type Row = Record<string, unknown>;
 
@@ -186,10 +187,7 @@ export function mapStudent(row: Row): Student {
   const lastName = profile ? stringValue(profile, ["last_name"]) : "";
   const nameExtension = profile ? stringValue(profile, ["name_extension"]) : "";
 
-  const middleInitial = middleName.trim() ? `${middleName.trim().charAt(0).toUpperCase()}.` : "";
-  const formattedName = lastName && firstName
-    ? `${lastName}, ${firstName}${middleInitial ? " " + middleInitial : ""}${nameExtension ? " " + nameExtension : ""}`
-    : [firstName, middleName, lastName, nameExtension].filter(Boolean).join(" ");
+  const formattedName = formatSurnameFirstName({ firstName, middleName, lastName, nameExtension });
 
   const fullName = profile
     ? [firstName, middleName, lastName, nameExtension].filter(Boolean).join(" ")

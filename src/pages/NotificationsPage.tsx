@@ -99,7 +99,8 @@ export function NotificationsPage() {
     },
     context
   );
-  const preferences = useNotificationPreferences(context);
+  const canManagePreferences = Boolean(session && session.role !== "admin");
+  const preferences = useNotificationPreferences(canManagePreferences ? context : undefined);
 
   const availableCategories = session ? categoriesForRole(session.role) : [];
   // Supabase RLS already scopes this result to the signed-in recipient. Do not
@@ -147,7 +148,7 @@ export function NotificationsPage() {
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
               Refresh
             </Button>
-            <Button
+            {canManagePreferences ? <Button
               type="button"
               variant="outline"
               size="icon"
@@ -156,7 +157,7 @@ export function NotificationsPage() {
               title="Notification settings"
             >
               <Settings className="h-4 w-4" aria-hidden="true" />
-            </Button>
+            </Button> : null}
             <Button type="button" onClick={() => notifications.markAllReadMutation.mutate()} disabled={unreadCount === 0}>
               Mark all as read
             </Button>
@@ -212,7 +213,7 @@ export function NotificationsPage() {
         </div>
       </section>
 
-      {isPreferencesOpen
+      {canManagePreferences && isPreferencesOpen
         ? createPortal(
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => setIsPreferencesOpen(false)}>
               <section role="dialog" aria-modal="true" aria-labelledby="notification-settings-title" className="w-full max-w-lg rounded-2xl border bg-surface p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
@@ -227,7 +228,7 @@ export function NotificationsPage() {
                   </button>
                 </div>
                 <div className="mt-5 rounded-xl border border-primary/15 bg-primary/5 p-3 text-sm text-muted-foreground">Critical, security, account, approval, and required-action alerts always remain enabled.</div>
-                {preferences.data && session?.role !== "admin" ? (
+                {preferences.data ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     {([
                       ["eventUpdates", "Event updates"],

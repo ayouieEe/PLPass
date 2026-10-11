@@ -4,13 +4,15 @@ import process from "node:process";
 import { gzipSync } from "node:zlib";
 
 const distDirectory = resolve(process.cwd(), "dist");
-const html = readFileSync(resolve(distDirectory, "index.html"), "utf8");
+const studentBuild = process.argv.includes("--student");
+const htmlFile = studentBuild ? "student.html" : "index.html";
+const html = readFileSync(resolve(distDirectory, htmlFile), "utf8");
 const references = [...html.matchAll(/(?:src|href)="(\/assets\/[^"?]+\.js)"/g)]
   .map((match) => match[1])
   .filter((reference, index, all) => all.indexOf(reference) === index);
 
 if (references.length === 0) {
-  throw new Error("No initial JavaScript assets were found in dist/index.html. Run the production build first.");
+  throw new Error(`No initial JavaScript assets were found in dist/${htmlFile}. Run the production build first.`);
 }
 
 const assets = references.map((reference) => {

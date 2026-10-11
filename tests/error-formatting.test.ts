@@ -16,4 +16,9 @@ describe("database migration error formatting", () => {
     expect(formatUserErrorMessage("Error invoking remote method 'offline:recordScanner': Error: Failed to fetch"))
       .toBe("Unable to connect to the server. Please check your internet connection and try again.");
   });
+
+  it("does not expose a feedback-notification SQL defect to organizers", () => {
+    expect(formatUserErrorMessage("INSERT has more expressions than target columns"))
+      .toBe("The session could not be saved because the system is updating. Please try again in a few moments.");
+  });
 });

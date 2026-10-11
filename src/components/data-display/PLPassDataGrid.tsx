@@ -22,6 +22,7 @@ import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-quartz.css";
 
 const DEFAULT_PAGE_SIZE = 10;
+const SCROLLBAR_WIDTH = 7;
 
 function readAccessorValue(row: unknown, accessorKey: string) {
   return accessorKey.split(".").reduce<unknown>((value, key) => {
@@ -387,7 +388,7 @@ export function PLPassDataGrid<TData extends object>({
       ) : null}
       <div
         ref={gridShellRef}
-        className={cn(plpassDataGridClassName, "w-full overflow-x-auto", !hasRows && "plpass-data-grid-empty", onRowClick && "[&_.ag-row]:cursor-pointer")}
+        className={cn(plpassDataGridClassName, "w-full overflow-hidden", !hasRows && "plpass-data-grid-empty", onRowClick && "[&_.ag-row]:cursor-pointer")}
         style={{ height: height ?? "auto" }}
       >
         <AgGridReact<TData>
@@ -402,6 +403,7 @@ export function PLPassDataGrid<TData extends object>({
           suppressPaginationPanel
           paginationPageSize={DEFAULT_PAGE_SIZE}
           paginationPageSizeSelector={false}
+          scrollbarWidth={SCROLLBAR_WIDTH}
           quickFilterText={enableQuickFilter ? quickFilterText : undefined}
           rowSelection={resolvedRowSelection}
           rowHeight={resolvedRowHeight}

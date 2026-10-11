@@ -162,6 +162,8 @@
     --chart-4: var(--chart-late);
     --chart-5: var(--chart-trend);
     --radius: 1rem;
+    --plpass-scrollbar-size: 0.45rem;
+    --plpass-scrollbar-inset: 0.1rem;
   }
 
   .dark {
@@ -226,6 +228,7 @@
 
   * {
     @apply border-border;
+    scrollbar-width: thin;
   }
 
   body {
@@ -252,8 +255,8 @@
   }
 
   *::-webkit-scrollbar {
-    height: 0.55rem;
-    width: 0.55rem;
+    height: var(--plpass-scrollbar-size);
+    width: var(--plpass-scrollbar-size);
   }
 
   *::-webkit-scrollbar-button {
@@ -263,7 +266,7 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    border: 0.14rem solid transparent;
+    border: var(--plpass-scrollbar-inset) solid transparent;
     border-radius: 999px;
     background: hsl(var(--muted-foreground) / 0.42);
     background-clip: padding-box;
@@ -1081,13 +1084,20 @@
 
   .plpass-data-grid-shell .ag-body-vertical-scroll-viewport::-webkit-scrollbar,
   .plpass-data-grid-shell .ag-body-horizontal-scroll-viewport::-webkit-scrollbar {
-    height: 0.75rem;
-    width: 0.75rem;
+    height: var(--plpass-scrollbar-size);
+    width: var(--plpass-scrollbar-size);
+  }
+
+  .plpass-data-grid-shell .ag-body-vertical-scroll-viewport::-webkit-scrollbar-button,
+  .plpass-data-grid-shell .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-button {
+    display: none;
+    height: 0;
+    width: 0;
   }
 
   .plpass-data-grid-shell .ag-body-vertical-scroll-viewport::-webkit-scrollbar-thumb,
   .plpass-data-grid-shell .ag-body-horizontal-scroll-viewport::-webkit-scrollbar-thumb {
-    border: 0.2rem solid hsl(var(--surface));
+    border: var(--plpass-scrollbar-inset) solid hsl(var(--surface));
     border-radius: 999px;
     background: hsl(var(--muted-foreground) / 0.55);
   }
@@ -1097,18 +1107,25 @@
     background: hsl(var(--surface-muted));
   }
 
+  /* AG Grid makes the pinned-column spacers scrollable to reserve native scrollbar
+     space. In Chromium that renders a second, unusable horizontal track. */
+  .plpass-data-grid-shell .ag-horizontal-left-spacer,
+  .plpass-data-grid-shell .ag-horizontal-right-spacer {
+    overflow-x: hidden;
+  }
+
   .plpass-modern-scrollbar {
     scrollbar-color: hsl(var(--muted-foreground) / 0.45) transparent;
     scrollbar-width: thin;
   }
 
   .plpass-modern-scrollbar::-webkit-scrollbar {
-    height: 0.7rem;
-    width: 0.7rem;
+    height: var(--plpass-scrollbar-size);
+    width: var(--plpass-scrollbar-size);
   }
 
   .plpass-modern-scrollbar::-webkit-scrollbar-thumb {
-    border: 0.18rem solid transparent;
+    border: var(--plpass-scrollbar-inset) solid transparent;
     border-radius: 999px;
     background: hsl(var(--muted-foreground) / 0.45);
     background-clip: padding-box;

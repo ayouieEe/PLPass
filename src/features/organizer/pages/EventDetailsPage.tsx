@@ -77,6 +77,7 @@ import {
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, manilaDateTimeToIso } from "@/lib/utils/date";
+import { formatSurnameFirstName } from "@/lib/utils/names";
 import type { AttendanceSubmissionResult } from "@/services/contracts";
 import { repositories } from "@/services/repositories";
 import type { RepositoryContext } from "@/services/repositoryUtils";
@@ -217,7 +218,7 @@ function formatEventTitle(value: string) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.fullName ?? student.formattedName ?? student.studentNumber : "Unknown student";
+  return student ? formatSurnameFirstName(student, student.formattedName || student.fullName || student.studentNumber) : "Unknown student";
 }
 
 function offlineEventFromPackage(pkg: PreparedEventPackage, organizerId?: string): Event {

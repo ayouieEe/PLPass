@@ -1,6 +1,7 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { repositories } from "@/services/repositories";
 import { getErrorMessage } from "@/lib/utils/errors";
+import { createUuid } from "@/lib/utils/uuid";
 import type { EventResource } from "@/types/domain";
 
 export const EVENT_RESOURCE_BUCKET = "event-resources";
@@ -96,7 +97,7 @@ export async function uploadEventFileResource(eventId: string, title: string, fi
   }
 
   const client = getSupabaseBrowserClient();
-  const objectPath = `${eventId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+  const objectPath = `${eventId}/${createUuid()}-${safeFileName(file.name)}`;
   const { error: uploadError } = await client.storage
     .from(EVENT_RESOURCE_BUCKET)
     .upload(objectPath, file, { contentType: file.type || "application/octet-stream", upsert: false });

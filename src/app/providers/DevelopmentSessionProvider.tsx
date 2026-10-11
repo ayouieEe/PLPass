@@ -19,6 +19,7 @@ import {
 import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTimeout";
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { APP_ROUTES } from "@/lib/constants/routes";
 import { repositories } from "@/services/repositories";
 import { toast } from "sonner";
 import { offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent } from "@/features/offline/offlineService";
@@ -36,6 +37,31 @@ const dailyPackagePreparationRuns = new Set<string>();
 function isActiveAttendanceRoute() {
   const pathname = window.location.pathname;
   return pathname.includes("/live-attendance/") || new URLSearchParams(window.location.search).has("session");
+}
+
+function activeSessionIdFromLocation() {
+  const querySessionId = new URLSearchParams(window.location.search).get("session");
+  if (querySessionId) return querySessionId;
+  const match = window.location.pathname.match(/\/live-attendance\/([^/]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+function replaceRendererRoute(path: string) {
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (current === path) return;
+  window.history.replaceState(null, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+async function findLocalActiveSessionId(organizerProfileId: string) {
+  const api = window.plpassDesktop;
+  if (!api) return undefined;
+  try {
+    const summaries = await api.listPreparedEvents(organizerProfileId, getManilaCalendarDate());
+    return summaries.find((summary) => Boolean(summary.sessionId) && ["START_PENDING", "STARTED"].includes(summary.lifecycle))?.sessionId;
+  } catch {
+    return undefined;
+  }
 }
 
 function isDesktopOffline() {
@@ -94,10 +120,21 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       // The main process encrypts and expiry-limits this identity.
       await cacheDesktopOfflineSession(session);
       if (disposed) return;
+      // Preserve the exact active local session when an unrelated workspace
+      // becomes offline. The route guard can only see the offline role policy;
+      // without the session query it can safely reach Events but cannot reopen
+      // the live attendance workspace.
+      const localSessionId = await findLocalActiveSessionId(session.userId);
+      if (disposed) return;
       // Lock the organizer workspace immediately. Route-level guards keep the
       // user inside event navigation; local pages then decide whether a
       // prepared package is available for attendance.
-      if (!disposed) setIsOfflineMode(true);
+      if (!disposed) {
+        setIsOfflineMode(true);
+        if (localSessionId && activeSessionIdFromLocation() !== localSessionId) {
+          replaceRendererRoute(`${APP_ROUTES.organizerEvents}?session=${encodeURIComponent(localSessionId)}`);
+        }
+      }
     };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
@@ -111,9 +148,16 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!session || session.role !== "organizer" || !window.plpassDesktop || import.meta.env.MODE === "test") return undefined;
     let disposed = false;
+    let checking = false;
     const verifyReachability = async () => {
+      if (checking) return;
+      checking = true;
       try {
-        const { data, error } = await getSupabaseBrowserClient().auth.getUser();
+        const { data, error } = await withRequestTimeout(
+          getSupabaseBrowserClient().auth.getUser(),
+          supabaseAuthDeadlineMs,
+          "Checking the PLPass connection took too long."
+        );
         if (disposed) return;
         if (!error && data.user?.id === session.userId) {
           setIsNetworkOnline(true);
@@ -129,10 +173,12 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           setIsOfflineMode(true);
         }
       } catch (error) {
-        if (!disposed && isLikelyNetworkFailure(error)) {
+        if (!disposed && (isLikelyNetworkFailure(error) || error instanceof RequestTimeoutError)) {
           setIsNetworkOnline(false);
           setIsOfflineMode(true);
         }
+      } finally {
+        checking = false;
       }
     };
     void verifyReachability();
@@ -399,7 +445,11 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         }
       }
       const supabase = getSupabaseBrowserClient();
-      const { data, error } = await supabase.auth.getUser();
+      const { data, error } = await withRequestTimeout(
+        supabase.auth.getUser(),
+        supabaseAuthDeadlineMs,
+        "Reconnecting to PLPass took too long."
+      );
       if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
       if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
@@ -420,6 +470,14 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         return false;
       }
       await queryClient.invalidateQueries();
+      const restoredSessionId = activeSessionIdFromLocation();
+      if (restoredSessionId && !unresolved) {
+        const restoredPackage = await window.plpassDesktop.getPreparedEventBySession(restoredSessionId, confirmed.userId).catch(() => null);
+        const restoredLocalSession = restoredPackage?.sessions.find((item) => item.id === restoredSessionId);
+        if (restoredLocalSession?.offlineLifecycle === "ENDED") {
+          replaceRendererRoute(APP_ROUTES.organizerEvents);
+        }
+      }
       // A completed reconnect can leave a non-live page with stale route and
       // query state from the offline session. Refresh those safe pages once so
       // the organizer sees the authoritative server event immediately. Never
@@ -433,7 +491,17 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       setReconciliationState("idle");
       setOfflineSyncStage("idle");
       return !unresolved;
-      } catch { await refreshOfflineWork(); setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
+      } catch (error) {
+        if (isLikelyNetworkFailure(error) || error instanceof RequestTimeoutError) {
+          setIsNetworkOnline(false);
+          setIsOfflineMode(true);
+        }
+        await refreshOfflineWork();
+        setOfflineSyncError("Online authentication or saved-work reconciliation failed. Your local records were retained.");
+        setReconciliationState("blocked");
+        setOfflineSyncStage("blocked");
+        return false;
+      }
   }, [refreshOfflineWork,session]);
 
   const reconnectOnline = useCallback((forceRetry=false):Promise<boolean> => {
@@ -641,7 +709,8 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
             return;
           }
           if (!disposed && ["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
-            const delay = Math.min(60_000, 1_000 * 2 ** retryAttempt);
+            if (retryTimer !== undefined) return;
+            const delay = Math.min(60_000, 5_000 * 2 ** retryAttempt) + Math.round(Math.random() * 1_000);
             retryAttempt = Math.min(retryAttempt + 1, 6);
             retryTimer = window.setTimeout(() => {
               if (!isPageVisible()) return;

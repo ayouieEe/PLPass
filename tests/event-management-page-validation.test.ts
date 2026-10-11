@@ -340,7 +340,7 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain('if (!options.silent) toast.success(`${event.code} is ready for offline use.`);');
     expect(eventManagementPage).toContain("offlineLivePackage.participants.map");
     expect(eventManagementPage).toContain("const offlineParticipantNames = useMemo");
-    expect(eventManagementPage).toContain('offlineParticipantNames.get(record.studentId) ?? student?.fullName ?? student?.studentNumber ?? "Student details unavailable"');
+    expect(eventManagementPage).toContain('offlineParticipantNames.get(record.studentId) ?? formatSurnameFirstName(student ?? {}, student?.formattedName || student?.fullName || student?.studentNumber || "Student details unavailable")');
     expect(eventManagementPage).toContain("offlineLivePackage.attendance");
     expect(eventManagementPage).toContain("offline-walkin-");
   });
@@ -400,8 +400,8 @@ describe("event page validation helpers", () => {
   });
 
   it("uses the real name and a badge only after an online Walk-in is confirmed", () => {
-    expect(eventManagementPage).toContain('studentName: result.student?.displayName ?? knownStudent?.fullName ?? studentNumber');
-    expect(eventManagementPage).toContain('studentName: walkInStudent.fullName ?? walkInNumber');
+    expect(eventManagementPage).toContain('studentName: formatSurnameFirstName(knownStudent ?? {}, knownStudent?.formattedName || knownStudent?.fullName || result.student?.displayName || studentNumber)');
+    expect(eventManagementPage).toContain('studentName: formatSurnameFirstName(walkInStudent, walkInStudent.fullName || walkInNumber)');
     expect(eventManagementPage).toContain('verificationLabel: "Walk-in"');
   });
 
@@ -573,6 +573,8 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("effectiveAttendancePhase = await prepareOnlineAttendanceCapture(sessionId);");
     expect(eventManagementPage).toContain("coordinateAttendancePhase");
     expect(eventManagementPage).toContain("Could not verify whether this session is recording Time In or Time Out.");
+    expect(eventManagementPage).toContain("isAttendanceTransportFailure(error)");
+    expect(eventManagementPage).toContain(": getErrorMessage(error)");
     expect(eventManagementPage).toContain('const isCheckout = effectiveAttendancePhase === "time_out";');
   });
 
@@ -601,7 +603,8 @@ describe("event page validation helpers", () => {
   });
 
   it("renders each live attendee with a surname-first name and student number", () => {
-    expect(eventManagementPage).toContain("function formatAttendanceListName(fullName: string)");
+    expect(eventManagementPage).toContain('import { formatSurnameFirstName } from "@/lib/utils/names";');
+    expect(eventManagementPage).toContain("studentName: formatSurnameFirstName(student ?? {}, student?.formattedName || student?.fullName || student?.studentNumber || record.studentId)");
     expect(eventManagementPage).toContain("function provisionalWalkInStudentNumber(studentName: string)");
     expect(eventManagementPage).toContain("const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);");
     expect(eventManagementPage).toContain('className="min-w-36"');
@@ -619,9 +622,10 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain('meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } }');
   });
 
-  it("lists confirmed Walk-ins before invited attendees while retaining alphabetical order", () => {
-    expect(eventManagementPage).toContain('const walkInOrder = Number(right.verificationLabel === "Walk-in") - Number(left.verificationLabel === "Walk-in");');
-    expect(eventManagementPage).toContain('return leftName.localeCompare(rightName, undefined, { numeric: true, sensitivity: "base" });');
+  it("keeps every live attendance view in most-recent-activity order", () => {
+    expect(eventManagementPage).toContain("function compareLiveAttendanceRows(");
+    expect(eventManagementPage).toContain('Date.parse(row.checkOutAt ?? row.timeOut ?? row.checkInAt ?? row.timeIn ?? "") || 0');
+    expect(eventManagementPage).toContain("return [...matchingRows].sort(compareLiveAttendanceRows);");
   });
 
   it("uses the live-table space for attendance details instead of a late-arrival category column", () => {

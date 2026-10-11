@@ -6,6 +6,7 @@ import process from "node:process";
 
 const root = process.cwd();
 const productionMode = process.argv.includes("--production");
+const studentRelease = process.argv.includes("--student");
 const failures = [];
 const checks = [];
 
@@ -72,14 +73,15 @@ function rejectFrontendServiceSecrets() {
 }
 
 function checkBuiltArtifact() {
-  const indexPath = resolve(root, "dist/index.html");
-  if (!existsSync(indexPath)) {
-    failures.push("Production build is missing. Run npm run build before preflight.");
+  const artifactName = studentRelease ? "student.html" : "index.html";
+  const artifactPath = resolve(root, `dist/${artifactName}`);
+  if (!existsSync(artifactPath)) {
+    failures.push(`Production build is missing. Run ${studentRelease ? "npm run build:student" : "npm run build"} before preflight.`);
     return;
   }
-  const html = readFileSync(indexPath, "utf8");
-  if (!html.includes("PLPass") || !html.includes("/assets/")) failures.push("dist/index.html does not look like a complete PLPass production build.");
-  else checks.push("Production build artifact is present");
+  const html = readFileSync(artifactPath, "utf8");
+  if (!html.includes("PLPass") || !html.includes("/assets/")) failures.push(`dist/${artifactName} does not look like a complete PLPass production build.`);
+  else checks.push(`Production build artifact is present: dist/${artifactName}`);
 }
 
 function checkProductionEnvironment() {

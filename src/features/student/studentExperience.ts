@@ -7,7 +7,7 @@ import type { AttendanceRecord, AttendanceSession, Event, Student, StudentCreden
 import type { AttendanceStatus, CorrectionRequestStatus } from "@/types/enums";
 
 export type StudentScope = {
-  context: RepositoryContext;
+  context?: RepositoryContext;
   student?: Student;
   studentName: string;
   isLoading: boolean;
@@ -80,7 +80,7 @@ export function useStudentScope(): StudentScope {
   const studentQuery = useStudents({ pageSize: 1 }, context);
 
   return {
-    context: context ?? { actorUserId: "", actorRole: "student" },
+    context,
     student: studentQuery.data?.items[0],
     studentName: session?.displayName ?? "Student",
     isLoading: studentQuery.isLoading,

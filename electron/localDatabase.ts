@@ -417,6 +417,14 @@ export class LocalAttendanceDatabase {
     return String(row.capture_phase) === "time_out" ? "time_out" : "time_in";
   }
 
+  findAttendanceCapturePhase(sessionId: string, organizerProfileId: string): AttendanceCapturePhase | undefined {
+    try {
+      return this.getAttendanceCapturePhase(sessionId, organizerProfileId);
+    } catch {
+      return undefined;
+    }
+  }
+
   advanceAttendanceCapturePhase(sessionId: string, organizerProfileId: string): AttendanceCapturePhase {
     const row = this.db.prepare("SELECT s.capture_phase,s.offline_lifecycle FROM cached_sessions s JOIN prepared_events e ON e.event_id=s.event_id WHERE s.session_id=? AND e.organizer_profile_id=? AND e.preparation_status='READY'").get(sessionId, organizerProfileId) as SqlRow | undefined;
     if (!row || !["START_PENDING", "STARTED"].includes(String(row.offline_lifecycle))) throw new Error("Only an active offline event can advance to Time Out.");

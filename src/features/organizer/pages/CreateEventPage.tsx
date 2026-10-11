@@ -27,6 +27,7 @@ import { SearchInput } from "@/components/shared/SearchInput";
 import { StatCard } from "@/components/shared/StatCard";
 import { FilterBar } from "@/components/tables/FilterBar";
 import { Button } from "@/components/ui/button";
+import { createUuid } from "@/lib/utils/uuid";
 import { ActiveSessionHeader } from "@/features/attendance/ActiveSessionHeader";
 import { LatestTapResultCard } from "@/features/attendance/LatestTapResultCard";
 import { LiveAttendanceList } from "@/features/attendance/LiveAttendanceList";
@@ -56,6 +57,7 @@ import { summarizeFinalizedAttendance } from "@/features/organizer/utils/attenda
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { EVENT_CATEGORY_OPTIONS as CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS as VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, manilaDateTimeToIso } from "@/lib/utils/date";
+import { formatSurnameFirstName } from "@/lib/utils/names";
 import {
   formatResourceFileSize,
   eventResourceErrorMessage,
@@ -272,7 +274,7 @@ function eventLabel(event: Event | undefined) {
 }
 
 function studentName(student: Student | undefined) {
-  return student ? student.fullName ?? student.studentNumber : "Unknown student";
+  return student ? formatSurnameFirstName(student, student.formattedName || student.fullName || student.studentNumber) : "Unknown student";
 }
 
 function ShellState({ scope }: { scope: OrganizerScope }) {
@@ -794,7 +796,7 @@ export function CreateEventPage() {
     setHasOrganizerInteracted(true);
     setPendingResources((resources) => [
       ...resources,
-      ...selectedFiles.map((file) => ({ id: crypto.randomUUID(), kind: "file" as const, title: newFileResourceTitle.trim() || file.name, file }))
+      ...selectedFiles.map((file) => ({ id: createUuid(), kind: "file" as const, title: newFileResourceTitle.trim() || file.name, file }))
     ]);
     setNewFileResourceTitle("");
   }
@@ -813,7 +815,7 @@ export function CreateEventPage() {
       return;
     }
     setHasOrganizerInteracted(true);
-    setPendingResources((resources) => [...resources, { id: crypto.randomUUID(), kind: "link", title: newResourceTitle.trim(), externalUrl: url }]);
+    setPendingResources((resources) => [...resources, { id: createUuid(), kind: "link", title: newResourceTitle.trim(), externalUrl: url }]);
     setNewResourceTitle("");
     setNewResourceUrl("");
   }
@@ -1215,9 +1217,9 @@ export function CreateEventPage() {
                         return (
                           <tr key={student.id} className={conflict ? "bg-muted/30 opacity-70" : isSelected ? "bg-primary/5" : "hover:bg-muted/30"}>
                             <td className="px-4 py-3 align-middle">
-                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} disabled={Boolean(conflict)} aria-label={`Select ${student.fullName ?? student.studentNumber}`} className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
+                              <input type="checkbox" checked={isSelected} onChange={() => toggleStudent(student.id)} disabled={Boolean(conflict)} aria-label={`Select ${studentName(student)}`} className="h-5 w-5 cursor-pointer rounded-md border-border accent-primary outline-none transition focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
                             </td>
-                            <th scope="row" className="px-3 py-3 font-medium text-foreground">{student.fullName ?? student.studentNumber}{conflict ? <span className="ml-2 text-xs font-normal text-danger">Unavailable: already invited to {conflict.eventCode}</span> : null}</th>
+                            <th scope="row" className="px-3 py-3 font-medium text-foreground">{studentName(student)}{conflict ? <span className="ml-2 text-xs font-normal text-danger">Unavailable: already invited to {conflict.eventCode}</span> : null}</th>
                             <td className="px-3 py-3 text-muted-foreground">{student.studentNumber}</td>
                             <td className="px-3 py-3 text-muted-foreground">{programById.get(student.programId) ?? student.programId}</td>
                             <td className="px-3 py-3 text-muted-foreground">Year {student.yearLevel}</td>
@@ -1496,7 +1498,7 @@ export function CreateEventPage() {
               <Button type="button" variant="outline" size="sm" onClick={() => setIsSelectedParticipantsOpen(true)}>View selected participants</Button>
             </div>
             <div className="mt-4 max-h-44 divide-y overflow-y-auto rounded-lg border">
-              {selectedStudents.map((student) => <div key={student.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm"><span className="font-medium text-foreground">{student.fullName ?? student.studentNumber}</span><span className="text-muted-foreground">{student.studentNumber}</span></div>)}
+              {selectedStudents.map((student) => <div key={student.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm"><span className="font-medium text-foreground">{studentName(student)}</span><span className="text-muted-foreground">{student.studentNumber}</span></div>)}
             </div>
           </section>
           <div className="mt-5 flex items-center justify-between border-t pt-5">
@@ -1529,7 +1531,7 @@ export function CreateEventPage() {
             <div className="overflow-hidden rounded-xl border bg-background">
               <div className="divide-y">
                 {selectedParticipantPageRows.map((student) => {
-                  const displayName = student.fullName ?? student.studentNumber;
+                  const displayName = studentName(student);
                   return (
                     <div key={student.id} className="group flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-primary/5 sm:px-4">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary" aria-hidden="true">

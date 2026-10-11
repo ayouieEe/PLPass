@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const migration = readFileSync("supabase/migrations/20260923170049_enforce_unstarted_event_lifecycle.sql", "utf8");
+const rescheduleMigration = readFileSync("supabase/migrations/20261011090000_clear_stale_unstarted_notifications_on_reschedule.sql", "utf8");
 const notificationsPage = readFileSync("src/pages/NotificationsPage.tsx", "utf8");
 const eventManagementPage = readFileSync("src/features/organizer/pages/EventManagementPage.tsx", "utf8");
 
@@ -21,5 +22,16 @@ describe("unstarted event lifecycle", () => {
     expect(notificationsPage).toContain('lifecycleAction=cancel');
     expect(eventManagementPage).toContain('notificationCode: "event.lifecycle.unstarted"');
     expect(eventManagementPage).not.toContain("autoCancelledEventIdsRef");
+  });
+
+  it("clears stale reminders when an event is rescheduled", () => {
+    expect(rescheduleMigration).toContain("notification_code = 'event.lifecycle.unstarted'");
+    expect(rescheduleMigration).toContain("notification_status = 'read'");
+    expect(rescheduleMigration).toContain("requires_action = false");
+    expect(rescheduleMigration).toContain("where id = p_event_id returning * into v_event");
+    expect(rescheduleMigration).not.toContain("n.created_at < e.updated_at");
+    expect(rescheduleMigration).not.toMatch(/^update public\.notifications n/m);
+    expect(eventManagementPage).toContain('notificationStatus: "unread"');
+    expect(eventManagementPage).toContain("new Date(event.startsAt).getTime() > Date.now()");
   });
 });

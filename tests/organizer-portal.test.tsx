@@ -414,6 +414,16 @@ describe("organizer UI flows", () => {
     expect(await screen.findByRole("heading", { name: /^Settings$/ })).toBeInTheDocument();
     expect(screen.getByText("Academic structure")).toBeInTheDocument();
     expect(screen.getByText("Manage the configuration that controls PLPass operations.")).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Notifications" })).not.toBeInTheDocument();
+  });
+
+  it("does not show empty notification preferences to university administrators", async () => {
+    storeSession(adminSession);
+    setRoute("/notifications");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Notifications" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open notification settings" })).not.toBeInTheDocument();
   });
 
   it("exposes safe account management controls without sensitive secret access", async () => {
@@ -557,6 +567,30 @@ describe("organizer UI flows", () => {
     expect(screen.getByRole("button", { name: "Attendance PDF" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Event summary XLSX" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Event summary PDF" })).toBeInTheDocument();
+  });
+
+  it("shows actual session times and filters only the attendee table in a completed record", async () => {
+    render(
+      <CompletedEventModal
+        record={{ code: "EVT-2026-001", name: "Sample Event", category: "Career Development", venue: "Hall", date: "2026-02-10", startTime: "08:00 AM", endTime: "12:00 PM", actualStart: "2026-02-10T08:13:00+08:00", actualEnd: "2026-02-10T11:47:00+08:00", predictedTurnout: "82%", objectives: [], present: 2, late: 0, absent: 0, totalRegistered: 2, walkIns: 0, attendancePopulation: 2, attendanceRate: "100%", sentiment: { positive: 0, neutral: 0, negative: 0 }, feedbackComments: [] }}
+        rows={[
+          { id: "attendance-1", studentId: "student-1", studentName: "Alice Santos", eventCode: "EVT-2026-001", attendanceMethod: "QR Code", checkInTime: "08:15 AM", attendanceStatus: "present" },
+          { id: "attendance-2", studentId: "student-2", studentName: "Bruno Reyes", eventCode: "EVT-2026-001", attendanceMethod: "Manual", checkInTime: "08:20 AM", attendanceStatus: "present" }
+        ]}
+        onClose={() => {}}
+      />
+    );
+
+    expect(screen.getByText(/actual session: 08:13 am - 11:47 am/i)).toBeInTheDocument();
+    expect(screen.getByText("Alice Santos")).toBeInTheDocument();
+    expect(screen.getByText("Bruno Reyes")).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("searchbox", { name: "Search attendees" }), "Alice");
+
+    expect(screen.getByText("Alice Santos")).toBeInTheDocument();
+    expect(screen.queryByText("Bruno Reyes")).not.toBeInTheDocument();
+    expect(screen.getByText("1 of 2 participants")).toBeInTheDocument();
   });
 
   it("updates a pending correction request after the organizer approves it", async () => {

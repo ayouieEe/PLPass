@@ -74,19 +74,13 @@ async function nextEmployeeId(supabase: ReturnType<typeof createClient>, table: 
   const { data, error } = await supabase.from(table).select(column).like(column, `${prefix}-%`);
   if (error) throw new Error(`Could not generate an employee ID: ${error.message}`);
   const usedNumbers = new Set<number>();
-  const highest = (data ?? []).reduce((max, row) => {
+  for (const row of data ?? []) {
     const normalized = String((row as Record<string, unknown>)[column] ?? "").trim();
     const match = normalized.match(new RegExp(`^${prefix}-(\\d{3})$`));
-    if (!match) return max;
-    const number = Number(match[1]);
-    usedNumbers.add(number);
-    return Math.max(max, number);
-  }, 0);
-  let next = highest + 1;
-  if (prefix !== "O") {
-    next = 1;
-    while (usedNumbers.has(next)) next += 1;
+    if (match) usedNumbers.add(Number(match[1]));
   }
+  let next = 1;
+  while (usedNumbers.has(next)) next += 1;
   return `${prefix}-${String(next).padStart(3, "0")}`;
 }
 
