@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol, safeStorage } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, protocol, safeStorage } from "electron";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -277,6 +277,7 @@ function registerHandlers() {
 }
 
 if (hasSingleInstanceLock) app.whenReady().then(() => {
+  if (process.platform !== "darwin") Menu.setApplicationMenu(null);
   const rendererDirectory = path.resolve(directory, "..", "..", "dist");
   protocol.registerBufferProtocol("plpass", (request, callback) => {
     const requestPath = decodeURIComponent(new URL(request.url).pathname);

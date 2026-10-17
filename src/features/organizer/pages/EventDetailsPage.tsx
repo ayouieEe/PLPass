@@ -379,7 +379,7 @@ function PredictionCard({ prediction }: { prediction: MlPrediction }) {
 type ParticipantInvitationStatus = {
   id: string;
   recipientProfileId: string;
-  deliveryStatus: "pending" | "sent" | "failed" | "skipped";
+  deliveryStatus: "pending" | "processing" | "sent" | "failed" | "skipped";
   errorMessage?: string | null;
   sentAt?: string | null;
   createdAt: string;
@@ -1192,12 +1192,13 @@ export function EventDetailsPage() {
         const invitation = invitationStatusByProfileId.get(row.original.userId);
         if (!invitation) return <StatusBadge label="No email queued" tone="muted" />;
 
-        const statusPresentation = {
+        const statusPresentation = ({
           pending: { label: "Email queued", tone: "warning" as const },
+          processing: { label: "Sending email", tone: "warning" as const },
           sent: { label: "Email sent", tone: "success" as const },
           failed: { label: "Email failed", tone: "danger" as const },
           skipped: { label: "Email skipped", tone: "muted" as const }
-        }[invitation.deliveryStatus];
+        }[invitation.deliveryStatus] ?? { label: "Email status unavailable", tone: "muted" as const });
 
         return (
           <div className="flex items-center gap-2 whitespace-nowrap">
