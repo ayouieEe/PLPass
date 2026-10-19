@@ -311,9 +311,6 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1440,
     height: 960,
-    // Use the same PLPass mark as the workspace. Electron accepts the PNG on
-    // Windows and preserves it in the native title bar and taskbar.
-    icon: path.join(rendererDirectory, "plp-logo.png"),
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
   });
   win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {

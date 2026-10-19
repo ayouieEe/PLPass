@@ -3,7 +3,6 @@ import { useOrganizerBranding, useOrganizerProfiles } from "@/hooks/useRepositor
 import { DEFAULT_INSTITUTION_NAME } from "@/lib/constants/branding";
 
 export const DEFAULT_BRANDING = {
-  plpLogoUrl: "/plp-logo.png",
   collegeName: DEFAULT_INSTITUTION_NAME,
   collegeLogoUrl: undefined,
   systemName: "PLPass"
