@@ -311,6 +311,7 @@ if (hasSingleInstanceLock) app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1440,
     height: 960,
+    icon: path.join(rendererDirectory, "PLPassLogo.png"),
     webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
   });
   win.webContents.on("preload-error", (_event, failedPreloadPath, error) => {

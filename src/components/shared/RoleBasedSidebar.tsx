@@ -83,6 +83,9 @@ export function RoleBasedSidebar({
             title={collapsed ? "Go to dashboard" : undefined}
             className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
+            <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center", collapsed ? "h-8 w-8" : "") }>
+              <img src="/PLPassLogo.png" alt="PLPass logo" className="h-full w-full object-contain" />
+            </div>
             {!collapsed ? (
               <div className="min-w-0 flex-1">
                 <p className="truncate text-base font-semibold leading-5 text-sidebar-foreground">PLPass</p>
