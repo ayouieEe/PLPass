@@ -84,7 +84,8 @@ export function RoleBasedSidebar({
             className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar"
           >
             <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center", collapsed ? "h-8 w-8" : "") }>
-              <img src="/PLPassLogo.png" alt="PLPass logo" className="h-full w-full object-contain" />
+              <img src="/PLPassLogoLight.png" alt="PLPass logo" className="h-full w-full object-contain dark:hidden" />
+              <img src="/PLPassLogo.png" alt="" className="hidden h-full w-full rounded-md object-contain dark:block" />
             </div>
             {!collapsed ? (
               <div className="min-w-0 flex-1">

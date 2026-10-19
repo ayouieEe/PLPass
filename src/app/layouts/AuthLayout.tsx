@@ -62,7 +62,8 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
         <div className="flex flex-col items-start pt-4">
           <div className="plpass-auth-brand flex items-center gap-3">
             <div className="flex h-10 items-center justify-center">
-              <img src="/PLPassLogo.png" alt="PLPass logo" className="h-full w-auto object-contain" />
+              <img src="/PLPassLogoLight.png" alt="PLPass logo" className="h-full w-auto object-contain dark:hidden" />
+              <img src="/PLPassLogo.png" alt="" className="hidden h-full w-auto rounded-md object-contain dark:block" />
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">PLPass</span>
           </div>
@@ -116,7 +117,8 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
         {/* Mobile Header (hidden on lg and up) */}
         <div className="mb-8 flex flex-col items-center text-center lg:hidden">
           <div className="flex h-12 items-center justify-center">
-            <img src="/PLPassLogo.png" alt="PLPass logo" className="h-full w-auto object-contain" />
+            <img src="/PLPassLogoLight.png" alt="PLPass logo" className="h-full w-auto object-contain dark:hidden" />
+            <img src="/PLPassLogo.png" alt="" className="hidden h-full w-auto rounded-md object-contain dark:block" />
           </div>
           <p className="mt-4 text-2xl font-bold text-foreground">PLPass</p>
           <p className="mt-1 text-sm text-muted-foreground">Event attendance workspace</p>
