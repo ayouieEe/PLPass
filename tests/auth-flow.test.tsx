@@ -200,15 +200,13 @@ describe("mock authentication flow", () => {
     await screen.findByRole("heading", { name: /^Dashboard$/i });
   });
 
-  it("keeps the login page free of stale signed-in controls", async () => {
+  it("returns an already signed-in student to the workspace", async () => {
     storeSession("student");
     setRoute("/login");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
-    expect(screen.queryByText(/currently signed in as Student 01/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Continue to workspace" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/student/dashboard");
   });
 
   it("confirms a successful password reset on the login page", async () => {

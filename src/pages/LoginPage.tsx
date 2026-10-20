@@ -19,7 +19,7 @@ type LocationState = {
 };
 
 export function LoginPage() {
-  const { signInWithPassword, continueOffline, offlineResumeAvailable, authError } = useDevelopmentSession();
+  const { session, isSessionRestored, signInWithPassword, continueOffline, offlineResumeAvailable, authError } = useDevelopmentSession();
   const location = useLocation();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -28,6 +28,11 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
   const locationState = location.state as LocationState | null;
+
+  useEffect(() => {
+    if (!isSessionRestored || !session?.isAuthenticated || hasPasswordSetupPayload(location)) return;
+    navigate(getAuthorizedHomePath(session.role), { replace: true });
+  }, [isSessionRestored, location, navigate, session]);
 
   useEffect(() => {
     // Supabase invitations use the configured Site URL, which currently lands
@@ -49,7 +54,7 @@ export function LoginPage() {
         const legalStatus = await getLegalAcceptanceStatus(nextSession.userId);
         if (!allCurrentLegalDocumentsAccepted(legalStatus)) {
           navigate(APP_ROUTES.studentLegalReview, {
-            replace: true,
+            replace: nextSession.role !== "student",
             state: { from: { pathname: requestedPath ?? APP_ROUTES.studentDashboard } }
           });
           return;
@@ -59,7 +64,7 @@ export function LoginPage() {
         // retry-safe loading/error state. Do not open the workspace when the
         // acceptance status could not be verified.
         navigate(APP_ROUTES.studentLegalReview, {
-          replace: true,
+          replace: nextSession.role !== "student",
           state: { from: { pathname: requestedPath ?? APP_ROUTES.studentDashboard } }
         });
         return;
@@ -68,7 +73,7 @@ export function LoginPage() {
     const destination = requestedPath && isPathAllowedForRole(requestedPath, nextSession.role)
       ? requestedPath
       : getAuthorizedHomePath(nextSession.role);
-    navigate(destination, { replace: true });
+    navigate(destination, { replace: nextSession.role !== "student" });
   }
 
   async function handleSignIn() {
