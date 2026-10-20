@@ -16,6 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
 import { getPasswordLinkType, hasPasswordSetupPayload } from "@/lib/auth/recovery";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { getAuthorizedHomePath } from "@/lib/utils/auth";
 import { desktopLaunchUrl } from "@/lib/desktop/launch";
 
 const StudentRootPage = lazy(() => import("@/features/student/pages/StudentRootPage").then((module) => ({ default: module.StudentRootPage })));
@@ -61,6 +62,14 @@ function StudentOnlyRoute() {
   return <Outlet />;
 }
 
+function StudentPublicRoute() {
+  const { session, isSessionRestored } = useDevelopmentSession();
+  if (isSessionRestored && session?.role === "student") {
+    return <Navigate to={getAuthorizedHomePath(session.role)} replace />;
+  }
+  return <Outlet />;
+}
+
 function StudentLegalGate() {
   const { session } = useDevelopmentSession();
   const location = useLocation();
@@ -89,12 +98,14 @@ export function StudentAppRouter() {
       <Routes>
         <Route element={<PublicLayout />}>
           <Route index element={<PublicEntryRoute />} />
-          <Route path={APP_ROUTES.login} element={<LoginPage />} />
-          <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
+          <Route element={<StudentPublicRoute />}>
+            <Route path={APP_ROUTES.login} element={<LoginPage />} />
+            <Route path={APP_ROUTES.forgotPassword} element={<ForgotPasswordPage />} />
+            <Route path={APP_ROUTES.terms} element={<LegalPolicyPage document="terms" />} />
+            <Route path={APP_ROUTES.privacy} element={<LegalPolicyPage document="privacy" />} />
+          </Route>
           <Route path={APP_ROUTES.acceptInvitation} element={<AcceptInvitationPage />} />
           <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
-          <Route path={APP_ROUTES.terms} element={<LegalPolicyPage document="terms" />} />
-          <Route path={APP_ROUTES.privacy} element={<LegalPolicyPage document="privacy" />} />
           <Route path={APP_ROUTES.accessDenied} element={<AccessDeniedPage />} />
         </Route>
         <Route element={<ProtectedRoute />}>

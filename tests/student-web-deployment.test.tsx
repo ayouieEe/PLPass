@@ -52,6 +52,15 @@ describe("student web deployment", () => {
     expect(screen.getByRole("navigation", { name: "student navigation" })).toBeInTheDocument();
   });
 
+  it.each(["/login", "/forgot-password", "/terms", "/privacy"])("does not reopen public route %s for an active student", async (path) => {
+    storeSession({ userId: "user-student-1", role: "student", displayName: "Student 01", email: "student.1@plpass.test", isAuthenticated: true });
+    setRoute(path);
+    render(<StudentApp />);
+
+    expect(await screen.findByRole("heading", { name: /Welcome back/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/student/dashboard");
+  });
+
   it("keeps staff accounts out of the student workspace", async () => {
     storeSession({ userId: "user-organizer-1", role: "organizer", displayName: "Organizer", email: "organizer@plpass.test", isAuthenticated: true });
     setRoute("/student/dashboard");
