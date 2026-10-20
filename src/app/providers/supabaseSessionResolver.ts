@@ -6,6 +6,8 @@ import type { UserRole } from "@/types/roles";
 
 export type SupabaseAuthFailureCode =
   | "AUTH_FAILED"
+  | "STAFF_ACCOUNT_NOT_ALLOWED_ON_STUDENT_WEB"
+  | "STUDENT_ACCOUNT_NOT_ALLOWED_ON_DESKTOP"
   | "AUTH_TIMEOUT"
   | "AUTH_SESSION_MISSING"
   | "PROFILE_MISSING"
@@ -144,6 +146,10 @@ export function toSafeAuthErrorMessage(error: unknown) {
     switch (error.code) {
       case "AUTH_FAILED":
         return "We couldn't sign you in with those details. Check your email and password, then try again.";
+      case "STAFF_ACCOUNT_NOT_ALLOWED_ON_STUDENT_WEB":
+        return "This student portal accepts student accounts only. Please sign in with a valid student account.";
+      case "STUDENT_ACCOUNT_NOT_ALLOWED_ON_DESKTOP":
+        return "This desktop app accepts organizer or administrator accounts only. Please sign in with a valid staff account.";
       case "AUTH_TIMEOUT":
         return "Sign-in is taking longer than expected. Check your internet connection and try again.";
       case "AUTH_SESSION_MISSING":
@@ -207,6 +213,14 @@ export function authTimeoutFailure(): SupabaseAuthResolutionError {
 
 export function missingAuthSessionFailure(): SupabaseAuthResolutionError {
   return new SupabaseAuthResolutionError("AUTH_SESSION_MISSING", "Supabase did not return an authenticated session.", true);
+}
+
+export function surfaceRoleMismatchFailure(surface: "desktop" | "student-web") {
+  return new SupabaseAuthResolutionError(
+    surface === "student-web" ? "STAFF_ACCOUNT_NOT_ALLOWED_ON_STUDENT_WEB" : "STUDENT_ACCOUNT_NOT_ALLOWED_ON_DESKTOP",
+    "The signed-in account is not valid for this PLPass app surface.",
+    true
+  );
 }
 
 export function createSupabaseSessionReader(supabase: SupabaseClient<Database>): SupabaseSessionReader {
@@ -294,7 +308,11 @@ function assertSupabaseRoleRecord(
   }
 }
 
-export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, authUser: SupabaseAuthUser): Promise<DevelopmentSession> {
+export async function resolveSupabaseSessionUser(
+  reader: SupabaseSessionReader,
+  authUser: SupabaseAuthUser,
+  options: { allowedRoles?: readonly UserRole[] } = {}
+): Promise<DevelopmentSession> {
   try {
     const [profileResult, studentResult, organizerResult, adminResult] = await Promise.all([
       reader.readProfile(authUser.id),
@@ -324,6 +342,9 @@ export async function resolveSupabaseSessionUser(reader: SupabaseSessionReader, 
       mappedUser = mapProfileToUser({ ...profile, email: authUser.email ?? "" });
     } catch {
       throw new SupabaseAuthResolutionError("MAPPER_ERROR", "Unexpected mapper error while resolving the signed-in profile.", true);
+    }
+    if (options.allowedRoles && !options.allowedRoles.includes(mappedUser.role)) {
+      throw surfaceRoleMismatchFailure(options.allowedRoles.includes("student") ? "student-web" : "desktop");
     }
     assertSupabaseRoleRecord(mappedUser.role, studentResult, organizerResult, adminResult);
 

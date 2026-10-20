@@ -5,7 +5,7 @@ import { StudentAppRouter } from "@/app/router/StudentAppRouter";
 export function StudentApp() {
   return (
     <AppErrorBoundary>
-      <AppProviders>
+      <AppProviders surface="student-web">
         <StudentAppRouter />
       </AppProviders>
     </AppErrorBoundary>

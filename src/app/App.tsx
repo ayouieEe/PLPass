@@ -5,7 +5,7 @@ import { AppRouter } from "@/app/router/AppRouter";
 export function App() {
   return (
     <AppErrorBoundary>
-      <AppProviders>
+      <AppProviders surface="desktop">
         <AppRouter />
       </AppProviders>
     </AppErrorBoundary>

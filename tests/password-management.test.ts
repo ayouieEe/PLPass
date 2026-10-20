@@ -52,6 +52,8 @@ describe("password management safeguards", () => {
   it("does not expose authentication provider errors on the login page", () => {
     expect(toSafeAuthErrorMessage(authFailure())).toBe("We couldn't sign you in with those details. Check your email and password, then try again.");
     expect(toSafeAuthErrorMessage(authTimeoutFailure())).toBe("Sign-in is taking longer than expected. Check your internet connection and try again.");
+    expect(toSafeAuthErrorMessage(new SupabaseAuthResolutionError("STAFF_ACCOUNT_NOT_ALLOWED_ON_STUDENT_WEB", "internal surface error", true))).toBe("This student portal accepts student accounts only. Please sign in with a valid student account.");
+    expect(toSafeAuthErrorMessage(new SupabaseAuthResolutionError("STUDENT_ACCOUNT_NOT_ALLOWED_ON_DESKTOP", "internal surface error", true))).toBe("This desktop app accepts organizer or administrator accounts only. Please sign in with a valid staff account.");
     expect(toSafeAuthErrorMessage(new SupabaseAuthResolutionError("ACCOUNT_INACTIVE", "This PLPass account is suspended. Contact PLPass support if you believe this is a mistake.", true))).toBe("This PLPass account is suspended. Contact PLPass support if you believe this is a mistake.");
     expect(toSafeAuthErrorMessage(new SupabaseAuthResolutionError("UNSUPPORTED_ROLE", "internal role error", true))).toBe("This account role is not available in PLPass yet. Contact PLPass support for help.");
     expect(toSafeAuthErrorMessage(new SupabaseAuthResolutionError("DATABASE_QUERY_FAILED", "database password leaked", false))).toBe("PLPass sign-in is temporarily unavailable. Please try again later.");

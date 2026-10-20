@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PropsWithChildr
 import {
   DevelopmentSessionContext,
   type DevelopmentSession,
-  type DevelopmentSessionContextValue
+  type DevelopmentSessionContextValue,
+  type AppSurface
 } from "@/app/providers/developmentSessionContext";
 import { queryClient } from "@/app/providers/queryClient";
 import {
@@ -13,6 +14,7 @@ import {
   isLikelyNetworkFailure,
   missingAuthSessionFailure,
   resolveSupabaseSessionUser,
+  surfaceRoleMismatchFailure,
   shouldSignOutAfterAuthFailure,
   toSafeAuthErrorMessage
 } from "@/app/providers/supabaseSessionResolver";
@@ -87,7 +89,12 @@ async function readDesktopOfflineSession(userId?: string) {
   }
 }
 
-export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
+export function DevelopmentSessionProvider({ children, surface = "desktop" }: PropsWithChildren<{ surface?: AppSurface }>) {
+  const allowedRoles = useMemo<readonly DevelopmentSession["role"][]>(
+    () => surface === "student-web" ? ["student"] : ["organizer", "admin", "department_admin"],
+    [surface]
+  );
+  const roleAllowedOnSurface = useCallback((role: DevelopmentSession["role"]) => allowedRoles.includes(role), [allowedRoles]);
   const [session, setSession] = useState<DevelopmentSession | null>(null);
   const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [authError, setAuthError] = useState<string | undefined>();
@@ -205,6 +212,15 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
               }
               return;
             }
+            if (!roleAllowedOnSurface(nextSession.role)) {
+              if (canApplyRestore()) {
+                window.localStorage.removeItem("plpass-development-session");
+                setSession(null);
+                setAuthError(toSafeAuthErrorMessage(surfaceRoleMismatchFailure(surface)));
+                setIsSessionRestored(true);
+              }
+              return;
+            }
             if (canApplyRestore()) {
               setSession(nextSession);
               setIsSessionRestored(true);
@@ -267,7 +283,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
             return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
               id: data.user.id,
               email: data.user.email ?? ""
-            });
+            }, { allowedRoles });
           })(),
           supabaseAuthDeadlineMs,
           "Session restore took too long. Please sign in again."
@@ -338,7 +354,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [allowedRoles, roleAllowedOnSurface, surface]);
 
   const refreshOfflineWork = useCallback(async () => {
     if (!session || session.role !== "organizer" || !window.plpassDesktop) { setHasOfflineWork(false); return false; }
@@ -451,7 +467,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         "Reconnecting to PLPass took too long."
       );
       if (error || data.user?.id !== session.userId) { setOfflineSyncError("Online authentication could not be verified. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
-      const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email });
+      const confirmed = await resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), { id:data.user.id, email:data.user.email ?? session.email }, { allowedRoles });
       if (!confirmed || confirmed.role !== "organizer") { setOfflineSyncError("The organizer account could not be verified for synchronization. Your local attendance was retained."); setReconciliationState("blocked"); setOfflineSyncStage("blocked"); return false; }
       await cacheDesktopOfflineSession(confirmed);
       setSession((current)=>JSON.stringify(current)===JSON.stringify(confirmed)?current:confirmed);
@@ -502,7 +518,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         setOfflineSyncStage("blocked");
         return false;
       }
-  }, [refreshOfflineWork,session]);
+  }, [allowedRoles, refreshOfflineWork, session]);
 
   const reconnectOnline = useCallback((forceRetry=false):Promise<boolean> => {
     if (reconnectInFlight.current) {
@@ -774,6 +790,12 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
         email: account.email,
         isAuthenticated: true
       };
+      if (!roleAllowedOnSurface(nextSession.role)) {
+        const mismatch = surfaceRoleMismatchFailure(surface);
+        setAuthError(toSafeAuthErrorMessage(mismatch));
+        setSession(null);
+        return null;
+      }
       window.localStorage.setItem("plpass-development-session", JSON.stringify(nextSession));
       setSession(nextSession);
       setIsOfflineMode(false);
@@ -814,7 +836,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
           return resolveSupabaseSessionUser(createSupabaseSessionReader(supabase), {
             id: data.session.user.id,
             email: data.session.user.email ?? ""
-          });
+          }, { allowedRoles });
         })(),
         supabaseAuthDeadlineMs,
         "Sign-in took too long. Check your connection and try again."
@@ -836,7 +858,7 @@ export function DevelopmentSessionProvider({ children }: PropsWithChildren) {
       setSession(null);
       return null;
     }
-  }, []);
+  }, [allowedRoles, roleAllowedOnSurface, surface]);
 
   const logout = useCallback(async () => {
     authOperationGeneration.current += 1;

@@ -1,6 +1,8 @@
 import { createContext } from "react";
 import type { UserRole } from "@/types/roles";
 
+export type AppSurface = "desktop" | "student-web";
+
 export type DevelopmentSession = {
   userId: string;
   isAuthenticated: boolean;

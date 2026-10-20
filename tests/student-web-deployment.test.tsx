@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -61,13 +62,27 @@ describe("student web deployment", () => {
     expect(window.location.pathname).toBe("/student/dashboard");
   });
 
-  it("keeps staff accounts out of the student workspace", async () => {
+  it("rejects staff accounts before opening the student workspace", async () => {
     storeSession({ userId: "user-organizer-1", role: "organizer", displayName: "Organizer", email: "organizer@plpass.test", isAuthenticated: true });
     setRoute("/student/dashboard");
     render(<StudentApp />);
 
-    expect(await screen.findByRole("heading", { name: "Use PLPass Desktop" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/student portal accepts student accounts only/i);
     expect(screen.queryByRole("navigation", { name: "student navigation" })).not.toBeInTheDocument();
+  });
+
+  it("rejects staff accounts at student-web sign-in", async () => {
+    const user = userEvent.setup();
+    setRoute("/login");
+    render(<StudentApp />);
+
+    await user.type(await screen.findByLabelText(/email/i), "organizer.one@plpass.test");
+    await user.type(screen.getByLabelText(/^password$/i), "password123");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/student portal accepts student accounts only/i);
+    expect(window.localStorage.getItem("plpass-development-session")).toBeNull();
   });
 
   it("does not register staff routes in the student router", async () => {

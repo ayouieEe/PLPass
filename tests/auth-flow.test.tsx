@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { App } from "@/app/App";
+import { StudentApp } from "@/app/StudentApp";
 import { queryClient } from "@/app/providers/queryClient";
 import { resetSimulatedRepositoryState } from "@/test-support/repositories";
 import type { UserRole } from "@/types/roles";
@@ -153,8 +154,7 @@ describe("mock authentication flow", () => {
     expect(screen.queryByRole("link", { name: "User Management" })).not.toBeInTheDocument();
   });
   it.each([
-    ["Organizer One", /^Dashboard$/i],
-    ["Student 01", /Welcome back/i]
+    ["Organizer One", /^Dashboard$/i]
   ])("logs in as %s and redirects by role", async (displayName, expectedHeading) => {
     setRoute("/login");
     await signIn(displayName);
@@ -176,11 +176,14 @@ describe("mock authentication flow", () => {
     await screen.findByRole("heading", { name: /^Dashboard$/i });
   });
 
-  it("redirects cross-role login attempts to the signed-in role dashboard", async () => {
+  it("rejects student accounts in the desktop app", async () => {
     setRoute("/student/dashboard");
-    await signIn("Organizer One");
+    await signIn("Student 01");
 
-    await screen.findByRole("heading", { name: /^Dashboard$/i });
+    // The desktop surface is for organizer/admin accounts; a student account
+    // must not be accepted even when the requested route is a student route.
+    await screen.findByRole("heading", { name: /sign in to plpass/i });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/desktop app accepts organizer or administrator accounts only/i);
   });
 
   it("shows access denied for authenticated cross-role routes", async () => {
@@ -203,7 +206,7 @@ describe("mock authentication flow", () => {
   it("returns an already signed-in student to the workspace", async () => {
     storeSession("student");
     setRoute("/login");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/student/dashboard");
@@ -244,11 +247,11 @@ describe("mock authentication flow", () => {
 describe("shared user pages", () => {
   it("shows student profile data by role", async () => {
     storeSession("student");
-    setRoute("/profile");
-    render(<App />);
+    setRoute("/student/profile");
+    render(<StudentApp />);
 
     await screen.findByText("2026-0001");
-    expect(screen.getByText("Student status")).toBeInTheDocument();
+    expect(screen.getByText("Enrollment Status")).toBeInTheDocument();
     expect(screen.getByText("Program")).toBeInTheDocument();
   });
 
@@ -256,7 +259,7 @@ describe("shared user pages", () => {
     const user = userEvent.setup();
     storeSession("student");
     setRoute("/notifications");
-    render(<App />);
+    render(<StudentApp />);
 
     await screen.findByText("Event invitation");
     expect(screen.queryByText("Correction request")).not.toBeInTheDocument();
@@ -279,7 +282,7 @@ describe("shared user pages", () => {
     const user = userEvent.setup();
     storeSession("student");
     setRoute("/notifications");
-    render(<App />);
+    render(<StudentApp />);
 
     await user.click(await screen.findByText("Event invitation"));
     const notificationDialog = await screen.findByRole("dialog");
