@@ -182,7 +182,7 @@ export function RequestHistoryPage() {
         description="Track your requests and view their status."
         actions={
           <Button asChild type="button" variant="destructive">
-            <NavLink to={APP_ROUTES.studentMethods}>
+            <NavLink to={APP_ROUTES.studentMethods} state={{ openIssueReport: true }}>
               <AlertTriangle className="mr-2 h-4 w-4" />
               Report an Issue
             </NavLink>

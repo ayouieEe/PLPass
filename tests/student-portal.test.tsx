@@ -1,7 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
-import { App } from "@/app/App";
+import { StudentApp } from "@/app/StudentApp";
 import { queryClient } from "@/app/providers/queryClient";
 import { studentTestContext, studentTwoTestContext } from "@/test-support/testHelpers";
 import { developmentErrorToggle } from "@/test-support/developmentErrorToggle";
@@ -45,7 +45,7 @@ describe("student route access", () => {
   it("renders the student dashboard for a student user", async () => {
     storeSession(studentSession);
     setRoute("/student/dashboard");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: /Welcome back/i })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "student navigation" })).toBeInTheDocument();
@@ -68,7 +68,7 @@ describe("student route access", () => {
       isAuthenticated: true
     }));
     setRoute("/student/attendance");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: /sign in to plpass/i })).toBeInTheDocument();
   });
@@ -148,7 +148,7 @@ describe("student UI flows", () => {
   it("renders attendance records by year", async () => {
     storeSession(studentSession);
     setRoute("/student/attendance");
-    render(<App />);
+    render(<StudentApp />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
@@ -170,7 +170,7 @@ describe("student UI flows", () => {
   it("opens feedback-due attendance tasks from dashboard metrics", async () => {
     storeSession(studentSession);
     setRoute("/student/dashboard");
-    render(<App />);
+    render(<StudentApp />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: /Welcome back/i })).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe("student UI flows", () => {
   it("does not allow a late reason to be submitted after the session has closed", async () => {
     storeSession(studentSession);
     setRoute("/student/events/event-4");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: "PLP Tech & Leadership Simulation Day" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Choose Late Reason" })).not.toBeInTheDocument();
@@ -203,7 +203,7 @@ describe("student UI flows", () => {
   it("opens pending feedback tasks from the attendance summary", async () => {
     storeSession(studentSession);
     setRoute("/student/attendance");
-    render(<App />);
+    render(<StudentApp />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
@@ -221,7 +221,7 @@ describe("student UI flows", () => {
   it("opens a focused feedback-due attendance detail from the query string", async () => {
     storeSession(studentSession);
     setRoute("/student/events/event-5");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: "PLP Campus Sustainability Series" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Attendance Records" })).not.toBeInTheDocument();
@@ -237,7 +237,7 @@ describe("student UI flows", () => {
       ["/student/profile", "Profile"]
     ] as const) {
       setRoute(path);
-      render(<App />);
+      render(<StudentApp />);
       expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
       cleanup();
       window.localStorage.clear();
@@ -250,7 +250,7 @@ describe("student UI flows", () => {
     storeSession(studentSession);
     developmentErrorToggle.setRepositoryMode("attendanceRecords", "server_error");
     setRoute("/student/request-history");
-    render(<App />);
+    render(<StudentApp />);
 
     expect(await screen.findByRole("heading", { name: "Request History" })).toBeInTheDocument();
     expect(screen.getByText("Some linked details are temporarily unavailable.")).toBeInTheDocument();
@@ -261,7 +261,7 @@ describe("student UI flows", () => {
   it("validates correction and verification issue forms", async () => {
     storeSession(studentSession);
     setRoute("/student/corrections");
-    render(<App />);
+    render(<StudentApp />);
     const user = userEvent.setup();
 
     expect(await screen.findByRole("heading", { name: "Correction Requests" })).toBeInTheDocument();
@@ -273,7 +273,7 @@ describe("student UI flows", () => {
     queryClient.clear();
     storeSession(studentSession);
     setRoute("/student/methods");
-    render(<App />);
+    render(<StudentApp />);
     const methodsUser = userEvent.setup();
     expect(await screen.findByRole("heading", { name: "Attendance Methods" })).toBeInTheDocument();
     expect(screen.getByText("Supported attendance modes")).toBeInTheDocument();
@@ -290,17 +290,22 @@ describe("student UI flows", () => {
     cleanup();
     queryClient.clear();
     setRoute("/student/request-history");
-    render(<App />);
+    render(<StudentApp />);
     expect(await screen.findByRole("heading", { name: "Request History" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Report an Issue" })).toHaveAttribute("href", "/student/methods");
     expect(await screen.findByText("Attendance Issue")).toBeInTheDocument();
     expect(screen.getByText("QR scanner failed during the venue check-in.")).toBeInTheDocument();
+    const historyUser = userEvent.setup();
+    const reportLink = screen.getByRole("link", { name: "Report an Issue" });
+    expect(reportLink).toHaveAttribute("href", "/student/methods");
+    await historyUser.click(reportLink);
+    expect(await screen.findByRole("dialog", { name: "Report attendance issue" })).toBeInTheDocument();
+    expect(screen.queryByText("Before sending, check with the event organizer first.")).not.toBeInTheDocument();
   });
 
   it("refreshes student data after account switching", async () => {
     storeSession(studentSession);
     setRoute("/student/attendance");
-    const view = render(<App />);
+    const view = render(<StudentApp />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Events by Year" })).toBeInTheDocument();
     expect(await screen.findByText(/EVT-2026-001/)).toBeInTheDocument();
@@ -309,7 +314,7 @@ describe("student UI flows", () => {
     view.unmount();
     window.localStorage.setItem("plpass-development-session", studentTwoSession);
     queryClient.clear();
-    render(<App />);
+    render(<StudentApp />);
     expect(await screen.findByRole("heading", { name: "Attendance Records" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Events by Year" })).toBeInTheDocument();
   });
