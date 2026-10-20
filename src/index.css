@@ -368,6 +368,23 @@
   .plpass-auth-login form > *:nth-child(3) { animation-delay: 140ms; }
   .plpass-auth-login form > *:nth-child(4) { animation-delay: 210ms; }
 
+  /* Auth pages may still need to scroll on short screens, but the page-level
+     scrollbar is visual chrome rather than part of the auth experience. */
+  .plpass-auth-scene,
+  .plpass-auth-scene .plpass-auth-curtain-right,
+  .plpass-auth-scene [class*="overflow-y-auto"] {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .plpass-auth-scene::-webkit-scrollbar,
+  .plpass-auth-scene .plpass-auth-curtain-right::-webkit-scrollbar,
+  .plpass-auth-scene [class*="overflow-y-auto"]::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
   /* iOS Safari can report a larger dynamic viewport while its browser chrome is open.
      Use the stable small viewport for legal pages so the layout does not reserve a
      blank block below the footer on mobile. The policy body remains the sole scroller. */
@@ -388,7 +405,7 @@
 
   .plpass-auth-legal [class*="overflow-y-auto"] {
     overscroll-behavior-y: contain;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: auto;
   }
 
   .plpass-auth-grid,
