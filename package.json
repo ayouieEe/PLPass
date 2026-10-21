@@ -1,7 +1,7 @@
 {
   "name": "plpass",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "PLPass attendance workspace for organizers and administrators.",
   "main": "dist-electron/electron/main.js",
   "type": "module",
@@ -124,6 +124,7 @@
       "output": "release"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": "nsis",
       "artifactName": "PLPass-Setup.${ext}"
     },
