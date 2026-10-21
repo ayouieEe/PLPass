@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { StudentApp } from "@/app/StudentApp";
@@ -22,6 +22,7 @@ afterEach(() => {
   queryClient.clear();
   developmentErrorToggle.reset();
   resetSimulatedRepositoryState();
+  vi.unstubAllEnvs();
   setRoute("/");
 });
 
@@ -51,6 +52,18 @@ describe("student web deployment", () => {
 
     expect(await screen.findByRole("heading", { name: /Welcome back/i })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "student navigation" })).toBeInTheDocument();
+  });
+
+  it("shows the shared landing page before student sign-in", async () => {
+    vi.stubEnv("VITE_DESKTOP_DOWNLOAD_URL", "https://github.com/ayouieEe/PLPass/releases/latest/download/PLPass-Setup.exe");
+    render(<StudentApp />);
+
+    expect(await screen.findByRole("heading", { name: /plpass for university events/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download desktop app/i })).toHaveAttribute(
+      "href",
+      "https://github.com/ayouieEe/PLPass/releases/latest/download/PLPass-Setup.exe"
+    );
+    expect(screen.getAllByRole("link", { name: /sign in/i }).some((link) => link.getAttribute("href") === "/login")).toBe(true);
   });
 
   it.each(["/login", "/forgot-password", "/terms", "/privacy"])("does not reopen public route %s for an active student", async (path) => {

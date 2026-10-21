@@ -6,9 +6,12 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 
 function getDesktopDownloadUrl() {
   const value = import.meta.env.VITE_DESKTOP_DOWNLOAD_URL?.trim();
-  if (!value) return undefined;
+  const configuredValue = value || (import.meta.env.MODE === "student"
+    ? "https://github.com/ayouieEe/PLPass/releases/latest/download/PLPass-Setup.exe"
+    : undefined);
+  if (!configuredValue) return undefined;
   try {
-    const url = new URL(value);
+    const url = new URL(configuredValue);
     return url.protocol === "https:" ? url.href : undefined;
   } catch {
     return undefined;

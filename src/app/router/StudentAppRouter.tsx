@@ -6,6 +6,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { AcceptInvitationPage, ResetPasswordPage } from "@/pages/ResetPasswordPage";
@@ -37,7 +38,7 @@ function PublicEntryRoute() {
   if (hasPasswordSetupPayload(location)) {
     return getPasswordLinkType(location) === "invite" ? <AcceptInvitationPage /> : <ResetPasswordPage />;
   }
-  return <Navigate to={APP_ROUTES.login} replace />;
+  return <LandingPage />;
 }
 
 function StudentOnlyRoute() {
