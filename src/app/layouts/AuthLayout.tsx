@@ -8,6 +8,7 @@ type AuthLayoutProps = {
   headerAction?: ReactNode;
   wide?: boolean;
   legal?: boolean;
+  landing?: boolean;
   children: ReactNode;
 };
 
@@ -39,15 +40,16 @@ const FEATURES = [
   }
 ];
 
-export function AuthLayout({ title, description, headerAction, wide = false, legal = false, children }: AuthLayoutProps) {
+export function AuthLayout({ title, description, headerAction, wide = false, legal = false, landing = false, children }: AuthLayoutProps) {
   const [currentFeature, setCurrentFeature] = useState(0);
 
   useEffect(() => {
+    if (landing) return;
     const timer = setInterval(() => {
       setCurrentFeature((prev) => (prev + 1) % FEATURES.length);
     }, 10000);
     return () => clearInterval(timer);
-  }, []);
+  }, [landing]);
 
   return (
     <main className={`plpass-auth-scene relative flex h-[100dvh] min-h-0 w-full overflow-hidden ${legal ? "plpass-auth-legal" : "plpass-auth-login"}`}>
@@ -67,48 +69,71 @@ export function AuthLayout({ title, description, headerAction, wide = false, leg
             </div>
             <span className="text-xl font-bold tracking-tight text-foreground">PLPass</span>
           </div>
-          <h1 className="plpass-auth-hero mt-16 text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl lg:leading-[1.1]">
-            Simplify Attendance.<br />
-            <span className="text-primary/90">Elevate Events.</span>
-          </h1>
+          {landing ? (
+            <>
+              <h1 className="plpass-auth-hero mt-16 text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl lg:leading-[1.1]">
+                Attendance,<br />
+                <span className="text-primary/90">organized.</span>
+              </h1>
+              <p className="mt-8 max-w-lg text-lg leading-relaxed text-foreground/75">
+                One workspace for students. One desktop app for staff.
+              </p>
+            </>
+          ) : (
+            <h1 className="plpass-auth-hero mt-16 text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-6xl lg:leading-[1.1]">
+              Simplify Attendance.<br />
+              <span className="text-primary/90">Elevate Events.</span>
+            </h1>
+          )}
         </div>
 
-        {/* Bottom Carousel Content */}
-        <div className="plpass-auth-carousel mt-auto pb-8">
-           <div className="relative h-[160px] w-full">
-             {FEATURES.map((feature, i) => {
-               const Icon = feature.icon;
-               const isActive = i === currentFeature;
-               return (
-                 <div
-                   key={i}
-                   className={`absolute inset-0 flex flex-col items-start transition-all duration-700 ease-in-out ${isActive ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-4 opacity-0 pointer-events-none"}`}
-                 >
-                   <div className="flex items-center gap-3">
-                     <div className="text-primary">
-                       <Icon className="h-7 w-7" strokeWidth={2.5} />
-                     </div>
-                     <h3 className="text-xl font-bold text-foreground">{feature.title}</h3>
-                   </div>
-                   <p className="mt-4 max-w-sm text-base leading-relaxed text-foreground/80 md:max-w-md">
-                     {feature.description}
-                   </p>
-                 </div>
-               );
-             })}
-           </div>
-           
-           <div className="mt-8 flex gap-2">
-             {FEATURES.map((_, i) => (
-               <button
-                 key={i}
-                 className={`h-1.5 rounded-full transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-primary ${i === currentFeature ? "w-8 bg-primary" : "w-3 bg-primary/20 hover:bg-primary/40"}`}
-                 onClick={() => setCurrentFeature(i)}
-                 aria-label={`Go to slide ${i + 1}`}
-               />
-             ))}
-           </div>
-        </div>
+        {landing ? (
+          <div className="plpass-auth-landing-summary mt-auto max-w-lg pb-8">
+            <div className="flex items-center gap-3 text-primary">
+              <ShieldCheck className="h-7 w-7" strokeWidth={2.5} aria-hidden="true" />
+              <h3 className="text-xl font-bold text-foreground">Built for real event days</h3>
+            </div>
+            <p className="mt-4 max-w-md text-base leading-relaxed text-foreground/80">
+              Students use the web portal while staff manage events, capture attendance, and run reports from the desktop workspace—even when connectivity changes.
+            </p>
+          </div>
+        ) : (
+          <div className="plpass-auth-carousel mt-auto pb-8">
+            <div className="relative h-[160px] w-full">
+              {FEATURES.map((feature, i) => {
+                const Icon = feature.icon;
+                const isActive = i === currentFeature;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute inset-0 flex flex-col items-start transition-all duration-700 ease-in-out ${isActive ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-4 opacity-0 pointer-events-none"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="text-primary">
+                        <Icon className="h-7 w-7" strokeWidth={2.5} />
+                      </div>
+                      <h3 className="text-xl font-bold text-foreground">{feature.title}</h3>
+                    </div>
+                    <p className="mt-4 max-w-sm text-base leading-relaxed text-foreground/80 md:max-w-md">
+                      {feature.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-8 flex gap-2">
+              {FEATURES.map((_, i) => (
+                <button
+                  key={i}
+                  className={`h-1.5 rounded-full transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-primary ${i === currentFeature ? "w-8 bg-primary" : "w-3 bg-primary/20 hover:bg-primary/40"}`}
+                  onClick={() => setCurrentFeature(i)}
+                  aria-label={`Go to slide ${i + 1}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Right Pane */}
