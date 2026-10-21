@@ -5,7 +5,6 @@ import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
-import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
@@ -63,7 +62,7 @@ function PublicEntryRoute() {
   }
   if (!isSessionRestored) return <LoadingState label="Restoring session" />;
   if (session?.isAuthenticated) return <Navigate to={getAuthorizedHomePath(session.role)} replace />;
-  return <LandingPage />;
+  return <LoginPage />;
 }
 
 function OrganizerEventsRoute() {
