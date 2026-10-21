@@ -81,7 +81,37 @@ function checkBuiltArtifact() {
   }
   const html = readFileSync(artifactPath, "utf8");
   if (!html.includes("PLPass") || !html.includes("/assets/")) failures.push(`dist/${artifactName} does not look like a complete PLPass production build.`);
-  else checks.push(`Production build artifact is present: dist/${artifactName}`);
+  else {
+    checks.push(`Production build artifact is present: dist/${artifactName}`);
+    if (productionMode && !studentRelease) checkDesktopSupabaseConfig();
+  }
+}
+
+function checkDesktopSupabaseConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  const assetsDirectory = resolve(root, "dist/assets");
+  if (!url || !key || !existsSync(assetsDirectory)) {
+    failures.push("Desktop build cannot verify embedded Supabase configuration.");
+    return;
+  }
+  const assetSource = [];
+  walk(assetsDirectory, (path) => {
+    if ([".js", ".mjs"].includes(extname(path))) assetSource.push(readFileSync(path, "utf8"));
+  });
+  const bundle = assetSource.join("\n");
+  let supabaseOrigin;
+  try {
+    supabaseOrigin = new URL(url).origin;
+  } catch {
+    failures.push("Desktop build cannot verify an invalid Supabase URL.");
+    return;
+  }
+  if (!bundle.includes(supabaseOrigin) || !bundle.includes(key)) {
+    failures.push("Desktop renderer is missing the configured Supabase URL or publishable key.");
+    return;
+  }
+  checks.push("Desktop renderer embeds the configured public Supabase URL and publishable key");
 }
 
 function checkProductionEnvironment() {

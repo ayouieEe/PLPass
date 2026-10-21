@@ -35,7 +35,7 @@ function IssueList({ issues, emptyLabel, onReview }: { issues: SystemHealthIssue
 }
 
 function formatNotificationError(rawError: string) {
-  const providerMatch = rawError.match(/(?:Brevo|SendGrid) API error (\d+):\s*(\{[\s\S]*\})$/i);
+  const providerMatch = rawError.match(/Brevo API error (\d+):\s*(\{[\s\S]*\})$/i);
   if (!providerMatch) return { summary: rawError, guidance: null };
 
   try {

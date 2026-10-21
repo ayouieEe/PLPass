@@ -30,6 +30,15 @@
 - Before promotion, run `npm run build:student`, `npm run check:bundle:student`, and `npm run check:release:student -- --production` against the intended linked project. Promote the verified immutable Preview deployment; do not deploy the desktop `index.html` or `scanner.html` artifact to this project.
 - Verify student login, refresh, password reset, legal review, dashboard, events, attendance, requests, notifications, logout, mobile accessibility, and staff-account denial on Preview. Roll back by promoting the previous immutable Vercel deployment; do not reverse database migrations for a frontend rollback.
 
+## Desktop GitHub release secrets
+
+The Windows installer workflow reads only these GitHub Actions repository secrets:
+
+- `VITE_SUPABASE_URL`: the HTTPS project URL.
+- `VITE_SUPABASE_PUBLISHABLE_KEY`: the public publishable key for that same project.
+
+They are embedded in the desktop renderer, so use only public browser-safe values. Do not add Brevo, email-worker, SMTP, service-role, or other private credentials to GitHub Actions for this workflow. Those email-worker secrets remain in Supabase Edge Function Secrets.
+
 ## Release order
 
 1. Apply backward-compatible database migrations to the intended project.
