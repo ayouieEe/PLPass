@@ -389,6 +389,10 @@
      Use the stable small viewport for legal pages so the layout does not reserve a
      blank block below the footer on mobile. The policy body remains the sole scroller. */
   @media (max-width: 639px) {
+    .plpass-auth-login {
+      overflow-y: auto !important;
+    }
+
     .plpass-auth-legal {
       height: 100svh !important;
       min-height: 0 !important;

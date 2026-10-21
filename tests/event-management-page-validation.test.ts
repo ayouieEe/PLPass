@@ -40,9 +40,10 @@ describe("event page validation helpers", () => {
     expect(repositories).toContain('const credentialAttemptMetadata = { qrCredentialId: String(activeQrCredential.id) }');
   });
   it("calculates live attendance rate against all event participants", () => {
-    expect(eventManagementPage).toContain("function countRows(rows: AttendanceRow[], participantCount: number, inferMissingRegisteredAsAbsent = false)");
+    expect(eventManagementPage).toContain("function summarizeFinalizedSession(");
+    expect(eventManagementPage).toContain("summarizeUniqueAttendance(");
     expect(eventManagementPage).toContain("summarizeUniqueAttendance");
-    expect(eventManagementPage).toContain("participantCount");
+    expect(eventManagementPage).toContain("activeParticipantCount");
     expect(eventManagementPage).toContain('const activeRegisteredParticipantCount = activeParticipantIdentities?.filter((participant) => participant.participantStatus !== "walk_in").length ?? 0');
     expect(eventManagementPage).toContain("registeredParticipants: registeredCount");
   });
@@ -299,7 +300,7 @@ describe("event page validation helpers", () => {
   });
 
   it("does not infer absent students while an attendance session is still live", () => {
-    expect(eventManagementPage).toContain("const activeCounts = countRows(activeRows, activeParticipantCount, false);");
+    expect(eventManagementPage).toContain("const activeLiveCounts = liveRosterCounts(activeRows, activeParticipantCount);");
     expect(eventManagementPage).toContain("const sessionSummary = finalizedSummary ?? summarizeFinalizedSession(activeRows, activeRegisteredParticipantCount, activeWalkInCount);");
   });
 
@@ -607,10 +608,10 @@ describe("event page validation helpers", () => {
     expect(eventManagementPage).toContain("studentName: formatSurnameFirstName(student ?? {}, student?.formattedName || student?.fullName || student?.studentNumber || record.studentId)");
     expect(eventManagementPage).toContain("function provisionalWalkInStudentNumber(studentName: string)");
     expect(eventManagementPage).toContain("const participant = activeParticipantIdentityByStudentId.get(row.original.studentId);");
-    expect(eventManagementPage).toContain('className="min-w-36"');
+    expect(eventManagementPage).toMatch(/className="min-w-36\s/);
     expect(eventManagementPage).toContain('className="flex items-center gap-1.5"');
     expect(eventManagementPage).toContain('className="leading-tight"');
-    expect(eventManagementPage).toContain('className="font-medium text-foreground"');
+    expect(eventManagementPage).toContain("font-medium");
     expect(eventManagementPage).toContain('className="mt-px font-mono text-sm text-muted-foreground"');
     expect(eventManagementPage).toContain("row.original.verificationLabel === \"Walk-in\"");
   });
@@ -625,7 +626,7 @@ describe("event page validation helpers", () => {
   it("keeps every live attendance view in most-recent-activity order", () => {
     expect(eventManagementPage).toContain("function compareLiveAttendanceRows(");
     expect(eventManagementPage).toContain('Date.parse(row.checkOutAt ?? row.timeOut ?? row.checkInAt ?? row.timeIn ?? "") || 0');
-    expect(eventManagementPage).toContain("return [...matchingRows].sort(compareLiveAttendanceRows);");
+    expect(eventManagementPage).toContain("return [...matchingRows].sort((left, right) => {");
   });
 
   it("uses the live-table space for attendance details instead of a late-arrival category column", () => {

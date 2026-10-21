@@ -98,11 +98,11 @@ describe("student web deployment", () => {
     expect(window.localStorage.getItem("plpass-development-session")).toBeNull();
   });
 
-  it("does not register staff routes in the student router", async () => {
+  it("explains that staff routes belong in the desktop app", async () => {
     storeSession({ userId: "user-student-1", role: "student", displayName: "Student 01", email: "student.1@plpass.test", isAuthenticated: true });
     setRoute("/organizer/events");
     render(<StudentApp />);
 
-    expect(await screen.findByRole("heading", { name: /page not found/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /use plpass desktop/i })).toBeInTheDocument();
   });
 });

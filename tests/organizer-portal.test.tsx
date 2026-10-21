@@ -137,12 +137,12 @@ describe("organizer route access", () => {
     expect((await screen.findAllByText(/no feedback data yet/i)).length).toBeGreaterThan(0);
   });
 
-  it("denies organizer routes to a student user", async () => {
+  it("keeps student accounts out of the desktop workspace", async () => {
     storeSession(studentSession);
     setRoute("/organizer/events");
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in to PLPass" })).toBeInTheDocument();
   });
 });
 

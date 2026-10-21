@@ -71,6 +71,22 @@ function StudentPublicRoute() {
   return <Outlet />;
 }
 
+function StaffDesktopNotice() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-6 py-12 text-center">
+      <div className="max-w-md space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Use PLPass Desktop</h1>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Organizer, department, and administrator accounts must use the PLPass Desktop app.
+        </p>
+        <a className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground" href={desktopLaunchUrl}>
+          Open PLPass Desktop
+        </a>
+      </div>
+    </main>
+  );
+}
+
 function StudentLegalGate() {
   const { session } = useDevelopmentSession();
   const location = useLocation();
@@ -108,6 +124,9 @@ export function StudentAppRouter() {
           <Route path={APP_ROUTES.acceptInvitation} element={<AcceptInvitationPage />} />
           <Route path={APP_ROUTES.resetPassword} element={<ResetPasswordPage />} />
           <Route path={APP_ROUTES.accessDenied} element={<AccessDeniedPage />} />
+          <Route path="/organizer/*" element={<StaffDesktopNotice />} />
+          <Route path="/admin/*" element={<StaffDesktopNotice />} />
+          <Route path="/department/*" element={<StaffDesktopNotice />} />
         </Route>
         <Route element={<ProtectedRoute />}>
           <Route element={<StudentOnlyRoute />}>

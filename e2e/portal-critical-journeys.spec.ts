@@ -69,7 +69,7 @@ test.describe("student critical journeys", () => {
 
   test("cannot enter an organizer workspace", async ({ page }) => {
     await page.goto("/organizer/events");
-    await expect(page.getByRole("heading", { name: "Access denied" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Use PLPass Desktop" })).toBeVisible();
   });
 });
 
