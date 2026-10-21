@@ -297,15 +297,41 @@ function filterLines(filters: ReportFilterSummary | undefined, count: number) {
   ];
 }
 
-function institutionHeader(branding: ExportBranding, institution?: ReportExportOptions["institution"]) {
+function stripDepartmentSuffix(value: string) {
+  return value.replace(/\s+department\s*$/i, "").trim();
+}
+
+export function institutionHeader(branding: ExportBranding, institution?: ReportExportOptions["institution"], actorRole?: RepositoryContext["actorRole"]) {
   // Saved department branding is authoritative for scoped exports. The
   // optional institution value is a report hint and must not overwrite a
   // department's configured presentation name.
-  const college = branding.collegeName || institution?.collegeName || "ALL PARTICIPATING COLLEGES";
+  const college = stripDepartmentSuffix(branding.collegeName || institution?.collegeName || "");
   const lines = ["PAMANTASAN NG LUNGSOD NG PASIG"];
-  if (college.trim().toLowerCase() !== DEFAULT_INSTITUTION_NAME.toLowerCase()) lines.push(`COLLEGE OF ${college.replace(/^college of\s+/i, "")}`.toUpperCase());
+  if (actorRole !== "admin" && college && college.toLowerCase() !== DEFAULT_INSTITUTION_NAME.toLowerCase()) {
+    lines.push(`COLLEGE OF ${college.replace(/^college of\s+/i, "")}`.toUpperCase());
+  }
   lines.push(`SCHOOL YEAR ${institution?.schoolYear || "CURRENT SCHOOL YEAR"}`);
   return lines;
+}
+
+export function fitPdfChartSize(requestedWidth: number, requestedHeight: number, maxWidth: number, maxHeight: number) {
+  const scale = Math.min(1, maxWidth / Math.max(requestedWidth, 1), maxHeight / Math.max(requestedHeight, 1));
+  return { width: requestedWidth * scale, height: requestedHeight * scale };
+}
+
+function drawPdfFooter(doc: jsPDF, branding: ExportBranding, generatedAt: string) {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let pageNumber = 1; pageNumber <= doc.getNumberOfPages(); pageNumber++) {
+    doc.setPage(pageNumber);
+    doc.setDrawColor(63, 116, 68);
+    doc.line(14, pageHeight - 17, pageWidth - 14, pageHeight - 17);
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(7);
+    doc.setFont("helvetica", "normal");
+    doc.text(`${branding.systemName} · Generated ${generatedAt}`, 14, pageHeight - 10);
+    doc.text(`Page ${pageNumber} of ${doc.getNumberOfPages()}`, pageWidth - 14, pageHeight - 10, { align: "right" });
+  }
 }
 
 /**
@@ -319,7 +345,9 @@ function safeMerge(ws: Worksheet, startRow: number, startCol: number, endRow: nu
 }
 
 export async function exportReportPdf(options: ReportExportOptions) {
-  const { branding, schoolYear } = await resolveBranding(options.scope);
+  const { branding, schoolYear, context } = await resolveBranding(options.scope);
+  const generatedAt = new Date();
+  const generatedAtLabel = generatedAt.toLocaleString();
   const primary = hexRgb(branding.primaryColor, [21, 72, 34]);
   const primaryLine = hexRgb(branding.primaryColor, [21, 91, 42]);
   const secondary = hexRgb(branding.secondaryColor, [245, 249, 245]);
@@ -340,7 +368,7 @@ export async function exportReportPdf(options: ReportExportOptions) {
   if (plpLogo) doc.addImage(plpLogo, "PNG", 14, 8, 22, 22);
   if (customLogo) doc.addImage(customLogo, "PNG", pageWidth - 36, 8, 22, 22);
 
-  const header = institutionHeader(branding, { ...options.institution, schoolYear: options.institution?.schoolYear || schoolYear });
+  const header = institutionHeader(branding, { ...options.institution, schoolYear: options.institution?.schoolYear || schoolYear }, context.actorRole);
   doc.setTextColor(...primary);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
@@ -533,8 +561,14 @@ export async function exportReportPdf(options: ReportExportOptions) {
   // 3. Render Charts (If present)
   if (options.charts && options.charts.length > 0) {
     for (const chart of options.charts) {
-      const chartMmHeight = chart.height ?? (isLandscape ? 65 : 75);
-      const chartMmWidth = chart.width ?? (isLandscape ? 150 : 170);
+      const requestedChartHeight = chart.height ?? (isLandscape ? 65 : 75);
+      const requestedChartWidth = chart.width ?? (isLandscape ? 150 : 170);
+      // Chart generators provide pixel dimensions, while jsPDF positions in
+      // millimetres. Keep the requested aspect ratio inside the printable area
+      // so wide charts cannot push callouts or tables off the page.
+      const chartSize = fitPdfChartSize(requestedChartWidth, requestedChartHeight, pageWidth - 28, isLandscape ? 95 : 105);
+      const chartMmWidth = chartSize.width;
+      const chartMmHeight = chartSize.height;
 
       if (cursorY + chartMmHeight + 10 > pageHeight - 20) {
         doc.addPage();
@@ -557,8 +591,9 @@ export async function exportReportPdf(options: ReportExportOptions) {
         doc.setFont("helvetica", "italic");
         doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
-        doc.text(chart.caption, pageWidth / 2, cursorY, { align: "center" });
-        cursorY += 6;
+        const captionLines = doc.splitTextToSize(chart.caption, pageWidth - 28);
+        doc.text(captionLines, pageWidth / 2, cursorY, { align: "center" });
+        cursorY += captionLines.length * 3.8 + 2;
       } else {
         cursorY += 2;
       }
@@ -659,19 +694,11 @@ export async function exportReportPdf(options: ReportExportOptions) {
       headStyles: { fillColor: primary, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, font: "helvetica" },
       alternateRowStyles: { fillColor: secondary },
       styles: { font: "helvetica", fontSize: maxColumns > 7 ? 7 : 8, cellPadding: 2, lineColor: primaryLine, lineWidth: 0.1 },
-      didDrawPage: (data) => {
-        doc.setDrawColor(63, 116, 68);
-        doc.line(14, pageHeight - 17, pageWidth - 14, pageHeight - 17);
-        doc.setTextColor(107, 114, 128);
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-        doc.text(`${branding.systemName} · Generated ${reportDateLabel()}`, 14, pageHeight - 10);
-        doc.text(`Page ${data.pageNumber}`, pageWidth - 14, pageHeight - 10, { align: "right" });
-      }
     });
     cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? cursorY) + 10;
   });
 
+  drawPdfFooter(doc, branding, generatedAtLabel);
   doc.save(`${safeReportFileName(options.fileName)}.pdf`);
 }
 
@@ -694,7 +721,9 @@ function safeSheetName(name: string, index = 0, existingNames: Set<string> = new
  * and auto-fit column widths.
  */
 export async function exportReportXlsx(options: ReportExportOptions) {
-  const { branding, schoolYear } = await resolveBranding(options.scope);
+  const { branding, schoolYear, context } = await resolveBranding(options.scope);
+  const generatedAt = new Date();
+  const generatedAtLabel = generatedAt.toLocaleString();
   const primaryArgb = argb(branding.primaryColor, "FF0F421D");
   const secondaryArgb = argb(branding.secondaryColor, "FFE8F1E6");
   const sections = sectionsFor(options);
@@ -708,7 +737,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
   const workbook = new Workbook();
   const sheetNames = new Set<string>();
 
-  const header = institutionHeader(branding, { ...options.institution, schoolYear: options.institution?.schoolYear || schoolYear });
+  const header = institutionHeader(branding, { ...options.institution, schoolYear: options.institution?.schoolYear || schoolYear }, context.actorRole);
   const filterEntries = Object.entries(options.filters ?? {})
     .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
     .map(([key, value]) => `${displayHeader(key)}: ${String(value)}`);
@@ -767,7 +796,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     const overviewMaxCols = 5;
     renderHeaderBanner(overviewWs, overviewMaxCols, options.subtitle ?? "Executive Dashboard & Report Index", cleanTitle(options.title));
 
-    const generatedLine = `Date Generated: ${new Date().toLocaleString()}  ·  Total Data Tabs: ${sections.length}  ·  Total Records: ${total}`;
+    const generatedLine = `Date Generated: ${generatedAtLabel}  ·  Total Data Tabs: ${sections.length}  ·  Total Records: ${total}`;
 
     safeMerge(overviewWs, 6, 1, 6, overviewMaxCols);
     overviewWs.getCell(6, 1).value = generatedLine;
@@ -985,7 +1014,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       overviewWs.getColumn(c).width = 24;
     }
     overviewWs.pageSetup = { orientation: "portrait", fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
-    overviewWs.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${reportDateLabel()}&RPage &P of &N`;
+    overviewWs.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${generatedAtLabel}&RPage &P of &N`;
   }
 
   // Render individual data tabs (or single tab if only 1 section)
@@ -1003,7 +1032,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     renderHeaderBanner(worksheet, maxWidthCols, options.subtitle ?? `Section ${sIdx + 1}: ${sectionHeader}`, `${cleanTitle(options.title)} — ${sectionHeader}`);
 
     safeMerge(worksheet, 6, 1, 6, maxWidthCols);
-    worksheet.getCell(6, 1).value = `Section Records: ${section.rows.length}  ·  Generated: ${new Date().toLocaleDateString()}`;
+    worksheet.getCell(6, 1).value = `Section Records: ${section.rows.length}  ·  Generated: ${generatedAtLabel}`;
     worksheet.getCell(6, 1).font = { size: 9, color: { argb: "FF526155" } };
     worksheet.getRow(6).height = 18;
 
@@ -1185,7 +1214,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     }
 
     worksheet.pageSetup = { orientation: "portrait", fitToWidth: 1, fitToHeight: 0, paperSize: 9, horizontalDpi: 300, verticalDpi: 300 };
-    worksheet.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${reportDateLabel()}&RPage &P of &N`;
+    worksheet.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${generatedAtLabel}&RPage &P of &N`;
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
