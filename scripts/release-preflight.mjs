@@ -18,7 +18,7 @@ requireFiles([
   ".github/workflows/quality.yml",
   "playwright.config.ts",
   "supabase/config.toml",
-  "PHASE_10_RELEASE_READINESS.md",
+  "docs/PHASE_10_RELEASE_READINESS.md",
   "docs/DEPLOYMENT_RUNBOOK.md",
   "docs/UAT_CHECKLIST.md",
   "docs/DEPLOYMENT_RUNBOOK.md"

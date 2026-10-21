@@ -39,6 +39,6 @@ For a configured deployment environment, run `node scripts/release-preflight.mjs
 
 - [Deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
 - [Organizer and student UAT checklist](docs/UAT_CHECKLIST.md)
-- [Phase 4 capstone QA report](PHASE_4_CAPSTONE_QA.md)
+- [Phase 4 capstone QA report](docs/PHASE_4_CAPSTONE_QA.md)
 
 Apply and verify the guarded facial-recognition decommission migration in staging before production. It stops without deleting data when biometric-linked rows or storage objects remain. The mock Playwright environment is for deterministic browser testing and must not be enabled in production.

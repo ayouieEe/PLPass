@@ -1,4 +1,5 @@
 node_modules
+.gemini/
 .npm-cache/
 .venv/
 .venv-broken/
@@ -19,4 +20,18 @@ playwright-report
 test-results
 *.tsbuildinfo
 .gitconfig
+.vscode/settings.json
 *.pkl
+
+# One-off spreadsheet experiments and exported report artifacts do not belong in source control.
+/autofilter_obj.xlsx
+/autofilter_str.xlsx
+/chart_test.xlsx
+/fixed_master_report.xlsx
+/full_master_with_charts.xlsx
+/master_report.xlsx
+/multi_tab_master_report.xlsx
+/test_export.xlsx
+/test_out.xlsx
+/wb1.xlsx
+/wb2.xlsx
