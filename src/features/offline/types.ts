@@ -7,6 +7,8 @@ export type PreparedEventParticipant = {
   studentNumber: string;
   displayName: string;
   participantStatus: string;
+  yearLevel?: number;
+  section?: string;
   qrIdentifier?: string;
   /** True when this student is enrolled in the event; false means a verified walk-in candidate. */
   isParticipant?: boolean;

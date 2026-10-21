@@ -289,6 +289,17 @@ type ActiveParticipantIdentity = {
   studentNumber: string;
   fullName: string;
   participantStatus: "invited" | "confirmed" | "walk_in";
+  yearLevel?: number;
+  section?: string;
+};
+
+type LiveRosterStatus = "not_checked_in" | "awaiting_time_out" | "checked_out" | "present" | "late";
+
+type LiveRosterRow = AttendanceRow & {
+  yearLevel?: number;
+  section?: string;
+  isPending: boolean;
+  liveStatus: LiveRosterStatus;
 };
 
 type FinalizedSessionSummary = {
@@ -465,13 +476,58 @@ function matchesSearch(event: EventRecord, search: string) {
 }
 
 
-function countRows(rows: AttendanceRow[], participantCount: number, inferMissingRegisteredAsAbsent = false) {
-  const summary = summarizeUniqueAttendance(
-    rows.map((row) => ({ identity: row.studentId, attendanceStatus: row.attendanceStatus })),
-    participantCount,
-    inferMissingRegisteredAsAbsent
-  );
-  return { present: summary.present, late: summary.late, absent: summary.absent, rate: summary.attendanceRate };
+function buildLiveRosterRows(
+  participants: ActiveParticipantIdentity[],
+  recordedRows: AttendanceRow[],
+  eventCode: string
+): LiveRosterRow[] {
+  const recordedByStudentId = new Map(recordedRows.map((row) => [row.studentId, row]));
+  const rosterRows = participants.map((participant): LiveRosterRow => {
+    const recorded = recordedByStudentId.get(participant.studentId);
+    if (recorded) {
+      const liveStatus: LiveRosterStatus = recorded.checkOutTime || recorded.timeOut
+        ? "checked_out"
+        : recorded.attendanceStatus === "late" ? "late" : "awaiting_time_out";
+      return { ...recorded, yearLevel: participant.yearLevel, section: participant.section, isPending: false, liveStatus };
+    }
+    return {
+      id: `pending-${participant.studentId}`,
+      studentId: participant.studentId,
+      studentName: participant.fullName || participant.studentNumber || "Student details unavailable",
+      eventCode,
+      attendanceMethod: "QR Code",
+      checkInTime: "Not recorded",
+      attendanceStatus: "present",
+      verificationLabel: "Verified",
+      isFinalized: false,
+      yearLevel: participant.yearLevel,
+      section: participant.section,
+      isPending: true,
+      liveStatus: "not_checked_in"
+    };
+  });
+  const participantIds = new Set(participants.map((participant) => participant.studentId));
+  const walkIns = recordedRows
+    .filter((row) => !participantIds.has(row.studentId))
+    .map((row): LiveRosterRow => ({
+      ...row,
+      isPending: false,
+      liveStatus: row.checkOutTime || row.timeOut ? "checked_out" : row.attendanceStatus === "late" ? "late" : "awaiting_time_out"
+    }));
+  return [...rosterRows, ...walkIns];
+}
+
+function liveRosterCounts(rows: Array<AttendanceRow & { checkInAt?: string; checkOutAt?: string }>, expectedCount: number) {
+  const recorded = new Map(rows.map((row) => [row.studentId, row]));
+  const checkedIn = [...recorded.values()].filter((row) => Boolean(row.timeIn || row.checkInAt));
+  const checkedOut = checkedIn.filter((row) => Boolean(row.timeOut || row.checkOutAt));
+  return {
+    expected: expectedCount,
+    notCheckedIn: Math.max(0, expectedCount - checkedIn.length),
+    checkedIn: checkedIn.length,
+    awaitingTimeOut: Math.max(0, checkedIn.length - checkedOut.length),
+    checkedOut: checkedOut.length
+  };
 }
 
 function lateBreakdown(rows: AttendanceRow[]) {
@@ -1515,7 +1571,9 @@ export function EventManagementPage() {
         studentId: participant.studentId,
         studentNumber: participant.studentNumber,
         fullName: participant.displayName,
-        participantStatus: participant.participantStatus === "walk_in" ? "walk_in" : participant.participantStatus === "confirmed" ? "confirmed" : "invited"
+        participantStatus: participant.participantStatus === "walk_in" ? "walk_in" : participant.participantStatus === "confirmed" ? "confirmed" : "invited",
+        yearLevel: participant.yearLevel,
+        section: participant.section
       })));
       return;
     }
@@ -1558,7 +1616,7 @@ export function EventManagementPage() {
 
       const { data: studentRows, error: studentError } = await client
         .from("students")
-        .select("id, student_id, profiles(first_name, middle_name, last_name, name_extension)")
+        .select("id, student_id, year_level, sections(section_name), profiles(first_name, middle_name, last_name, name_extension)")
         .in("id", participantIds);
       if (studentError) {
         console.error("Failed to load active participant identities:", studentError);
@@ -1569,12 +1627,15 @@ export function EventManagementPage() {
       const participantStatusByStudentId = new Map((participantRows ?? []).map((participant) => [String(participant.student_id ?? ""), String(participant.participant_status ?? "invited")]));
       const identities: ActiveParticipantIdentity[] = (studentRows ?? []).map((student) => {
         const profile = Array.isArray(student.profiles) ? student.profiles[0] : student.profiles;
+        const section = Array.isArray(student.sections) ? student.sections[0] : student.sections;
         const participantStatus = participantStatusByStudentId.get(String(student.id));
         return {
           studentId: String(student.id),
           studentNumber: String(student.student_id ?? ""),
           fullName: [profile?.first_name, profile?.middle_name, profile?.last_name, profile?.name_extension].filter(Boolean).join(" "),
-          participantStatus: participantStatus === "walk_in" ? "walk_in" : participantStatus === "confirmed" ? "confirmed" : "invited"
+          participantStatus: participantStatus === "walk_in" ? "walk_in" : participantStatus === "confirmed" ? "confirmed" : "invited",
+          yearLevel: typeof student.year_level === "number" ? student.year_level : undefined,
+          section: typeof section?.section_name === "string" ? section.section_name : undefined
         };
       });
       if (current) setActiveParticipantIdentities(identities);
@@ -2010,32 +2071,37 @@ export function EventManagementPage() {
   // While a session is live, students who have not checked in yet are still
   // pending, not absent. Missing participants become absent only in the
   // finalized session summary.
-  const activeCounts = countRows(activeRows, activeParticipantCount, false);
-  const filteredActiveRows = useMemo(() => {
+  const activeLiveCounts = liveRosterCounts(activeRows, activeParticipantCount);
+  const monitorLiveCounts = liveRosterCounts(monitorRows, activeParticipantIdentities?.length ?? 0);
+  const activeRosterRows = useMemo(
+    () => buildLiveRosterRows(activeParticipantIdentities ?? [], activeRows, activeEvent?.code ?? ""),
+    [activeEvent?.code, activeParticipantIdentities, activeRows]
+  );
+  const monitorRosterRows = useMemo(
+    () => buildLiveRosterRows(activeParticipantIdentities ?? [], monitorRows, activeEvent?.code ?? ""),
+    [activeEvent?.code, activeParticipantIdentities, monitorRows]
+  );
+  const filterRosterRows = useCallback((rows: LiveRosterRow[]) => {
     const query = liveAttendanceSearch.trim().toLocaleLowerCase();
-    const matchingRows = !query ? activeRows : activeRows.filter((row) => [
+    const matchingRows = !query ? rows : rows.filter((row) => [
       row.studentName,
       row.studentId,
       activeParticipantIdentityByStudentId.get(row.studentId)?.studentNumber,
-      row.verificationLabel
+      row.yearLevel,
+      row.section,
+      row.verificationLabel,
+      row.liveStatus === "not_checked_in" ? "not checked in" : ""
     ]
       .filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase().includes(query)));
 
-    return [...matchingRows].sort(compareLiveAttendanceRows);
-  }, [activeParticipantIdentityByStudentId, activeRows, liveAttendanceSearch]);
-  const filteredMonitorRows = useMemo(() => {
-    const query = liveAttendanceSearch.trim().toLocaleLowerCase();
-    const matchingRows = !query ? monitorRows : monitorRows.filter((row) => [
-      row.studentName,
-      row.studentId,
-      activeParticipantIdentityByStudentId.get(row.studentId)?.studentNumber,
-      row.verificationLabel
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLocaleLowerCase().includes(query)));
-    return [...matchingRows].sort(compareLiveAttendanceRows);
-  }, [activeParticipantIdentityByStudentId, liveAttendanceSearch, monitorRows]);
+    return [...matchingRows].sort((left, right) => {
+      if (left.isPending !== right.isPending) return left.isPending ? 1 : -1;
+      return compareLiveAttendanceRows(left, right);
+    });
+  }, [activeParticipantIdentityByStudentId, liveAttendanceSearch]);
+  const filteredActiveRows = useMemo(() => filterRosterRows(activeRosterRows), [activeRosterRows, filterRosterRows]);
+  const filteredMonitorRows = useMemo(() => filterRosterRows(monitorRosterRows), [filterRosterRows, monitorRosterRows]);
   // A Time Out must be at least a minute after Time In. This is enforced at
   // capture time; the extra check is only a recovery safeguard for an old,
   // already-saved invalid value so End Session can still complete safely.
@@ -3740,7 +3806,7 @@ export function EventManagementPage() {
     }
   ];
 
-  const liveColumns: ColumnDef<AttendanceRow>[] = [
+  const liveColumns: ColumnDef<LiveRosterRow>[] = [
     {
       accessorKey: "studentName",
       header: "Student Name",
@@ -3750,9 +3816,10 @@ export function EventManagementPage() {
         const studentNumber = participant?.studentNumber ?? provisionalWalkInStudentNumber(row.original.studentName);
         const displayName = row.original.studentName;
         const isWalkIn = row.original.verificationLabel === "Walk-in";
+        const muted = row.original.isPending ? "text-muted-foreground" : "text-foreground";
 
         return (
-          <div className="min-w-36">
+          <div className={`min-w-36 ${muted}`}>
             <div className="flex items-center gap-1.5">
               {isWalkIn ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-warning-muted px-2.5 py-1 text-xs font-medium text-warning">
@@ -3761,7 +3828,7 @@ export function EventManagementPage() {
                 </span>
               ) : null}
               <div className="leading-tight">
-                <div className="font-medium text-foreground">{displayName}</div>
+                <div className={`font-medium ${muted}`}>{displayName}</div>
                 {studentNumber ? <div className="mt-px font-mono text-sm text-muted-foreground">{studentNumber}</div> : null}
               </div>
             </div>
@@ -3770,30 +3837,44 @@ export function EventManagementPage() {
       }
     },
     {
+      id: "yearSection",
+      header: "Year / Section",
+      meta: { agGrid: { width: 150, minWidth: 140, flex: 0 } },
+      cell: ({ row }) => <span className={row.original.isPending ? "text-muted-foreground" : "text-foreground"}>{row.original.yearLevel ? `Year ${row.original.yearLevel}` : "—"}{row.original.section ? ` · ${row.original.section}` : ""}</span>
+    },
+    {
       accessorKey: "checkInTime",
       header: "Time In",
-      meta: { agGrid: { width: 120, minWidth: 120, flex: 0 } }
+      meta: { agGrid: { width: 120, minWidth: 120, flex: 0 } },
+      cell: ({ row }) => <span className={row.original.isPending ? "text-muted-foreground" : "text-foreground"}>{row.original.isPending ? "—" : row.original.checkInTime}</span>
     },
     {
       id: "checkOutTime",
       header: "Time Out",
       meta: { agGrid: { width: 136, minWidth: 136, flex: 0 } },
       cell: ({ row }) =>
-        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">No Time Out</span>
+        row.original.checkOutTime ?? <span className="text-sm text-muted-foreground">{row.original.isPending ? "—" : "No Time Out"}</span>
     },
     {
       id: "attendanceMethod",
       header: "Attendance Method",
       meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
-      cell: ({ row }) => row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
+      cell: ({ row }) => row.original.isPending ? <span className="text-muted-foreground">—</span> : row.original.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row.original)
     },
     {
       id: "status",
       header: "Attendance Status",
       meta: { agGrid: { width: 170, minWidth: 150, flex: 0 } },
       cell: ({ row }) => {
-        const label = row.original.isFinalized === true ? row.original.attendanceStatus : "In progress";
-        return <StatusBadge label={label} tone={statusTone(label)} />;
+        const label = row.original.liveStatus === "not_checked_in"
+          ? "Not checked in"
+          : row.original.liveStatus === "checked_out"
+            ? "Checked out"
+            : row.original.liveStatus === "awaiting_time_out"
+              ? "Awaiting Time Out"
+              : row.original.attendanceStatus;
+        const tone = row.original.isPending || row.original.liveStatus === "awaiting_time_out" ? "muted" : statusTone(row.original.attendanceStatus);
+        return <StatusBadge label={label} tone={tone} />;
       }
     }
   ];
@@ -3906,15 +3987,16 @@ export function EventManagementPage() {
                 <Button type="button" variant="outline" className="shrink-0" onClick={() => void refetchAttendanceRecords()} disabled={attendanceRecordsQuery.isFetching}><RefreshCw className={`mr-2 h-4 w-4 ${attendanceRecordsQuery.isFetching ? "animate-spin" : ""}`} />Refresh monitor</Button>
               </div>
             </section>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <SummaryTile label="Attendance records" value={monitorRows.length.toString()} />
-              <SummaryTile label="Present" value={monitorRows.filter((row) => row.attendanceStatus === "present").length.toString()} />
-              <SummaryTile label="Late" value={monitorRows.filter((row) => row.attendanceStatus === "late").length.toString()} />
-              <SummaryTile label="Session" value={activeAttendanceSession?.status === "active" ? "Active" : "Ended"} />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <SummaryTile label="Expected attendees" value={monitorLiveCounts.expected.toString()} />
+              <SummaryTile label="Not checked in" value={monitorLiveCounts.notCheckedIn.toString()} />
+              <SummaryTile label="Checked in" value={monitorLiveCounts.checkedIn.toString()} />
+              <SummaryTile label="Awaiting Time Out" value={monitorLiveCounts.awaitingTimeOut.toString()} />
+              <SummaryTile label="Checked out" value={monitorLiveCounts.checkedOut.toString()} />
             </div>
             <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:p-6" aria-label="Live attendance monitor">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-base font-semibold">Live attendance</h3><p className="mt-1 text-sm text-muted-foreground">Read-only monitoring. Organizers retain all event and attendance controls.</p></div><div className="flex w-full items-center gap-2 sm:w-auto"><label className="relative min-w-0 flex-1 sm:w-64 sm:flex-none"><span className="sr-only">Search live attendance</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" /><input type="search" className="h-9 w-full rounded-full border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground" placeholder="Search attendees" value={liveAttendanceSearch} onChange={(event) => setLiveAttendanceSearch(event.target.value)} /></label><span className="shrink-0 rounded-full border bg-background px-3 py-1 text-xs text-muted-foreground">Refreshes every 15 seconds</span></div></div>
-              <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Read-only live attendance" data={filteredMonitorRows} columns={liveColumns} isLoading={attendanceRecordsQuery.isFetching} isError={attendanceRecordsQuery.isError} emptyTitle={liveAttendanceSearch.trim() ? "No matching attendees" : "No attendance recorded yet"} emptyDescription={liveAttendanceSearch.trim() ? "Try a different student name or number." : "This event is live; attendance will appear here after the organizer records it."} /></div>
+              <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Read-only live attendance" data={filteredMonitorRows} columns={liveColumns} isLoading={attendanceRecordsQuery.isFetching} isError={attendanceRecordsQuery.isError} emptyTitle={liveAttendanceSearch.trim() ? "No matching attendees" : "No attendees found"} emptyDescription={liveAttendanceSearch.trim() ? "Try a different student name, number, year, or section." : "The expected attendee roster will appear here when it is available."} /></div>
             </section>
           </div>
         ) : (
@@ -3943,11 +4025,12 @@ export function EventManagementPage() {
           </div>
         </section>
         <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <SummaryTile label="Present" value={activeCounts.present.toString()} />
-              <SummaryTile label="Late" value={activeCounts.late.toString()} />
-              <SummaryTile label="Absent" value={activeCounts.absent.toString()} />
-              <SummaryTile label="Attendance Rate" value={`${activeCounts.rate}%`} />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <SummaryTile label="Expected attendees" value={activeLiveCounts.expected.toString()} />
+              <SummaryTile label="Not checked in" value={activeLiveCounts.notCheckedIn.toString()} />
+              <SummaryTile label="Checked in" value={activeLiveCounts.checkedIn.toString()} />
+              <SummaryTile label="Awaiting Time Out" value={activeLiveCounts.awaitingTimeOut.toString()} />
+              <SummaryTile label="Checked out" value={activeLiveCounts.checkedOut.toString()} />
             </div>
 
           <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm lg:p-6" aria-labelledby="attendance-capture-heading">
@@ -4066,7 +4149,7 @@ export function EventManagementPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="h-8 w-1 rounded-full bg-primary" aria-hidden="true" />
-                <div><h3 className="text-base font-semibold">Live attendance list</h3><p className="text-sm text-muted-foreground">Records appear as each student is confirmed.</p></div>
+                <div><h3 className="text-base font-semibold">Live attendance list</h3><p className="text-sm text-muted-foreground">All expected attendees are listed. Students who have not checked in are shown in gray.</p></div>
               </div>
               <div className="flex w-full items-center gap-2 sm:w-auto">
                 <label className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
@@ -4080,10 +4163,10 @@ export function EventManagementPage() {
                     onChange={(event) => setLiveAttendanceSearch(event.target.value)}
                   />
                 </label>
-                <span className="shrink-0 rounded-full border bg-surface px-3 py-1 text-xs font-medium text-muted-foreground">{activeRows.length} records</span>
+                <span className="shrink-0 rounded-full border bg-surface px-3 py-1 text-xs font-medium text-muted-foreground">{activeRosterRows.length} attendees</span>
               </div>
             </div>
-            <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Live attendance list" data={filteredActiveRows} columns={liveColumns} emptyTitle={liveAttendanceSearch.trim() ? "No matching attendees" : attendancePhase === "time_out" ? "No Time Out records yet" : "Ready to record Time In"} emptyDescription={liveAttendanceSearch.trim() ? "Try a different student name or number." : attendancePhase === "time_out" ? "Scan a student who has checked in to record Time Out." : "Scan a student QR code or choose another capture method to begin."} /></div>
+            <div className="mt-5 border-t border-border pt-5"><PLPassDataGrid flat hideHeader label="Live attendance list" data={filteredActiveRows} columns={liveColumns} emptyTitle={liveAttendanceSearch.trim() ? "No matching attendees" : "No attendees found"} emptyDescription={liveAttendanceSearch.trim() ? "Try a different student name, number, year, or section." : "The expected attendee roster will appear here when it is available."} /></div>
           </section>
 
           <ScannerStationsPanel
