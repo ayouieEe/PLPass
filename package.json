@@ -125,7 +125,7 @@
     },
     "win": {
       "target": "nsis",
-      "artifactName": "PLPass-Setup-${version}.${ext}"
+      "artifactName": "PLPass-Setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
