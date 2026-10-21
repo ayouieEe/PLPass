@@ -2,6 +2,7 @@
   "name": "plpass",
   "private": true,
   "version": "0.0.0",
+  "description": "PLPass attendance workspace for organizers and administrators.",
   "main": "dist-electron/electron/main.js",
   "type": "module",
   "scripts": {
@@ -10,6 +11,7 @@
     "build:student": "tsc -b && vite build --mode student --configLoader runner",
     "build:desktop": "vite build --configLoader runner && tsc -p tsconfig.electron.json && copy /Y electron\\preload.cjs dist-electron\\electron\\preload.cjs > NUL",
     "build:desktop:test": "vite build --mode test --configLoader runner && tsc -p tsconfig.electron.json && copy /Y electron\\preload.cjs dist-electron\\electron\\preload.cjs > NUL",
+    "package:win": "npm run build:desktop && electron-builder --win nsis --publish never",
     "desktop": "npm run build:desktop && electron .",
     "lint": "eslint .",
     "test": "vitest run --configLoader runner",
@@ -74,6 +76,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^44.2.0",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.17.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "eslint-plugin-react-refresh": "^0.4.16",
@@ -107,5 +110,28 @@
     },
     "dompurify": "^3.4.16",
     "braces": "^3.0.3"
+  },
+  "build": {
+    "appId": "ph.edu.plpasig.plpass",
+    "productName": "PLPass",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "artifactName": "PLPass-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "PLPass"
+    }
   }
 }

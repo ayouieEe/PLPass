@@ -1,4 +1,5 @@
 export const APP_ROUTES = {
+  landing: "/",
   accessDenied: "/access-denied",
   dashboard: "/dashboard",
   login: "/login",

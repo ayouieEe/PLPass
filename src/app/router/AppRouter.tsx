@@ -5,6 +5,7 @@ import { RoleShellLayout } from "@/app/layouts/RoleShellLayout";
 import { AccessDeniedPage } from "@/pages/AccessDeniedPage";
 import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { LandingPage } from "@/pages/LandingPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { NotificationsPage } from "@/pages/NotificationsPage";
 import { ProfilePage } from "@/pages/ProfilePage";
@@ -18,6 +19,7 @@ import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useQuery } from "@tanstack/react-query";
 import { allCurrentLegalDocumentsAccepted, getLegalAcceptanceStatus } from "@/lib/legal/acceptance";
 import { getPasswordLinkType, hasPasswordSetupPayload } from "@/lib/auth/recovery";
+import { getAuthorizedHomePath } from "@/lib/utils/auth";
 import { AdminCatalogsPage, AdminSettingsPage } from "@/features/admin/pages/AdminSettingsPage";
 
 const OrganizerRootPage = lazy(() => import("@/features/organizer/pages/OrganizerRootPage").then((module) => ({ default: module.OrganizerRootPage })));
@@ -55,10 +57,13 @@ function AdminOrOrganizerProfilePage() {
 
 function PublicEntryRoute() {
   const location = useLocation();
+  const { session, isSessionRestored } = useDevelopmentSession();
   if (hasPasswordSetupPayload(location)) {
     return getPasswordLinkType(location) === "invite" ? <AcceptInvitationPage /> : <ResetPasswordPage />;
   }
-  return <Navigate to={APP_ROUTES.login} replace />;
+  if (!isSessionRestored) return <LoadingState label="Restoring session" />;
+  if (session?.isAuthenticated) return <Navigate to={getAuthorizedHomePath(session.role)} replace />;
+  return <LandingPage />;
 }
 
 function OrganizerEventsRoute() {
