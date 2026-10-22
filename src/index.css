@@ -1282,6 +1282,26 @@
   .plpass-landing ol > li.rounded-2xl {
     transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease;
   }
+
+  .plpass-landing > section#home {
+    padding-top: 9rem;
+  }
+
+  .plpass-landing [id] {
+    scroll-margin-top: 7rem;
+  }
+
+  @media (min-width: 640px) {
+    .plpass-landing > section#home {
+      padding-top: 8rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .plpass-landing > section#home {
+      padding-top: 5rem;
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
