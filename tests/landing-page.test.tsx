@@ -9,6 +9,7 @@ function setRoute(path: string) {
 
 afterEach(() => {
   cleanup();
+  window.localStorage.removeItem("plpass-theme");
   vi.unstubAllEnvs();
   setRoute("/");
 });
@@ -23,6 +24,7 @@ describe("public landing page", () => {
     expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute("href", "#download");
     expect(screen.getByRole("link", { name: "FAQs" })).toHaveAttribute("href", "#faqs");
     expect(screen.getByRole("link", { name: /log in/i })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("button", { name: /switch to dark mode/i })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /terms of use/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /privacy policy/i })).not.toBeInTheDocument();
     expect(screen.getByText(/student & staff attendance workspace/i)).toBeInTheDocument();
@@ -49,5 +51,14 @@ describe("public landing page", () => {
     await user.click(faq);
     expect(faq).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/attendance workspace for university events/i)).toBeVisible();
+  });
+
+  it("defaults to light mode when no explicit theme is saved", async () => {
+    window.localStorage.setItem("plpass-theme", "system");
+    render(<StudentApp />);
+
+    expect(await screen.findByRole("button", { name: /switch to dark mode/i })).toBeInTheDocument();
+    expect(document.documentElement).toHaveClass("light");
+    expect(document.documentElement).not.toHaveClass("dark");
   });
 });

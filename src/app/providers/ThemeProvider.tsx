@@ -5,7 +5,7 @@ const storageKey = "plpass-theme";
 export function ThemeProvider({ children }: PropsWithChildren) {
   const [theme, setThemeState] = useState<Theme>(() => {
     const savedTheme = window.localStorage.getItem(storageKey);
-    return isTheme(savedTheme) ? savedTheme : "system";
+    return savedTheme === "light" || savedTheme === "dark" ? savedTheme : "light";
   });
 
   useEffect(() => {
@@ -29,8 +29,4 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-function isTheme(value: string | null): value is Theme {
-  return value === "light" || value === "dark" || value === "system";
 }
