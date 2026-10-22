@@ -399,8 +399,35 @@
     }
 
     .plpass-auth-legal {
-      height: 100svh !important;
+      height: auto !important;
       min-height: 0 !important;
+      min-height: 100svh !important;
+      overflow-y: auto !important;
+    }
+
+    /* Legal review needs document flow on phones so the policy and consent
+       controls remain readable instead of competing for the viewport height. */
+    .plpass-auth-legal .plpass-auth-curtain-right {
+      min-height: 100svh;
+      overflow: visible;
+      justify-content: flex-start;
+    }
+
+    .plpass-auth-legal .plpass-auth-curtain-right > div,
+    .plpass-auth-legal .plpass-auth-card,
+    .plpass-auth-legal .plpass-auth-content {
+      height: auto;
+      min-height: 0;
+      flex: none;
+    }
+
+    .plpass-auth-legal .plpass-auth-card {
+      overflow: visible;
+    }
+
+    .plpass-auth-legal .plpass-auth-content > [class*="overflow-y-auto"] {
+      max-height: none;
+      overflow: visible;
     }
   }
 
