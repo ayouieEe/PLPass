@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ChevronDown, Download, Laptop, Menu, Moon, ShieldCheck, Sun, Users, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTheme } from "@/hooks/useTheme";
@@ -26,10 +26,36 @@ const publicFaqs = [
   { question: "Where can I get help?", answer: "Keep the page or event reference and the exact message you saw, then contact the event organizer or your school’s PLPass support channel. Never share your password or verification codes." }
 ];
 
+function useScrollReveal<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setIsVisible(true);
+        observer.disconnect();
+      }
+    }, { threshold: 0.12 });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, isVisible };
+}
+
 function PreviewWindow({ kind }: { kind: "student" | "staff" }) {
   const isStudent = kind === "student";
+  const { ref, isVisible } = useScrollReveal<HTMLDivElement>();
   return (
-    <div className="group relative overflow-hidden rounded-[1.25rem] border border-primary/15 bg-surface shadow-2xl shadow-primary/10 transition duration-500 ease-out hover:-translate-y-3 hover:scale-[1.015] hover:shadow-primary/20 motion-reduce:transition-none motion-reduce:hover:transform-none" aria-hidden="true">
+    <div ref={ref} className={`plpass-scroll-reveal group relative overflow-hidden rounded-[1.25rem] border border-primary/15 bg-surface shadow-2xl shadow-primary/10 transition duration-500 ease-out hover:-translate-y-3 hover:scale-[1.015] hover:shadow-primary/20 motion-reduce:transition-none motion-reduce:hover:transform-none ${isVisible ? "is-visible" : ""}`} aria-hidden="true">
       <div className="flex items-center gap-2 border-b border-border/70 bg-surface-muted/80 px-4 py-3">
         <span className="h-2.5 w-2.5 rounded-full bg-danger/60" /><span className="h-2.5 w-2.5 rounded-full bg-warning/70" /><span className="h-2.5 w-2.5 rounded-full bg-success/60" />
         <span className="ml-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">PLPass {isStudent ? "Student workspace" : "Desktop workspace"}</span>
@@ -49,6 +75,58 @@ export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<string | null>(null);
   const closeMenu = () => setMenuOpen(false);
+
+  useEffect(() => {
+    const revealTargets = document.querySelectorAll<HTMLElement>(".plpass-landing section:not(#home) > div > div.rounded-2xl.border, .plpass-landing ol > li.rounded-2xl, .plpass-landing #faqs .mt-10");
+    if (typeof IntersectionObserver === "undefined") {
+      revealTargets.forEach((element) => element.classList.add("plpass-scroll-reveal", "is-visible"));
+      return undefined;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+
+    revealTargets.forEach((element, index) => {
+      element.classList.add("plpass-scroll-reveal");
+      element.style.setProperty("--reveal-delay", `${(index % 3) * 80}ms`);
+      observer.observe(element);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const faqButtons = document.querySelectorAll<HTMLButtonElement>(".plpass-landing #faqs button[aria-controls^='public-faq-']");
+    const revealAnswer = (event: Event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      if (button.getAttribute("aria-expanded") !== "true") {
+        button.dataset.hoverOpened = "true";
+        button.click();
+      }
+    };
+    const preserveHoverOpen = (event: MouseEvent) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      if (event.detail > 0 && button.dataset.hoverOpened === "true") {
+        delete button.dataset.hoverOpened;
+        event.stopImmediatePropagation();
+      }
+    };
+
+    faqButtons.forEach((button) => {
+      button.addEventListener("mouseenter", revealAnswer);
+      button.addEventListener("click", preserveHoverOpen);
+    });
+
+    return () => faqButtons.forEach((button) => {
+      button.removeEventListener("mouseenter", revealAnswer);
+      button.removeEventListener("click", preserveHoverOpen);
+    });
+  }, [openFaq]);
 
   return (
     <main className="plpass-landing min-h-screen overflow-hidden bg-background text-foreground">

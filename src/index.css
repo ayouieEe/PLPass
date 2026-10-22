@@ -1264,6 +1264,50 @@
     transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
   }
 
+  .plpass-landing > header > div {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 12% 0%, hsl(var(--highlight) / 0.9), transparent 34%),
+      linear-gradient(110deg, hsl(var(--surface) / 0.96), hsl(var(--highlight) / 0.86) 52%, hsl(var(--surface) / 0.96));
+  }
+
+  .plpass-landing > header > div::after {
+    position: absolute;
+    inset: auto 12% 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.45), transparent);
+    content: "";
+  }
+
+  .plpass-scroll-reveal {
+    opacity: 0;
+    transform: translateY(2rem) scale(0.985);
+    transition: opacity 650ms ease var(--reveal-delay, 0ms), transform 650ms cubic-bezier(0.22, 1, 0.36, 1) var(--reveal-delay, 0ms);
+  }
+
+  .plpass-scroll-reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .plpass-landing section:not(#home) > div > div.rounded-2xl.border,
+  .plpass-landing ol > li.rounded-2xl,
+  .plpass-landing #faqs .mt-10 {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .plpass-landing section:not(#home) > div > div.rounded-2xl.border::before,
+  .plpass-landing ol > li.rounded-2xl::before,
+  .plpass-landing #faqs .mt-10::before {
+    position: absolute;
+    inset: 0 20% auto;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.45), transparent);
+    content: "";
+  }
+
   .plpass-landing a.rounded-xl:hover {
     transform: translateY(-0.25rem);
   }
@@ -1300,6 +1344,15 @@
   @media (min-width: 1024px) {
     .plpass-landing > section#home {
       padding-top: 5rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .plpass-scroll-reveal,
+    .plpass-scroll-reveal.is-visible {
+      opacity: 1;
+      transform: none;
+      transition: none;
     }
   }
 }

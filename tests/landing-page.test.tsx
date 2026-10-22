@@ -53,6 +53,17 @@ describe("public landing page", () => {
     expect(screen.getByText(/attendance workspace for university events/i)).toBeVisible();
   });
 
+  it("reveals a public FAQ answer on hover", async () => {
+    const user = userEvent.setup();
+    render(<StudentApp />);
+
+    const faq = await screen.findByRole("button", { name: /where can i get help/i });
+    await user.hover(faq);
+
+    expect(faq).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(/never share your password/i)).toBeVisible();
+  });
+
   it("defaults to light mode when no explicit theme is saved", async () => {
     window.localStorage.setItem("plpass-theme", "system");
     render(<StudentApp />);
