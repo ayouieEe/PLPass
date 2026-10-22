@@ -1259,6 +1259,31 @@
   width: 0.875rem;
 }
 
+@layer components {
+  .plpass-landing a.rounded-xl {
+    transition: transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease;
+  }
+
+  .plpass-landing a.rounded-xl:hover {
+    transform: translateY(-0.25rem);
+  }
+
+  .plpass-landing section:not(#home) > div > div.rounded-2xl.border {
+    transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease;
+  }
+
+  .plpass-landing section:not(#home) > div > div.rounded-2xl.border:hover,
+  .plpass-landing ol > li.rounded-2xl:hover {
+    transform: translateY(-0.5rem);
+    border-color: hsl(var(--primary) / 0.35);
+    box-shadow: 0 20px 40px hsl(var(--primary) / 0.1);
+  }
+
+  .plpass-landing ol > li.rounded-2xl {
+    transition: transform 300ms ease, box-shadow 300ms ease, border-color 300ms ease;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
