@@ -38,10 +38,7 @@ function useScrollReveal<T extends HTMLElement>() {
     }
 
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setIsVisible(true);
-        observer.disconnect();
-      }
+      setIsVisible(entry.isIntersecting);
     }, { threshold: 0.12 });
 
     observer.observe(element);
@@ -86,7 +83,8 @@ export function LandingPage() {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
           entry.target.classList.add("is-visible");
-          observer.unobserve(entry.target);
+        } else {
+          entry.target.classList.remove("is-visible");
         }
       });
     }, { threshold: 0.12 });
