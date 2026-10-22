@@ -1,7 +1,6 @@
-import { ArrowRight, Download, MonitorCog, ShieldCheck } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, Check, ChevronDown, Download, Laptop, Menu, ShieldCheck, Users, X } from "lucide-react";
 import { Link } from "react-router-dom";
-import { AuthLayout } from "@/app/layouts/AuthLayout";
-import { Button } from "@/components/ui/button";
 import { APP_ROUTES } from "@/lib/constants/routes";
 
 function getDesktopDownloadUrl() {
@@ -18,44 +17,50 @@ function getDesktopDownloadUrl() {
   }
 }
 
+const publicFaqs = [
+  { question: "What is PLPass?", answer: "PLPass is the attendance workspace for university events. Students use the web portal while staff manage events, attendance, and reports from the desktop app." },
+  { question: "Who should use the desktop app?", answer: "Organizers, department staff, and administrators use PLPass Desktop. Students should continue using the browser portal to view events, attendance, and requests." },
+  { question: "How do I access the student portal?", answer: "Select Log In above and sign in with the school account assigned to you. If you cannot sign in, use Forgot password or contact your school support channel." },
+  { question: "Can PLPass work when connectivity changes?", answer: "The desktop workspace supports prepared offline attendance sessions. Staff should download the required event resources before starting an offline session." },
+  { question: "Where can I get help?", answer: "Keep the page or event reference and the exact message you saw, then contact the event organizer or your school’s PLPass support channel. Never share your password or verification codes." }
+];
+
+function PreviewWindow({ kind }: { kind: "student" | "staff" }) {
+  const isStudent = kind === "student";
+  return (
+    <div className="relative overflow-hidden rounded-[1.25rem] border border-primary/15 bg-surface shadow-2xl shadow-primary/10" aria-hidden="true">
+      <div className="flex items-center gap-2 border-b border-border/70 bg-surface-muted/80 px-4 py-3">
+        <span className="h-2.5 w-2.5 rounded-full bg-danger/60" /><span className="h-2.5 w-2.5 rounded-full bg-warning/70" /><span className="h-2.5 w-2.5 rounded-full bg-success/60" />
+        <span className="ml-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">PLPass {isStudent ? "Student workspace" : "Desktop workspace"}</span>
+      </div>
+      <div className="grid grid-cols-[6.5rem_1fr] gap-4 p-4 sm:grid-cols-[8rem_1fr] sm:p-5">
+        <div className="space-y-3 rounded-xl bg-highlight/70 p-3"><div className="h-4 w-16 rounded bg-primary/30" />{["Overview", isStudent ? "Events" : "Create Event", isStudent ? "Attendance" : "Event Records", "Account"].map((label, index) => <div key={label} className={`rounded-lg px-2 py-1.5 text-[9px] font-semibold ${index === 1 ? "bg-primary text-primary-foreground" : "text-primary/70"}`}>{label}</div>)}</div>
+        <div className="min-w-0 space-y-4"><div><div className="h-5 w-3/5 rounded bg-foreground/80" /><div className="mt-2 h-3 w-4/5 rounded bg-muted-foreground/25" /></div><div className="grid gap-3 sm:grid-cols-3">{["Events", "Attendance", isStudent ? "Requests" : "Reports"].map((label, index) => <div key={label} className={`rounded-xl border p-3 ${index === 1 ? "border-warning/40 bg-warning-muted" : "border-border bg-background"}`}><div className="h-2.5 w-3/4 rounded bg-muted-foreground/25" /><div className="mt-3 h-6 w-1/2 rounded bg-foreground/70" /><p className="mt-2 text-[9px] font-medium text-muted-foreground">{label}</p></div>)}</div><div className="rounded-xl border border-border bg-background p-3"><div className="flex items-center justify-between"><div className="h-3 w-1/3 rounded bg-foreground/60" /><div className="h-7 w-20 rounded-full bg-primary/15" /></div><div className="mt-4 space-y-2">{["Current event", "Attendance record", "Next action"].map((row) => <div key={row} className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-primary/60" /><span className="h-2 flex-1 rounded bg-muted-foreground/20" /><span className="h-2 w-10 rounded bg-primary/20" /></div>)}</div></div></div>
+      </div>
+      <div className="pointer-events-none absolute inset-0 bg-surface/10 backdrop-blur-[0.5px]" />
+    </div>
+  );
+}
+
 export function LandingPage() {
   const desktopDownloadUrl = getDesktopDownloadUrl();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
+  const closeMenu = () => setMenuOpen(false);
 
   return (
-    <AuthLayout
-      wide
-      landing
-      title="PLPass for university events"
-      description="Choose the workspace that matches your role."
-    >
-      <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-primary">Choose your workspace</p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section className="order-first rounded-2xl border border-primary/25 bg-primary/10 p-5 shadow-sm shadow-primary/5">
-          <div className="flex items-center gap-3 text-primary">
-            <ShieldCheck className="h-6 w-6" aria-hidden="true" />
-            <h3 className="font-semibold text-foreground">Student web portal</h3>
-          </div>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Sign in to view events, attendance, and requests from your browser.</p>
-          <Button asChild className="mt-5 w-full rounded-lg"><Link to={APP_ROUTES.login}>Continue to student sign in <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /></Link></Button>
-        </section>
+    <main className="plpass-landing min-h-screen overflow-hidden bg-background text-foreground">
+      <header className="sticky top-0 z-50 border-b border-border/70 bg-background/90 backdrop-blur-xl"><div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10"><a href="#home" className="flex items-center gap-2.5" onClick={closeMenu}><img src="/PLPassLogo.png" alt="PLPass logo" className="h-9 w-auto" /><span className="text-lg font-bold tracking-tight">PLPass</span></a><button type="button" className="rounded-lg p-2 text-primary lg:hidden" aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}</button><nav aria-label="Public navigation" className={`${menuOpen ? "absolute inset-x-0 top-16 border-b border-border bg-background p-4 shadow-lg" : "hidden"} lg:static lg:block lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none`}><div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-7"><a href="#home" onClick={closeMenu} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-highlight hover:text-primary">Home</a><a href="#download" onClick={closeMenu} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-highlight hover:text-primary">Download</a><a href="#faqs" onClick={closeMenu} className="rounded-lg px-3 py-2 text-sm font-semibold text-muted-foreground hover:bg-highlight hover:text-primary">FAQs</a><Link to={APP_ROUTES.login} onClick={closeMenu} className="mt-1 inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary-hover lg:mt-0">Log In <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /></Link></div></nav></div></header>
 
-        <section className="rounded-2xl border border-border bg-background/75 p-5">
-          <div className="flex items-center gap-3 text-primary">
-            <MonitorCog className="h-6 w-6" aria-hidden="true" />
-            <h3 className="font-semibold text-foreground">Organizer and administrator desktop</h3>
-          </div>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Manage events, capture attendance, run reports, and administer the system.</p>
-          {desktopDownloadUrl ? (
-            <>
-              <Button asChild variant="outline" className="mt-5 w-full rounded-lg"><a href={desktopDownloadUrl} download><Download className="mr-2 h-4 w-4" aria-hidden="true" />Download desktop app</a></Button>
-              <p className="mt-3 text-center text-xs text-muted-foreground">Windows installer · latest stable release</p>
-            </>
-          ) : (
-            <p className="mt-5 rounded-lg border border-border bg-background px-3 py-2 text-sm text-muted-foreground">The desktop installer will appear here once a release is published.</p>
-          )}
-        </section>
-      </div>
-      <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">Students use the browser portal. Organizers and administrators use the Windows desktop workspace.</p>
-    </AuthLayout>
+      <section id="home" className="relative mx-auto grid max-w-7xl gap-12 px-5 pb-20 pt-16 sm:px-8 sm:pt-24 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:px-10 lg:pb-28"><div className="relative z-10"><p className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-highlight px-3 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-primary"><span className="h-2 w-2 rounded-full bg-success" /> University attendance, organized</p><h1 className="max-w-3xl text-4xl font-extrabold leading-[1.04] tracking-[-0.04em] sm:text-6xl lg:text-7xl">A clearer way to manage <span className="text-primary">every event.</span></h1><p className="mt-6 max-w-xl text-base leading-8 text-muted-foreground sm:text-lg">PLPass brings student attendance, event coordination, and staff reporting into one dependable university workspace.</p><div className="mt-8 flex flex-col gap-3 sm:flex-row"><Link to={APP_ROUTES.login} className="inline-flex items-center justify-center rounded-xl bg-primary px-5 py-3.5 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary-hover">Open student portal <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /></Link><a href="#download" className="inline-flex items-center justify-center rounded-xl border border-border bg-surface px-5 py-3.5 text-sm font-bold text-primary hover:bg-highlight"><Download className="mr-2 h-4 w-4" aria-hidden="true" /> Get the desktop app</a></div><div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm font-medium text-muted-foreground"><span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" /> Role-based access</span><span className="inline-flex items-center gap-2"><Users className="h-4 w-4 text-success" aria-hidden="true" /> Built for campus events</span></div></div><div className="relative mx-auto w-full max-w-xl lg:ml-auto"><div className="absolute -inset-10 rounded-full bg-primary/10 blur-3xl" aria-hidden="true" /><div className="relative rotate-1"><PreviewWindow kind="student" /></div><div className="relative -mt-12 -ml-5 w-[88%] -rotate-2 sm:-ml-12"><PreviewWindow kind="staff" /></div></div></section>
+
+      <section className="border-y border-border/70 bg-surface-muted/60"><div className="mx-auto grid max-w-7xl gap-8 px-5 py-14 sm:px-8 md:grid-cols-3 md:py-16 lg:px-10"><div><p className="text-sm font-bold uppercase tracking-[0.14em] text-primary">One system, two workspaces</p><h2 className="mt-3 text-3xl font-bold tracking-tight">Designed around the people using it.</h2></div><div className="rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm"><Users className="h-7 w-7 text-primary" aria-hidden="true" /><h3 className="mt-5 text-xl font-bold">For students</h3><p className="mt-3 text-sm leading-7 text-muted-foreground">See events, attendance records, QR credentials, notifications, and correction requests from the browser.</p></div><div className="rounded-2xl border border-primary/15 bg-surface p-6 shadow-sm"><Laptop className="h-7 w-7 text-primary" aria-hidden="true" /><h3 className="mt-5 text-xl font-bold">For staff</h3><p className="mt-3 text-sm leading-7 text-muted-foreground">Create events, run attendance sessions, review requests, and generate reports from PLPass Desktop.</p></div></div></section>
+
+      <section id="download" className="mx-auto grid max-w-7xl gap-10 px-5 py-20 sm:px-8 lg:grid-cols-[0.85fr_1.15fr] lg:items-center lg:px-10 lg:py-28"><div><p className="text-sm font-bold uppercase tracking-[0.14em] text-primary">For organizers and administrators</p><h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Set up your desktop workspace.</h2><p className="mt-5 max-w-lg leading-7 text-muted-foreground">Download PLPass Desktop on your Windows computer to manage events and attendance from the staff workspace.</p>{desktopDownloadUrl ? <a href={desktopDownloadUrl} download className="mt-7 inline-flex items-center rounded-xl bg-primary px-5 py-3.5 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary-hover"><Download className="mr-2 h-4 w-4" aria-hidden="true" /> Download PLPass for Windows</a> : <p className="mt-7 rounded-xl border border-border bg-surface p-4 text-sm text-muted-foreground">The desktop installer will appear here once a release is published.</p>}<p className="mt-3 text-xs text-muted-foreground">Windows installer · latest stable release</p></div><ol className="grid gap-4 sm:grid-cols-3">{[{ title: "Download", text: "Save the latest Windows installer to your computer." }, { title: "Install", text: "Open the installer and follow the setup prompts." }, { title: "Sign in", text: "Launch PLPass and use your assigned staff account." }].map((step, index) => <li key={step.title} className="rounded-2xl border border-border bg-surface p-5 shadow-sm"><span className="grid h-9 w-9 place-items-center rounded-full bg-highlight text-sm font-extrabold text-primary">{index + 1}</span><h3 className="mt-5 font-bold">{step.title}</h3><p className="mt-2 text-sm leading-6 text-muted-foreground">{step.text}</p></li>)}</ol></section>
+
+      <section id="faqs" className="border-t border-border/70 bg-surface-muted/60 px-5 py-20 sm:px-8 lg:px-10 lg:py-28"><div className="mx-auto max-w-3xl"><div className="text-center"><p className="text-sm font-bold uppercase tracking-[0.14em] text-primary">Quick answers</p><h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Frequently asked questions</h2><p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-muted-foreground">A short introduction to PLPass before you enter the student portal or install the desktop app.</p></div><div className="mt-10 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">{publicFaqs.map((faq) => { const isOpen = openFaq === faq.question; const answerId = `public-faq-${faq.question.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`; return <div key={faq.question}><button type="button" aria-expanded={isOpen} aria-controls={answerId} onClick={() => setOpenFaq(isOpen ? null : faq.question)} className="flex w-full items-center justify-between gap-5 px-5 py-5 text-left text-sm font-bold hover:bg-highlight/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 sm:px-6"><span>{faq.question}</span><ChevronDown className={`h-4 w-4 shrink-0 text-primary transition-transform ${isOpen ? "rotate-180" : ""}`} aria-hidden="true" /></button>{isOpen ? <p id={answerId} className="px-5 pb-5 text-sm leading-7 text-muted-foreground sm:px-6">{faq.answer}</p> : null}</div>; })}</div></div></section>
+
+      <footer className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10"><div className="flex items-center gap-2 font-semibold text-foreground"><Check className="h-4 w-4 text-success" aria-hidden="true" /> PLPass attendance workspace</div><div className="flex gap-5"><Link to={APP_ROUTES.terms} className="hover:text-primary hover:underline">Terms of Use</Link><Link to={APP_ROUTES.privacy} className="hover:text-primary hover:underline">Privacy Policy</Link></div></footer>
+    </main>
   );
 }
