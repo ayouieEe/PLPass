@@ -23,6 +23,9 @@ describe("public landing page", () => {
     expect(screen.getByRole("link", { name: "Download" })).toHaveAttribute("href", "#download");
     expect(screen.getByRole("link", { name: "FAQs" })).toHaveAttribute("href", "#faqs");
     expect(screen.getByRole("link", { name: /log in/i })).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("link", { name: /terms of use/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /privacy policy/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/student & staff attendance workspace/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /set up your desktop workspace/i })).toBeInTheDocument();
     expect(screen.getByText("Download", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getByText("Install", { selector: "h3" })).toBeInTheDocument();
