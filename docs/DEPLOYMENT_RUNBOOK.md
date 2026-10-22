@@ -20,6 +20,13 @@
 - Configure allowed origins, Storage limits, email provider settings, monitoring, and backup retention.
 - Run `node scripts/release-preflight.mjs --production` in the hosting build environment. It fails closed unless the Supabase CLI is authenticated to the configured project and linked migration parity, schema lint, and generated-type parity all pass. Do not bypass this check; reconcile and apply reviewed migrations first, then rerun it.
 
+## English, Tagalog, and Taglish feedback sentiment
+
+- Create a Cloudflare Workers AI account on the Free plan. In Workers AI > Use REST API, create a Workers AI API Token and copy the Account ID. Restrict the token to the PLPass Cloudflare account. Do not paste the token in chat or commit it.
+- In the **PLPass Current** Supabase project's Edge Function Secrets, set `CLOUDFLARE_ACCOUNT_ID` to the 32-character account ID and `CLOUDFLARE_AI_TOKEN` to the token. Deploy `analyze-feedback` after both secrets are set. The function sends remark text to Cloudflare Workers AI and uses `@cf/zai-org/glm-4.7-flash` for English, Tagalog, and Taglish; separate language routing and a paid Hugging Face endpoint are unnecessary. Cloudflare's data handling is documented at https://developers.cloudflare.com/workers-ai/platform/data-usage/.
+- Test one English complaint, one Tagalog complaint, one Taglish compliment, and one neutral remark with a student account. Confirm that the saved labels and admin analytics agree. Cloudflare's free allocation has a daily limit; after an inference error or a 20-second timeout, feedback still saves with an unclassified sentiment instead of an invented label. The model returns a label but no calibrated confidence score, so the score remains null.
+- Existing feedback labels are not automatically overwritten. Review any historical corrections before backfilling them; saved comments and ratings remain intact.
+
 ## Student Vercel deployment
 
 - Use a separate Vercel project for the student web app and keep the desktop build target unchanged.
