@@ -265,7 +265,7 @@ function AnalyticsExportModal({
                 {
                   id: "master",
                   title: "Master Analytics",
-                  desc: "Complete summary across attendance, turnout predictions, VADER sentiment & late patterns.",
+                  desc: "Complete summary across attendance, turnout predictions, feedback sentiment & late patterns.",
                   icon: BarChart3
                 },
                 {
@@ -283,7 +283,7 @@ function AnalyticsExportModal({
                 {
                   id: "sentiment",
                   title: "Performance & Sentiment",
-                  desc: "Objective goal ratings, VADER sentiment breakdown & student feedback comments.",
+                  desc: "Objective goal ratings, sentiment breakdown & student feedback comments.",
                   icon: MessageSquareQuote
                 },
                 {
@@ -1017,7 +1017,7 @@ export function OrganizerAnalyticsPage() {
       .filter((fb) => validEventIds.has(fb.eventId))
       .filter((fb) => fb.comment && fb.comment.trim().length > 0)
       .map((fb) => {
-        const raw = (fb.sentimentLabel || "neutral").toLowerCase();
+        const raw = (fb.sentimentLabel || "unclassified").toLowerCase();
         const capitalized = raw.charAt(0).toUpperCase() + raw.slice(1);
         return {
           sentiment: capitalized,

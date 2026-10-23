@@ -58,12 +58,12 @@ describe("student web deployment", () => {
     vi.stubEnv("VITE_DESKTOP_DOWNLOAD_URL", "https://github.com/ayouieEe/PLPass/releases/latest/download/PLPass-Setup.exe");
     render(<StudentApp />);
 
-    expect(await screen.findByRole("heading", { name: /plpass for university events/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /download desktop app/i })).toHaveAttribute(
+    expect(await screen.findByRole("heading", { name: /a clearer way to manage every event/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download plpass for windows/i })).toHaveAttribute(
       "href",
       "https://github.com/ayouieEe/PLPass/releases/latest/download/PLPass-Setup.exe"
     );
-    expect(screen.getAllByRole("link", { name: /sign in/i }).some((link) => link.getAttribute("href") === "/login")).toBe(true);
+    expect(screen.getByRole("link", { name: /log in/i })).toHaveAttribute("href", "/login");
   });
 
   it.each(["/login", "/forgot-password", "/terms", "/privacy"])("does not reopen public route %s for an active student", async (path) => {
