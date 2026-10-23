@@ -8,7 +8,7 @@ import { DEFAULT_INSTITUTION_NAME } from "@/lib/constants/branding";
 export type ReportExportScope = { type: "event"; eventId: string } | { type: "organizer"; organizerId: string } | { type: "department"; departmentId: string } | { type: "global" };
 export type ReportExportRow = Record<string, string | number | boolean | null | undefined>;
 export type ReportExportColumn = { key: string; header: string; width?: number };
-export type ReportExportSection = { name: string; rows: ReportExportRow[]; columns?: ReportExportColumn[]; header?: string };
+export type ReportExportSection = { name: string; rows: ReportExportRow[]; columns?: ReportExportColumn[]; header?: string; eventTitle?: string; pageBreakBefore?: boolean; xlsxSheet?: string; scoreCards?: ReportScoreCard[]; recommendations?: string[] };
 export type ReportFilterSummary = Record<string, string | number | boolean | null | undefined>;
 export type ReportFilterState = ReportFilterSummary & { search?: string; eventId?: string; schoolYear?: string; dateFrom?: string; dateTo?: string };
 
@@ -18,6 +18,21 @@ export type ReportSummaryCard = {
   subtitle?: string;
   colorTheme?: "emerald" | "blue" | "amber" | "purple" | "rose";
 };
+
+export type ReportScoreCard = {
+  group?: string;
+  label: string;
+  value: number;
+  maxValue: number;
+  responseCount: number;
+};
+
+export function scoreCardColor(value: number, maxValue: number) {
+  const percentage = (value / Math.max(maxValue, 1)) * 100;
+  if (percentage >= 80) return { accent: [22, 128, 61] as const, text: [21, 128, 61] as const };
+  if (percentage >= 60) return { accent: [217, 119, 6] as const, text: [180, 83, 9] as const };
+  return { accent: [220, 38, 38] as const, text: [185, 28, 28] as const };
+}
 
 export type ReportInsightsNarrative = {
   title?: string;
@@ -49,6 +64,7 @@ export type ReportExportOptions = {
   filters?: ReportFilterSummary;
   institution?: { collegeName?: string; schoolYear?: string };
   summaryCards?: ReportSummaryCard[];
+  scoreCards?: ReportScoreCard[];
   insightsNarrative?: ReportInsightsNarrative;
   charts?: ReportChartItem[];
   /** Render each section title above its table, including when there is only one section. */
@@ -65,6 +81,22 @@ export type ExportBranding = {
 };
 
 const defaultBranding: ExportBranding = { plpLogoUrl: "/plp-institution-logo.png", systemName: "PLPass" };
+const recommendationLabel = "RECOMMENDATION";
+
+function figureCaption(chart: ReportChartItem, index: number) {
+  const caption = chart.caption?.replace(/^Figure\s+\d+\s*:\s*/i, "").trim();
+  return `Figure ${index + 1}: ${caption || chart.title || "Chart"}`;
+}
+
+function chartMatchesSection(chart: ReportChartItem, section: ReportExportSection) {
+  const chartTitle = (chart.title ?? "").toLowerCase();
+  const sectionName = section.name.toLowerCase();
+  if (sectionName === "attendance overview" || sectionName === "attendance summary") return chartTitle.includes("attendance rate trend");
+  if (sectionName === "turnout estimate" || sectionName.includes("saved turnout estimate")) return chartTitle.includes("saved turnout estimate");
+  if (sectionName === "feedback labels") return chartTitle.includes("feedback labels");
+  if (sectionName === "late arrival breakdown") return chartTitle.includes("late arrival breakdown");
+  return false;
+}
 
 function hexRgb(value: string | undefined, fallback: [number, number, number]): [number, number, number] {
   const normalized = value?.trim().replace(/^#/, "");
@@ -293,7 +325,7 @@ function filterLines(filters: ReportFilterSummary | undefined, count: number) {
     ...Object.entries(filters ?? {})
       .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "")
       .map(([key, value]) => `${displayHeader(key)}: ${String(value)}`),
-    `Records Included: ${count}`
+    `Report rows shown: ${count}`
   ];
 }
 
@@ -358,7 +390,10 @@ export async function exportReportPdf(options: ReportExportOptions) {
   }
 
   const maxColumns = Math.max(...sections.map((section) => headersFor(section).length), 1);
-  const isLandscape = maxColumns > 7 || (options.charts && options.charts.length > 1);
+  // ponytail: reports use landscape consistently because attendee and outcome
+  // tables otherwise clip readable column labels. Portrait would need a
+  // separate responsive report design before it can safely return.
+  const isLandscape = true;
   const doc = new jsPDF({ orientation: isLandscape ? "landscape" : "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -409,7 +444,7 @@ export async function exportReportPdf(options: ReportExportOptions) {
     const count = cards.length;
     const totalAvailWidth = pageWidth - 28;
     const cardWidth = (totalAvailWidth - cardGap * (count - 1)) / count;
-    const cardHeight = 20;
+    const cardHeight = 26;
 
     cards.forEach((card, index) => {
       const cardX = 14 + index * (cardWidth + cardGap);
@@ -448,9 +483,8 @@ export async function exportReportPdf(options: ReportExportOptions) {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(6.5);
         doc.setTextColor(100, 116, 139);
-        const maxChars = Math.floor(cardWidth / 2.2);
-        const truncatedSub = card.subtitle.length > maxChars ? `${card.subtitle.slice(0, maxChars - 2)}…` : card.subtitle;
-        doc.text(truncatedSub, cardX + 5, cursorY + 16.5);
+        const subtitleLines = doc.splitTextToSize(card.subtitle, cardWidth - 9).slice(0, 2);
+        doc.text(subtitleLines, cardX + 5, cursorY + 17);
       }
     });
 
@@ -518,12 +552,12 @@ export async function exportReportPdf(options: ReportExportOptions) {
     doc.text(execLines, 21, innerY);
     innerY += execLines.length * 4.2 + 3;
 
-    // Key Analytical Findings Header & Bullets
+    // Key Findings Header & Bullets
     if (narrative.keyFindings && narrative.keyFindings.length > 0) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(21, 72, 34);
-      doc.text("Key Analytical Findings:", 21, innerY);
+      doc.text("Key Findings:", 21, innerY);
       innerY += 5;
 
       doc.setFont("helvetica", "normal");
@@ -537,12 +571,12 @@ export async function exportReportPdf(options: ReportExportOptions) {
       innerY += 3;
     }
 
-    // Strategic Recommendations Header & Bullets
+    // Recommendation Header & Bullets
     if (narrative.recommendations && narrative.recommendations.length > 0) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(15, 118, 110);
-      doc.text("Strategic Recommendations:", 21, innerY);
+      doc.text(`${recommendationLabel}:`, 21, innerY);
       innerY += 5;
 
       doc.setFont("helvetica", "normal");
@@ -558,9 +592,99 @@ export async function exportReportPdf(options: ReportExportOptions) {
     cursorY += boxHeight + 8;
   }
 
-  // 3. Render Charts (If present)
-  if (options.charts && options.charts.length > 0) {
-    for (const chart of options.charts) {
+  const renderScoreCards = (cards: ReportScoreCard[], heading?: string) => {
+    if (cursorY + 18 > pageHeight - 20) {
+      doc.addPage();
+      cursorY = 20;
+    }
+    if (heading) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(21, 72, 34);
+      doc.text(heading, 14, cursorY);
+      cursorY += 6;
+    }
+
+    let previousGroup: string | undefined;
+    cards.forEach((card) => {
+      const cardWidth = pageWidth - 28;
+      const groupChanged = card.group && card.group !== previousGroup;
+      const groupHeight = groupChanged ? 7 : 0;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      // Keep the question safely clear of the score at the right edge.
+      const titleLines = doc.splitTextToSize(card.label, cardWidth - 72);
+      const barY = 6 + titleLines.length * 3.8;
+      const detailY = barY + 8;
+      const cardHeight = Math.max(21, detailY + 5);
+      if (cursorY + groupHeight + cardHeight > pageHeight - 20) {
+        doc.addPage();
+        cursorY = 20;
+      }
+      if (groupChanged) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.5);
+        doc.setTextColor(82, 97, 85);
+        doc.text(`EVENT: ${card.group}`, 14, cursorY + 3.5);
+        cursorY += groupHeight;
+        previousGroup = card.group;
+      }
+      const percentage = Math.max(0, Math.min(100, (card.value / Math.max(card.maxValue, 1)) * 100));
+      const tone = scoreCardColor(card.value, card.maxValue);
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(218, 229, 218);
+      doc.roundedRect(14, cursorY, cardWidth, cardHeight, 3, 3, "FD");
+      doc.setFillColor(tone.accent[0], tone.accent[1], tone.accent[2]);
+      doc.roundedRect(14, cursorY, 2.5, cardHeight, 2, 2, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(titleLines, 20, cursorY + 6.5);
+      doc.setFontSize(14);
+      doc.setTextColor(tone.text[0], tone.text[1], tone.text[2]);
+      doc.text(`${percentage.toFixed(1)}%`, pageWidth - 20, cursorY + 6.5, { align: "right" });
+      const barX = 20;
+      const barWidth = cardWidth - 12;
+      doc.setFillColor(226, 232, 240);
+      doc.roundedRect(barX, cursorY + barY, barWidth, 4, 2, 2, "F");
+      doc.setFillColor(tone.accent[0], tone.accent[1], tone.accent[2]);
+      doc.roundedRect(barX, cursorY + barY, barWidth * (percentage / 100), 4, 2, 2, "F");
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(82, 97, 85);
+      doc.text(`${card.value.toFixed(1)} out of ${card.maxValue} from ${card.responseCount} response${card.responseCount === 1 ? "" : "s"}`, 20, cursorY + detailY);
+      cursorY += cardHeight + 3;
+    });
+    cursorY += 3;
+  };
+
+  const renderRecommendations = (recommendations: string[]) => {
+    const lines = recommendations.flatMap((recommendation) => doc.splitTextToSize(`• ${recommendation}`, pageWidth - 48));
+    const boxHeight = 12 + lines.length * 4;
+    if (cursorY + boxHeight > pageHeight - 20) {
+      doc.addPage();
+      cursorY = 20;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(21, 72, 34);
+    doc.text(recommendationLabel, 14, cursorY);
+    cursorY += 5;
+    doc.setFillColor(243, 248, 244);
+    doc.setDrawColor(180, 215, 185);
+    doc.roundedRect(14, cursorY, pageWidth - 28, boxHeight, 2.5, 2.5, "FD");
+    doc.setFillColor(21, 91, 42);
+    doc.rect(14, cursorY, 3, boxHeight, "F");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(30, 41, 59);
+    doc.text(lines, 21, cursorY + 6);
+    cursorY += boxHeight + 6;
+  };
+
+  if (options.scoreCards && options.scoreCards.length > 0) renderScoreCards(options.scoreCards, "POST-EVENT OBJECTIVE RESULTS");
+
+  const renderChart = (chart: ReportChartItem, chartIndex: number) => {
       const requestedChartHeight = chart.height ?? (isLandscape ? 65 : 75);
       const requestedChartWidth = chart.width ?? (isLandscape ? 150 : 170);
       // Chart generators provide pixel dimensions, while jsPDF positions in
@@ -575,27 +699,20 @@ export async function exportReportPdf(options: ReportExportOptions) {
         cursorY = 20;
       }
 
-      if (chart.title) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(21, 72, 34);
-        doc.text(chart.title, 14, cursorY);
-        cursorY += 5;
-      }
+      // The section heading identifies both the chart and its related table.
+      // The chart image keeps its own short internal label.
 
       const chartX = 14 + (pageWidth - 28 - chartMmWidth) / 2;
       doc.addImage(chart.imageDataUrl, "PNG", chartX, cursorY, chartMmWidth, chartMmHeight);
-      cursorY += chartMmHeight + 2;
+      cursorY += chartMmHeight + 5;
 
-      if (chart.caption) {
+      {
         doc.setFont("helvetica", "italic");
         doc.setFontSize(7.5);
         doc.setTextColor(100, 116, 139);
-        const captionLines = doc.splitTextToSize(chart.caption, pageWidth - 28);
+        const captionLines = doc.splitTextToSize(figureCaption(chart, chartIndex), pageWidth - 28);
         doc.text(captionLines, pageWidth / 2, cursorY, { align: "center" });
-        cursorY += captionLines.length * 3.8 + 2;
-      } else {
-        cursorY += 2;
+        cursorY += captionLines.length * 3.8 + 5;
       }
 
       // Render Description & Recommendations Highlight Box (if present)
@@ -649,7 +766,7 @@ export async function exportReportPdf(options: ReportExportOptions) {
           doc.setFont("helvetica", "bold");
           doc.setFontSize(8);
           doc.setTextColor(21, 72, 34);
-          doc.text("Actionable Recommendations:", 20, boxY);
+          doc.text(`${recommendationLabel}:`, 20, boxY);
           boxY += 4.5;
 
           doc.setFont("helvetica", "normal");
@@ -666,36 +783,74 @@ export async function exportReportPdf(options: ReportExportOptions) {
       } else {
         cursorY += 4;
       }
-    }
-  }
+  };
 
-  // 4. Render Data Tables
-  sections.forEach((section) => {
-    if (cursorY + 30 > pageHeight - 20) {
+  // Keep each chart with the table it explains. A caller without a named
+  // analytics section still keeps its charts before the first table.
+  const renderedChartIndexes = new Set<number>();
+  sections.forEach((section, sectionIndex) => {
+    const matchingChartIndex = options.charts?.findIndex((chart, chartIndex) => !renderedChartIndexes.has(chartIndex) && chartMatchesSection(chart, section)) ?? -1;
+    const chartIndexes = matchingChartIndex >= 0
+      ? [matchingChartIndex]
+      : sectionIndex === 0
+        ? (options.charts ?? []).map((_, chartIndex) => chartIndex).filter((chartIndex) => !renderedChartIndexes.has(chartIndex))
+        : [];
+    if (section.pageBreakBefore) {
       doc.addPage();
       cursorY = 20;
+    }
+    // A heading without its chart is harder to scan than starting the next
+    // section on a fresh page. This reserve also covers the caption/callout.
+    const minimumSectionHeight = (section.scoreCards?.length ? 50 : 30) + chartIndexes.length * 105;
+    if (cursorY + minimumSectionHeight > pageHeight - 20) {
+      doc.addPage();
+      cursorY = 20;
+    }
+
+    if (section.eventTitle) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(21, 72, 34);
+      doc.text(section.eventTitle, 14, cursorY);
+      cursorY += 7;
     }
 
     if (options.showSectionHeaders || sections.length > 1 || options.charts?.length || options.insightsNarrative) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.setTextColor(21, 72, 34);
-      const sectionHeaderLines = (section.header ?? section.name).split("\n");
+      const sectionHeaderLines = (section.eventTitle ? section.name : section.header ?? section.name).split("\n");
       doc.text(sectionHeaderLines, 14, cursorY);
       cursorY += sectionHeaderLines.length * 5;
     }
 
+    chartIndexes.forEach((chartIndex) => {
+      const chart = options.charts?.[chartIndex];
+      if (!chart) return;
+      renderChart(chart, chartIndex);
+      renderedChartIndexes.add(chartIndex);
+    });
+
+    if (section.scoreCards?.length) renderScoreCards(section.scoreCards);
+
     const headers = headersFor(section);
+    const tableBody = valuesFor(section, headers);
+    // Keep compact breakdown tables, such as late-arrival reasons, on one
+    // page. Detailed attendance logs still paginate normally.
+    const keepTableTogether = tableBody.length <= 8;
     autoTable(doc, {
       startY: cursorY,
       head: [headers],
-      body: valuesFor(section, headers),
+      body: tableBody,
+      pageBreak: keepTableTogether ? "avoid" : "auto",
+      rowPageBreak: "avoid",
       theme: "striped",
       headStyles: { fillColor: primary, textColor: [255, 255, 255], fontStyle: "bold", fontSize: 8, font: "helvetica" },
       alternateRowStyles: { fillColor: secondary },
       styles: { font: "helvetica", fontSize: maxColumns > 7 ? 7 : 8, cellPadding: 2, lineColor: primaryLine, lineWidth: 0.1 },
     });
     cursorY = ((doc as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? cursorY) + 10;
+    if (section.recommendations?.length) renderRecommendations(section.recommendations);
   });
 
   drawPdfFooter(doc, branding, generatedAtLabel);
@@ -727,6 +882,13 @@ export async function exportReportXlsx(options: ReportExportOptions) {
   const primaryArgb = argb(branding.primaryColor, "FF0F421D");
   const secondaryArgb = argb(branding.secondaryColor, "FFE8F1E6");
   const sections = sectionsFor(options);
+  const worksheetGroups = sections.reduce<Array<{ name: string; sections: ReportExportSection[] }>>((groups, section) => {
+    const name = section.xlsxSheet ?? section.name;
+    const existing = groups.find((group) => group.name === name);
+    if (existing) existing.sections.push(section);
+    else groups.push({ name, sections: [section] });
+    return groups;
+  }, []);
   const total = sections.reduce((sum, section) => sum + section.rows.length, 0);
   if (!total && !options.summaryCards && !options.insightsNarrative) {
     throw new Error("There are no matching records to export.");
@@ -786,7 +948,49 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     }
   }
 
-  const isMultiTab = sections.length > 1 || (Boolean(options.summaryCards || options.insightsNarrative) && sections.length > 1);
+  function renderInsightsNarrative(ws: Worksheet, startRow: number, maxCols: number) {
+    if (!options.insightsNarrative) return startRow;
+    let curRow = startRow + 1;
+    const narrative = options.insightsNarrative;
+    safeMerge(ws, curRow, 1, curRow, maxCols);
+    ws.getCell(curRow, 1).value = narrative.title ?? "EXECUTIVE ANALYTICAL INSIGHTS";
+    ws.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: primaryArgb } };
+    ws.getRow(curRow).height = 22;
+    curRow++;
+
+    const insightHeaders = ["Analysis Topic", "Executive Overview", "Key Findings", recommendationLabel];
+    insightHeaders.slice(0, maxCols).forEach((headerText, index) => {
+      const cell = ws.getCell(curRow, index + 1);
+      cell.value = headerText;
+      cell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+    });
+    ws.getRow(curRow).height = 24;
+    curRow++;
+
+    const summaryData = [
+      options.title,
+      narrative.executiveSummary,
+      (narrative.keyFindings ?? []).map((finding) => `• ${finding}`).join("\n"),
+      (narrative.recommendations ?? []).map((recommendation) => `• ${recommendation}`).join("\n")
+    ];
+    summaryData.slice(0, maxCols).forEach((value, index) => {
+      const cell = ws.getCell(curRow, index + 1);
+      cell.value = value;
+      cell.font = { size: 9, color: { argb: "FF1E293B" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAF8" } };
+      cell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } }, left: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFE2E8F0" } }, right: { style: "thin", color: { argb: "FFE2E8F0" } }
+      };
+    });
+    ws.getRow(curRow).height = 84;
+    return curRow + 2;
+  }
+
+  const isMultiTab = worksheetGroups.length > 1;
 
   if (isMultiTab) {
     // 1. Overview Tab
@@ -796,7 +1000,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     const overviewMaxCols = 5;
     renderHeaderBanner(overviewWs, overviewMaxCols, options.subtitle ?? "Executive Dashboard & Report Index", cleanTitle(options.title));
 
-    const generatedLine = `Date Generated: ${generatedAtLabel}  ·  Total Data Tabs: ${sections.length}  ·  Total Records: ${total}`;
+    const generatedLine = `Date Generated: ${generatedAtLabel}  ·  Total Data Tabs: ${worksheetGroups.length}  ·  Total Records: ${total}`;
 
     safeMerge(overviewWs, 6, 1, 6, overviewMaxCols);
     overviewWs.getCell(6, 1).value = generatedLine;
@@ -856,49 +1060,46 @@ export async function exportReportXlsx(options: ReportExportOptions) {
       curRow += 2;
     }
 
-    // Insights Narrative
-    if (options.insightsNarrative) {
+    if (options.scoreCards && options.scoreCards.length > 0) {
       curRow++;
       safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
-      overviewWs.getCell(curRow, 1).value = options.insightsNarrative.title ?? "EXECUTIVE ANALYTICAL INSIGHTS";
-      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10.5, color: { argb: primaryArgb } };
-      overviewWs.getRow(curRow).height = 22;
+      overviewWs.getCell(curRow, 1).value = "POST-EVENT OBJECTIVE RESULTS";
+      overviewWs.getCell(curRow, 1).font = { bold: true, size: 10, color: { argb: primaryArgb } };
+      overviewWs.getRow(curRow).height = 20;
       curRow++;
 
-      const insightHeaders = ["Analysis Topic", "Executive Overview", "Key Findings", "Strategic Recommendations"];
-      insightHeaders.slice(0, overviewMaxCols).forEach((hText, idx) => {
-        const cell = overviewWs.getCell(curRow, idx + 1);
-        cell.value = hText;
+      ["Event", "Objective", "Average rating", "Share of 9", "Responses"].forEach((headerText, index) => {
+        const cell = overviewWs.getCell(curRow, index + 1);
+        cell.value = headerText;
         cell.font = { bold: true, size: 9, color: { argb: "FFFFFFFF" } };
         cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
         cell.alignment = { horizontal: "center", vertical: "middle" };
       });
-      overviewWs.getRow(curRow).height = 24;
+      overviewWs.getRow(curRow).height = 22;
       curRow++;
 
-      const summaryData = [
-        options.title,
-        options.insightsNarrative.executiveSummary,
-        (options.insightsNarrative.keyFindings ?? []).map((f) => `• ${f}`).join("\n"),
-        (options.insightsNarrative.recommendations ?? []).map((r) => `• ${r}`).join("\n")
-      ];
-
-      summaryData.slice(0, overviewMaxCols).forEach((val, idx) => {
-        const cell = overviewWs.getCell(curRow, idx + 1);
-        cell.value = val;
-        cell.font = { size: 9, color: { argb: "FF1E293B" } };
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAF8" } };
-        cell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
-        cell.border = {
-          top: { style: "thin", color: { argb: "FFE2E8F0" } },
-          left: { style: "thin", color: { argb: "FFE2E8F0" } },
-          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-          right: { style: "thin", color: { argb: "FFE2E8F0" } }
-        };
+      options.scoreCards.forEach((card) => {
+        const values = [card.group ?? "Selected event", card.label, `${card.value.toFixed(1)} / ${card.maxValue}`, `${((card.value / Math.max(card.maxValue, 1)) * 100).toFixed(1)}%`, card.responseCount];
+        values.forEach((value, index) => {
+          const cell = overviewWs.getCell(curRow, index + 1);
+          cell.value = value;
+          cell.font = { size: 9, color: { argb: "FF1E293B" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAF8" } };
+          cell.alignment = { horizontal: index >= 2 ? "center" : "left", vertical: "middle", wrapText: true };
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFE2E8F0" } },
+            left: { style: "thin", color: { argb: "FFE2E8F0" } },
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
+            right: { style: "thin", color: { argb: "FFE2E8F0" } }
+          };
+        });
+        overviewWs.getRow(curRow).height = 30;
+        curRow++;
       });
-      overviewWs.getRow(curRow).height = 84;
-      curRow += 2;
+      curRow++;
     }
+
+    curRow = renderInsightsNarrative(overviewWs, curRow, overviewMaxCols);
 
     // Render Charts on Overview Tab
     if (options.charts && options.charts.length > 0) {
@@ -932,14 +1133,12 @@ export async function exportReportXlsx(options: ReportExportOptions) {
 
         curRow += 12;
 
-        if (chart.caption) {
-          safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
-          const capCell = overviewWs.getCell(curRow, 1);
-          capCell.value = chart.caption;
-          capCell.font = { italic: true, size: 8.5, color: { argb: "FF64748B" } };
-          overviewWs.getRow(curRow).height = 18;
-          curRow++;
-        }
+        safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
+        const capCell = overviewWs.getCell(curRow, 1);
+        capCell.value = figureCaption(chart, idx);
+        capCell.font = { italic: true, size: 8.5, color: { argb: "FF64748B" } };
+        overviewWs.getRow(curRow).height = 18;
+        curRow += 2;
 
         if (chart.description || (chart.recommendations && chart.recommendations.length > 0)) {
           safeMerge(overviewWs, curRow, 1, curRow, overviewMaxCols);
@@ -949,7 +1148,7 @@ export async function exportReportXlsx(options: ReportExportOptions) {
           if (chart.description) calloutText += `CHART INSIGHT & ANALYSIS:\n${chart.description}`;
           if (chart.recommendations && chart.recommendations.length > 0) {
             if (calloutText) calloutText += "\n\n";
-            calloutText += `STRATEGIC RECOMMENDATIONS:\n${chart.recommendations.map((r) => `• ${r}`).join("\n")}`;
+            calloutText += `${recommendationLabel}:\n${chart.recommendations.map((r) => `• ${r}`).join("\n")}`;
           }
 
           calloutCell.value = calloutText;
@@ -991,9 +1190,9 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     overviewWs.getRow(curRow).height = 24;
     curRow++;
 
-    sections.forEach((sec, sIdx) => {
+    worksheetGroups.forEach((group, groupIdx) => {
       const rowIdx = curRow;
-      const rowVals = [`Tab ${sIdx + 1}`, sec.name, "Analytics Data", `${sec.rows.length} record(s)`, "Ready"];
+      const rowVals = [`Tab ${groupIdx + 1}`, group.name, group.sections.map((section) => section.name).join(", "), `${group.sections.reduce((sum, section) => sum + section.rows.length, 0)} record(s)`, "Ready"];
       rowVals.forEach((val, colIdx) => {
         const cell = overviewWs.getCell(rowIdx, colIdx + 1);
         cell.value = val;
@@ -1013,207 +1212,168 @@ export async function exportReportXlsx(options: ReportExportOptions) {
     for (let c = 1; c <= overviewMaxCols; c++) {
       overviewWs.getColumn(c).width = 24;
     }
-    overviewWs.pageSetup = { orientation: "portrait", fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+    overviewWs.pageSetup = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
     overviewWs.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${generatedAtLabel}&RPage &P of &N`;
   }
 
-  // Render individual data tabs (or single tab if only 1 section)
-  sections.forEach((section, sIdx) => {
-    const wsName = isMultiTab ? safeSheetName(section.name, sIdx + 1, sheetNames) : safeSheetName(cleanTitle(options.title), 0, sheetNames);
+  // Render one worksheet for each requested group. Ordinary reports still have
+  // one section per worksheet; Event Summary groups its related sections by event.
+  worksheetGroups.forEach((group, groupIdx) => {
+    const firstSection = group.sections[0];
+    const wsName = isMultiTab || firstSection.xlsxSheet
+      ? safeSheetName(group.name, groupIdx + 1, sheetNames)
+      : safeSheetName(cleanTitle(options.title), 0, sheetNames);
     const worksheet = workbook.addWorksheet(wsName);
-
-    const headers = headersFor(section);
-    const values = valuesFor(section, headers);
-    const maxWidthCols = Math.max(headers.length, 5);
+    const maxWidthCols = Math.max(...group.sections.map((section) => headersFor(section).length), 5);
+    const sectionHeader = firstSection.header ?? firstSection.eventTitle ?? group.name;
 
     worksheet.views = [{ state: "frozen", ySplit: 6, showGridLines: true }];
-
-    const sectionHeader = section.header ?? section.name;
-    renderHeaderBanner(worksheet, maxWidthCols, options.subtitle ?? `Section ${sIdx + 1}: ${sectionHeader}`, `${cleanTitle(options.title)} — ${sectionHeader}`);
+    renderHeaderBanner(worksheet, maxWidthCols, options.subtitle ?? `Event report: ${sectionHeader}`, `${cleanTitle(options.title)} — ${sectionHeader}`);
 
     safeMerge(worksheet, 6, 1, 6, maxWidthCols);
-    worksheet.getCell(6, 1).value = `Section Records: ${section.rows.length}  ·  Generated: ${generatedAtLabel}`;
+    worksheet.getCell(6, 1).value = `Records: ${group.sections.reduce((sum, section) => sum + section.rows.length, 0)}  ·  Generated: ${generatedAtLabel}`;
     worksheet.getCell(6, 1).font = { size: 9, color: { argb: "FF526155" } };
     worksheet.getRow(6).height = 18;
 
     let curRow = 8;
-
-    // Matching chart for this section
-    const matchingChart = options.charts?.find((c) => {
-      const titleLower = (c.title ?? "").toLowerCase();
-      const secLower = section.name.toLowerCase();
-      if (secLower.includes("attendance") && titleLower.includes("attendance")) return true;
-      if (secLower.includes("prediction") && (titleLower.includes("predict") || titleLower.includes("turnout"))) return true;
-      if (secLower.includes("sentiment") && (titleLower.includes("sentiment") || titleLower.includes("feedback"))) return true;
-      if (secLower.includes("late") && (titleLower.includes("late") || titleLower.includes("tardiness") || titleLower.includes("cause"))) return true;
-      return false;
-    });
-
+    const matchingChart = options.charts?.find((chart) => chartMatchesSection(chart, firstSection));
     if (matchingChart) {
-      const chartRow = curRow;
-      safeMerge(worksheet, chartRow, 1, chartRow, maxWidthCols);
-      const titleCell = worksheet.getCell(chartRow, 1);
-      titleCell.value = matchingChart.title || `Visual Chart`;
+      safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
+      const titleCell = worksheet.getCell(curRow, 1);
+      titleCell.value = matchingChart.title || "Visual Chart";
       titleCell.font = { bold: true, size: 9.5, color: { argb: "FF15803D" } };
-      worksheet.getRow(chartRow).height = 20;
-
-      const cleanImg = cleanBase64(matchingChart.imageDataUrl);
-      if (cleanImg) {
+      worksheet.getRow(curRow).height = 20;
+      const cleanImage = cleanBase64(matchingChart.imageDataUrl);
+      if (cleanImage) {
         try {
-          const imgId = workbook.addImage({ base64: cleanImg, extension: "png" });
-          worksheet.addImage(imgId, {
-            tl: { col: 0.1, row: chartRow },
-            ext: { width: 440, height: 210 }
-          });
+          const imageId = workbook.addImage({ base64: cleanImage, extension: "png" });
+          worksheet.addImage(imageId, { tl: { col: 0.1, row: curRow }, ext: { width: 440, height: 210 } });
         } catch {
-          /* ignore chart render error */
+          /* ignore chart render errors */
         }
       }
-
       curRow += 12;
-
-      if (matchingChart.caption) {
+      safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
+      worksheet.getCell(curRow, 1).value = figureCaption(matchingChart, options.charts?.indexOf(matchingChart) ?? 0);
+      worksheet.getCell(curRow, 1).font = { italic: true, size: 8.5, color: { argb: "FF64748B" } };
+      worksheet.getRow(curRow).height = 18;
+      curRow += 2;
+      if (matchingChart.description || matchingChart.recommendations?.length) {
         safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
-        const capCell = worksheet.getCell(curRow, 1);
-        capCell.value = matchingChart.caption;
-        capCell.font = { italic: true, size: 8.5, color: { argb: "FF64748B" } };
-        worksheet.getRow(curRow).height = 18;
-        curRow++;
+        const insightCell = worksheet.getCell(curRow, 1);
+        insightCell.value = [
+          matchingChart.description ? `CHART INSIGHT & ANALYSIS:\n${matchingChart.description}` : "",
+          matchingChart.recommendations?.length ? `${recommendationLabel}:\n${matchingChart.recommendations.map((recommendation) => `• ${recommendation}`).join("\n")}` : ""
+        ].filter(Boolean).join("\n\n");
+        insightCell.font = { size: 8.5, color: { argb: "FF1E293B" } };
+        insightCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+        insightCell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+        worksheet.getRow(curRow).height = 54;
+        curRow += 2;
       }
-
-      if (matchingChart.description || (matchingChart.recommendations && matchingChart.recommendations.length > 0)) {
-        safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
-        const calloutCell = worksheet.getCell(curRow, 1);
-
-        let calloutText = "";
-        if (matchingChart.description) calloutText += `CHART INSIGHT & ANALYSIS:\n${matchingChart.description}`;
-        if (matchingChart.recommendations && matchingChart.recommendations.length > 0) {
-          if (calloutText) calloutText += "\n\n";
-          calloutText += `STRATEGIC RECOMMENDATIONS:\n${matchingChart.recommendations.map((r) => `• ${r}`).join("\n")}`;
-        }
-
-        calloutCell.value = calloutText;
-        calloutCell.font = { size: 8.5, color: { argb: "FF1E293B" } };
-        calloutCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
-        calloutCell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
-        calloutCell.border = {
-          top: { style: "thin", color: { argb: "FFBBF7D0" } },
-          left: { style: "thin", color: { argb: "FFBBF7D0" } },
-          bottom: { style: "thin", color: { argb: "FFBBF7D0" } },
-          right: { style: "thin", color: { argb: "FFBBF7D0" } }
-        };
-
-        const lineCount = calloutText.split("\n").length;
-        worksheet.getRow(curRow).height = Math.max(36, Math.min(lineCount * 15 + 10, 120));
-        curRow++;
-      }
-
-      curRow++;
     }
-
-    // Single tab only: include summary cards / insights if not rendered on an overview tab
     if (!isMultiTab && options.summaryCards && options.summaryCards.length > 0) {
       safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
       worksheet.getCell(curRow, 1).value = "KEY PERFORMANCE SUMMARY";
       worksheet.getCell(curRow, 1).font = { bold: true, size: 10, color: { argb: primaryArgb } };
       worksheet.getRow(curRow).height = 20;
       curRow++;
-
       options.summaryCards.forEach((card, idx) => {
         const colIdx = idx + 1;
         if (colIdx <= maxWidthCols) {
-          const hCell = worksheet.getCell(curRow, colIdx);
-          hCell.value = card.label.toUpperCase();
-          hCell.font = { bold: true, size: 8.5, color: { argb: "FFFFFFFF" } };
-          hCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
-          hCell.alignment = { horizontal: "center", vertical: "middle" };
+          const headerCell = worksheet.getCell(curRow, colIdx);
+          headerCell.value = card.label.toUpperCase();
+          headerCell.font = { bold: true, size: 8.5, color: { argb: "FFFFFFFF" } };
+          headerCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
+          headerCell.alignment = { horizontal: "center", vertical: "middle" };
         }
       });
       worksheet.getRow(curRow).height = 22;
       curRow++;
-
       options.summaryCards.forEach((card, idx) => {
         const colIdx = idx + 1;
         if (colIdx <= maxWidthCols) {
-          const vCell = worksheet.getCell(curRow, colIdx);
-          vCell.value = `${card.value}${card.subtitle ? `\n${card.subtitle}` : ""}`;
-          vCell.font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
-          vCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: secondaryArgb } };
-          vCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-          vCell.border = {
-            top: { style: "thin", color: { argb: "FFBBF7D0" } },
-            left: { style: "thin", color: { argb: "FFBBF7D0" } },
-            bottom: { style: "thin", color: { argb: "FFBBF7D0" } },
-            right: { style: "thin", color: { argb: "FFBBF7D0" } }
-          };
+          const valueCell = worksheet.getCell(curRow, colIdx);
+          valueCell.value = `${card.value}${card.subtitle ? `\n${card.subtitle}` : ""}`;
+          valueCell.font = { bold: true, size: 11, color: { argb: "FF0F172A" } };
+          valueCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: secondaryArgb } };
+          valueCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         }
       });
       worksheet.getRow(curRow).height = 36;
       curRow += 2;
     }
+    curRow = renderInsightsNarrative(worksheet, curRow, maxWidthCols);
 
-    const tableHeaderRowIdx = curRow;
+    group.sections.forEach((section, sectionIdx) => {
+      const headers = headersFor(section);
+      const values = valuesFor(section, headers);
+      if (group.sections.length > 1) {
+        safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
+        const titleCell = worksheet.getCell(curRow, 1);
+        titleCell.value = section.name.toUpperCase();
+        titleCell.font = { bold: true, size: 10, color: { argb: primaryArgb } };
+        titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F7F0" } };
+        curRow += 2;
+      }
 
-    // Table Headers
-    headers.forEach((headerText, colIdx) => {
-      const cell = worksheet.getCell(tableHeaderRowIdx, colIdx + 1);
-      cell.value = headerText;
-      cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9 };
-      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FF0F421D" } },
-        left: { style: "thin", color: { argb: "FF0F421D" } },
-        bottom: { style: "medium", color: { argb: "FF0F421D" } },
-        right: { style: "thin", color: { argb: "FF0F421D" } }
-      };
-    });
-    worksheet.getRow(tableHeaderRowIdx).height = 25;
-    curRow++;
-
-    // Data Rows
-    values.forEach((rowValues, rIdx) => {
-      const dataRowIdx = curRow;
-      rowValues.forEach((val, colIdx) => {
-        const cell = worksheet.getCell(dataRowIdx, colIdx + 1);
-        cell.value = val;
-        cell.font = { size: 9, color: { argb: "FF1E293B" } };
-
-        const isNumeric = !isNaN(Number(val)) && val.trim() !== "";
-        cell.alignment = { horizontal: isNumeric ? "right" : "left", vertical: "middle" };
-
+      const tableHeaderRowIdx = curRow;
+      headers.forEach((headerText, colIdx) => {
+        const cell = worksheet.getCell(tableHeaderRowIdx, colIdx + 1);
+        cell.value = headerText;
+        cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 9 };
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: primaryArgb } };
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         cell.border = {
-          top: { style: "thin", color: { argb: "FFE2E8F0" } },
-          left: { style: "thin", color: { argb: "FFE2E8F0" } },
-          bottom: { style: "thin", color: { argb: "FFE2E8F0" } },
-          right: { style: "thin", color: { argb: "FFE2E8F0" } }
+          top: { style: "thin", color: { argb: "FF0F421D" } }, left: { style: "thin", color: { argb: "FF0F421D" } },
+          bottom: { style: "medium", color: { argb: "FF0F421D" } }, right: { style: "thin", color: { argb: "FF0F421D" } }
         };
-        if (rIdx % 2 === 1) {
-          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAF8" } };
-        }
       });
-      worksheet.getRow(dataRowIdx).height = 20;
+      worksheet.getRow(tableHeaderRowIdx).height = 25;
       curRow++;
+
+      values.forEach((rowValues, rowIndex) => {
+        rowValues.forEach((value, colIdx) => {
+          const cell = worksheet.getCell(curRow, colIdx + 1);
+          cell.value = value;
+          cell.font = { size: 9, color: { argb: "FF1E293B" } };
+          cell.alignment = { horizontal: !isNaN(Number(value)) && value.trim() !== "" ? "right" : "left", vertical: "middle", wrapText: true };
+          cell.border = {
+            top: { style: "thin", color: { argb: "FFE2E8F0" } }, left: { style: "thin", color: { argb: "FFE2E8F0" } },
+            bottom: { style: "thin", color: { argb: "FFE2E8F0" } }, right: { style: "thin", color: { argb: "FFE2E8F0" } }
+          };
+          if (rowIndex % 2 === 1) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAF8" } };
+        });
+        worksheet.getRow(curRow).height = 20;
+        curRow++;
+      });
+
+      if (group.sections.length === 1 && headers.length > 0 && values.length > 0) {
+        worksheet.autoFilter = { from: { row: tableHeaderRowIdx, column: 1 }, to: { row: tableHeaderRowIdx + values.length, column: headers.length } };
+      }
+      if (section.recommendations?.length) {
+        safeMerge(worksheet, curRow, 1, curRow, maxWidthCols);
+        const recommendationCell = worksheet.getCell(curRow, 1);
+        recommendationCell.value = `${recommendationLabel}\n${section.recommendations.map((recommendation) => `• ${recommendation}`).join("\n")}`;
+        recommendationCell.font = { size: 9, color: { argb: "FF1E293B" } };
+        recommendationCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" } };
+        recommendationCell.alignment = { horizontal: "left", vertical: "top", wrapText: true };
+        worksheet.getRow(curRow).height = Math.max(36, 18 + section.recommendations.length * 15);
+        curRow++;
+      }
+      if (sectionIdx < group.sections.length - 1) curRow += 2;
     });
 
-    if (headers.length > 0 && values.length > 0) {
-      worksheet.autoFilter = {
-        from: { row: tableHeaderRowIdx, column: 1 },
-        to: { row: tableHeaderRowIdx + values.length, column: headers.length }
-      };
-    }
-
-    // Auto-fit Column Widths
     for (let colIdx = 1; colIdx <= maxWidthCols; colIdx++) {
-      let maxLen = 12;
-      if (headers[colIdx - 1]) maxLen = Math.max(maxLen, headers[colIdx - 1].length);
-      values.forEach((r) => {
-        if (r[colIdx - 1]) maxLen = Math.max(maxLen, String(r[colIdx - 1]).length);
-      });
+      const maxLen = group.sections.reduce((longest, section) => {
+        const headers = headersFor(section);
+        const headerLength = headers[colIdx - 1]?.length ?? 0;
+        const valueLength = valuesFor(section, headers).reduce((max, row) => Math.max(max, String(row[colIdx - 1] ?? "").length), 0);
+        return Math.max(longest, headerLength, valueLength);
+      }, 12);
       worksheet.getColumn(colIdx).width = Math.min(Math.max(maxLen + 4, 15), 45);
     }
-
-    worksheet.pageSetup = { orientation: "portrait", fitToWidth: 1, fitToHeight: 0, paperSize: 9, horizontalDpi: 300, verticalDpi: 300 };
+    worksheet.pageSetup = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0, paperSize: 9, horizontalDpi: 300, verticalDpi: 300 };
     worksheet.headerFooter.oddFooter = `&L${branding.systemName} · Generated ${generatedAtLabel}&RPage &P of &N`;
   });
 

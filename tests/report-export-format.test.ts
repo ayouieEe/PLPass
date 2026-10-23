@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitPdfChartSize, institutionHeader } from "@/lib/exports/reportExport";
+import { fitPdfChartSize, institutionHeader, scoreCardColor } from "@/lib/exports/reportExport";
 
 describe("report export header", () => {
   it("keeps university-admin exports institution-wide", () => {
@@ -21,5 +21,11 @@ describe("report export header", () => {
     const size = fitPdfChartSize(580, 280, 269, 95);
     expect(size.width).toBeCloseTo(196.7857, 3);
     expect(size.height).toBe(95);
+  });
+
+  it("uses clear green, yellow, and red score-card colors", () => {
+    expect(scoreCardColor(8, 9).accent).toEqual([22, 128, 61]);
+    expect(scoreCardColor(6, 9).accent).toEqual([217, 119, 6]);
+    expect(scoreCardColor(5, 9).accent).toEqual([220, 38, 38]);
   });
 });

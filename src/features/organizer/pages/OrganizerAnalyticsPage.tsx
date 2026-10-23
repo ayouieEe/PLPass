@@ -67,6 +67,7 @@ import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
+import { actionableRecommendation, emptyReportRows, lateArrivalCategory, lateArrivalReportRows, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -265,31 +266,31 @@ function AnalyticsExportModal({
                 {
                   id: "master",
                   title: "Master Analytics",
-                  desc: "Complete summary across attendance, turnout predictions, feedback sentiment & late patterns.",
+                  desc: "Attendance, saved turnout estimates, objective ratings, feedback labels, and late arrivals.",
                   icon: BarChart3
                 },
                 {
                   id: "attendance",
                   title: "Attendance Summary",
-                  desc: "Attendance rates per session, present/late/absent breakdowns & turnout rates.",
+                  desc: "Attendance rates per completed event with present, late, and absent counts.",
                   icon: TrendingUp
                 },
                 {
                   id: "prediction",
                   title: "Turnout Prediction",
-                  desc: "Forecasted turnout %, attendee numbers & Random Forest ranked determinants.",
+                  desc: "Saved turnout estimates by event. Estimates are not recorded attendance.",
                   icon: Sparkles
                 },
                 {
                   id: "sentiment",
                   title: "Performance & Sentiment",
-                  desc: "Objective goal ratings, sentiment breakdown & student feedback comments.",
+                  desc: "Objective ratings and automated feedback-label breakdowns.",
                   icon: MessageSquareQuote
                 },
                 {
                   id: "late",
                   title: "Late Arrival Patterns",
-                  desc: "Monthly late counts, top reasons share & category breakdowns.",
+                  desc: "Late check-ins per event and the recorded reason breakdown.",
                   icon: Clock3
                 }
               ].map((item) => {
@@ -620,19 +621,9 @@ export function OrganizerAnalyticsPage() {
       { key: "other", label: "Other" }
     ];
 
-    function matchCategory(reasonStr: string | undefined) {
-      if (!reasonStr) return "other";
-      const l = reasonStr.toLowerCase();
-      if (l.includes("traffic") || l.includes("commute")) return "traffic";
-      if (l.includes("class") || l.includes("academic")) return "class";
-      if (l.includes("personal") || l.includes("health")) return "personal";
-      if (l.includes("weather") || l.includes("force")) return "weather";
-      return "other";
-    }
-
     const countMap: Record<string, number> = { traffic: 0, class: 0, personal: 0, weather: 0, other: 0 };
     lateRows.forEach((row) => {
-      const catKey = matchCategory(row.lateReason || row.lateReasonCategory);
+      const catKey = categories.find((category) => category.label === lateArrivalCategory(row.lateReason || row.lateReasonCategory))?.key ?? "other";
       countMap[catKey] = (countMap[catKey] || 0) + 1;
     });
     if (lateRows.length === 0) return [];
@@ -768,83 +759,191 @@ export function OrganizerAnalyticsPage() {
 
   async function handleExportReport(request: { reportType: "master" | "attendance" | "prediction" | "sentiment" | "late"; format: "xlsx" | "pdf" }) {
     const selectedEvent = eventFilter === "all" ? undefined : eventLookup.get(eventFilter);
-    const selectedEvents = filteredEventData;
+    const selectedEvents = [...filteredEventData].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
     const selectedIds = new Set(selectedEvents.map((event) => event.id));
-    const selectedSummaries = filteredSessionSummaryData;
+    const selectedSummaries = [...filteredSessionSummaryData].sort((a, b) => a.date.localeCompare(b.date) || a.eventCode.localeCompare(b.eventCode));
     const eventLookupForId = (events: typeof eventData, eventId: string) => events.find((event) => event.id === eventId)?.code ?? eventId;
-    const reportNames = { master: "PLPass Master Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Prediction Report", sentiment: "PLPass Performance and Sentiment Report", late: "PLPass Late Arrival Patterns Report" };
+    const reportNames = { master: "PLPass Event Analytics Report", attendance: "PLPass Attendance Summary Report", prediction: "PLPass Turnout Estimate Report", sentiment: "PLPass Performance and Feedback Labels Report", late: "PLPass Late Arrival Report" };
     const attendanceRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, "Attendance Rate": `${row.attendanceRate}%`, Present: row.present, Late: row.late, Absent: row.absent, Registered: row.totalRegistered, "Walk-ins": row.walkIns, "Total Participants": row.attendancePopulation }));
-    const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Predicted Attendance": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%`, "Predicted Absences": event.predictedTurnout == null ? "Not available" : `${100 - event.predictedTurnout}%` }));
-    const summaryRows = (summariesQuery.data?.items ?? []).filter((row) => Boolean(row.eventId) && selectedIds.has(row.eventId)).map((row) => ({ "Event Code": eventLookupForId(eventData, row.eventId ?? ""), Positive: `${row.positivePercentage ?? 0}%`, Neutral: `${row.neutralPercentage ?? 0}%`, Negative: `${row.negativePercentage ?? 0}%` }));
+    const predictionRows = selectedEvents.map((event) => ({ "Event Code": event.code, "Event Title": event.title, "Event Date": event.date, "Saved turnout estimate": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%` }));
+    const feedbackCounts = (feedbackQuery.data?.items ?? []).reduce((counts, feedback) => {
+      if (!selectedIds.has(feedback.eventId)) return counts;
+      const label = feedback.sentimentLabel?.trim().toLowerCase();
+      if (label === "positive" || label === "neutral" || label === "negative") counts[label] += 1;
+      return counts;
+    }, { positive: 0, neutral: 0, negative: 0 });
+    const sentimentRows = sentimentReportRows(feedbackCounts);
+    const eventLabelsById = new Map(selectedEvents.map((event) => [event.id, `${event.code} — ${event.title}`]));
+    const eventOrderById = new Map(selectedEvents.map((event, index) => [event.id, index]));
+    const objectiveRows = (objectivesQuery.data?.items ?? [])
+      .filter((objective) => selectedIds.has(objective.eventId))
+      .map((objective) => ({
+        eventId: objective.eventId,
+        eventCode: eventLookupForId(eventData, objective.eventId),
+        objective: objective.text,
+        averageRating: objective.averageRating ?? null,
+        responseCount: objective.ratingCount ?? 0
+      }))
+      .sort((a, b) => (eventOrderById.get(a.eventId) ?? Number.MAX_SAFE_INTEGER) - (eventOrderById.get(b.eventId) ?? Number.MAX_SAFE_INTEGER));
+    const objectiveResultRows = objectiveResultReportRows(objectiveRows);
+    const objectiveScoreCards = objectiveRows
+      .filter((objective) => objective.averageRating != null && objective.responseCount > 0)
+      .map((objective) => ({ group: eventLabelsById.get(objective.eventId) ?? objective.eventCode, label: objective.objective, value: objective.averageRating as number, maxValue: 9, responseCount: objective.responseCount }));
     const lateRows = selectedSummaries.map((row) => ({ "Event Code": row.eventCode, "Event Date": row.date, Late: row.late, "Late Rate": `${row.totalRegistered ? Math.round((row.late / row.totalRegistered) * 100) : 0}%` }));
-    const sections: ReportExportSection[] = request.reportType === "master" ? [{ name: "Attendance Summary", rows: attendanceRows }, { name: "Turnout Prediction", rows: predictionRows }, { name: "Performance and Sentiment", rows: summaryRows }, { name: "Late Arrival Patterns", rows: lateRows }] : [{ name: reportNames[request.reportType].replace("PLPass ", "").replace(" Report", ""), rows: request.reportType === "attendance" ? attendanceRows : request.reportType === "prediction" ? predictionRows : request.reportType === "sentiment" ? summaryRows : lateRows }];
+    const lateBreakdownRows = lateArrivalReportRows(filteredLateReasons.map((reason) => ({ reason: reason.category, count: reason.count })));
+    const actualByEventId = new Map(selectedSummaries.filter((row) => row.eventId).map((row) => [row.eventId, row.attendanceRate]));
+    const attendanceComparedWithEstimateRows = selectedEvents.map((event) => ({
+      "Event Code": event.code,
+      "Event Date": event.date,
+      "Recorded attendance": actualByEventId.has(event.id) ? `${actualByEventId.get(event.id)}%` : "Not available",
+      "Saved turnout estimate": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%`
+    }));
+    const feedbackCountsByEventId = new Map(selectedEvents.map((event) => [event.id, { positive: 0, neutral: 0, negative: 0 }]));
+    (feedbackQuery.data?.items ?? []).forEach((feedback) => {
+      const counts = feedbackCountsByEventId.get(feedback.eventId);
+      const label = feedback.sentimentLabel?.trim().toLowerCase();
+      if (counts && (label === "positive" || label === "neutral" || label === "negative")) counts[label] += 1;
+    });
+    const eventIdBySessionId = new Map(
+      (sessionsQuery.data?.items ?? [])
+        .filter((session) => session.eventId && selectedIds.has(session.eventId))
+        .map((session) => [session.id, session.eventId as string])
+    );
+    const lateReasonsByEventId = new Map<string, Map<string, number>>();
+    (attendanceRecordsQuery.data?.items ?? []).forEach((record) => {
+      const eventId = eventIdBySessionId.get(record.sessionId);
+      if (!eventId || record.status !== "late") return;
+      const reasons = lateReasonsByEventId.get(eventId) ?? new Map<string, number>();
+      const reason = lateArrivalCategory(record.lateReason || record.lateReasonCategory);
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+      lateReasonsByEventId.set(eventId, reasons);
+    });
+    const recommendationRows = selectedEvents.flatMap((event) => {
+      const lowestEventObjective = objectiveRows
+        .filter((objective) => objective.eventId === event.id && objective.averageRating != null && objective.responseCount > 0)
+        .sort((a, b) => (a.averageRating as number) - (b.averageRating as number))[0];
+      const feedback = feedbackCountsByEventId.get(event.id) ?? { positive: 0, neutral: 0, negative: 0 };
+      const labelledFeedback = feedback.positive + feedback.neutral + feedback.negative;
+      const lateReasons = lateReasonsByEventId.get(event.id) ?? new Map<string, number>();
+      const totalLate = [...lateReasons.values()].reduce((total, count) => total + count, 0);
+      const topLateReason = [...lateReasons.entries()].reduce<[string, number] | undefined>((top, entry) => !top || entry[1] > top[1] ? entry : top, undefined);
+      const recommendation = actionableRecommendation({
+        attendanceRate: actualByEventId.get(event.id),
+        objective: lowestEventObjective?.averageRating == null ? undefined : { label: lowestEventObjective.objective, averageRating: lowestEventObjective.averageRating },
+        negativeFeedback: { count: feedback.negative, total: labelledFeedback },
+        lateArrival: topLateReason ? { reason: topLateReason[0], count: topLateReason[1], total: totalLate } : undefined
+      });
+      return recommendation ? [{ "Event Code": event.code, "Event Date": event.date, Recommendation: recommendation }] : [];
+    });
+    const sections: ReportExportSection[] = request.reportType === "master"
+      ? [
+        { name: "Attendance Overview", rows: attendanceRows.length ? attendanceRows : emptyReportRows("No completed attendance records found.") },
+        { name: "Recorded Attendance and Saved Turnout Estimate", rows: attendanceComparedWithEstimateRows.length ? attendanceComparedWithEstimateRows : emptyReportRows("No events found.") },
+        { name: "Late Arrival Breakdown", rows: lateBreakdownRows },
+        { name: "Post-Event Objective Results", scoreCards: objectiveScoreCards, rows: objectiveResultRows },
+        { name: "Feedback Labels", rows: sentimentRows },
+        { name: "Recommendation", rows: recommendationRows.length ? recommendationRows : emptyReportRows("No recommendation based on the recorded results.") }
+      ]
+      : request.reportType === "sentiment"
+        ? [{ name: "Post-Event Objective Results", scoreCards: objectiveScoreCards, rows: objectiveResultRows }, { name: "Feedback Labels", rows: sentimentRows }]
+      : request.reportType === "late"
+        ? [{ name: "Late Arrival Overview", rows: lateRows.length ? lateRows : emptyReportRows("No late arrivals recorded.") }, { name: "Late Arrival Breakdown", rows: lateBreakdownRows }]
+        : [{ name: reportNames[request.reportType].replace("PLPass ", "").replace(" Report", ""), rows: request.reportType === "attendance" ? (attendanceRows.length ? attendanceRows : emptyReportRows("No completed attendance records found.")) : (predictionRows.length ? predictionRows : emptyReportRows("No saved turnout estimates found.")) }];
     const scope = selectedEvent ? { type: "event" as const, eventId: selectedEvent.id } : { type: "global" as const };
     const scopeSlug = selectedEvent ? selectedEvent.code : "all-events";
     const filters = { "Target Event": selectedEvent ? `${selectedEvent.code} — ${selectedEvent.title}` : "All Events", Category: "All Categories", "Time Horizon": dateRangePreset === "all" ? "All time" : dateRangePreset };
-
-    // KPI Summary Cards
-    const summaryCards: ReportSummaryCard[] = [
-      { label: "Overall Attendance", value: overallAttendanceLabel, subtitle: "Average across completed sessions", colorTheme: "emerald" },
-      { label: "Turnout Forecast", value: selectedPrediction == null ? "Not available" : `${selectedPrediction}%`, subtitle: isDepartmentAdmin ? "Saved event estimate only; live department inference is unavailable" : "Experimental model estimate for selected event participants", colorTheme: "blue" },
-      { label: "Positive Sentiment", value: positiveSentimentLabel, subtitle: "Favorable feedback share", colorTheme: "amber" },
-      { label: "Top Tardiness Cause", value: topLateReason.category, subtitle: topLateReason.count > 0 ? `${topLateReason.count} check-ins (${topLateReason.share}%)` : "No late check-ins", colorTheme: "purple" }
-    ];
+    const labelledFeedback = feedbackCounts.positive + feedbackCounts.neutral + feedbackCounts.negative;
+    const savedEstimateCount = selectedEvents.filter((event) => event.predictedTurnout != null).length;
+    const lowestObjective = [...objectiveRows]
+      .filter((objective): objective is typeof objective & { averageRating: number } => objective.averageRating != null && objective.responseCount > 0)
+      .sort((a, b) => a.averageRating - b.averageRating)[0];
+    const totalLateArrivals = filteredLateReasons.reduce((total, reason) => total + reason.count, 0);
+    const topRecordedLateReason = filteredLateReasons.reduce<typeof filteredLateReasons[number] | undefined>((top, reason) => !top || reason.count > top.count ? reason : top, undefined);
+    const objectiveSignal = lowestObjective
+      ? { label: `${lowestObjective.eventCode}: ${lowestObjective.objective}`, averageRating: lowestObjective.averageRating }
+      : undefined;
+    const attendanceRecommendation = actionableRecommendation({ attendanceRate: overallAttendanceRate });
+    const performanceRecommendation = actionableRecommendation({
+      objective: objectiveSignal,
+      negativeFeedback: { count: feedbackCounts.negative, total: labelledFeedback }
+    });
+    const lateRecommendation = actionableRecommendation({
+      lateArrival: topRecordedLateReason ? { reason: topRecordedLateReason.category, count: topRecordedLateReason.count, total: totalLateArrivals } : undefined
+    });
+    const attendanceSummaryCard: ReportSummaryCard = { label: "Recorded Attendance", value: overallAttendanceLabel, subtitle: "Completed sessions", colorTheme: "emerald" };
+    const savedEstimateSummaryCard: ReportSummaryCard = { label: "Saved Turnout Estimates", value: String(savedEstimateCount), subtitle: "Events with a saved estimate", colorTheme: "blue" };
+    const feedbackSummaryCard: ReportSummaryCard = { label: "Labelled Feedback", value: String(labelledFeedback), subtitle: "Responses with a label", colorTheme: "amber" };
+    const lateArrivalSummaryCard: ReportSummaryCard = { label: "Late Arrivals", value: String(totalLateArrivals), subtitle: "Recorded late check-ins", colorTheme: "purple" };
+    const summaryCards: ReportSummaryCard[] = request.reportType === "master"
+      ? [attendanceSummaryCard, savedEstimateSummaryCard, feedbackSummaryCard, lateArrivalSummaryCard]
+      : request.reportType === "attendance"
+        ? [attendanceSummaryCard]
+        : request.reportType === "prediction"
+          ? [savedEstimateSummaryCard]
+          : request.reportType === "sentiment"
+            ? [feedbackSummaryCard]
+            : [lateArrivalSummaryCard];
 
     // Report-specific Analytical Narrative & Recommendations
     let insightsNarrative: ReportInsightsNarrative;
     if (request.reportType === "master") {
       insightsNarrative = {
-        title: "EXECUTIVE ANALYTICAL SUMMARY & INSIGHTS",
-        executiveSummary: `This report summarizes recorded attendance, saved feedback summaries, available event forecasts, and late-arrival records for the selected scope. Average recorded attendance is ${overallAttendanceLabel}.`,
+        title: "REPORT SUMMARY",
+        executiveSummary: `${selectedSummaries.length} completed event${selectedSummaries.length === 1 ? "" : "s"}. Average recorded attendance: ${overallAttendanceLabel}. Saved turnout estimates: ${savedEstimateCount} of ${selectedEvents.length} events. Labelled feedback: ${labelledFeedback} responses.`,
         keyFindings: [
-          `Overall session attendance rate is ${overallAttendanceLabel}${selectedSummaries.length ? `; the highest selected session rate is ${Math.max(...selectedSummaries.map((s) => s.attendanceRate))}%.` : "; no completed session records are available."}`,
-          `Saved forecast for the selected event: ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}.`,
-          `Post-event student feedback reflects a ${positiveSentimentLabel} positive sentiment rate.`,
-          `The primary root cause for check-in tardiness is '${topLateReason.category}', accounting for ${topLateReason.share}% of recorded late check-ins.`
+          `Average attendance: ${overallAttendanceLabel} across ${selectedSummaries.length} completed event${selectedSummaries.length === 1 ? "" : "s"}.`,
+          ...(selectedSummaries.length < 2 ? ["More completed events are needed to identify a trend."] : []),
+          ...(lowestObjective ? [`Lowest objective rating: ${lowestObjective.averageRating.toFixed(1)} out of 9 for ${lowestObjective.eventCode}.`] : []),
+          labelledFeedback ? `Feedback labels: ${feedbackCounts.positive} positive, ${feedbackCounts.neutral} neutral, and ${feedbackCounts.negative} negative.` : "No labelled feedback received.",
+          topRecordedLateReason && totalLateArrivals > 0 ? `Most selected late-arrival reason: ${topRecordedLateReason.category} (${topRecordedLateReason.count} of ${totalLateArrivals} late check-ins).` : "No late arrivals recorded."
         ],
-        recommendations: ["Use recorded event-level metrics as a baseline and review event context before changing schedules or attendance procedures."]
+        recommendations: recommendationRows.slice(0, 3).map((row) => `${row["Event Code"]}: ${row.Recommendation}`)
       };
     } else if (request.reportType === "attendance") {
       insightsNarrative = {
-        title: "ATTENDANCE TRENDS & TURN-OUT ANALYSIS",
-        executiveSummary: `Recorded attendance rows across the selected completed sessions show an average attendance rate of ${overallAttendanceLabel}.`,
+        title: "ATTENDANCE SUMMARY",
+        executiveSummary: `Recorded attendance across the selected completed sessions averages ${overallAttendanceLabel}.`,
         keyFindings: [
-          `Average attendance rate across monitored sessions: ${overallAttendanceLabel}.`,
+          `Average attendance rate across completed sessions: ${overallAttendanceLabel}.`,
           `Total present check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.present, 0)} participants; Late check-ins: ${selectedSummaries.reduce((acc, row) => acc + row.late, 0)} participants.`,
-          `The report includes ${selectedSummaries.length} completed event summary row(s).`
+          selectedSummaries.length < 2 ? "More completed events are needed to identify a trend." : `The report includes ${selectedSummaries.length} completed event sessions.`
         ],
-        recommendations: ["Compare these observed rates with event registration and schedule before making operational changes."]
+        recommendations: attendanceRecommendation ? [attendanceRecommendation] : []
       };
     } else if (request.reportType === "prediction") {
+      const savedEstimateLabel = selectedEvent
+        ? selectedPrediction == null ? "not available" : `${selectedPrediction}%`
+        : `${savedEstimateCount} of ${selectedEvents.length} selected events`;
       insightsNarrative = {
-        title: "TURNOUT FORECAST & ML DETERMINANT ANALYSIS",
-        executiveSummary: `The experimental attendance model estimate for the selected event is ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}. Model-level feature importance is distinct from department-specific attendance data.`,
+        title: "SAVED TURNOUT ESTIMATES",
+        executiveSummary: selectedEvent
+          ? `The saved turnout estimate for the selected event is ${savedEstimateLabel}.`
+          : `Saved turnout estimates are available for ${savedEstimateLabel}.`,
         keyFindings: [
-          `Predicted turnout rate: ${selectedPrediction == null ? "not available" : `${selectedPrediction}%`}.`,
-          ...(predictionFactors.length ? [`Top positive model features: ${predictionFactors.slice(0, 3).map((f) => f.name).join(", ")}.`] : []),
-          `This forecast is an estimate and should not be interpreted as a causal effect.`
+          `Saved turnout estimate: ${savedEstimateLabel}.`,
+          `A saved estimate is not a substitute for recorded attendance.`
         ],
-        recommendations: ["Treat the estimate as exploratory; validate it against observed attendance before making decisions."]
+        recommendations: []
       };
     } else if (request.reportType === "sentiment") {
       insightsNarrative = {
-        title: "FEEDBACK SENTIMENT & OBJECTIVE EVALUATION",
-        executiveSummary: `Saved event feedback summaries indicate ${positiveSentimentLabel} positive sentiment. Objective ratings are shown only where submitted ratings exist.`,
+        title: "OBJECTIVE RESULTS AND FEEDBACK LABELS",
+        executiveSummary: `Objective ratings and automated feedback labels are shown only when they were submitted.`,
         keyFindings: [
-          `Feedback sentiment breakdown: ${positiveSentimentLabel} Positive, ${positiveSentimentShare != null ? `${sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0}%` : "N/A"} Neutral, ${positiveSentimentShare != null ? `${sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0}%` : "N/A"} Negative.`,
-          `Objective rating records available in this scope: ${objectivePerformance.length}.`
+          feedbackCounts.positive + feedbackCounts.neutral + feedbackCounts.negative ? `Feedback labels: ${feedbackCounts.positive} positive, ${feedbackCounts.neutral} neutral, and ${feedbackCounts.negative} negative.` : "No labelled feedback received.",
+          `Objective topics with ratings: ${objectivePerformance.length}.`
         ],
-        recommendations: ["Review the underlying feedback and objective ratings before drawing qualitative conclusions."]
+        recommendations: performanceRecommendation ? [performanceRecommendation] : []
       };
     } else {
       insightsNarrative = {
-        title: "LATE ARRIVAL PATTERNS & BOTTLENECK ANALYSIS",
-        executiveSummary: `Analysis of tardiness logs indicates that late check-ins account for approximately ${selectedSummaries.length ? Math.round((selectedSummaries.reduce((s, row) => s + row.late, 0) / Math.max(selectedSummaries.reduce((s, row) => s + row.totalRegistered, 0), 1)) * 100) : 0}% of total registered participants. The primary driver is '${topLateReason.category}'.`,
+        title: "LATE ARRIVAL SUMMARY",
+        executiveSummary: filteredLateReasons.some((reason) => reason.count > 0) ? "This report groups the reasons recorded for late check-ins." : "No late arrivals recorded.",
         keyFindings: [
-          `Leading tardiness cause: ${topLateReason.category} (${topLateReason.share}% of total late check-ins).`,
-          `Category counts use recorded late-arrival reason fields for the selected events.`
+          filteredLateReasons.some((reason) => reason.count > 0) ? "Category counts use the late-arrival reasons recorded at check-in." : "No late-arrival reason data is available.",
+          "Recorded reasons describe what was selected or entered; they do not establish a cause."
         ],
-        recommendations: ["Treat recorded reasons as discussion points; they do not establish a cause or remedy by themselves."]
+        recommendations: lateRecommendation ? [lateRecommendation] : []
       };
     }
 
@@ -854,7 +953,9 @@ export function OrganizerAnalyticsPage() {
     if (request.reportType === "master" || request.reportType === "attendance") {
       const trendLabels = selectedSummaries.slice(0, 8).map((s) => s.eventCode);
       const trendRates = selectedSummaries.slice(0, 8).map((s) => s.attendanceRate);
-      if (trendLabels.length > 0) {
+      if (trendLabels.length >= 2) {
+        const lowestRate = Math.min(...trendRates);
+        const highestRate = Math.max(...trendRates);
         charts.push({
           title: "Attendance Rate Trend Across Sessions (%)",
           imageDataUrl: generateLineChartPng({
@@ -866,12 +967,9 @@ export function OrganizerAnalyticsPage() {
             width: 580,
             height: 280
           }),
-          caption: "Figure 1: Session attendance rate percentage trajectory across evaluated events.",
-          description: "Tracks student participation rates across recent event sessions. Steady or upward trends indicate high event engagement, whereas sharp dips signal potential scheduling conflicts or suboptimal session timing.",
-          recommendations: [
-            "Schedule core workshops during peak engagement days (Tuesdays & Thursdays 9:00 AM - 11:00 AM).",
-            "Dispatch automated SMS and Email check-in reminders 48 hours and 2 hours prior to scheduled sessions."
-          ]
+          caption: "Recorded attendance across completed events.",
+          description: `Recorded attendance ranged from ${lowestRate}% to ${highestRate}% across ${trendRates.length} completed events.`,
+          recommendations: attendanceRecommendation ? [attendanceRecommendation] : []
         });
       }
     }
@@ -882,9 +980,9 @@ export function OrganizerAnalyticsPage() {
       const predSeries = predictionEvents.map((event) => event.predictedTurnout as number);
       if (predCategories.length > 0) {
         charts.push({
-          title: "Saved Predicted Turnout by Event (%)",
+          title: "Saved Turnout Estimate by Event (%)",
           imageDataUrl: generateBarChartPng({
-            title: "Forecasted Turnout (%)",
+            title: "Saved Turnout Estimate (%)",
             categories: predCategories,
             series: [{ name: "Predicted Turnout %", data: predSeries, color: "#16A34A" }],
             unit: "%",
@@ -892,44 +990,41 @@ export function OrganizerAnalyticsPage() {
             width: 580,
             height: 280
           }),
-          caption: "Figure 2: Saved event turnout estimates (events without a saved estimate are omitted).",
-          description: "Values are read from the event predicted_turnout_percent field and are not observed attendance.",
-          recommendations: ["Validate saved estimates against actual completed-session attendance before using them for planning."]
+          caption: "Saved turnout estimates by event. Events without a saved estimate are omitted.",
+          description: `Saved turnout estimates range from ${Math.min(...predSeries)}% to ${Math.max(...predSeries)}%. They are not recorded attendance.`
         });
       }
     }
 
-    if ((request.reportType === "master" || request.reportType === "sentiment") && (filteredSentimentSummaries.length > 0 || positiveSentimentShare != null)) {
-      const pos = positiveSentimentShare ?? 0;
-      const neu = sentimentOverview.find((s) => s.name === "Neutral")?.value ?? 0;
-      const neg = sentimentOverview.find((s) => s.name === "Negative")?.value ?? 0;
+    if ((request.reportType === "master" || request.reportType === "sentiment") && feedbackCounts.positive + feedbackCounts.neutral + feedbackCounts.negative > 0) {
+      const labelledFeedback = feedbackCounts.positive + feedbackCounts.neutral + feedbackCounts.negative;
       charts.push({
-        title: "Student Feedback Sentiment Distribution",
+        title: "Feedback Labels",
         imageDataUrl: generateDonutChartPng({
-          title: "Sentiment Breakdown",
+          title: "Labelled Feedback",
           slices: [
-            { label: "Positive", value: pos, color: "#16A34A" },
-            { label: "Neutral", value: neu, color: "#64748B" },
-            { label: "Negative", value: neg, color: "#DC2626" }
+            { label: "Positive", value: feedbackCounts.positive, color: "#16A34A" },
+            { label: "Neutral", value: feedbackCounts.neutral, color: "#64748B" },
+            { label: "Negative", value: feedbackCounts.negative, color: "#DC2626" }
           ],
-          centerText: `${pos}%`,
-          centerSubtext: "Positive",
+          centerText: String(labelledFeedback),
+          centerSubtext: "responses",
           width: 520,
           height: 270
         }),
-        caption: "Figure 3: Distribution of student feedback sentiment labels.",
-          description: "Summary percentages are read from saved event feedback summary rows. They are descriptive and do not identify the cause of sentiment.",
-          recommendations: ["Review the underlying event comments and ratings before making qualitative conclusions."]
+        caption: "Counts and percentages of automated feedback labels.",
+        description: `Feedback labels were available for ${labelledFeedback} responses. They do not explain why a response received a label.`,
+        recommendations: performanceRecommendation ? [performanceRecommendation] : []
       });
     }
 
-    if ((request.reportType === "master" || request.reportType === "late") && filteredLateReasons.length > 0) {
-      const lateCategories = filteredLateReasons.map((r) => r.category.split(" ")[0]);
+    if ((request.reportType === "master" || request.reportType === "late") && filteredLateReasons.some((reason) => reason.count > 0)) {
+      const lateCategories = filteredLateReasons.map((r) => r.category);
       const lateShares = filteredLateReasons.map((r) => r.share);
       charts.push({
-        title: "Primary Causes for Late Arrival (% Share)",
+        title: "Late Arrival Breakdown (% Share)",
         imageDataUrl: generateBarChartPng({
-          title: "Late Arrival Causes",
+          title: "Recorded Late-Arrival Reasons",
           categories: lateCategories,
           series: [{ name: "Share %", data: lateShares, color: "#D97706" }],
           unit: "%",
@@ -937,9 +1032,9 @@ export function OrganizerAnalyticsPage() {
           width: 580,
           height: 270
         }),
-        caption: "Figure 4: Breakdown of reported tardiness reasons among participants.",
-          description: "Categories are derived from late-reason fields on recorded late attendance rows; this distribution alone does not establish root causes.",
-          recommendations: ["Use recorded reasons as discussion points, not proof of a cause or remedy."]
+        caption: "Share of recorded late arrivals by the reason selected or entered at check-in.",
+        description: topRecordedLateReason ? `"${topRecordedLateReason.category}" was selected for ${topRecordedLateReason.count} of ${totalLateArrivals} late check-ins. This does not confirm the cause of lateness.` : "No late arrivals recorded.",
+        recommendations: lateRecommendation ? [lateRecommendation] : []
       });
     }
 

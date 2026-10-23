@@ -3605,6 +3605,7 @@ export function EventManagementPage() {
   function exportAttendanceReport(label: string, record: CompletedRecord, rows: AttendanceRow[]) {
     const attendanceRows = rows.map((row) => ({
       "Event Code": record.code,
+      "Event Date": record.date,
       "Student Name": row.studentName,
       "Attendance Status": row.attendanceStatus,
       "Time In": row.checkInTime,

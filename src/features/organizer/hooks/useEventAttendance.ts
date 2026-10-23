@@ -119,6 +119,7 @@ export type ObjectiveFeedbackSummary = {
 export type EventFeedbackSummary = {
   feedbackCount: number;
   sentiment: { positive: number; neutral: number; negative: number };
+  sentimentCounts: { positive: number; neutral: number; negative: number };
   feedbackComments: string[];
   objectiveResults: Record<string, ObjectiveFeedbackSummary>;
 };
@@ -358,6 +359,7 @@ function emptyFeedbackSummary(): EventFeedbackSummary {
   return {
     feedbackCount: 0,
     sentiment: { positive: 0, neutral: 0, negative: 0 },
+    sentimentCounts: { positive: 0, neutral: 0, negative: 0 },
     feedbackComments: [],
     objectiveResults: {}
   };
@@ -403,6 +405,7 @@ async function fetchFeedbackForEvents(eventIds: string[]): Promise<Record<string
   Object.entries(sentimentCounts).forEach(([eventId, counts]) => {
     const total = counts.positive + counts.neutral + counts.negative;
     if (!total || !summaries[eventId]) return;
+    summaries[eventId].sentimentCounts = counts;
     summaries[eventId].sentiment = {
       positive: Math.round((counts.positive / total) * 100),
       neutral: Math.round((counts.neutral / total) * 100),

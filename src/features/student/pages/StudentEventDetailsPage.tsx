@@ -399,6 +399,14 @@ export function StudentEventDetailsPage() {
       toast.error("Please provide a more detailed reason.");
       return;
     }
+    const normalizedCustomReason = customLateReason.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+    const matchingPresetReason = selectedOption.code === "other"
+      ? lateReasonOptions.find((option) => option.code !== "other" && option.label.trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedCustomReason)
+      : undefined;
+    if (matchingPresetReason) {
+      toast.error(`Select "${matchingPresetReason.label}" instead of Other.`);
+      return;
+    }
     try {
       await submitLateReasonMutation.mutateAsync({
         eventSessionId: eventSession.id,

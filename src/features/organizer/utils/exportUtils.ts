@@ -1,4 +1,4 @@
-import { exportReportPdf, exportReportXlsx, type ReportExportScope, type ReportExportSection } from "@/lib/exports/reportExport";
+import { exportReportPdf, exportReportXlsx, type ReportExportOptions, type ReportExportScope, type ReportExportSection } from "@/lib/exports/reportExport";
 
 /**
  * Export utilities for organizer reports.
@@ -113,8 +113,8 @@ export async function exportTabularReport(title: string, rows: ExportTableRow[],
 }
 
 /** Export a tabular report as separate, clearly labelled sections (for example, one section per event). */
-export async function exportTabularReportSections(title: string, sections: ReportExportSection[], scope?: ReportExportScope, showSectionHeaders = false, institution?: { collegeName?: string; schoolYear?: string }) {
-  const options = { title, sections, fileName: reportFileName(title), scope, showSectionHeaders, institution };
+export async function exportTabularReportSections(title: string, sections: ReportExportSection[], scope?: ReportExportScope, showSectionHeaders = false, institution?: { collegeName?: string; schoolYear?: string }, extras?: Pick<ReportExportOptions, "filters" | "summaryCards" | "scoreCards" | "insightsNarrative" | "charts" | "subtitle">) {
+  const options = { title, sections, fileName: reportFileName(title), scope, showSectionHeaders, institution, ...extras };
   if (/\bpdf\b/i.test(title)) await exportReportPdf(options);
   else await exportReportXlsx(options);
 }

@@ -22,7 +22,9 @@ import { APP_ROUTES } from "@/lib/constants/routes";
 import type { PriorityLevel } from "@/types/enums";
 import { EVENT_CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
 import { formatAttendanceMethod, type OrganizerAttendanceRow } from "@/features/organizer/data/organizerUiStore";
-import { exportTabularReport, exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
+import { exportTabularReportSections } from "@/features/organizer/utils/exportUtils";
+import { actionableRecommendation, lateArrivalReportRows, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
+import type { ReportExportSection } from "@/lib/exports/reportExport";
 import { sortCompletedEventsNewestFirst } from "@/features/organizer/utils/completedEventOrdering";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { getWorkspaceRoute } from "@/lib/utils/workspaceRoutes";
@@ -108,6 +110,11 @@ type CompletedRecord = EventRecord & {
   attendancePopulation: number;
   attendanceRate: string;
   sentiment: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  sentimentCounts?: {
     positive: number;
     neutral: number;
     negative: number;
@@ -574,6 +581,7 @@ export function EventRecordsPage() {
         } : {}),
         ...(feedback ? {
           sentiment: feedback.sentiment,
+          sentimentCounts: feedback.sentimentCounts,
           feedbackCount: feedback.feedbackCount,
           feedbackComments: feedback.feedbackComments,
           objectiveResults: feedback.objectiveResults
@@ -667,23 +675,58 @@ export function EventRecordsPage() {
   }
 
   function exportReport(label: string, events = pastEvents) {
-    const rows = events.map((event) => ({
-      "Event Code": event.code,
-      "Event Name": event.name,
-      Category: event.category,
-      Venue: event.venue,
-      Organizer: event.organizerName ?? "Not available",
-      "Organizer Email": event.organizerEmail ?? "Not available",
-      Date: event.date,
-      Present: event.present,
-      Late: event.late,
-      Absent: event.absent,
-      "Registered": event.totalRegistered,
-      "Walk-ins": event.walkIns,
-      "Total Participants": event.attendancePopulation,
-      "Attendance Rate": event.attendanceRate
-    }));
-    exportTabularReport(label, rows, events.length === 1 && events[0]?.id ? { type: "event", eventId: events[0].id } : undefined);
+    const orderedEvents = events.length > 1 ? [...events].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code)) : events;
+    const singleEvent = orderedEvents.length === 1 ? orderedEvents[0] : undefined;
+    const sections: ReportExportSection[] = orderedEvents.flatMap((event, eventIndex) => {
+      const xlsxSheet = `${event.code} ${event.name}`;
+      const attendanceRows = event.id ? attendanceSummariesQuery.data?.[event.id]?.rows ?? [] : [];
+      const objectives = (event.objectives ?? []).map((objective, index) => {
+        const result = event.objectiveResults?.[objectiveKey(objective, index)];
+        return { objective: objectiveText(objective), averageRating: result?.averageRating ?? null, responseCount: result?.responseCount ?? 0 };
+      });
+      const objectiveScoreCards = objectives.flatMap((objective) => objective.averageRating == null || objective.responseCount === 0
+        ? []
+        : [{ label: objective.objective, value: objective.averageRating, maxValue: 9, responseCount: objective.responseCount }]);
+      const attendanceOverview = [{
+        "Event Code": event.code,
+        "Event Name": event.name,
+        "Event Date": event.date,
+        Category: event.category,
+        Venue: event.venue,
+        Present: event.present,
+        Late: event.late,
+        Absent: event.absent,
+        Registered: event.totalRegistered,
+        "Walk-ins": event.walkIns,
+        "Total participants": event.attendancePopulation,
+        "Attendance rate": event.attendanceRate
+      }];
+      const lowestObjective = objectives
+        .filter((objective): objective is typeof objective & { averageRating: number } => objective.averageRating != null && objective.responseCount > 0)
+        .sort((a, b) => a.averageRating - b.averageRating)[0];
+      const late = lateBreakdown(attendanceRows);
+      const totalLate = late.reduce((total, item) => total + item.count, 0);
+      const topLateReason = late.reduce<(typeof late)[number] | undefined>((top, item) => !top || item.count > top.count ? item : top, undefined);
+      const recommendation = actionableRecommendation({
+        attendanceRate: Number.parseFloat(event.attendanceRate),
+        objective: lowestObjective ? { label: lowestObjective.objective, averageRating: lowestObjective.averageRating } : undefined,
+        negativeFeedback: event.sentimentCounts ? { count: event.sentimentCounts.negative, total: event.sentimentCounts.positive + event.sentimentCounts.neutral + event.sentimentCounts.negative } : undefined,
+        lateArrival: topLateReason ? { reason: topLateReason.reason, count: topLateReason.count, total: totalLate } : undefined
+      });
+      return [
+        { name: "Attendance Overview", eventTitle: `${event.code} — ${event.name}`, pageBreakBefore: eventIndex > 0, xlsxSheet, rows: attendanceOverview },
+        { name: "Late Arrival Breakdown", xlsxSheet, rows: lateArrivalReportRows(lateBreakdown(attendanceRows)) },
+        { name: "Post-Event Objective Results", xlsxSheet, scoreCards: objectiveScoreCards, rows: objectiveResultReportRows(objectives) },
+        { name: "Feedback Sentiment", xlsxSheet, rows: sentimentReportRows(event.sentimentCounts ?? { positive: 0, neutral: 0, negative: 0 }), recommendations: recommendation ? [recommendation] : [] }
+      ];
+    });
+    if (singleEvent?.feedbackComments.length) {
+      sections.push({ name: "Submitted Feedback Comments", xlsxSheet: `${singleEvent.code} ${singleEvent.name}`, rows: singleEvent.feedbackComments.map((comment) => ({ Comment: comment })) });
+    }
+    void exportTabularReportSections(label, sections, singleEvent?.id ? { type: "event", eventId: singleEvent.id } : undefined, true, singleEvent?.collegeOffice ? { collegeName: singleEvent.collegeOffice } : undefined, {
+      filters: { "Events included": orderedEvents.length, "Feedback comments": singleEvent ? "Included without student names" : "Not included for multiple events" },
+      summaryCards: [{ label: "Events", value: String(orderedEvents.length), subtitle: "Completed event records", colorTheme: "emerald" }]
+    });
     toast.success(`${label} downloaded.`);
     
     void auditLogMutations.logActionMutation.mutateAsync({
@@ -702,8 +745,7 @@ export function EventRecordsPage() {
         event.organizerEmail ? `Organizer Email: ${event.organizerEmail}` : undefined
       ].filter(Boolean).join("\n"),
       rows: event.id ? (attendanceSummariesQuery.data?.[event.id]?.rows ?? []).map((row) => ({
-        Organizer: event.organizerName ?? "Not available",
-        "Organizer Email": event.organizerEmail ?? "Not available",
+        "Event Date": event.date,
         "Student Name": row.studentName,
         "Attendance Status": row.attendanceStatus,
         "Check-in Time": row.checkInTime,
@@ -729,8 +771,7 @@ export function EventRecordsPage() {
   function exportAttendanceReport(label: string, record: CompletedRecord, rows: AttendanceRow[]) {
     const attendanceRows = rows.map((row) => ({
       "Event Code": record.code,
-      Organizer: record.organizerName ?? "Not available",
-      "Organizer Email": record.organizerEmail ?? "Not available",
+      "Event Date": record.date,
       "Student Name": row.studentName,
       "Attendance Status": row.attendanceStatus,
       "Check-in Time": row.checkInTime,
@@ -738,7 +779,15 @@ export function EventRecordsPage() {
        "Attendance Method": row.attendanceStatus === "absent" ? "-" : formatAttendanceMethod(row),
       "Late Arrival Reason": row.lateReason ?? "-"
     }));
-    exportTabularReport(label, attendanceRows, record.id ? { type: "event", eventId: record.id } : undefined);
+    void exportTabularReportSections(label, [{
+      name: `${record.code} — ${record.name}`,
+      header: [
+        `${record.code} — ${record.name}`,
+        `Organizer: ${record.organizerName ?? "Not available"}`,
+        record.organizerEmail ? `Organizer Email: ${record.organizerEmail}` : undefined
+      ].filter(Boolean).join("\n"),
+      rows: attendanceRows
+    }], record.id ? { type: "event", eventId: record.id } : undefined, true, record.collegeOffice ? { collegeName: record.collegeOffice } : undefined);
     toast.success(`${label} downloaded.`);
     void auditLogMutations.logActionMutation.mutateAsync({
       action: "Exported Event Attendance Report",
