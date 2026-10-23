@@ -33,7 +33,6 @@ import {
   getAuditLogDetailItems,
   filterMainAuditLogs,
   removeLegacyDuplicateAuditLogs,
-  removeRepeatedOfflinePreparationAuditLogs,
   filterAuditLogs,
   type AuditLogFilters
 } from "../utils/auditLogUtils";
@@ -96,7 +95,7 @@ export function OrganizerAuditLogsPage() {
   );
   const auditLogsQuery = useAuditLogs(queryParams, context);
   const rawLogs = useMemo(
-    () => filterMainAuditLogs(removeRepeatedOfflinePreparationAuditLogs(removeLegacyDuplicateAuditLogs(auditLogsQuery.data?.items ?? []))),
+    () => filterMainAuditLogs(removeLegacyDuplicateAuditLogs(auditLogsQuery.data?.items ?? [])),
     [auditLogsQuery.data?.items]
   );
 

@@ -382,7 +382,6 @@ const MAIN_AUDIT_ACTIONS = new Set([
   "event.cancelled",
   "event.completed",
   "event.auto_cancelled_unstarted",
-  "event.offline_prepared",
   "attendance_session.started",
   "attendance_session.ended",
   "attendance_session.ended_offline",
@@ -410,34 +409,6 @@ export function filterMainAuditLogs(logs: AuditLog[]): AuditLog[] {
       || MAIN_AUDIT_ACTIONS.has(action)
       || action.startsWith("attendance.offline_")
       || action.startsWith("system.");
-  });
-}
-
-/**
- * Preparing the same offline package can happen repeatedly while a user
- * retries a download. Keep the newest identical package preparation in the
- * main trail; the complete history remains in the database.
- */
-export function removeRepeatedOfflinePreparationAuditLogs(logs: AuditLog[]): AuditLog[] {
-  const newestByPackage = new Map<string, AuditLog>();
-  for (const log of logs) {
-    if (log.action.trim().toLowerCase() !== "event.offline_prepared" || !log.actorUserId || !log.targetId) continue;
-    const metadata = (log.metadata ?? {}) as Record<string, unknown>;
-    const sessionId = metadata.session_id;
-    const participantCount = metadata.participant_count;
-    if (typeof sessionId !== "string" || !sessionId || (typeof participantCount !== "string" && typeof participantCount !== "number")) continue;
-    const key = `${log.actorUserId}:${log.targetId}:${sessionId}:${participantCount}`;
-    const existing = newestByPackage.get(key);
-    if (!existing || new Date(log.timestamp).getTime() > new Date(existing.timestamp).getTime()) newestByPackage.set(key, log);
-  }
-
-  return logs.filter((log) => {
-    if (log.action.trim().toLowerCase() !== "event.offline_prepared" || !log.actorUserId || !log.targetId) return true;
-    const metadata = (log.metadata ?? {}) as Record<string, unknown>;
-    const sessionId = metadata.session_id;
-    const participantCount = metadata.participant_count;
-    if (typeof sessionId !== "string" || !sessionId || (typeof participantCount !== "string" && typeof participantCount !== "number")) return true;
-    return newestByPackage.get(`${log.actorUserId}:${log.targetId}:${sessionId}:${participantCount}`)?.id === log.id;
   });
 }
 

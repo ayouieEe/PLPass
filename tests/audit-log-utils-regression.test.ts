@@ -3,7 +3,6 @@ import type { AuditLog } from "@/types/domain";
 import {
   auditActionCategory,
   filterMainAuditLogs,
-  removeRepeatedOfflinePreparationAuditLogs,
   removeLegacyDuplicateAuditLogs
 } from "@/features/organizer/utils/auditLogUtils";
 
@@ -35,13 +34,12 @@ describe("organizer audit log presentation", () => {
     expect(filterMainAuditLogs(logs).map((log) => log.id)).toEqual(["event", "export"]);
   });
 
-  it("keeps the newest identical offline package preparation", () => {
+  it("omits offline package preparation from the main audit trail", () => {
     const logs: AuditLog[] = [
-      { id: "older", actorUserId: "organizer-1", action: "event.offline_prepared", targetType: "event", targetId: "event-1", timestamp: "2026-10-01T00:00:00.000Z", metadata: { session_id: "session-1", participant_count: 20 } },
-      { id: "newer", actorUserId: "organizer-1", action: "event.offline_prepared", targetType: "event", targetId: "event-1", timestamp: "2026-10-01T00:02:00.000Z", metadata: { session_id: "session-1", participant_count: 20 } },
-      { id: "changed", actorUserId: "organizer-1", action: "event.offline_prepared", targetType: "event", targetId: "event-1", timestamp: "2026-10-01T00:03:00.000Z", metadata: { session_id: "session-1", participant_count: 21 } }
+      { id: "offline", actorUserId: "organizer-1", action: "event.offline_prepared", targetType: "event", targetId: "event-1", timestamp: "2026-10-01T00:00:00.000Z", metadata: {} },
+      { id: "session", actorUserId: "organizer-1", action: "attendance_session.started", targetType: "event_session", targetId: "session-1", timestamp: "2026-10-01T00:02:00.000Z", metadata: {} }
     ];
 
-    expect(removeRepeatedOfflinePreparationAuditLogs(logs).map((log) => log.id)).toEqual(["newer", "changed"]);
+    expect(filterMainAuditLogs(logs).map((log) => log.id)).toEqual(["session"]);
   });
 });
