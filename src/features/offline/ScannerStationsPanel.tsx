@@ -30,6 +30,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ type: "stop" | "remove"; id?: string; name?: string } | null>(null);
   const api = window.plpassDesktop;
 
   useEffect(() => {
@@ -132,7 +133,7 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
           <p className="text-sm text-muted-foreground">Use up to five phones as QR scanners. The laptop remains the only attendance recorder.</p>
           {status.active ? <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void refreshConnection()}>{busy ? "Refreshing…" : "Refresh connection QR"}</Button>
-            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void stop()}>Close scanner stations</Button>
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setPendingAction({ type: "stop" })}>Close scanner stations</Button>
           </div> : <Button type="button" size="sm" disabled={!enabled || busy} onClick={() => void start()}>{busy ? "Starting…" : "Start scanner stations"}</Button>}
         </div>
         {!enabled ? <p className="mt-3 text-sm text-muted-foreground">Prepare this event for offline use before starting phone scanners.</p> : null}
@@ -147,9 +148,26 @@ export function ScannerStationsPanel({ eventId, sessionId, enabled, capturePhase
               <div className="rounded-xl border bg-background p-3"><p className="font-medium">Laptop addresses</p>{status.addresses.map((address) => <p key={address} className="mt-1 break-all font-mono text-xs text-muted-foreground">{address}</p>)}</div>
             </div>
           </div>
-          <div><p className="mb-2 flex items-center gap-2 font-medium"><Users className="h-4 w-4" /> Connected phones</p>{status.stations.length ? <ul className="space-y-2">{status.stations.map((station) => <li key={station.id} className="flex items-center justify-between rounded-xl border bg-background p-2 text-sm"><span>{station.name}<span className="ml-2 text-muted-foreground">Last activity: {new Date(station.lastSeenAt).toLocaleTimeString()}</span></span><Button type="button" variant="ghost" size="icon" aria-label={`Remove ${station.name}`} onClick={() => void removeStation(station.id)}><Trash2 className="h-4 w-4" /></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">No phones connected yet.</p>}</div>
+          <div><p className="mb-2 flex items-center gap-2 font-medium"><Users className="h-4 w-4" /> Connected phones</p>{status.stations.length ? <ul className="space-y-2">{status.stations.map((station) => <li key={station.id} className="flex items-center justify-between rounded-xl border bg-background p-2 text-sm"><span>{station.name}<span className="ml-2 text-muted-foreground">Last activity: {new Date(station.lastSeenAt).toLocaleTimeString()}</span></span><Button type="button" variant="ghost" size="icon" aria-label={`Remove ${station.name}`} onClick={() => setPendingAction({ type: "remove", id: station.id, name: station.name })}><Trash2 className="h-4 w-4" /></Button></li>)}</ul> : <p className="text-sm text-muted-foreground">No phones connected yet.</p>}</div>
         </div> : null}
       </div> : null}
+      <ConfirmModal
+        open={Boolean(pendingAction)}
+        title={pendingAction?.type === "stop" ? "Close scanner stations?" : `Remove ${pendingAction?.name ?? "this phone"}?`}
+        description={pendingAction?.type === "stop" ? "All connected phones will stop scanning immediately. The attendance session itself will remain open." : "This phone will be disconnected from the current scanner station."}
+        confirmLabel={pendingAction?.type === "stop" ? "Close stations" : "Remove phone"}
+        tone="danger"
+        confirmBusy={busy}
+        confirmBusyLabel={pendingAction?.type === "stop" ? "Closing…" : "Removing…"}
+        cancelDisabled={busy}
+        onCancel={() => setPendingAction(null)}
+        onConfirm={() => {
+          if (!pendingAction) return;
+          const action = pendingAction;
+          if (action.type === "stop") void stop().finally(() => setPendingAction(null));
+          else if (action.id) void removeStation(action.id).finally(() => setPendingAction(null));
+        }}
+      />
       <ConfirmModal open={replaceOpen} title="Replace trusted scanner certificate" description="This closes scanner stations now. Every phone must install and trust the new PLPass Scanner certificate before it can scan again." confirmLabel="Replace certificate" tone="danger" onCancel={() => setReplaceOpen(false)} onConfirm={() => void replaceCertificate()} />
     </section>
   );

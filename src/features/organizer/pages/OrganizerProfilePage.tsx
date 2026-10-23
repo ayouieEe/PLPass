@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAcademicCatalog, useOrganizerProfiles, useUser, useAuditLogMutations } from "@/hooks/useRepositoryQueries";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -49,6 +50,8 @@ export function OrganizerProfilePage() {
 
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [avatarConfirmOpen, setAvatarConfirmOpen] = useState(false);
 
   useEffect(() => {
     const storedAvatar = userQuery.data?.avatarUrl;
@@ -113,8 +116,16 @@ export function OrganizerProfilePage() {
       return;
     }
 
+    setPendingAvatarFile(file);
+    setAvatarConfirmOpen(true);
+    input.value = "";
+  }
+
+  async function confirmAvatarChange() {
+    if (!pendingAvatarFile) return;
     setIsUploadingAvatar(true);
     try {
+      const file = pendingAvatarFile;
       const client = getSupabaseBrowserClient();
       const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
       const objectPath = `${organizerUserId}/avatar.${extension}`;
@@ -139,6 +150,8 @@ export function OrganizerProfilePage() {
       setAvatarUrl(signedUrlData.signedUrl);
       await queryClient.invalidateQueries({ queryKey: ["user", organizerUserId] });
       toast.success("Profile picture updated successfully!");
+      setPendingAvatarFile(null);
+      setAvatarConfirmOpen(false);
       try {
         await auditLogMutations.logActionMutation.mutateAsync({
           action: "Updated Profile Picture",
@@ -153,7 +166,6 @@ export function OrganizerProfilePage() {
       toast.error(getErrorMessage(error));
     } finally {
       setIsUploadingAvatar(false);
-      input.value = "";
     }
   }
 
@@ -227,6 +239,17 @@ export function OrganizerProfilePage() {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={avatarConfirmOpen}
+        title="Update profile picture?"
+        description="This picture will be uploaded and shown on your organizer profile."
+        confirmLabel="Update picture"
+        confirmBusy={isUploadingAvatar}
+        confirmBusyLabel="Updating…"
+        cancelDisabled={isUploadingAvatar}
+        onConfirm={() => void confirmAvatarChange()}
+        onCancel={() => { setAvatarConfirmOpen(false); setPendingAvatarFile(null); }}
+      />
     </div>
   );
 }

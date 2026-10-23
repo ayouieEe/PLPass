@@ -7,6 +7,7 @@ import { useHeader } from "@/app/providers/HeaderContext";
 import { PageContainer } from "@/components/layout/PageContainer";
 import { RoleBasedSidebar } from "@/components/shared/RoleBasedSidebar";
 import { Button } from "@/components/ui/button";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useNotificationUnreadCount } from "@/hooks/useRepositoryQueries";
 import { useTheme } from "@/hooks/useTheme";
@@ -64,6 +65,8 @@ export function DashboardLayout({
   const [collapsed, setCollapsed] = useState(readCollapsedState);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const offlineLocked = isOfflineMode;
   const connectionOffline = isOfflineMode || !isNetworkOnline;
   const isDark = theme === "dark";
@@ -145,8 +148,17 @@ export function DashboardLayout({
   }, [accountMenuOpen]);
 
   async function handleLogout() {
-    try { await logout(); queryClient.clear(); navigate(APP_ROUTES.login, { replace: true }); }
-    catch(error) { toast.error(error instanceof Error?error.message:"Could not log out safely."); }
+    setLoggingOut(true);
+    try {
+      await logout();
+      queryClient.clear();
+      setLogoutConfirmOpen(false);
+      navigate(APP_ROUTES.login, { replace: true });
+    } catch(error) {
+      toast.error(error instanceof Error ? error.message : "Could not log out safely.");
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   function closeDrawer({ restoreFocus = true } = {}) {
@@ -342,7 +354,7 @@ export function DashboardLayout({
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-surface-muted"
                     onClick={() => {
                       setAccountMenuOpen(false);
-                      handleLogout();
+                      setLogoutConfirmOpen(true);
                     }}
                   >
                     <LogOut className="h-4 w-4" aria-hidden="true" />
@@ -364,6 +376,18 @@ export function DashboardLayout({
           </PageContainer>
         </main>
       </div>
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Log out of PLPass?"
+        description={isOfflineMode ? "Any unsynchronized offline attendance must be resolved before you can log out." : "You will need to sign in again to access your workspace."}
+        confirmLabel="Log out"
+        tone="danger"
+        confirmBusy={loggingOut}
+        confirmBusyLabel="Logging out…"
+        cancelDisabled={loggingOut}
+        onConfirm={() => void handleLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
     </div>
   );
 }

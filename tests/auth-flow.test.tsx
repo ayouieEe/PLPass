@@ -239,6 +239,8 @@ describe("mock authentication flow", () => {
 
     await screen.findByRole("heading", { name: "Profile" });
     await user.click(within(screen.getByRole("main")).getByRole("button", { name: /logout/i }));
+    expect(await screen.findByRole("heading", { name: /log out of plpass/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^log out$/i }));
     await screen.findByRole("heading", { name: /sign in to plpass/i });
     expect(window.localStorage.getItem("plpass-development-session")).toBeNull();
   });

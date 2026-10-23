@@ -32,6 +32,7 @@ import { ErrorState } from "@/components/feedback/ErrorState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate } from "@/lib/utils/date";
 import { getErrorMessage } from "@/lib/utils/errors";
@@ -87,6 +88,10 @@ export function StudentProfilePage() {
   const credentialStatusQuery = useStudentCredentialStatus(studentQuery.data?.items[0]?.id, context);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [avatarConfirmOpen, setAvatarConfirmOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     const fallback = `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(session?.displayName || "Student")}`;
@@ -167,8 +172,16 @@ export function StudentProfilePage() {
       input.value = "";
       return;
     }
+    setPendingAvatarFile(file);
+    setAvatarConfirmOpen(true);
+    input.value = "";
+  }
+
+  async function confirmAvatarChange() {
+    if (!pendingAvatarFile) return;
     setIsUploadingAvatar(true);
     try {
+      const file = pendingAvatarFile;
       const client = getSupabaseBrowserClient();
       const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
       const objectPath = `${session?.userId ?? "unknown"}/avatar.${extension}`;
@@ -181,18 +194,27 @@ export function StudentProfilePage() {
       setAvatarUrl(signedUrlData.signedUrl);
       await queryClient.invalidateQueries({ queryKey: ["user", session?.userId] });
       toast.success("Profile picture updated successfully.");
+      setPendingAvatarFile(null);
+      setAvatarConfirmOpen(false);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setIsUploadingAvatar(false);
-      input.value = "";
     }
   }
 
-  function handleLogout() {
-    logout();
-    queryClient.clear();
-    navigate(APP_ROUTES.login, { replace: true });
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await logout();
+      queryClient.clear();
+      setLogoutConfirmOpen(false);
+      navigate(APP_ROUTES.login, { replace: true });
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   return (
@@ -201,7 +223,7 @@ export function StudentProfilePage() {
         title="Profile"
         description="Manage your student details and attendance access."
         actions={
-          <Button variant="outline" onClick={handleLogout} className="student-btn-secondary w-full gap-2 px-6 sm:w-auto">
+          <Button variant="outline" onClick={() => setLogoutConfirmOpen(true)} className="student-btn-secondary w-full gap-2 px-6 sm:w-auto">
             <LogOut className="h-4 w-4" />
             <span>Logout</span>
           </Button>
@@ -317,6 +339,29 @@ export function StudentProfilePage() {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Log out of PLPass?"
+        description="You will need to sign in again to access your student workspace."
+        confirmLabel="Log out"
+        tone="danger"
+        confirmBusy={loggingOut}
+        confirmBusyLabel="Logging out…"
+        cancelDisabled={loggingOut}
+        onConfirm={() => void handleLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
+      <ConfirmModal
+        open={avatarConfirmOpen}
+        title="Update profile picture?"
+        description="This picture will be uploaded and shown on your student profile."
+        confirmLabel="Update picture"
+        confirmBusy={isUploadingAvatar}
+        confirmBusyLabel="Updating…"
+        cancelDisabled={isUploadingAvatar}
+        onConfirm={() => void confirmAvatarChange()}
+        onCancel={() => { setAvatarConfirmOpen(false); setPendingAvatarFile(null); }}
+      />
     </div>
   );
 }

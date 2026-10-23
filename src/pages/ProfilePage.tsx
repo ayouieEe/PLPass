@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { ChangePasswordForm } from "@/components/auth/ChangePasswordForm";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import {
   useAcademicCatalog,
@@ -52,6 +53,10 @@ export function ProfilePage() {
   const catalog = useAcademicCatalog({ pageSize: 50 }, context);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [avatarConfirmOpen, setAvatarConfirmOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const student = studentQuery.data?.items[0];
 
   useEffect(() => {
@@ -75,10 +80,18 @@ export function ProfilePage() {
     };
   }, [session?.displayName, session?.role, userQuery.data?.avatarUrl]);
 
-  function handleLogout() {
-    logout();
-    queryClient.clear();
-    navigate(APP_ROUTES.login, { replace: true });
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await logout();
+      queryClient.clear();
+      setLogoutConfirmOpen(false);
+      navigate(APP_ROUTES.login, { replace: true });
+    } catch (error) {
+      toast.error(getErrorMessage(error));
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   if (!session) {
@@ -145,8 +158,16 @@ export function ProfilePage() {
       return;
     }
 
+    setPendingAvatarFile(file);
+    setAvatarConfirmOpen(true);
+    input.value = "";
+  }
+
+  async function confirmAvatarChange() {
+    if (!pendingAvatarFile) return;
     setIsUploadingAvatar(true);
     try {
+      const file = pendingAvatarFile;
       const client = getSupabaseBrowserClient();
       const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
       const objectPath = `${session?.userId ?? "unknown"}/avatar.${extension}`;
@@ -169,11 +190,12 @@ export function ProfilePage() {
       setAvatarUrl(signedUrlData.signedUrl);
       await queryClient.invalidateQueries({ queryKey: ["user", session?.userId] });
       toast.success("Profile picture updated successfully.");
+      setPendingAvatarFile(null);
+      setAvatarConfirmOpen(false);
     } catch (error) {
       toast.error(getErrorMessage(error));
     } finally {
       setIsUploadingAvatar(false);
-      input.value = "";
     }
   }
 
@@ -184,7 +206,7 @@ export function ProfilePage() {
         title="Profile"
         description={`Manage your ${roleLabel.toLowerCase()} details and account security.`}
         actions={
-          <Button type="button" variant="outline" onClick={handleLogout} className="student-btn-secondary px-6 gap-2">
+          <Button type="button" variant="outline" onClick={() => setLogoutConfirmOpen(true)} className="student-btn-secondary px-6 gap-2">
             <LogOut className="h-4 w-4" aria-hidden="true" />
             Logout
           </Button>
@@ -233,6 +255,29 @@ export function ProfilePage() {
           </div>
         </div>
       </div>
+      <ConfirmModal
+        open={logoutConfirmOpen}
+        title="Log out of PLPass?"
+        description="You will need to sign in again to access your workspace."
+        confirmLabel="Log out"
+        tone="danger"
+        confirmBusy={loggingOut}
+        confirmBusyLabel="Logging out…"
+        cancelDisabled={loggingOut}
+        onConfirm={() => void handleLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+      />
+      <ConfirmModal
+        open={avatarConfirmOpen}
+        title="Update profile picture?"
+        description="This picture will be uploaded and shown on your PLPass profile."
+        confirmLabel="Update picture"
+        confirmBusy={isUploadingAvatar}
+        confirmBusyLabel="Updating…"
+        cancelDisabled={isUploadingAvatar}
+        onConfirm={() => void confirmAvatarChange()}
+        onCancel={() => { setAvatarConfirmOpen(false); setPendingAvatarFile(null); }}
+      />
     </div>
   );
 }

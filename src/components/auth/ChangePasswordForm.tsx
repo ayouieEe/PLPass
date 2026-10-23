@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { changePassword, passwordChangeErrorMessage, passwordRequirementsMessage, passwordSchema } from "@/lib/auth/passwords";
 import { PasswordField } from "@/components/auth/PasswordField";
+import { ConfirmModal } from "@/components/modals/ConfirmModal";
 
 type ChangePasswordFormProps = {
   email: string;
@@ -14,6 +15,7 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,9 +29,14 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
       return;
     }
 
+    setConfirmOpen(true);
+  }
+
+  async function confirmPasswordChange() {
     setSubmitting(true);
     try {
       await changePassword(email.trim(), currentPassword, password);
+      setConfirmOpen(false);
       setCurrentPassword("");
       setPassword("");
       setConfirmPassword("");
@@ -43,7 +50,8 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 w-full space-y-4">
+    <>
+      <form onSubmit={handleSubmit} className="mt-4 w-full space-y-4">
       <p className="text-sm text-muted-foreground">Use at least 8 characters. Changing your password signs out other devices.</p>
       <div className="space-y-1.5">
         <label htmlFor="current-password" className="text-xs font-semibold text-foreground">Current password</label>
@@ -61,6 +69,18 @@ export function ChangePasswordForm({ email, onChanged }: ChangePasswordFormProps
       <div className="flex justify-end pt-1">
         <Button type="submit" disabled={submitting} className="px-6">{submitting ? "Updating..." : "Update password"}</Button>
       </div>
-    </form>
+      </form>
+      <ConfirmModal
+        open={confirmOpen}
+        title="Change your password?"
+        description="Your password will be updated and all other signed-in devices will be signed out."
+        confirmLabel="Change password"
+        confirmBusy={submitting}
+        confirmBusyLabel="Updating…"
+        cancelDisabled={submitting}
+        onConfirm={() => void confirmPasswordChange()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+    </>
   );
 }
