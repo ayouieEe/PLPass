@@ -106,6 +106,16 @@ describe("auditLogUtils helper unit tests", () => {
     expect(removeLegacyDuplicateAuditLogs(logs).map((log) => log.id)).toEqual(["server-end", "unmatched-client"]);
   });
 
+  it("hides legacy publish entries only when the server entry matches", () => {
+    const logs: AuditLog[] = [
+      { id: "server-publish", actorUserId: "organizer-1", action: "event.published", targetType: "event", targetId: "event-1", timestamp: "2026-10-22T05:12:46.000Z", metadata: {} },
+      { id: "client-publish", actorUserId: "organizer-1", action: "Published Event", targetType: "event", targetId: "event-1", timestamp: "2026-10-22T05:12:49.000Z", metadata: {} },
+      { id: "unmatched-publish", actorUserId: "organizer-1", action: "Published Event", targetType: "event", targetId: "event-2", timestamp: "2026-10-22T05:15:00.000Z", metadata: {} }
+    ];
+
+    expect(removeLegacyDuplicateAuditLogs(logs).map((log) => log.id)).toEqual(["server-publish", "unmatched-publish"]);
+  });
+
   it("returns curated details and excludes technical or sensitive metadata", () => {
     const items = getAuditLogDetailItems({
       id: "log-1",

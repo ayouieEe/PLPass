@@ -50,7 +50,6 @@ import {
   useMlPredictions,
   useOrganizerProfiles,
   useStudents,
-  useAuditLogMutations
 } from "@/hooks/useRepositoryQueries";
 import { repositories } from "@/services/repositories";
 import { summarizeFinalizedAttendance } from "@/features/organizer/utils/attendanceSummary";
@@ -439,7 +438,6 @@ export function CreateEventPage() {
   const resourceFileInputRef = useRef<HTMLInputElement>(null);
   const catalog = useAcademicCatalog({ pageSize: 50 }, scope.context);
   const mutations = useEventMutations(scope.context);
-  const auditLogMutations = useAuditLogMutations(scope.context);
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
@@ -868,12 +866,6 @@ export function CreateEventPage() {
       // email warning even when delivery later succeeded.
       toast.success("Event published. Invitation emails are delivered automatically; check Event Details for delivery status.");
 
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: "Published Event",
-        targetType: "event",
-        targetId: event.id,
-        metadata: { eventCode: event.code, participantCount: selectedIds.length, resourceCount: pendingResources.length }
-      });
       
       navigate(APP_ROUTES.organizerEvent(event.id), { state: { announcement: `${event.title} was published successfully.` } });
     } catch (error) {

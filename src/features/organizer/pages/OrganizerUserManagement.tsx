@@ -1199,7 +1199,6 @@ function EditStudentModal({
   departments,
   sections,
   student,
-  onSuccess,
   fixedDepartmentId
 }: {
   isOpen: boolean;
@@ -1209,7 +1208,6 @@ function EditStudentModal({
   departments: { id: string; code: string }[];
   sections: Section[];
   student: Student | undefined;
-  onSuccess: (action: string, targetType: string, metadata: Record<string, unknown>) => void;
   fixedDepartmentId?: string;
 }) {
   const [formData, setFormData] = useState<UpdateStudentInput>({
@@ -1282,7 +1280,6 @@ function EditStudentModal({
     try {
       await mutations.updateStudentMutation.mutateAsync(formData);
       toast.success("Student updated successfully");
-      onSuccess("Updated Student Details", "student", { studentId: student?.studentNumber });
       onClose();
     } catch (error) {
       toast.error(getErrorMessage(error));
@@ -2108,13 +2105,6 @@ export function OrganizerUserManagementPage() {
         sections={academicCatalog.sections.data?.items ?? []}
         fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined}
         student={rawStudent}
-        onSuccess={(action, targetType, metadata) => {
-          void auditLogMutations.logActionMutation.mutateAsync({
-            action,
-            targetType,
-            metadata
-          });
-        }}
       /> : null}
       </> : null}
       {canCreateOrganizer ? <AddOrganizerModal isOpen={isAddOrganizerModalOpen} onClose={() => setIsAddOrganizerModalOpen(false)} mutation={organizerMutation} departments={academicCatalog.departments.data?.items ?? []} generatedEmployeeId={nextEmployeeId(departmentOrganizers, "O")} fixedDepartmentId={isDepartmentAdmin ? session?.departmentId : undefined} /> : null}

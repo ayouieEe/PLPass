@@ -32,6 +32,8 @@ const ACTION_EXACT_MAP: Record<string, string> = {
   "correction_request.submitted": "Correction request submitted",
   "correction_request.approved": "Correction request approved",
   "correction_request.rejected": "Correction request rejected",
+  "attendance_request.approved": "Correction request approved",
+  "attendance_request.rejected": "Correction request rejected",
   "user.invited": "User invited",
   "user.updated": "User profile updated",
   "user.role_updated": "User role updated",
@@ -335,7 +337,10 @@ export function auditActionCategory(log: AuditLog): NonNullable<AuditLogFilters[
 
 const LEGACY_DUPLICATE_ACTIONS: Readonly<Record<string, string>> = {
   "ended live session": "attendance_session.ended",
-  "submitted manual attendance": "attendance.manual_recorded"
+  "submitted manual attendance": "attendance.manual_recorded",
+  "published event": "event.published",
+  "approved correction request": "attendance_request.approved",
+  "rejected correction request": "attendance_request.rejected"
 };
 
 /**
@@ -358,6 +363,81 @@ export function removeLegacyDuplicateAuditLogs(logs: AuditLog[]): AuditLog[] {
       || !log.actorUserId
       || !log.targetId
       || !canonicalKeys.has(`${log.actorUserId}:${log.targetId}:${canonicalAction}`);
+  });
+}
+
+const MAIN_AUDIT_ACTIONS = new Set([
+  "user.admin_created",
+  "user.admin_updated",
+  "user.organizer_created",
+  "user.organizer_updated",
+  "user.student_updated",
+  "user.student_status_changed",
+  "user.sessions_revoked",
+  "credential.qr_issued",
+  "credential.qr.revoked",
+  "credential.status_changed",
+  "event.published",
+  "event.rescheduled",
+  "event.cancelled",
+  "event.completed",
+  "event.auto_cancelled_unstarted",
+  "event.offline_prepared",
+  "attendance_session.started",
+  "attendance_session.ended",
+  "attendance_session.ended_offline",
+  "attendance_session.finalized",
+  "attendance_request.approved",
+  "attendance_request.rejected",
+  "correction_request.approved",
+  "correction_request.rejected",
+  "admin.system_settings.updated",
+  "admin.school_year_transition.applied",
+  "admin.school_year_transition.rolled_back",
+  "admin.catalog.created",
+  "admin.catalog.updated",
+  "system.consistency_issue_reviewed"
+]);
+
+/**
+ * The audit page is a decision trail, not an attendance-entry feed. Detailed
+ * attendance remains in its dedicated records screens and in the database.
+ */
+export function filterMainAuditLogs(logs: AuditLog[]): AuditLog[] {
+  return logs.filter((log) => {
+    const action = log.action.trim().toLowerCase();
+    return log.targetType === "export_action"
+      || MAIN_AUDIT_ACTIONS.has(action)
+      || action.startsWith("attendance.offline_")
+      || action.startsWith("system.");
+  });
+}
+
+/**
+ * Preparing the same offline package can happen repeatedly while a user
+ * retries a download. Keep the newest identical package preparation in the
+ * main trail; the complete history remains in the database.
+ */
+export function removeRepeatedOfflinePreparationAuditLogs(logs: AuditLog[]): AuditLog[] {
+  const newestByPackage = new Map<string, AuditLog>();
+  for (const log of logs) {
+    if (log.action.trim().toLowerCase() !== "event.offline_prepared" || !log.actorUserId || !log.targetId) continue;
+    const metadata = (log.metadata ?? {}) as Record<string, unknown>;
+    const sessionId = metadata.session_id;
+    const participantCount = metadata.participant_count;
+    if (typeof sessionId !== "string" || !sessionId || (typeof participantCount !== "string" && typeof participantCount !== "number")) continue;
+    const key = `${log.actorUserId}:${log.targetId}:${sessionId}:${participantCount}`;
+    const existing = newestByPackage.get(key);
+    if (!existing || new Date(log.timestamp).getTime() > new Date(existing.timestamp).getTime()) newestByPackage.set(key, log);
+  }
+
+  return logs.filter((log) => {
+    if (log.action.trim().toLowerCase() !== "event.offline_prepared" || !log.actorUserId || !log.targetId) return true;
+    const metadata = (log.metadata ?? {}) as Record<string, unknown>;
+    const sessionId = metadata.session_id;
+    const participantCount = metadata.participant_count;
+    if (typeof sessionId !== "string" || !sessionId || (typeof participantCount !== "string" && typeof participantCount !== "number")) return true;
+    return newestByPackage.get(`${log.actorUserId}:${log.targetId}:${sessionId}:${participantCount}`)?.id === log.id;
   });
 }
 

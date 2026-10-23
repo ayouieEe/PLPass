@@ -555,13 +555,6 @@ export function OrganizerCorrectionRequestsPage() {
       setSelectedRequest((current) => (current ? { ...current, status: decision.status, decision: decision.status, decisionRemarks: decision.remark } : null));
       setPendingDecision(null);
       toast[decision.status === "approved" ? "success" : "error"](decision.status === "approved" ? `${selectedRequest.requestId} has been approved. Attendance status updated to ${selectedRequest.requestedStatus}.` : `${selectedRequest.requestId} has been rejected. Original attendance status retained.`);
-      
-      void auditLogMutations.logActionMutation.mutateAsync({
-        action: decision.status === "approved" ? "Approved Correction Request" : "Rejected Correction Request",
-        targetType: "correction_request",
-        targetId: selectedRequest.id,
-        metadata: { requestId: selectedRequest.id, remark: decision.remark }
-      });
     } catch (error) { toast.error(getErrorMessage(error)); }
   }
 
