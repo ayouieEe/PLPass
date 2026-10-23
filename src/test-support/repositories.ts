@@ -1155,6 +1155,18 @@ export const simulatedEventManagementRepository: EventManagementRepository = {
     }
     return paginate(eventResourceState.filter((resource) => resource.eventId === eventId), query);
   },
+  async listEventResourcesForEvents(eventIds, query, context) {
+    await beforeRead("eventManagement", context, ["organizer", "admin", "student"]);
+    const currentContext = contextOrDefault(context);
+    const ids = [...new Set(eventIds.filter(Boolean))];
+    for (const eventId of ids) {
+      const event = getOrThrow(eventState, eventId, "Event");
+      if (!isEventInOrganizerScope(event, currentContext) || !isEventInStudentScope(event, currentContext)) {
+        throw new RepositoryError("You do not have access to this event's resources.", "PERMISSION_DENIED");
+      }
+    }
+    return paginate(eventResourceState.filter((resource) => ids.includes(resource.eventId)), query);
+  },
   async addEventResource(input, context) {
     await beforeRead("eventManagement", context, ["organizer", "admin"]);
     const currentContext = contextOrDefault(context);

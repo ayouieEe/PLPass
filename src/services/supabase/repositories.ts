@@ -70,6 +70,7 @@ import type {
   AuditLog,
   DepartmentBranding,
   Event,
+  EventResource,
   Class,
   ClassRoster,
   Department,
@@ -181,6 +182,17 @@ function pageResult<T>(items: T[], total: number, query?: ListQuery): PaginatedR
 
 function emptyPage<T>(query?: ListQuery): PaginatedResult<T> {
   return pageResult([], 0, query);
+}
+
+function mapEventResource(row: Row): EventResource {
+  return {
+    id: String(row.id ?? ""),
+    eventId: String(row.event_id ?? ""),
+    title: String(row.resource_title ?? "Event resource"),
+    externalUrl: typeof row.external_url === "string" ? row.external_url : undefined,
+    storageBucket: typeof row.storage_bucket === "string" ? row.storage_bucket : undefined,
+    storageObjectPath: typeof row.storage_object_path === "string" ? row.storage_object_path : undefined
+  };
 }
 
 function allowedCorrectionStatusesForAttendance(status: AttendanceStatus): AttendanceStatus[] {
@@ -912,11 +924,23 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
     return event;
   },
   async listEventParticipants(eventId, query) {
-    const rows = await selectRows("event_participants", query);
-    const eventParticipants = rows.items.filter(
-      (row) => String(row.event_id ?? "") === eventId && String(row.participant_status ?? "confirmed") !== "removed"
-    );
-    return pageResult(eventParticipants.map(mapEventParticipant), eventParticipants.length, query);
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    let builder = client
+      .from("event_participants")
+      .select("*", { count: "exact" })
+      .eq("event_id", eventId)
+      .neq("participant_status", "removed");
+
+    if (listQuery.sortBy) {
+      builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+    }
+
+    const { data, error, count } = await builder.range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as unknown as Row[]).map(mapEventParticipant), count ?? data?.length ?? 0, listQuery);
   },
   async findEventParticipantScheduleConflicts(input) {
     if (!input.studentIds.length) return [];
@@ -1015,14 +1039,25 @@ export const supabaseEventManagementRepository: EventManagementRepository = {
   },
   async listEventResources(eventId, query) {
     const rows = await selectRowsFiltered("event_resources", query, "*", { event_id: eventId });
-    return pageResult(rows.items.map((row) => ({
-      id: String(row.id ?? ""),
-      eventId: String(row.event_id ?? ""),
-      title: String(row.resource_title ?? "Event resource"),
-      externalUrl: typeof row.external_url === "string" ? row.external_url : undefined,
-      storageBucket: typeof row.storage_bucket === "string" ? row.storage_bucket : undefined,
-      storageObjectPath: typeof row.storage_object_path === "string" ? row.storage_object_path : undefined
-    })), rows.total, query);
+    return pageResult(rows.items.map(mapEventResource), rows.total, query);
+  },
+  async listEventResourcesForEvents(eventIds, query) {
+    const ids = [...new Set(eventIds.filter(Boolean))];
+    if (!ids.length) return emptyPage<EventResource>(query);
+
+    const listQuery = queryOrDefault(query);
+    const from = listQuery.pageIndex * listQuery.pageSize;
+    const to = from + listQuery.pageSize - 1;
+    const client = getSupabaseBrowserClient();
+    let builder = client.from("event_resources").select("*", { count: "exact" }).in("event_id", ids);
+
+    if (listQuery.sortBy) {
+      builder = builder.order(listQuery.sortBy, { ascending: listQuery.sortDirection !== "desc" });
+    }
+
+    const { data, error, count } = await builder.range(from, to);
+    throwIfSupabaseError(error);
+    return pageResult(((data ?? []) as unknown as Row[]).map(mapEventResource), count ?? data?.length ?? 0, listQuery);
   },
   async addEventResource(input) {
     const client = getSupabaseBrowserClient();

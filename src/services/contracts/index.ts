@@ -455,6 +455,7 @@ export interface EventManagementRepository {
   findEventParticipantScheduleConflicts(input: { startsAt: string; endsAt: string; studentIds: string[] }, context?: RepositoryContext): Promise<EventParticipantScheduleConflict[]>;
   addEventParticipants(input: { eventId: string; studentIds: string[] }, context?: RepositoryContext): Promise<EventParticipant[]>;
   listEventResources(eventId: string, query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventResource>>;
+  listEventResourcesForEvents(eventIds: readonly string[], query?: ListQuery, context?: RepositoryContext): Promise<PaginatedResult<EventResource>>;
   addEventResource(input: AddEventResourceInput, context?: RepositoryContext): Promise<EventResource>;
   removeEventResource(resourceId: string, context?: RepositoryContext): Promise<void>;
   generateNextEventCode(context?: RepositoryContext): Promise<string>;

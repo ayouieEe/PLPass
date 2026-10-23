@@ -372,6 +372,16 @@ export function useEventResources(eventId: string, query?: Partial<ListQuery>, c
   });
 }
 
+export function useEventResourcesForEvents(eventIds: readonly string[], query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
+  const normalizedEventIds = [...new Set(eventIds.filter(Boolean))].sort();
+  const listQuery = queryWithDefaults(query);
+  return useQuery({
+    queryKey: ["eventResources", "events", normalizedEventIds, listQuery, context],
+    queryFn: () => repositories.eventManagement.listEventResourcesForEvents(normalizedEventIds, listQuery, context),
+    enabled: normalizedEventIds.length > 0 && hasRepositoryContext(context) && enabled
+  });
+}
+
 export function useAttendanceSessions(query?: Partial<ListQuery>, context?: RepositoryContext, enabled = true) {
   const listQuery = queryWithDefaults(query);
   return useQuery({

@@ -20,7 +20,7 @@ import { LoadingState } from "@/components/feedback/LoadingState";
 import { StatusBadge } from "@/components/feedback/StatusBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
-import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useStudentFeedbackTasks } from "@/hooks/useRepositoryQueries";
+import { useAttendanceRecords, useAttendanceSessions, useCorrectionRequests, useEvents, useEventResourcesForEvents, useStudentFeedbackTasks } from "@/hooks/useRepositoryQueries";
 import { APP_ROUTES } from "@/lib/constants/routes";
 import { formatDisplayDate, formatDisplayTime } from "@/lib/utils/date";
 import {
@@ -32,7 +32,7 @@ import {
   studentVisibleEvents,
   useStudentScope
 } from "@/features/student/studentExperience";
-import type { Event } from "@/types/domain";
+import type { Event, EventResource } from "@/types/domain";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 type EventListTab = "ongoing" | "upcoming";
@@ -92,6 +92,7 @@ export function StudentUpcomingEventsPage() {
   const recordsQuery = useAttendanceRecords({ pageSize: 25 }, scope.context);
   const correctionsQuery = useCorrectionRequests({ pageSize: 25 }, scope.context);
   const feedbackTasksQuery = useStudentFeedbackTasks(scope.student?.id, scope.context);
+  const eventResourcesQuery = useEventResourcesForEvents((eventsQuery.data?.items ?? []).map((event) => event.id), { pageSize: 500 }, scope.context);
   const [activeTab, setActiveTab] = useState<EventListTab>(() =>
     searchParams.get("tab") === "upcoming" || searchParams.get("view") === "calendar" ? "upcoming" : "ongoing"
   );
@@ -124,6 +125,12 @@ export function StudentUpcomingEventsPage() {
 
   const student = scope.student;
   const events = studentVisibleEvents(eventsQuery.data?.items ?? []);
+  const eventResourcesByEventId = new Map<string, EventResource[]>();
+  for (const resource of eventResourcesQuery.data?.items ?? []) {
+    const resources = eventResourcesByEventId.get(resource.eventId) ?? [];
+    resources.push(resource);
+    eventResourcesByEventId.set(resource.eventId, resources);
+  }
   const eventRecords = getStudentEventRecords({
     studentId: student.id,
     records: recordsQuery.data?.items ?? [],
@@ -312,6 +319,8 @@ export function StudentUpcomingEventsPage() {
             ) : null}
             {workflows.map(({ event, workflow }) => {
               const eventResource = getEventResource(event);
+              const managedResources = eventResourcesByEventId.get(event.id) ?? [];
+              const managedResourceLabel = `${managedResources.length} resource${managedResources.length === 1 ? "" : "s"} available`;
               return (
               <article
                 key={event.id}
@@ -396,9 +405,18 @@ export function StudentUpcomingEventsPage() {
                           <FileText className="h-3.5 w-3.5" />
                           Resources
                         </p>
-                        <p className="mt-2.5 text-sm font-semibold">{eventResourceLabel(event)}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{eventResource.description}</p>
-                        {eventResource.url ? (
+                        <p className="mt-2.5 text-sm font-semibold">{managedResources.length ? managedResourceLabel : eventResourceLabel(event)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {managedResources.length ? "Open Event Details to view or download the organizer-provided resources." : eventResource.description}
+                        </p>
+                        {managedResources.length ? (
+                          <Button asChild variant="outline" size="sm" className="mt-3 w-full justify-center">
+                            <NavLink to={APP_ROUTES.studentEvent(event.id)}>
+                              <Download className="mr-2 h-3.5 w-3.5" />
+                              View resources
+                            </NavLink>
+                          </Button>
+                        ) : eventResource.url ? (
                           <Button asChild variant="outline" size="sm" className="mt-3 w-full justify-center">
                             <a href={eventResource.url} target="_blank" rel="noreferrer">
                               <Download className="mr-2 h-3.5 w-3.5" />
