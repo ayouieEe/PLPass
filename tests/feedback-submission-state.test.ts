@@ -20,8 +20,8 @@ describe("feedback submission safeguards", () => {
   });
 
   it("times out external sentiment analysis without blocking feedback persistence", () => {
-    expect(analyzeFeedback).toContain("setTimeout(() => controller.abort(), 8_000)");
-    expect(analyzeFeedback).toContain("submitting feedback with neutral sentiment");
+    expect(analyzeFeedback).toContain("setTimeout(() => controller.abort(), 20_000)");
+    expect(analyzeFeedback).toContain("submitting feedback without a sentiment label");
     expect(analyzeFeedback).toContain("clearTimeout(timeoutId)");
   });
 });
