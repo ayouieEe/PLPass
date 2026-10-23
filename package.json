@@ -1,7 +1,7 @@
 {
   "name": "plpass",
   "private": true,
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "PLPass attendance workspace for organizers and administrators.",
   "main": "dist-electron/electron/main.js",
   "type": "module",
@@ -108,7 +108,7 @@
     "exceljs": {
       "uuid": "^11.1.1"
     },
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "braces": "^3.0.3"
   },
   "build": {
