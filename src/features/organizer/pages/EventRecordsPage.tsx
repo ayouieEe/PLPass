@@ -709,7 +709,7 @@ export function EventRecordsPage() {
       const topLateReason = late.reduce<(typeof late)[number] | undefined>((top, item) => !top || item.count > top.count ? item : top, undefined);
       const recommendation = actionableRecommendation({
         attendanceRate: Number.parseFloat(event.attendanceRate),
-        objective: lowestObjective ? { label: lowestObjective.objective, averageRating: lowestObjective.averageRating } : undefined,
+        objective: lowestObjective ? { label: lowestObjective.objective, averageRating: lowestObjective.averageRating, responseCount: lowestObjective.responseCount, relatedComments: event.feedbackComments } : undefined,
         negativeFeedback: event.sentimentCounts ? { count: event.sentimentCounts.negative, total: event.sentimentCounts.positive + event.sentimentCounts.neutral + event.sentimentCounts.negative } : undefined,
         lateArrival: topLateReason ? { reason: topLateReason.reason, count: topLateReason.count, total: totalLate } : undefined
       });

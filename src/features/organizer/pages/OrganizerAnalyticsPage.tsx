@@ -67,7 +67,7 @@ import type { LiveAttendanceRecord } from "@/features/attendance/types";
 import { useDevelopmentSession } from "@/hooks/useDevelopmentSession";
 import { useAttendanceSummaries } from "@/features/organizer/hooks/useEventAttendance";
 import { summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
-import { actionableRecommendation, emptyReportRows, lateArrivalCategory, lateArrivalReportRows, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
+import { actionableRecommendation, attendanceTrendSummary, emptyReportRows, feedbackLabelSummary, lateArrivalCategory, lateArrivalReportRows, lateArrivalSummary, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
 import {
   useAcademicCatalog,
   useAttendanceRecords,
@@ -799,10 +799,12 @@ export function OrganizerAnalyticsPage() {
       "Saved turnout estimate": event.predictedTurnout == null ? "Not available" : `${event.predictedTurnout}%`
     }));
     const feedbackCountsByEventId = new Map(selectedEvents.map((event) => [event.id, { positive: 0, neutral: 0, negative: 0 }]));
+    const feedbackCommentsByEventId = new Map(selectedEvents.map((event) => [event.id, [] as string[]]));
     (feedbackQuery.data?.items ?? []).forEach((feedback) => {
       const counts = feedbackCountsByEventId.get(feedback.eventId);
       const label = feedback.sentimentLabel?.trim().toLowerCase();
       if (counts && (label === "positive" || label === "neutral" || label === "negative")) counts[label] += 1;
+      if (feedback.comment?.trim()) feedbackCommentsByEventId.get(feedback.eventId)?.push(feedback.comment.trim());
     });
     const eventIdBySessionId = new Map(
       (sessionsQuery.data?.items ?? [])
@@ -829,7 +831,7 @@ export function OrganizerAnalyticsPage() {
       const topLateReason = [...lateReasons.entries()].reduce<[string, number] | undefined>((top, entry) => !top || entry[1] > top[1] ? entry : top, undefined);
       const recommendation = actionableRecommendation({
         attendanceRate: actualByEventId.get(event.id),
-        objective: lowestEventObjective?.averageRating == null ? undefined : { label: lowestEventObjective.objective, averageRating: lowestEventObjective.averageRating },
+        objective: lowestEventObjective?.averageRating == null ? undefined : { label: lowestEventObjective.objective, averageRating: lowestEventObjective.averageRating, responseCount: lowestEventObjective.responseCount, relatedComments: feedbackCommentsByEventId.get(event.id) },
         negativeFeedback: { count: feedback.negative, total: labelledFeedback },
         lateArrival: topLateReason ? { reason: topLateReason[0], count: topLateReason[1], total: totalLate } : undefined
       });
@@ -863,8 +865,10 @@ export function OrganizerAnalyticsPage() {
       ? { label: `${lowestObjective.eventCode}: ${lowestObjective.objective}`, averageRating: lowestObjective.averageRating }
       : undefined;
     const attendanceRecommendation = actionableRecommendation({ attendanceRate: overallAttendanceRate });
-    const performanceRecommendation = actionableRecommendation({
-      objective: objectiveSignal,
+    const objectiveRecommendation = actionableRecommendation({
+      objective: lowestObjective ? { label: objectiveSignal?.label ?? "Lowest-rated objective", averageRating: lowestObjective.averageRating, responseCount: lowestObjective.responseCount, relatedComments: feedbackQuery.data?.items.filter((feedback) => selectedIds.has(feedback.eventId)).flatMap((feedback) => feedback.comment?.trim() ? [feedback.comment.trim()] : []) } : undefined
+    });
+    const feedbackRecommendation = actionableRecommendation({
       negativeFeedback: { count: feedbackCounts.negative, total: labelledFeedback }
     });
     const lateRecommendation = actionableRecommendation({
@@ -933,7 +937,7 @@ export function OrganizerAnalyticsPage() {
           feedbackCounts.positive + feedbackCounts.neutral + feedbackCounts.negative ? `Feedback labels: ${feedbackCounts.positive} positive, ${feedbackCounts.neutral} neutral, and ${feedbackCounts.negative} negative.` : "No labelled feedback received.",
           `Objective topics with ratings: ${objectivePerformance.length}.`
         ],
-        recommendations: performanceRecommendation ? [performanceRecommendation] : []
+        recommendations: [objectiveRecommendation, feedbackRecommendation].filter((recommendation): recommendation is string => Boolean(recommendation))
       };
     } else {
       insightsNarrative = {
@@ -954,8 +958,6 @@ export function OrganizerAnalyticsPage() {
       const trendLabels = selectedSummaries.slice(0, 8).map((s) => s.eventCode);
       const trendRates = selectedSummaries.slice(0, 8).map((s) => s.attendanceRate);
       if (trendLabels.length >= 2) {
-        const lowestRate = Math.min(...trendRates);
-        const highestRate = Math.max(...trendRates);
         charts.push({
           title: "Attendance Rate Trend Across Sessions (%)",
           imageDataUrl: generateLineChartPng({
@@ -968,7 +970,7 @@ export function OrganizerAnalyticsPage() {
             height: 280
           }),
           caption: "Recorded attendance across completed events.",
-          description: `Recorded attendance ranged from ${lowestRate}% to ${highestRate}% across ${trendRates.length} completed events.`,
+          description: attendanceTrendSummary(trendRates),
           recommendations: attendanceRecommendation ? [attendanceRecommendation] : []
         });
       }
@@ -1013,8 +1015,8 @@ export function OrganizerAnalyticsPage() {
           height: 270
         }),
         caption: "Counts and percentages of automated feedback labels.",
-        description: `Feedback labels were available for ${labelledFeedback} responses. They do not explain why a response received a label.`,
-        recommendations: performanceRecommendation ? [performanceRecommendation] : []
+        description: feedbackLabelSummary(feedbackCounts),
+        recommendations: feedbackRecommendation ? [feedbackRecommendation] : []
       });
     }
 
@@ -1033,7 +1035,7 @@ export function OrganizerAnalyticsPage() {
           height: 270
         }),
         caption: "Share of recorded late arrivals by the reason selected or entered at check-in.",
-        description: topRecordedLateReason ? `"${topRecordedLateReason.category}" was selected for ${topRecordedLateReason.count} of ${totalLateArrivals} late check-ins. This does not confirm the cause of lateness.` : "No late arrivals recorded.",
+        description: lateArrivalSummary(filteredLateReasons.map((reason) => ({ reason: reason.category, count: reason.count }))),
         recommendations: lateRecommendation ? [lateRecommendation] : []
       });
     }

@@ -58,7 +58,9 @@ describe("report export content", () => {
     expect(reportSource.indexOf("if (section.scoreCards?.length) renderScoreCards(section.scoreCards);")).toBeLessThan(reportSource.indexOf("const headers = headersFor(section);"));
     expect(reportSource).toContain('orientation: "landscape"');
     expect(analyticsSource).toContain("recommendations: attendanceRecommendation ? [attendanceRecommendation] : []");
-    expect(analyticsSource).toContain("recommendations: performanceRecommendation ? [performanceRecommendation] : []");
+    expect(analyticsSource).toContain("recommendations: feedbackRecommendation ? [feedbackRecommendation] : []");
+    expect(analyticsSource).toContain("const objectiveRecommendation = actionableRecommendation({");
+    expect(analyticsSource).toContain("const feedbackRecommendation = actionableRecommendation({");
     expect(analyticsSource).toContain("recommendations: lateRecommendation ? [lateRecommendation] : []");
   });
 

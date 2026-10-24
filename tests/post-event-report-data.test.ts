@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionableRecommendation, lateArrivalCategory, lateArrivalReportRows, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
+import { actionableRecommendation, attendanceTrendSummary, feedbackLabelSummary, lateArrivalCategory, lateArrivalReportRows, lateArrivalSummary, objectiveResultReportRows, sentimentReportRows } from "@/features/organizer/utils/postEventReportData";
 
 describe("post-event report data", () => {
   it("keeps feedback counts separate from percentages", () => {
@@ -29,13 +29,27 @@ describe("post-event report data", () => {
   it("returns one direct action from the strongest recorded result", () => {
     expect(actionableRecommendation({
       attendanceRate: 64,
-      objective: { label: "Apply the session topic", averageRating: 6.2 },
+      objective: { label: "Apply the session topic", averageRating: 6.2, responseCount: 4 },
       negativeFeedback: { count: 3, total: 10 },
       lateArrival: { reason: "Traffic / Commute", count: 8, total: 10 }
-    })).toBe('Explain "Apply the session topic" more clearly and show one practice example. Rating: 6.2 out of 9.');
+    })).toBe('Improve the aspect measured by "Apply the session topic" before the next event. Its average rating is 6.2 out of 9 from 4 responses, indicating a mixed result. Use the available feedback to identify the specific weakness and make one targeted improvement.');
+    expect(actionableRecommendation({ objective: { label: "Attend similar events", averageRating: 2, responseCount: 1 } }))
+      .toBe("Investigate why interest in attending a similar event was low. The rating was 2.0 out of 9 from 1 response, suggesting the respondent was unlikely to return. Review the event's content, timing, venue, and overall experience before planning the next event. Treat this as an early signal because the response count is small.");
+    expect(actionableRecommendation({ objective: { label: "How likely are you to attend similar events in the future?", averageRating: 2, responseCount: 1 } }))
+      .toContain("suggesting the respondent was unlikely to return");
+    expect(actionableRecommendation({ objective: { label: "How would you rate the taste and quality of the food?", averageRating: 6.1, responseCount: 8, relatedComments: ["The food was cold and serving time was too long."] } }))
+      .toContain("food or serving quality");
+    expect(actionableRecommendation({ objective: { label: "Overall event experience", averageRating: 7, responseCount: 32 } })).toBeUndefined();
+    expect(actionableRecommendation({ objective: { label: "How would you rate the taste and quality of the food?", averageRating: 6.96, responseCount: 32 } })).toBeUndefined();
     expect(actionableRecommendation({ lateArrival: { reason: "Traffic / Commute", count: 3, total: 4 } }))
-      .toBe('Send an earlier arrival reminder. "Traffic / Commute" was selected for 3 of 4 late check-ins.');
+      .toBe('Plan around the most common late-arrival pattern: "Traffic / Commute" accounts for 3 of 4 late check-ins (75%). Send an earlier arrival reminder and allow extra travel time.');
     expect(actionableRecommendation({ attendanceRate: 92 })).toBeUndefined();
+  });
+
+  it("interprets chart values instead of only listing raw data", () => {
+    expect(attendanceTrendSummary([64, 72, 80])).toBe("Recorded attendance averaged 72% across 3 completed events, ranged from 64% to 80%, and increased by 16 percentage points from the first to the latest event.");
+    expect(feedbackLabelSummary({ positive: 0, neutral: 1, negative: 0 })).toContain("Of 1 labelled feedback response, 0 (0%) were positive, 1 (100%) neutral, and 0 (0%) negative.");
+    expect(lateArrivalSummary([{ reason: "Traffic / Commute", count: 3 }, { reason: "Other", count: 1 }])).toBe("There were 4 late check-ins. The most common recorded reason was \"Traffic / Commute\" (3 of 4, 75%).");
   });
 
   it("uses the same late-arrival categories for report data and recommendations", () => {
