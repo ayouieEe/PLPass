@@ -211,7 +211,8 @@ const sessionFormSchema = z
     message: "Expected end time must be after start time."
   });
 
-type EventFormValues = z.infer<typeof eventFormSchemaWithObjectives>;
+type EventFormInput = z.input<typeof eventFormSchemaWithObjectives>;
+type EventFormValues = z.output<typeof eventFormSchemaWithObjectives>;
 type SessionFormValues = z.infer<typeof sessionFormSchema>;
 
 function useOrganizerScope(): OrganizerScope {
@@ -443,7 +444,7 @@ export function CreateEventPage() {
   const studentsQuery = useStudents({ pageSize: 200 }, scope.context);
   const eventsQuery = useEvents({ pageSize: 500 }, scope.context);
   const attendanceRecordsQuery = useAttendanceRecords({ pageSize: 500 }, scope.context);
-  const form = useForm<EventFormValues>({
+  const form = useForm<EventFormInput, unknown, EventFormValues>({
     resolver: zodResolver(eventFormSchemaWithObjectives),
     defaultValues: {
       code: "",
@@ -1028,7 +1029,7 @@ export function CreateEventPage() {
               <h3 className="font-semibold text-foreground">Priority Ranking</h3>
               <p className="mt-1 text-sm text-muted-foreground">Calculated from the event classification.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }); return <>
+                {(() => { const ranking = calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority ?? false, date: watchedDate }); return <>
                   <PredictionMetric label="Urgency Points" value={String(ranking.urgencyPoints)} />
                   <PredictionMetric label="Impact Points" value={String(ranking.impactPoints)} />
                   <PredictionMetric label="Priority Score" value={`${ranking.priorityScore}/9`} />
@@ -1347,7 +1348,7 @@ export function CreateEventPage() {
                         <div className="min-w-0">
                           <TextField
                             control={form.control}
-                            name={`objectives.${index}.value` as FieldPath<EventFormValues>}
+                            name={`objectives.${index}.value` as FieldPath<EventFormInput>}
                             label={`Objective ${index + 1}`}
                             placeholder="e.g. How would you rate the speaker?"
                           />
@@ -1450,7 +1451,7 @@ export function CreateEventPage() {
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Event</dt><dd className="mt-2 font-semibold text-foreground">{reviewValues.title || "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.code}</dd></div>
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Schedule</dt><dd className="mt-2 font-semibold text-foreground">{watchedDate ? formatDate(`${watchedDate}T00:00:00+08:00`) : "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{formatTimeOfDay(watchedStartTime)} – {formatTimeOfDay(watchedEndTime)}</dd></div>
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Participants</dt><dd className="mt-2 font-semibold text-foreground">{selectedIds.length} selected</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.venue || "Venue not set"}</dd></div>
-            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Priority</dt><dd className="mt-2 font-semibold text-foreground">{calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority, date: watchedDate }).priorityTier}</dd><dd className="mt-1 text-sm text-muted-foreground">Calculated ranking</dd></div>
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Priority</dt><dd className="mt-2 font-semibold text-foreground">{calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority ?? false, date: watchedDate }).priorityTier}</dd><dd className="mt-1 text-sm text-muted-foreground">Calculated ranking</dd></div>
           </dl>
           <div className="mt-5 grid gap-5 xl:grid-cols-2">
             <section className="rounded-xl border bg-background p-4">
