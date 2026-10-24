@@ -54,7 +54,7 @@ import {
 import { repositories } from "@/services/repositories";
 import { summarizeFinalizedAttendance } from "@/features/organizer/utils/attendanceSummary";
 import { APP_ROUTES } from "@/lib/constants/routes";
-import { EVENT_CATEGORY_OPTIONS as CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS as VENUE_OPTIONS } from "@/features/organizer/data/eventFormOptions";
+import { CUSTOM_EVENT_VENUE_OPTION, CUSTOM_EVENT_VENUE_VALUE, EVENT_CATEGORY_OPTIONS as CATEGORY_OPTIONS, EVENT_VENUE_OPTIONS, resolveEventVenue } from "@/features/organizer/data/eventFormOptions";
 import { compareDateValues, dateKey, formatDisplayDate, formatDisplayTime, isFutureOrNowDate, manilaDateTimeToIso } from "@/lib/utils/date";
 import { formatSurnameFirstName } from "@/lib/utils/names";
 import {
@@ -123,6 +123,7 @@ const TARGET_GROUP_OPTIONS = [
 
 const MIN_OBJECTIVES = 3;
 const MAX_OBJECTIVES = 50;
+const VENUE_OPTIONS = [...EVENT_VENUE_OPTIONS, CUSTOM_EVENT_VENUE_OPTION];
 const PRESET_OBJECTIVES = [
   "How relevant was the event content to your studies?",
   "How effectively did the speaker communicate the topics?",
@@ -174,12 +175,16 @@ function findScheduleConflicts(events: Event[], values: Pick<EventFormValues, "v
 
 const eventFormSchemaWithObjectives = eventBaseSchema
   .extend({
+    customVenue: z.string().trim().max(200, "Custom venue must not exceed 200 characters.").optional(),
     objectives: z
       .array(z.object({ value: z.string().min(3, "Objective is required.") }))
       .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
       .max(MAX_OBJECTIVES, `No more than ${MAX_OBJECTIVES} objectives are allowed.`)
   })
   .superRefine((value, ctx) => {
+    if (value.venue === CUSTOM_EVENT_VENUE_VALUE && (!value.customVenue || value.customVenue.length < 2)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customVenue"], message: "Enter a specific venue." });
+    }
     if (timeToMinutes(value.endTime) <= timeToMinutes(value.startTime)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -601,6 +606,7 @@ export function CreateEventPage() {
   const watchedFixedPriority = form.watch("fixedPriority");
   const watchedDate = form.watch("date");
   const watchedVenue = form.watch("venue");
+  const watchedCustomVenue = form.watch("customVenue");
   const watchedStartTime = form.watch("startTime");
   const watchedEndTime = form.watch("endTime");
   const reviewValues = form.watch();
@@ -723,7 +729,7 @@ export function CreateEventPage() {
   );
   const programById = new Map((catalog.programs.data?.items ?? []).map((program) => [program.id, program.code]));
   const scheduleConflicts = findScheduleConflicts(eventsQuery.data?.items ?? [], {
-    venue: watchedVenue,
+    venue: resolveEventVenue(watchedVenue, watchedCustomVenue),
     date: watchedDate,
     startTime: watchedStartTime,
     endTime: watchedEndTime
@@ -898,14 +904,14 @@ export function CreateEventPage() {
       return;
     }
 
-    const normalizedValues = { ...values, title: toEventTitle(values.title) };
+    const normalizedValues = { ...values, title: toEventTitle(values.title), venue: resolveEventVenue(values.venue, values.customVenue) };
     form.setValue("title", normalizedValues.title, { shouldValidate: true, shouldDirty: true });
     setPendingPublish(normalizedValues);
   }
 
   async function continueToParticipants() {
     const valid = await form.trigger([
-      "code", "title", "category", "venue", "date", "startTime", "endTime",
+      "code", "title", "category", "venue", ...(watchedVenue === CUSTOM_EVENT_VENUE_VALUE ? ["customVenue" as const] : []), "date", "startTime", "endTime",
       "institutionalCategory", "participationStatus", "targetGroup", "collegeOffice"
     ]);
     if (!valid) return;
@@ -1004,6 +1010,7 @@ export function CreateEventPage() {
               <h3 className="border-b pb-2 text-sm font-semibold uppercase tracking-wide text-primary">Schedule &amp; Venue</h3>
               <div className="grid gap-4 md:grid-cols-2">
                 <SelectField control={form.control} name="venue" label="Venue" placeholder="Select a venue" options={VENUE_OPTIONS} required />
+                {watchedVenue === CUSTOM_EVENT_VENUE_VALUE ? <TextField control={form.control} name="customVenue" label="Specific venue" placeholder="e.g. Engineering Building Room 201" required /> : null}
                 <DatePickerField control={form.control} name="date" label="Date" min={dateKey(new Date())} required />
                 <div className="grid gap-4 sm:grid-cols-2 sm:col-span-2">
                   <TimePickerField control={form.control} name="startTime" label="Start Time" required />
@@ -1419,7 +1426,7 @@ export function CreateEventPage() {
               <div className="min-w-0">
                 <h2 className="font-semibold">Schedule conflict detected</h2>
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  This event overlaps with another active event at {watchedVenue}. Review the schedule before publishing.
+                  This event overlaps with another active event at {resolveEventVenue(watchedVenue, watchedCustomVenue)}. Review the schedule before publishing.
                 </p>
                 <ul className="mt-3 space-y-1 text-sm text-foreground">
                   {scheduleConflicts.map((event) => (
@@ -1450,7 +1457,7 @@ export function CreateEventPage() {
           <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Event</dt><dd className="mt-2 font-semibold text-foreground">{reviewValues.title || "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.code}</dd></div>
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Schedule</dt><dd className="mt-2 font-semibold text-foreground">{watchedDate ? formatDate(`${watchedDate}T00:00:00+08:00`) : "Not set"}</dd><dd className="mt-1 text-sm text-muted-foreground">{formatTimeOfDay(watchedStartTime)} – {formatTimeOfDay(watchedEndTime)}</dd></div>
-            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Participants</dt><dd className="mt-2 font-semibold text-foreground">{selectedIds.length} selected</dd><dd className="mt-1 text-sm text-muted-foreground">{reviewValues.venue || "Venue not set"}</dd></div>
+            <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Participants</dt><dd className="mt-2 font-semibold text-foreground">{selectedIds.length} selected</dd><dd className="mt-1 text-sm text-muted-foreground">{resolveEventVenue(reviewValues.venue, reviewValues.customVenue) || "Venue not set"}</dd></div>
             <div className="rounded-xl border bg-background p-4"><dt className="text-xs font-medium uppercase text-muted-foreground">Priority</dt><dd className="mt-2 font-semibold text-foreground">{calculatePriority({ category: watchedCategory, institutionalCategory: watchedInstitutionalCategory, participationStatus: watchedParticipationStatus, targetGroup: watchedTargetGroup, fixedPriority: watchedFixedPriority ?? false, date: watchedDate }).priorityTier}</dd><dd className="mt-1 text-sm text-muted-foreground">Calculated ranking</dd></div>
           </dl>
           <div className="mt-5 grid gap-5 xl:grid-cols-2">
@@ -1458,7 +1465,7 @@ export function CreateEventPage() {
               <h3 className="font-semibold text-foreground">Event details</h3>
               <dl className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <div><dt className="text-xs font-medium uppercase text-muted-foreground">Category</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.category || "Not set"}</dd></div>
-                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.venue || "Not set"}</dd></div>
+                <div><dt className="text-xs font-medium uppercase text-muted-foreground">Venue</dt><dd className="mt-1 text-sm font-medium text-foreground">{resolveEventVenue(reviewValues.venue, reviewValues.customVenue) || "Not set"}</dd></div>
                 <div><dt className="text-xs font-medium uppercase text-muted-foreground">Requested by</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.requestedBy || "Not provided"}</dd></div>
                 <div><dt className="text-xs font-medium uppercase text-muted-foreground">College / office</dt><dd className="mt-1 text-sm font-medium text-foreground">{reviewValues.collegeOffice || "Not set"}</dd></div>
               </dl>

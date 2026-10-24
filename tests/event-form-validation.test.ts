@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { eventFormSchema } from "@/lib/validations/events";
+import { CUSTOM_EVENT_VENUE_VALUE, EVENT_VENUE_OPTIONS, resolveEventVenue } from "@/features/organizer/data/eventFormOptions";
 
 describe("event form validation", () => {
+  it("resolves an Others venue to the organizer's specific venue", () => {
+    expect(EVENT_VENUE_OPTIONS.some((option) => option.value === CUSTOM_EVENT_VENUE_VALUE)).toBe(false);
+    expect(resolveEventVenue(CUSTOM_EVENT_VENUE_VALUE, "  Engineering Building Room 201  ")).toBe("Engineering Building Room 201");
+    expect(resolveEventVenue("Auditorium")).toBe("Auditorium");
+  });
+
   it("requires college office and pax count", () => {
     const result = eventFormSchema.safeParse({
       code: "EVT-2026-001",

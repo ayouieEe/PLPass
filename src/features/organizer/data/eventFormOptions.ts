@@ -1,3 +1,10 @@
+export const CUSTOM_EVENT_VENUE_VALUE = "__custom__";
+export const CUSTOM_EVENT_VENUE_OPTION = { label: "Others", value: CUSTOM_EVENT_VENUE_VALUE };
+
+export function resolveEventVenue(selection: string, customVenue?: string) {
+  return selection === CUSTOM_EVENT_VENUE_VALUE ? customVenue?.trim() ?? "" : selection.trim();
+}
+
 export const EVENT_VENUE_OPTIONS = [
   { label: "Function Hall", value: "Function Hall" },
   { label: "Banquet Hall", value: "Banquet Hall" },
