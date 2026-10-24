@@ -35,9 +35,8 @@ export function LoginPage() {
   }, [isSessionRestored, location, navigate, session]);
 
   useEffect(() => {
-    // Supabase invitations use the configured Site URL, which currently lands
-    // on /login. Hand the one-time invite token to the existing password setup
-    // page instead of asking a first-time user to sign in.
+    // Preserve the one-time invite token if an older invitation still lands on
+    // the login route, then hand it to the dedicated acceptance screen.
     if (hasPasswordSetupPayload(location)) {
       const setupPath = getPasswordLinkType(location) === "invite" ? APP_ROUTES.acceptInvitation : APP_ROUTES.resetPassword;
       navigate(getPasswordSetupPath(location, setupPath), {

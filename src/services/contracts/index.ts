@@ -72,7 +72,7 @@ export type UpdateStudentInput = {
 };
 
 export type CreateOrganizerInput = {
-  email?: string;
+  email: string;
   firstName: string;
   middleName?: string;
   lastName: string;
@@ -99,7 +99,7 @@ export type UpdateOrganizerInput = {
 };
 
 export type CreateAdminInput = {
-  email?: string;
+  email: string;
   firstName: string;
   middleName?: string;
   lastName: string;

@@ -13,9 +13,12 @@ describe("account edit email consistency", () => {
     expect(mockRepository).toContain("generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension)");
   });
 
-  it("uses the same extension-aware generator when adding organizers", () => {
-    expect(readFileSync("src/features/organizer/pages/OrganizerUserManagement.tsx", "utf8")).toContain("const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);");
-    expect(worker).toContain("const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });");
+  it("accepts a typed organizer email while keeping generated student emails separate", () => {
+    const page = readFileSync("src/features/organizer/pages/OrganizerUserManagement.tsx", "utf8");
+    expect(page).toContain('label className="text-sm font-medium sm:col-span-2">Email<input required type="email"');
+    expect(page).toContain('email: row["Email"].trim()');
+    expect(page).toContain('const generatedEmail = generateAccountEmail(formData.lastName, formData.firstName, formData.middleName, formData.nameExtension);');
+    expect(worker).toContain("const email = normalizeInviteEmail(submittedEmail);");
   });
 
   it("keeps successful account saves on the shared refresh path", () => {

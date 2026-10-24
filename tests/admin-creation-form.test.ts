@@ -98,7 +98,20 @@ describe("administrator creation contract", () => {
   it("supplies the required organization value from the selected department", () => {
     const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
     expect(source).toContain('const organizationName = departments.find((department) => department.id === departmentId)?.code;');
-    expect(source).toContain('departmentId, organizationName, email: generatedEmail');
+    expect(source).toContain('departmentId, organizationName, email: form.email.trim()');
+  });
+
+  it("accepts custom valid emails without imposing the PLPass domain", () => {
+    const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
+    const worker = read("supabase/functions/manage-users/index.ts");
+    const emailHelper = read("supabase/functions/_shared/accountEmail.ts");
+    expect(source).toContain('placeholder="name@example.com"');
+    expect(worker).toContain('from "../_shared/accountEmail.ts"');
+    expect(emailHelper).toContain("function normalizeInviteEmail(value: unknown)");
+    expect(worker).toContain("toLowerCase()");
+    expect(emailHelper).toContain("Enter a valid email address.");
+    expect(worker).toContain("await ensureEmailAvailable(supabase, email);");
+    expect(worker).toContain("const email = normalizeInviteEmail(submittedEmail);");
   });
 
   it("uses collision-safe admin prefixes and shows the assigned ID in the directory", () => {
@@ -122,6 +135,12 @@ describe("administrator creation contract", () => {
     expect(migration).toContain("DA-TEMP-");
     expect(worker).toContain("while (usedNumbers.has(next)) next += 1;");
     expect(source).toContain("while (usedNumbers.has(next)) next += 1;");
+  });
+
+  it("uses the first available sequence for organizer previews after deletions", () => {
+    const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
+    expect(source).toContain("let next = 1;");
+    expect(source).not.toContain('if (prefix !== "O")');
   });
 
   it("shows and enforces an in-progress state during admin creation", () => {

@@ -676,7 +676,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
       yearLevel: input.yearLevel,
       section: input.sectionId,
       createdAt: new Date().toISOString(),
-      email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
+      email: input.email?.trim().toLowerCase() || generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
@@ -797,7 +797,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     userFixtures.push({
       id: userId,
       role: "organizer",
-      email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension),
+      email: input.email.trim().toLowerCase(),
       displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "),
       nameExtension: input.nameExtension,
       isActive: true,
@@ -845,7 +845,7 @@ export const simulatedUserManagementRepository: UserManagementRepository = {
     const prefix = input.adminRole === "department_admin" ? "DA" : "UA";
     const nextId = adminProfileFixtures.reduce((max, item) => { const match = item.employeeNumber.match(new RegExp(`^${prefix}-(\\d{3})$`)); return match ? Math.max(max, Number(match[1])) : max; }, 0) + 1;
     const profile = { id: `admin-profile-${stamp}`, userId, employeeNumber: `${prefix}-${String(nextId).padStart(3, "0")}`, departmentId: input.departmentId, officeName: input.officeName };
-    userFixtures.push({ id: userId, role: input.adminRole ?? "admin", email: generateAccountEmail(input.lastName, input.firstName, input.middleName, input.nameExtension), displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: true, createdAt: new Date().toISOString() });
+    userFixtures.push({ id: userId, role: input.adminRole ?? "admin", email: input.email.trim().toLowerCase(), displayName: [input.firstName, input.middleName, input.lastName, input.nameExtension].filter(Boolean).join(" "), nameExtension: input.nameExtension, isActive: true, createdAt: new Date().toISOString() });
     adminProfileFixtures.push(profile);
     return profile;
   },

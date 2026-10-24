@@ -38,6 +38,7 @@ describe("admin and organizer permission hardening", () => {
     expect(worker).toContain('delivery: "invitation"');
     expect(worker).toContain('delivery: "password_reset"');
     expect(worker).toContain("inviteAccount(supabase, authTarget.user.email, {})");
+    expect(worker).toContain('https://plpass-student.vercel.app/accept-invitation');
     expect(worker).toContain("No account, profile, role, or password is created here.");
     expect(page).toContain("Send password reset");
     expect(page).toContain("Resend invitation");

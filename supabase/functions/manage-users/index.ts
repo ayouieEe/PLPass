@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { normalizeInviteEmail } from "../_shared/accountEmail.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,7 +108,9 @@ async function inviteAccount(
   email: string,
   metadata: Record<string, string | undefined>
 ) {
-  const redirectTo = Deno.env.get("PLPASS_INVITE_REDIRECT_URL")?.trim();
+  // Keep invitations on the public acceptance screen. Do not let a stale
+  // local-development secret send production users to localhost.
+  const redirectTo = "https://plpass-student.vercel.app/accept-invitation";
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
     data: metadata,
     ...(redirectTo ? { redirectTo } : {})
@@ -302,15 +305,15 @@ Deno.serve(async (request) => {
     let success = 0;
     const errors: Array<{ row: number; email?: string; employeeNumber?: string; error: string }> = [];
     for (const [index, organizer] of organizers.entries()) {
-      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName } = organizer ?? {};
+      const { firstName, middleName, lastName, nameExtension, email: submittedEmail, departmentId, organizationName } = organizer ?? {};
       const position = "Organizer";
-      const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
+      let email = "";
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
       try {
+        email = normalizeInviteEmail(submittedEmail);
         if (!firstName || !lastName || !organizationName || !position) throw new Error("Missing required organizer information.");
         if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) throw new Error("The selected name extension is not valid.");
         if (isDepartmentAdmin && !departmentMatches(departmentId)) throw new Error("Department administrators can only create organizers in their own department.");
-        await ensureEmailAvailable(supabase, email);
         const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
         await ensureEmailAvailable(supabase, email);
         const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
@@ -335,9 +338,9 @@ Deno.serve(async (request) => {
     if (!isUniversityAdmin && !isDepartmentAdmin) return json({ error: "This action is not available for your role." }, 403);
     const organizer = requestBody.organizer;
     if (!organizer) return json({ error: "No organizer provided." }, 400);
-      const { firstName, middleName, lastName, nameExtension, departmentId, organizationName } = organizer;
+      const { firstName, middleName, lastName, nameExtension, email: submittedEmail, departmentId, organizationName } = organizer;
       const position = "Organizer";
-      const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
+      const email = normalizeInviteEmail(submittedEmail);
       const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     if (!firstName || !lastName || !organizationName || !position) {
       return json({ error: "Please complete all required organizer information." }, 400);
@@ -346,10 +349,10 @@ Deno.serve(async (request) => {
     const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;
     if (!["", "Jr.", "Sr.", "II", "III", "IV", "V"].includes(normalizedNameExtension)) return json({ error: "The selected name extension is not valid." }, 400);
     try {
+      await ensureEmailAvailable(supabase, email);
       const employeeNumber = await nextEmployeeId(supabase, "organizers", "employee_id", "O");
       const user = await inviteAccount(supabase, email, { first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || undefined });
       const userId = user.id;
-      await ensureEmailAvailable(supabase, email);
       const { data: savedProfile, error: profileInsertError } = await supabase.from("profiles").upsert({
         id: userId, email, first_name: firstName, middle_name: middleName, last_name: lastName, name_extension: normalizedNameExtension || null,
         role: "organizer", employee_id: employeeNumber, account_status: "active"
@@ -375,8 +378,8 @@ Deno.serve(async (request) => {
     if (universityOnly) return universityOnly;
     const admin = requestBody.admin;
     if (!admin) return json({ error: "No admin provided." }, 400);
-    const { firstName, middleName, lastName, nameExtension, departmentId, officeName, adminRole = "admin" } = admin;
-    const email = resolveAccountEmail({ firstName, middleName, lastName, nameExtension });
+    const { firstName, middleName, lastName, nameExtension, email: submittedEmail, departmentId, officeName, adminRole = "admin" } = admin;
+    const email = normalizeInviteEmail(submittedEmail);
     const normalizedNameExtension = typeof nameExtension === "string" ? nameExtension.trim() : "";
     const normalizedOfficeName = typeof officeName === "string" ? officeName.trim() : "";
     if (!firstName || !lastName || !departmentId) return json({ error: "Please complete all required admin information." }, 400);
