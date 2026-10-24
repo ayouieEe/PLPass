@@ -461,7 +461,6 @@ export type SystemSettings = {
   autoCancelAfterMinutes: number;
   requireCancellationReason: boolean;
   minimumTimeOutIntervalMinutes: number;
-  allowAttendanceAfterScheduledEnd: boolean;
   automaticAbsentMarking: boolean;
   allowedVerificationMethods: Array<"qr">;
   sensitiveActionReasonRequired: boolean;
@@ -481,7 +480,7 @@ export type InstitutionSettings = Pick<SystemSettings, "institutionName" | "curr
 export type AcademicStructureSettings = InstitutionSettings;
 export type EventSettings = Pick<SystemSettings, "participantInvitationMode" | "defaultSessionDurationMinutes">;
 export type EventLifecycleSettings = Pick<SystemSettings, "noStartReminderMinutes" | "autoCancelAfterMinutes" | "requireCancellationReason">;
-export type AttendanceSettings = Pick<SystemSettings, "attendanceLateCutoffMinutes" | "defaultSessionDurationMinutes" | "minimumTimeOutIntervalMinutes" | "allowAttendanceAfterScheduledEnd" | "automaticAbsentMarking">;
+export type AttendanceSettings = Pick<SystemSettings, "attendanceLateCutoffMinutes" | "defaultSessionDurationMinutes" | "minimumTimeOutIntervalMinutes" | "automaticAbsentMarking">;
 export type VerificationSettings = Pick<SystemSettings, "readerPolicy" | "credentialStatusPolicy" | "allowedVerificationMethods">;
 export type NotificationSettings = Pick<SystemSettings, "notificationPreferencePlaceholder" | "participantInvitationMode" | "notificationEventsEnabled" | "notificationCredentialsEnabled" | "notificationCorrectionsEnabled" | "notificationRemindersEnabled">;
 export type AccessAuditSettings = Pick<SystemSettings, "sensitiveActionReasonRequired">;

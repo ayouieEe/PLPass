@@ -36,5 +36,6 @@ describe("tightened admin and organizer notification delivery", () => {
   it("removes the obsolete event approval setting from active settings UI", () => {
     expect(settingsPage).not.toContain("Require event approval");
     expect(settingsPage).not.toContain("eventApprovalRequired");
+    expect(settingsPage).not.toContain("Allow attendance after scheduled end");
   });
 });

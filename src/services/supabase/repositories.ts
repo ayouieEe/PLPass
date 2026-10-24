@@ -2347,7 +2347,6 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
       autoCancelAfterMinutes: Number(preferences.autoCancelAfterMinutes ?? 720),
       requireCancellationReason: preferences.requireCancellationReason !== false,
       minimumTimeOutIntervalMinutes: Number(preferences.minimumTimeOutIntervalMinutes ?? 15),
-      allowAttendanceAfterScheduledEnd: preferences.allowAttendanceAfterScheduledEnd !== false,
       automaticAbsentMarking: preferences.automaticAbsentMarking !== false,
       allowedVerificationMethods: listOfMethods.filter((method): method is "qr" => method === "qr"),
       sensitiveActionReasonRequired: preferences.sensitiveActionReasonRequired !== false,
@@ -2383,7 +2382,6 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
           autoCancelAfterMinutes: input.autoCancelAfterMinutes ?? current.autoCancelAfterMinutes,
           requireCancellationReason: input.requireCancellationReason ?? current.requireCancellationReason,
           minimumTimeOutIntervalMinutes: input.minimumTimeOutIntervalMinutes ?? current.minimumTimeOutIntervalMinutes,
-          allowAttendanceAfterScheduledEnd: input.allowAttendanceAfterScheduledEnd ?? current.allowAttendanceAfterScheduledEnd,
           automaticAbsentMarking: input.automaticAbsentMarking ?? current.automaticAbsentMarking,
           allowedVerificationMethods: input.allowedVerificationMethods ?? current.allowedVerificationMethods,
           sensitiveActionReasonRequired: input.sensitiveActionReasonRequired ?? current.sensitiveActionReasonRequired
@@ -2444,7 +2442,6 @@ export const supabaseSystemSettingsRepository: SystemSettingsRepository = {
         autoCancelAfterMinutes: input.autoCancelAfterMinutes ?? current.autoCancelAfterMinutes,
         requireCancellationReason: input.requireCancellationReason ?? current.requireCancellationReason,
         minimumTimeOutIntervalMinutes: input.minimumTimeOutIntervalMinutes ?? current.minimumTimeOutIntervalMinutes,
-        allowAttendanceAfterScheduledEnd: input.allowAttendanceAfterScheduledEnd ?? current.allowAttendanceAfterScheduledEnd,
         automaticAbsentMarking: input.automaticAbsentMarking ?? current.automaticAbsentMarking,
         allowedVerificationMethods: input.allowedVerificationMethods ?? current.allowedVerificationMethods,
         sensitiveActionReasonRequired: input.sensitiveActionReasonRequired ?? current.sensitiveActionReasonRequired

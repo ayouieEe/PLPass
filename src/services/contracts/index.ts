@@ -356,7 +356,6 @@ export type UpdateSystemSettingsInput = Partial<
     | "autoCancelAfterMinutes"
     | "requireCancellationReason"
     | "minimumTimeOutIntervalMinutes"
-    | "allowAttendanceAfterScheduledEnd"
     | "automaticAbsentMarking"
     | "allowedVerificationMethods"
     | "sensitiveActionReasonRequired"

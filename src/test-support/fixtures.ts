@@ -244,7 +244,6 @@ export const systemSettingsFixture: SystemSettings = {
   autoCancelAfterMinutes: 720,
   requireCancellationReason: true,
   minimumTimeOutIntervalMinutes: 15,
-  allowAttendanceAfterScheduledEnd: true,
   automaticAbsentMarking: true,
   allowedVerificationMethods: ["qr"],
   sensitiveActionReasonRequired: true,
