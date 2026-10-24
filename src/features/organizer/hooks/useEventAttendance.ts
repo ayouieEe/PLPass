@@ -58,6 +58,7 @@ type AttendanceSummaryRow = {
 export type OrganizerAttendanceStatusInput = {
   timeIn: string | null | undefined;
   timeOut: string | null | undefined;
+  recordedStatus?: string | null;
   attendanceSessionStatus: string | null | undefined;
   lateCutoffAt: string | null | undefined;
   feedbackTaskStatus?: FeedbackTaskRow["task_status"];
@@ -66,6 +67,10 @@ export type OrganizerAttendanceStatusInput = {
 };
 
 export function resolveOrganizerAttendanceStatus(input: OrganizerAttendanceStatusInput): OrgAttendanceStatus | null {
+  if (input.recordedStatus === "present" || input.recordedStatus === "late" || input.recordedStatus === "absent") {
+    return input.recordedStatus;
+  }
+
   // A registered participant has no attendance outcome until a session has
   // completed. Do not turn a new event or an active pre-check-in into a
   // synthetic absence.
@@ -294,6 +299,7 @@ async function fetchAttendanceForEvents(eventIds: string[]): Promise<Record<stri
       : effectiveSessionByEvent.get(eventId);
     const feedbackTask = row ? feedbackTaskByRecordId.get(String(row.id)) : undefined;
     const status = resolveOrganizerAttendanceStatus({
+      recordedStatus: row?.attendance_status,
       timeIn: row?.time_in,
       timeOut: row?.time_out,
       attendanceSessionStatus: sessionRow?.session_status,

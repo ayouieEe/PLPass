@@ -638,6 +638,8 @@ export function useCorrectionRequests(
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["correctionRequests"] }),
         queryClient.invalidateQueries({ queryKey: ["attendanceRecords"] }),
+        queryClient.invalidateQueries({ queryKey: ["event-attendance-summaries"] }),
+        queryClient.invalidateQueries({ queryKey: ["organizer-dashboard-analytics"] }),
         queryClient.invalidateQueries({ queryKey: ["auditLogs"] })
       ]);
     }

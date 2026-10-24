@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
+import { resolveOrganizerAttendanceStatus } from "@/features/organizer/hooks/useEventAttendance";
 import { mergeOrganizerAttendanceRows, summarizeFinalizedAttendance, summarizeUniqueAttendance } from "@/features/organizer/utils/attendanceSummary";
 
 describe("organizer attendance summary identity counting", () => {
+  it("uses an approved correction status instead of recalculating from timestamps", () => {
+    expect(resolveOrganizerAttendanceStatus({
+      recordedStatus: "present",
+      timeIn: null,
+      timeOut: null,
+      attendanceSessionStatus: "completed",
+      lateCutoffAt: null
+    })).toBe("present");
+
+    expect(resolveOrganizerAttendanceStatus({
+      recordedStatus: "absent",
+      timeIn: "2026-10-25T01:00:00Z",
+      timeOut: "2026-10-25T02:00:00Z",
+      attendanceSessionStatus: "completed",
+      lateCutoffAt: null
+    })).toBe("absent");
+  });
+
   it("prefers the verified attendance row when the same durable scan exists in both sources", () => {
     const rows = mergeOrganizerAttendanceRows([
       { id: "walkin-row", studentId: "walkin:row", localScanUuid: "scan-1", studentName: "Walk-in · 23-00999", eventCode: "EVT", attendanceMethod: "Manual", checkInTime: "12:00 AM", attendanceStatus: "present", verificationLabel: "Walk-in" },
