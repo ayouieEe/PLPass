@@ -92,7 +92,7 @@ export function forgotPasswordErrorMessage(error: unknown) {
   return "We couldn't send a reset link right now. Check your internet connection and try again.";
 }
 
-export function passwordResetErrorMessage(error: unknown) {
+export function passwordResetErrorMessage(error: unknown, invitation = false) {
   if (isAuthWeakPasswordError(error)) {
     if (error.reasons.includes("pwned")) {
       return "Choose a different password. This password has appeared in a known data breach.";
@@ -106,7 +106,7 @@ export function passwordResetErrorMessage(error: unknown) {
   }
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   if (message.includes("session") || message.includes("token") || message.includes("jwt")) {
-    return "This password reset link is invalid or has expired. Request a new one.";
+    return invitation ? "This invitation is invalid or has expired. Request a new one." : "This password reset link is invalid or has expired. Request a new one.";
   }
   if (message.includes("weak") || message.includes("leaked password") || message.includes("pwned")) {
     return "Choose a stronger password that you have not used elsewhere.";
@@ -117,7 +117,7 @@ export function passwordResetErrorMessage(error: unknown) {
   if (message.includes("different from") || message.includes("same password")) {
     return "Choose a password that is different from your previous password.";
   }
-  return "Unable to reset your password right now. Request a new reset link and try again.";
+  return invitation ? "Unable to accept the invitation right now. Request a new invitation and try again." : "Unable to reset your password right now. Request a new reset link and try again.";
 }
 
 export async function changePassword(email: string, currentPassword: string, password: string) {

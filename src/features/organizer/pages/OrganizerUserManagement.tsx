@@ -962,6 +962,7 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
   const [form, setForm] = useState<CreateAdminInput>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedUniversityEmployeeId, departmentId: "", officeName: "", adminRole: "admin" });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const generatedEmployeeId = form.adminRole === "department_admin" ? generatedDepartmentEmployeeId : generatedUniversityEmployeeId;
+  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);
   useEffect(() => {
     if (!isOpen) return;
     setForm({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, employeeNumber: generatedUniversityEmployeeId, departmentId: "", officeName: "", adminRole: "admin" });
@@ -970,7 +971,7 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
   if (!isOpen) return null;
   const update = (key: keyof CreateAdminInput, value: string | undefined) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value) }));
   function submit(event: React.FormEvent) { event.preventDefault(); setConfirmOpen(true); }
-  async function confirmSubmit() { try { await mutation.mutateAsync({ ...form, email: form.email.trim(), employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation displays the error */ } }
+  async function confirmSubmit() { try { await mutation.mutateAsync({ ...form, email: generatedEmail, employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation displays the error */ } }
   return createPortal(
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -982,15 +983,15 @@ function AddAdminModalAutomatic({ isOpen, onClose, mutation, departments, genera
           <label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label>
           <label className="text-sm font-medium">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label>
           <NameExtensionSelect id="add-admin-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as CreateAdminInput["nameExtension"])} />
-          <label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} placeholder="name@example.com" /></label>
+          <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Admin ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
           <label className="text-sm font-medium">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>
-          <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">A secure invitation will be sent to this email address.</p>
-          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !form.email.trim()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div>
+          <p className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground sm:col-span-2">The address is generated from the name and a secure invitation is sent to it.</p>
+          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create admin"}</button></div>
         </form>
       </div>
     </div>
-    <ConfirmModal open={confirmOpen} title="Create administrator account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${form.email}.`} confirmLabel="Create admin" confirmDisabled={mutation.isPending} confirmBusy={mutation.isPending} confirmBusyLabel="Creating…" cancelDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
+    <ConfirmModal open={confirmOpen} title="Create administrator account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${generatedEmail}.`} confirmLabel="Create admin" confirmDisabled={mutation.isPending} confirmBusy={mutation.isPending} confirmBusyLabel="Creating…" cancelDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
     </>,
     document.body,
   );
@@ -1001,11 +1002,12 @@ type OrganizerCreationForm = Omit<CreateOrganizerInput, "employeeNumber" | "orga
 function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEmployeeId, fixedDepartmentId }: { isOpen: boolean; onClose: () => void; mutation: ReturnType<typeof useOrganizerAccountMutation>; departments: Array<{ id: string; code: string }>; generatedEmployeeId: string; fixedDepartmentId?: string }) {
   const [form, setForm] = useState<OrganizerCreationForm>({ email: "", firstName: "", middleName: "", lastName: "", nameExtension: undefined, departmentId: "", position: "Organizer" });
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);
   useEffect(() => { if (isOpen) setForm((current) => ({ ...current, departmentId: fixedDepartmentId ?? current.departmentId })); }, [fixedDepartmentId, isOpen]);
   if (!isOpen) return null;
   const update = <Key extends keyof OrganizerCreationForm>(key: Key, value: OrganizerCreationForm[Key]) => setForm((current) => ({ ...current, [key]: normalizeNameFieldValue(String(key), value as string | undefined) }));
   const submit = (event: React.FormEvent) => { event.preventDefault(); const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) return; setConfirmOpen(true); };
-  const confirmSubmit = async () => { const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) { setConfirmOpen(false); return; } try { await mutation.mutateAsync({ ...form, departmentId, organizationName, email: form.email.trim(), employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
+  const confirmSubmit = async () => { const departmentId = fixedDepartmentId ?? form.departmentId; const organizationName = departments.find((department) => department.id === departmentId)?.code; if (!organizationName) { setConfirmOpen(false); return; } try { await mutation.mutateAsync({ ...form, departmentId, organizationName, email: generatedEmail, employeeNumber: generatedEmployeeId }); setConfirmOpen(false); onClose(); } catch { /* mutation presents the safe error */ } };
   return createPortal(
     <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -1016,16 +1018,16 @@ function AddOrganizerModal({ isOpen, onClose, mutation, departments, generatedEm
           <label className="text-sm font-medium">Middle name <span className="font-normal text-muted-foreground">(optional)</span><input className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.middleName ?? ""} onChange={(event) => update("middleName", event.target.value)} /></label>
           <label className="text-sm font-medium">Last name<input required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.lastName} onChange={(event) => update("lastName", event.target.value)} /></label>
           <NameExtensionSelect id="add-organizer-name-extension" value={form.nameExtension} onChange={(value) => update("nameExtension", value as OrganizerCreationForm["nameExtension"])} />
-          <label className="text-sm font-medium sm:col-span-2">Email<input required type="email" className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.email} onChange={(event) => update("email", event.target.value)} placeholder="name@example.com" /></label>
+          <label className="text-sm font-medium sm:col-span-2">Generated email<input readOnly aria-readonly="true" type="email" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmail} placeholder="Enter the name to generate an email" /></label>
           <label className="text-sm font-medium">Employee ID<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={generatedEmployeeId} /></label>
           <label className="text-sm font-medium">Position<input required readOnly aria-readonly="true" className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value="Organizer" /></label>
           {fixedDepartmentId ? <label className="text-sm font-medium">Department<input readOnly className="mt-1 h-10 w-full cursor-not-allowed rounded-lg border bg-muted px-3 text-muted-foreground" value={departments.find((department) => department.id === fixedDepartmentId)?.code ?? "Your department"} /></label> : <label className="text-sm font-medium">Department<select required className="mt-1 h-10 w-full rounded-lg border bg-background px-3" value={form.departmentId ?? ""} onChange={(event) => update("departmentId", event.target.value)}><option value="">Select department</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.code}</option>)}</select></label>}
-          <p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">A secure invitation will be sent to this email address.</p>
-          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !form.email.trim()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div>
+          <p className="sm:col-span-2 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">The address is generated from the name and a secure invitation is sent to it.</p>
+          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={mutation.isPending || !generatedEmail} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{mutation.isPending ? "Creating…" : "Create organizer"}</button></div>
         </form>
       </div>
     </div>
-    <ConfirmModal open={confirmOpen} title="Create organizer account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${form.email}.`} confirmLabel="Create organizer" confirmDisabled={mutation.isPending} confirmBusy={mutation.isPending} confirmBusyLabel="Creating…" cancelDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
+    <ConfirmModal open={confirmOpen} title="Create organizer account?" description={`Create ${form.firstName} ${form.lastName} and send an invitation to ${generatedEmail}.`} confirmLabel="Create organizer" confirmDisabled={mutation.isPending} confirmBusy={mutation.isPending} confirmBusyLabel="Creating…" cancelDisabled={mutation.isPending} onConfirm={() => void confirmSubmit()} onCancel={() => setConfirmOpen(false)} />
     </>,
     document.body,
   );
@@ -1107,13 +1109,17 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
       complete: async (results) => {
         try {
           if (results.errors.length) throw new Error("The CSV could not be read. Please use the provided template.");
-          const required = ["First Name", "Last Name", "Email", "College/Department"];
+          const required = ["First Name", "Last Name", "College/Department"];
           const missing = required.filter((key) => !results.meta.fields?.includes(key));
           if (missing.length) throw new Error("The CSV headers do not match the provided template.");
           const inputs = results.data.map((row, index) => {
             const missingField = required.find((key) => !row[key]?.trim());
             if (missingField) throw new Error(`Row ${index + 2}: Complete all required fields.`);
-            return { firstName: row["First Name"].trim(), middleName: row["Middle Name"]?.trim(), lastName: row["Last Name"].trim(), nameExtension: row["Name Extension"]?.trim() as CreateOrganizerInput["nameExtension"], email: row["Email"].trim(), employeeNumber: "", organizationName: row["College/Department"].trim(), position: "Organizer" };
+            const firstName = row["First Name"].trim();
+            const middleName = row["Middle Name"]?.trim();
+            const lastName = row["Last Name"].trim();
+            const nameExtension = row["Name Extension"]?.trim() as CreateOrganizerInput["nameExtension"];
+            return { firstName, middleName, lastName, nameExtension, email: generateAccountEmail(lastName, firstName, middleName, nameExtension), employeeNumber: "", organizationName: row["College/Department"].trim(), position: "Organizer" };
           });
           if (!inputs.length) throw new Error("The CSV has no organizer records.");
           const duplicateEmail = new Set(inputs.map((input) => input.email.toLowerCase())).size !== inputs.length;
@@ -1146,7 +1152,7 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
   };
 
   const downloadTemplate = () => {
-    const csv = "First Name,Middle Name,Last Name,Name Extension,Email,College/Department\nJuan,,Dela Cruz,,juan@example.com,Student Affairs\n";
+    const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\nJuan,,Dela Cruz,,Student Affairs\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const link = document.createElement("a");
     link.href = url;
@@ -1165,7 +1171,7 @@ function BulkAddOrganizerModal({ isOpen, onClose, mutation }: { isOpen: boolean;
           <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-muted-foreground transition hover:bg-surface-muted hover:text-foreground" aria-label="Close bulk organizer import modal"><X className="h-5 w-5" /></button>
         </div>
         <div className="space-y-6 bg-surface p-6">
-          <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground"><p className="mb-3 font-semibold">Instructions:</p><ol className="list-decimal space-y-1 pl-4"><li>Download the template file.</li><li>Fill in organizer details exactly matching the headers.</li><li>Upload the completed CSV file below.</li></ol><button type="button" onClick={downloadTemplate} className="mt-4 flex items-center gap-2 font-medium text-primary hover:underline"><FileDown className="h-4 w-4" />Download Template</button></div>
+          <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground"><p className="mb-3 font-semibold">Instructions:</p><ol className="list-decimal space-y-1 pl-4"><li>Download the template file.</li><li>Fill in organizer details exactly matching the headers.</li><li>Email addresses are generated from each organizer's name.</li><li>Upload the completed CSV file below.</li></ol><button type="button" onClick={downloadTemplate} className="mt-4 flex items-center gap-2 font-medium text-primary hover:underline"><FileDown className="h-4 w-4" />Download Template</button></div>
           {fileError ? <div role="alert" className="rounded-md border border-danger/30 bg-danger-muted p-3 text-sm text-danger">{fileError}</div> : null}
           <div className="space-y-3">
             {selectedFile ? <div className="flex items-center justify-between gap-3 rounded-lg border border-success/30 bg-success-muted px-4 py-3 text-sm text-success"><span className="min-w-0 truncate font-medium">{selectedFile.name}</span><button type="button" onClick={removeSelectedFile} disabled={isLoading} className="shrink-0 font-semibold underline disabled:opacity-50">Remove</button></div> : null}

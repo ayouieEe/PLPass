@@ -95,23 +95,26 @@ describe("administrator creation contract", () => {
     expect(whitespaceRepairMigration).toContain("regexp_replace(o.employee_id, '[[:space:]]+$', '')");
   });
 
-  it("supplies the required organization value from the selected department", () => {
+  it("supplies the required organization value and generated email from the selected department", () => {
     const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
     expect(source).toContain('const organizationName = departments.find((department) => department.id === departmentId)?.code;');
-    expect(source).toContain('departmentId, organizationName, email: form.email.trim()');
+    expect(source).toContain('departmentId, organizationName, email: generatedEmail');
   });
 
-  it("accepts custom valid emails without imposing the PLPass domain", () => {
+  it("generates institutional email addresses for new staff accounts", () => {
     const source = read("src/features/organizer/pages/OrganizerUserManagement.tsx");
     const worker = read("supabase/functions/manage-users/index.ts");
     const emailHelper = read("supabase/functions/_shared/accountEmail.ts");
-    expect(source).toContain('placeholder="name@example.com"');
+    expect(source).toContain('Generated email<input readOnly aria-readonly="true"');
+    expect(source).toContain('const generatedEmail = generateAccountEmail(form.lastName, form.firstName, form.middleName, form.nameExtension);');
     expect(worker).toContain('from "../_shared/accountEmail.ts"');
     expect(emailHelper).toContain("function normalizeInviteEmail(value: unknown)");
-    expect(worker).toContain("toLowerCase()");
+    expect(emailHelper).toContain("function normalizeStaffEmail(value: unknown)");
+    expect(emailHelper).toContain("Use an @plpasig.edu.ph email address for staff accounts.");
+    expect(worker).toContain("function generatedAccountEmail(lastName: unknown, firstName: unknown");
     expect(emailHelper).toContain("Enter a valid email address.");
     expect(worker).toContain("await ensureEmailAvailable(supabase, email);");
-    expect(worker).toContain("const email = normalizeInviteEmail(submittedEmail);");
+    expect(worker).toContain("const email = generatedAccountEmail(lastName, firstName, middleName, normalizedNameExtension);");
   });
 
   it("uses collision-safe admin prefixes and shows the assigned ID in the directory", () => {

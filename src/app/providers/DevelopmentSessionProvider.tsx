@@ -22,6 +22,7 @@ import { RequestTimeoutError, withRequestTimeout } from "@/lib/async/requestTime
 import { isPageVisible, onPageVisibilityChange } from "@/lib/browser/visibilityControls";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { APP_ROUTES } from "@/lib/constants/routes";
+import { isPasswordSetupRoute } from "@/lib/auth/recovery";
 import { repositories } from "@/services/repositories";
 import { toast } from "sonner";
 import { offlineWalkInDiscardedEvent, offlineWalkInResolvedEvent } from "@/features/offline/offlineService";
@@ -200,6 +201,16 @@ export function DevelopmentSessionProvider({ children, surface = "desktop" }: Pr
     const restoreGeneration = authOperationGeneration.current;
     const canApplyRestore = () => isMounted && authOperationGeneration.current === restoreGeneration;
     async function restoreSession() {
+      // Password setup owns the one-time invitation/recovery session. Do not
+      // resolve it through the surface role gate, which would sign out staff
+      // invitations on the student-only web surface before the password is saved.
+      if (isPasswordSetupRoute()) {
+        if (canApplyRestore()) {
+          setSession(null);
+          setIsSessionRestored(true);
+        }
+        return;
+      }
       if (import.meta.env.MODE === "test") {
         const stored = window.localStorage.getItem("plpass-development-session");
         if (stored) {

@@ -1,3 +1,5 @@
+import { APP_ROUTES } from "@/lib/constants/routes";
+
 type AuthResult = { error: unknown | null };
 
 type RecoveryAuthClient = {
@@ -15,6 +17,10 @@ type RecoveryStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type PasswordRecoveryLocation = Pick<Location, "search" | "hash">;
 export type PasswordLinkType = "invite" | "recovery";
+
+export function isPasswordSetupRoute(pathname = window.location.pathname) {
+  return pathname === APP_ROUTES.acceptInvitation || pathname === APP_ROUTES.resetPassword;
+}
 
 const passwordRecoveryMarkerKey = "plpass-password-recovery";
 const passwordRecoveryMarkerValue = "active";

@@ -78,7 +78,7 @@ export function PasswordSetupPage({ invitation }: { invitation: boolean }) {
       else setCompleted(true);
     } catch (caught) {
       if (shouldClearPasswordRecoveryMarker(caught)) clearPasswordRecoveryMarker();
-      setError(passwordResetErrorMessage(caught));
+      setError(passwordResetErrorMessage(caught, invitation));
     } finally {
       setSubmitting(false);
     }

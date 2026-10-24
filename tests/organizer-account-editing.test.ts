@@ -27,9 +27,9 @@ describe("organizer account editing", () => {
 
   it("regenerates institution emails when a generated account gets an extension", () => {
     expect(userManager).toContain("function resolveEditedAccountEmail");
-    expect(userManager).toContain("const nextEmail = resolveEditedAccountEmail(existingProfile, email, { firstName, middleName, lastName, nameExtension });");
+    expect(userManager).toContain("const resolvedEmail = resolveEditedAccountEmail(existingProfile, email, { firstName, middleName, lastName, nameExtension });");
     expect(userManager).toContain("email: nextEmail");
-    expect(userManager).toContain("const email = normalizeInviteEmail(submittedEmail);");
+    expect(userManager).toContain("const email = generatedAccountEmail(lastName, firstName, middleName, normalizedNameExtension);");
     expect(page).toContain("function splitEditableName(displayName: string, nameExtension?: string)");
     expect(page).toContain("splitEditableName(user.displayName, user.nameExtension)");
     expect(page).toContain('id="edit-organizer-name-extension"');
@@ -42,11 +42,11 @@ describe("organizer account editing", () => {
     expect(userManager).toContain('return json({ success: true, employeeNumber });');
   });
 
-  it("keeps department-admin organizer scope while using the submitted email", () => {
-    expect(userManager).toContain("const email = normalizeInviteEmail(submittedEmail);");
+  it("keeps department-admin organizer scope while generating the email", () => {
+    expect(userManager).toContain("email = generatedAccountEmail(lastName, firstName, middleName, normalizedNameExtension);");
     expect(userManager).toContain("Department administrators can only create organizers in their own department.");
     expect(userManager).toContain("const effectiveDepartmentId = isDepartmentAdmin ? actorDepartmentId : departmentId;");
-    expect(page).toContain('label className="text-sm font-medium sm:col-span-2">Email<input required type="email"');
+    expect(page).toContain('Generated email<input readOnly aria-readonly="true"');
   });
 
   it("locks the position to Organizer when adding an organizer", () => {
@@ -62,7 +62,7 @@ describe("organizer account editing", () => {
   });
 
   it("keeps organizer bulk templates position-free and closes after download", () => {
-    expect(page).toContain('const csv = "First Name,Middle Name,Last Name,Name Extension,Email,College/Department\\nJuan,,Dela Cruz,,juan@example.com,Student Affairs\\n";');
+    expect(page).toContain('const csv = "First Name,Middle Name,Last Name,Name Extension,College/Department\\nJuan,,Dela Cruz,,Student Affairs\\n";');
     expect(page).not.toContain('Name Extension,College/Department,Position\\nJuan,,Dela Cruz,,Student Affairs,Events Coordinator');
     expect(page).toContain('position: "Organizer" }');
     expect(page).toMatch(/onClose\(\);\s+setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 0\);/u);

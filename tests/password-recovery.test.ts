@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { AuthWeakPasswordError } from "@supabase/auth-js";
-import { establishPasswordRecoverySession, getPasswordSetupPath, hasPasswordSetupPayload, saveRecoveredPassword } from "@/lib/auth/recovery";
+import { establishPasswordRecoverySession, getPasswordSetupPath, hasPasswordSetupPayload, isPasswordSetupRoute, saveRecoveredPassword } from "@/lib/auth/recovery";
 
 function createStorage() {
   const values = new Map<string, string>();
@@ -26,6 +26,16 @@ function createClient(session: unknown | null = { user: { id: "recovery-user" } 
 }
 
 describe("password recovery links", () => {
+  it("keeps password setup routes outside the surface role gate", () => {
+    expect(isPasswordSetupRoute("/accept-invitation")).toBe(true);
+    expect(isPasswordSetupRoute("/reset-password")).toBe(true);
+    expect(isPasswordSetupRoute("/login")).toBe(false);
+
+    const provider = readFileSync("src/app/providers/DevelopmentSessionProvider.tsx", "utf8");
+    expect(provider).toContain("if (isPasswordSetupRoute())");
+    expect(provider).toContain("setIsSessionRestored(true);");
+  });
+
   it("recognizes and preserves invite payloads from the root URL", () => {
     const location = { search: "", hash: "#access_token=access&refresh_token=refresh&type=invite" };
 
@@ -111,6 +121,12 @@ describe("password recovery links", () => {
     await expect(saveRecoveredPassword(client, "Valid-password1!", storage)).resolves.toBeUndefined();
     expect(storage.getItem("plpass-password-recovery")).toBeNull();
     expect(client.auth.signOut).toHaveBeenCalledWith({ scope: "global" });
+  });
+
+  it("uses invitation wording when an invitation session fails", async () => {
+    const { passwordResetErrorMessage } = await import("@/lib/auth/passwords");
+    expect(passwordResetErrorMessage(new Error("Auth session missing"), true)).toMatch(/invitation/i);
+    expect(passwordResetErrorMessage(new Error("Auth session missing"), false)).toMatch(/password reset/i);
   });
 
   it("marks invitation setup complete before signing out", async () => {
