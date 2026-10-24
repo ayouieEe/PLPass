@@ -40,6 +40,19 @@ type LateReasonOption = {
   label: string;
 };
 
+function normalizeLateReasonText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function matchesPresetLateReason(option: LateReasonOption, value: string) {
+  const normalized = normalizeLateReasonText(value);
+  if (normalizeLateReasonText(option.label) === normalized) return true;
+  const aliases: Record<string, string[]> = {
+    traffic_commute: ["traffic", "commute", "traffic jam", "traffic congestion"]
+  };
+  return aliases[option.code]?.includes(normalized) ?? false;
+}
+
 function FeedbackModal({
   open,
   onClose,
@@ -399,12 +412,13 @@ export function StudentEventDetailsPage() {
       toast.error("Please provide a more detailed reason.");
       return;
     }
-    const normalizedCustomReason = customLateReason.trim().replace(/\s+/g, " ").toLocaleLowerCase();
     const matchingPresetReason = selectedOption.code === "other"
-      ? lateReasonOptions.find((option) => option.code !== "other" && option.label.trim().replace(/\s+/g, " ").toLocaleLowerCase() === normalizedCustomReason)
+      ? lateReasonOptions.find((option) => option.code !== "other" && matchesPresetLateReason(option, customLateReason))
       : undefined;
     if (matchingPresetReason) {
-      toast.error(`Select "${matchingPresetReason.label}" instead of Other.`);
+      setSelectedLateReasonCategory(matchingPresetReason.id);
+      setCustomLateReason("");
+      toast.info(`Changed to "${matchingPresetReason.label}". Submit the reason again.`);
       return;
     }
     try {

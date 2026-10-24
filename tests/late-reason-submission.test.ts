@@ -32,11 +32,22 @@ describe("late-reason submission safeguards", () => {
   });
 
   it("rejects an Other reason that repeats an active preset, in the UI and database", () => {
-    expect(page).toContain('const normalizedCustomReason = customLateReason.trim().replace(/\\s+/g, " ").toLocaleLowerCase();');
-    expect(page).toContain('toast.error(`Select "${matchingPresetReason.label}" instead of Other.`);');
+    expect(page).toContain("traffic_commute: [\"traffic\", \"commute\", \"traffic jam\", \"traffic congestion\"]");
+    expect(page).toContain("matchesPresetLateReason(option, customLateReason)");
+    expect(page).toContain('setSelectedLateReasonCategory(matchingPresetReason.id);');
+    expect(page).toContain('toast.info(`Changed to "${matchingPresetReason.label}". Submit the reason again.`);');
     expect(duplicateOtherMigration).toContain("v_normalized_custom_reason := lower(regexp_replace(v_custom_reason, '\\s+', ' ', 'g'));");
     expect(duplicateOtherMigration).toContain("option_row.code <> 'other'");
     expect(duplicateOtherMigration).toContain("Select the matching late reason instead of Other.");
     expect(duplicateOtherMigration).toContain("attendance_late_reason_option_translations");
+  });
+
+  it("maps traffic shorthand to the Traffic / Commute preset at both boundaries", () => {
+    const aliasMigration = readFileSync(
+      resolve(process.cwd(), "supabase/migrations/20261024143600_match_late_reason_aliases.sql"),
+      "utf8"
+    );
+    expect(aliasMigration).toContain("v_normalized_custom_reason in ('traffic', 'commute', 'traffic jam', 'traffic congestion')");
+    expect(aliasMigration).toContain("option_row.code = 'traffic_commute'");
   });
 });
