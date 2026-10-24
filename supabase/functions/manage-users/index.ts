@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { normalizeStaffEmail } from "../_shared/accountEmail.ts";
+import { buildBrevoPayload } from "../_shared/emailWorkerPolicy.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -117,6 +118,52 @@ async function inviteAccount(
   });
   if (error || !data.user) throw new Error(error?.message || "Invitation could not be created.");
   return data.user;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character] ?? character);
+}
+
+async function resendInvitation(
+  supabase: ReturnType<typeof createClient>,
+  email: string
+) {
+  const redirectTo = "https://plpass-student.vercel.app/accept-invitation";
+  const { data, error } = await supabase.auth.admin.generateLink({
+    // Supabase cannot generate a second native invite for an existing Auth
+    // user. Pending accounts have no password yet, so a recovery token is the
+    // supported one-time password-setup link for this resend path.
+    type: "recovery",
+    email,
+    options: { redirectTo }
+  });
+  const actionLink = data.properties?.action_link;
+  if (error || !actionLink) throw new Error(error?.message || "Invitation link could not be created.");
+
+  const brevoApiKey = Deno.env.get("BREVO_API_KEY") ?? Deno.env.get("brevo_api_key");
+  const brevoFromEmail = Deno.env.get("BREVO_FROM_EMAIL") ?? Deno.env.get("brevo_from_email");
+  if (!brevoApiKey || !brevoFromEmail) throw new Error("Email provider credentials are not configured.");
+
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": brevoApiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(buildBrevoPayload({
+      recipient_email: email,
+      subject: "Accept your PLPass invitation",
+      body: `You have been invited to PLPass. Open this link to create your password and activate your account:\n\n${actionLink}`,
+      html_body: `<h2>Accept your PLPass invitation</h2><p>Open the link below to create your password and activate your account.</p><p><a href="${escapeHtml(actionLink)}">Accept invitation</a></p>`
+    }, brevoFromEmail, "PLPass", false))
+  });
+  if (!response.ok) {
+    const providerError = (await response.text()).slice(0, 1000);
+    throw new Error(providerError || `Email provider returned ${response.status}.`);
+  }
 }
 
 async function ensureEmailAvailable(supabase: ReturnType<typeof createClient>, email: string) {
@@ -285,7 +332,7 @@ Deno.serve(async (request) => {
     );
     if (isUnacceptedInvitation) {
       try {
-        await inviteAccount(supabase, authTarget.user.email, {});
+        await resendInvitation(supabase, authTarget.user.email);
       } catch (error) {
         return json({ error: error instanceof Error ? error.message : "The invitation could not be resent." }, 400);
       }

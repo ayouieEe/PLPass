@@ -37,7 +37,13 @@ describe("admin and organizer permission hardening", () => {
     expect(worker).toContain("account_setup_completed_at");
     expect(worker).toContain('delivery: "invitation"');
     expect(worker).toContain('delivery: "password_reset"');
-    expect(worker).toContain("inviteAccount(supabase, authTarget.user.email, {})");
+    expect(worker).toContain("async function resendInvitation(");
+    expect(worker).toContain("await supabase.auth.admin.generateLink({");
+    expect(worker).toContain('type: "recovery"');
+    expect(worker).toContain("Supabase cannot generate a second native invite");
+    expect(worker).toContain("https://api.brevo.com/v3/smtp/email");
+    expect(worker).toContain("Email provider credentials are not configured.");
+    expect(worker).toContain("await resendInvitation(supabase, authTarget.user.email);");
     expect(worker).toContain('https://plpass-student.vercel.app/accept-invitation');
     expect(worker).toContain("No account, profile, role, or password is created here.");
     expect(page).toContain("Send password reset");
