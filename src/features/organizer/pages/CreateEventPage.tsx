@@ -122,6 +122,7 @@ const TARGET_GROUP_OPTIONS = [
 ];
 
 const MIN_OBJECTIVES = 3;
+const MAX_OBJECTIVES = 50;
 const PRESET_OBJECTIVES = [
   "How relevant was the event content to your studies?",
   "How effectively did the speaker communicate the topics?",
@@ -176,6 +177,7 @@ const eventFormSchemaWithObjectives = eventBaseSchema
     objectives: z
       .array(z.object({ value: z.string().min(3, "Objective is required.") }))
       .min(MIN_OBJECTIVES, `At least ${MIN_OBJECTIVES} objectives are required.`)
+      .max(MAX_OBJECTIVES, `No more than ${MAX_OBJECTIVES} objectives are allowed.`)
   })
   .superRefine((value, ctx) => {
     if (timeToMinutes(value.endTime) <= timeToMinutes(value.startTime)) {

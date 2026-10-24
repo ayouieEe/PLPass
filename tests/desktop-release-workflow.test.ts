@@ -12,6 +12,7 @@ describe("desktop release configuration", () => {
     expect(workflow).toContain("VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}");
     expect(workflow).toContain("VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}");
     expect(workflow).toContain("npm run build:desktop");
+    expect(workflow).toContain("npm audit --audit-level=high --omit=dev");
     expect(workflow).toContain("npm run check:release -- --production");
     expect(workflow).toContain("npx electron-builder --win nsis --publish never");
     expect(preflight).toContain("checkDesktopSupabaseConfig()");

@@ -70,7 +70,7 @@ export const eventBaseSchema = z.object({
       message: "Remarks must not exceed 1000 characters"
     }),
   priorityLevel: z.enum(["Time-Sensitive", "Business-Critical", "Flexible"], {
-    errorMap: () => ({ message: "Priority level must be Time-Sensitive, Business-Critical, or Flexible" })
+    message: "Priority level must be Time-Sensitive, Business-Critical, or Flexible"
   }),
   impactScore: z
     .number()

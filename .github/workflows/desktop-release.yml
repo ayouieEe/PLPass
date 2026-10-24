@@ -27,6 +27,12 @@ jobs:
           node-version: 22.14.0
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run check:supabase
+      - run: npm test -- --retry=2
+      - run: npm run build
+      - run: npm run check:bundle
+      - run: npm audit --audit-level=high --omit=dev
       - run: npm run build:desktop
       - run: npm run check:release -- --production
       - run: npx electron-builder --win nsis --publish never

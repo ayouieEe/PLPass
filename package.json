@@ -1,7 +1,7 @@
 {
   "name": "plpass",
   "private": true,
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "PLPass attendance workspace for organizers and administrators.",
   "main": "dist-electron/electron/main.js",
   "type": "module",
@@ -32,7 +32,7 @@
     "check:db-types": "tsc --noEmit --pretty false src/lib/supabase/database.types.ts"
   },
   "dependencies": {
-    "@hookform/resolvers": "^3.10.0",
+    "@hookform/resolvers": "5.2.2",
     "@radix-ui/react-slot": "^1.1.2",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.0",
@@ -59,7 +59,7 @@
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.6.0",
     "ws": "^8.21.3",
-    "zod": "^3.24.1"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
